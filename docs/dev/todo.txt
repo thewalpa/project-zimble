@@ -1,0 +1,28 @@
+[] Everything!
+[] Questions
+    [] Question Types (WIP)
+    [] Generate Questions
+        [] *AI*
+            [] Generate
+            [] Validate
+[] API Service
+[] Games Service
+    [] Game management
+    [] Game logic
+[] Identity Service
+    [] Auth O.O
+        [] Check https://github.com/oauth2-proxy/oauth2-proxy
+[] Matchmaking Service
+    [] Game queue
+    [] Advanced Analytics
+[] Persistence Service
+    [] Database
+    [] In-Memory tester
+[] Players Service
+[] Questions Service
+[] Frontends
+    [] Web tester
+    [] Web (React)
+    [] Mobile (React?)
+    [] Discord (Optional)
+[x] General outline
