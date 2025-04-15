@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Quiz Duel Tester</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        #game-area, #start-area { margin-bottom: 20px; padding: 15px; border: 1px solid #ccc; }
+        #question-area { margin-top: 15px; }
+        .hidden { display: none; }
+        .player-info { margin-bottom: 5px;}
+        #feedback { margin-top: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Quiz Duel Tester</h1>
+
+    <div id="start-area">
+        <button id="start-game-btn">Start New Duel Game</button>
+    </div>
+
+    <div id="game-area" class="hidden">
+        <h2>Game <span id="game-id"></span></h2>
+        <div id="player-display">
+            </div>
+
+        <div id="question-area" class="hidden">
+            <h3 id="question-text"></h3>
+            <input type="text" id="answer-input" placeholder="Your answer">
+            <button id="submit-answer-btn">Submit Answer</button>
+        </div>
+
+        <div id="waiting-area" class="hidden">
+            <p>Waiting for the next question or game to finish...</p>
+        </div>
+
+         <div id="finished-area" class="hidden">
+            <p>Game Finished!</p>
+            <p id="final-scores"></p>
+        </div>
+
+        <div id="feedback"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
