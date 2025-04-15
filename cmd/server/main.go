@@ -8,21 +8,48 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/thewalpa/project-zimble/pkg/representations"
+	// Import your models package if you created one
+	// "github.com/yourusername/quizapp/models"
 )
 
-// --- In-Memory Storage (for now) ---
-// Store games globally (or better, in a dedicated service struct)
-// This is NOT production-ready due to concurrency and persistence issues, but fine for starting.
-var games = make(map[string]*representations.Game)
-var gameMutex = sync.RWMutex{}
+// --- Use the models defined above (or import them) ---
+// (Paste or import the struct definitions and global variables here for now)
+type Question struct {
+	ID     string `json:"id"`
+	Text   string `json:"text"`
+	Answer string `json:"-"`
+}
+type Player struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Score int    `json:"score"`
+}
+type GameStatus string
 
-// Simple question bank
-var questionBank = []representations.Question{
+const (
+	Waiting    GameStatus = "waiting"
+	InProgress GameStatus = "inprogress"
+	Finished   GameStatus = "finished"
+)
+
+type Game struct {
+	ID                string             `json:"id"`
+	Players           map[string]*Player `json:"players"`
+	Questions         []Question         `json:"-"`
+	CurrentQuestionIx int                `json:"currentQuestionIndex"`
+	Status            GameStatus         `json:"status"`
+	mu                sync.RWMutex
+}
+
+var games = make(map[string]*Game)
+var gameMutex = sync.RWMutex{}
+var questionBank = []Question{
 	{ID: "q1", Text: "What is the capital of France?", Answer: "Paris"},
 	{ID: "q2", Text: "What is 2 + 2?", Answer: "4"},
 	{ID: "q3", Text: "What language is this backend written in?", Answer: "Go"},
 }
+
+// --- End Models/Globals ---
 
 // --- Helper Functions ---
 func generateID() string {
@@ -42,16 +69,16 @@ func createGameHandler(c *gin.Context) {
 	player1ID := generateID()
 	player2ID := generateID()
 
-	newGame := &representations.Game{
+	newGame := &Game{
 		ID: gameID,
-		Players: map[string]*representations.Player{
+		Players: map[string]*Player{
 			player1ID: {ID: player1ID, Name: player1Name, Score: 0},
 			player2ID: {ID: player2ID, Name: player2Name, Score: 0},
 		},
-		Questions:          append([]representations.Question{}, questionBank...), // Copy questions
-		CurrentQuestionIdx: 0,
-		Status:             representations.InProgress, // Start immediately for simplicity
-		Mu:                 sync.RWMutex{},
+		Questions:         append([]Question{}, questionBank...), // Copy questions
+		CurrentQuestionIx: 0,
+		Status:            InProgress, // Start immediately for simplicity
+		mu:                sync.RWMutex{},
 	}
 
 	gameMutex.Lock()
@@ -76,8 +103,8 @@ func getGameHandler(c *gin.Context) {
 		return
 	}
 
-	game.Mu.RLock()
-	defer game.Mu.RUnlock()
+	game.mu.RLock()
+	defer game.mu.RUnlock()
 
 	// Clone the game data to avoid race conditions if sending complex state
 	// For now, sending the locked data is okay for this simple example
@@ -97,27 +124,27 @@ func getQuestionHandler(c *gin.Context) {
 		return
 	}
 
-	game.Mu.RLock()
-	defer game.Mu.RUnlock()
+	game.mu.RLock()
+	defer game.mu.RUnlock()
 
-	if game.Status != representations.InProgress {
+	if game.Status != InProgress {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Game is not in progress"})
 		return
 	}
 
-	if game.CurrentQuestionIdx >= len(game.Questions) {
+	if game.CurrentQuestionIx >= len(game.Questions) {
 		c.JSON(http.StatusOK, gin.H{"message": "No more questions"})
 		// Optionally set game status to Finished here
 		// game.Status = Finished
 		return
 	}
 
-	currentQuestion := game.Questions[game.CurrentQuestionIdx]
+	currentQuestion := game.Questions[game.CurrentQuestionIx]
 	// Send only the public info (ID and Text)
 	c.JSON(http.StatusOK, gin.H{
 		"id":    currentQuestion.ID,
 		"text":  currentQuestion.Text,
-		"index": game.CurrentQuestionIdx,
+		"index": game.CurrentQuestionIx,
 	})
 }
 
@@ -145,10 +172,10 @@ func submitAnswerHandler(c *gin.Context) {
 		return
 	}
 
-	game.Mu.Lock() // Need write lock to potentially update score/state
-	defer game.Mu.Unlock()
+	game.mu.Lock() // Need write lock to potentially update score/state
+	defer game.mu.Unlock()
 
-	if game.Status != representations.InProgress {
+	if game.Status != InProgress {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Game is not in progress"})
 		return
 	}
@@ -159,12 +186,12 @@ func submitAnswerHandler(c *gin.Context) {
 		return
 	}
 
-	if game.CurrentQuestionIdx >= len(game.Questions) {
+	if game.CurrentQuestionIx >= len(game.Questions) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Game has already finished"})
 		return
 	}
 
-	correctAnswer := game.Questions[game.CurrentQuestionIdx].Answer
+	correctAnswer := game.Questions[game.CurrentQuestionIx].Answer
 	isCorrect := (payload.Answer == correctAnswer) // Case-sensitive for now
 
 	result := "Incorrect"
@@ -178,9 +205,9 @@ func submitAnswerHandler(c *gin.Context) {
 
 	// Simple Duel Logic: Advance question immediately after an answer (could be improved)
 	// In a real duel, you'd wait for both players or a timer.
-	game.CurrentQuestionIdx++
-	if game.CurrentQuestionIdx >= len(game.Questions) {
-		game.Status = representations.Finished
+	game.CurrentQuestionIx++
+	if game.CurrentQuestionIx >= len(game.Questions) {
+		game.Status = Finished
 		fmt.Printf("Game %s finished.\n", gameID)
 	}
 
