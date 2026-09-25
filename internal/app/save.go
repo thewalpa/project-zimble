@@ -20,6 +20,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
+	"github.com/thewalpa/project-zimble/internal/selection"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
@@ -55,14 +56,6 @@ type PayloadRecord struct {
 	Round competitions.RoundRef
 }
 
-// CommandRecord is a successful command and its complete recorded result,
-// including detailed match outcomes, so retries after loading are answered
-// exactly as before.
-type CommandRecord struct {
-	Request ResolveRounds // Rounds in canonical order
-	Result  RoundsResolved
-}
-
 // WorldSnapshot is a world's complete authoritative state at a world
 // boundary. It is plain data; derived views (indexes, standings, tables,
 // pending rounds, the task heap order) are rebuilt by Restore.
@@ -75,6 +68,7 @@ type CommandRecord struct {
 type WorldSnapshot struct {
 	Seed               random.Seed
 	Epoch              sim.CivilTime
+	UserClub           ids.ClubID // zero: no user club
 	Versions           Versions
 	WorldFingerprint   string // generated-world provenance, shown by Summary
 	ContentFingerprint string // SHA-256 of Content and the league definitions
@@ -86,10 +80,15 @@ type WorldSnapshot struct {
 	Players      []players.Profile
 	Employment   []employment.Assignment
 	Competitions competitions.Snapshot
+	Lineups      []selection.Entry // by fixture, team
 	Scheduler    sim.SchedulerSnapshot
 	Payloads     []PayloadRecord // ascending ID
 	LastPayload  sim.PayloadID   // payload ID allocator
-	Commands     []CommandRecord // ascending command ID
+
+	// The command log, one list per command kind, each in ascending command
+	// ID order. Command IDs are unique across all lists.
+	ResolveCommands []ResolveRecord
+	LineupCommands  []LineupRecord
 }
 
 func currentVersions(engine matches.Engine) Versions {
@@ -125,8 +124,9 @@ func (w *World) leagueDefs() []content.League {
 // mutable memory with the world. It never changes the world.
 func (w *World) Snapshot() WorldSnapshot {
 	snap := WorldSnapshot{
-		Seed:  w.seed,
-		Epoch: w.calendar.Epoch(),
+		Seed:     w.seed,
+		Epoch:    w.calendar.Epoch(),
+		UserClub: w.userClub,
 		Versions: Versions{
 			Generator: w.generatorVersion, Content: w.contentVersion, League: w.leagueVersion,
 			Random: w.randomVersion, Schedule: w.scheduleVersion, Selection: w.selectionVersion,
@@ -140,6 +140,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Players:            w.players.Snapshot(),
 		Employment:         w.employment.Snapshot(),
 		Competitions:       w.competitions.Snapshot(),
+		Lineups:            w.selections.Snapshot(),
 		Scheduler:          w.scheduler.Snapshot(),
 		LastPayload:        w.lastPayload,
 	}
@@ -150,11 +151,12 @@ func (w *World) Snapshot() WorldSnapshot {
 		snap.Payloads = append(snap.Payloads, PayloadRecord{ID: id, Round: w.payloads[id]})
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.commands)) {
-		rec := w.commands[id]
-		snap.Commands = append(snap.Commands, CommandRecord{
-			Request: ResolveRounds{ID: id, ExpectedRevision: rec.expected, Rounds: slices.Clone(rec.rounds)},
-			Result:  cloneResolved(rec.result),
-		})
+		switch rec := w.commands[id]; {
+		case rec.resolve != nil:
+			snap.ResolveCommands = append(snap.ResolveCommands, rec.resolve.clone())
+		case rec.lineup != nil:
+			snap.LineupCommands = append(snap.LineupCommands, rec.lineup.clone())
+		}
 	}
 	return snap
 }
@@ -208,6 +210,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if err != nil {
 		return invalid("%v", err)
 	}
+	selections, err := selection.New(snap.Lineups)
+	if err != nil {
+		return invalid("%v", err)
+	}
 	scheduler, err := sim.RestoreScheduler(snap.Scheduler)
 	if err != nil {
 		return invalid("%v", err)
@@ -225,6 +231,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		defs:             defs,
 		calendar:         calendar,
 		engine:           engine,
+		userClub:         snap.UserClub,
 		revision:         snap.Revision,
 		commands:         map[CommandID]commandRecord{},
 		scheduler:        scheduler,
@@ -234,6 +241,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		players:          pl,
 		employment:       emp,
 		competitions:     comps,
+		selections:       selections,
 	}
 
 	for i, l := range snap.Leagues {
@@ -262,8 +270,18 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		w.payloads[p.ID] = p.Round
 	}
 
-	for _, c := range snap.Commands {
-		if err := w.restoreCommand(c, snap.Revision); err != nil {
+	if snap.UserClub != 0 {
+		if _, ok := reg.Club(snap.UserClub); !ok {
+			return invalid("user club %d is not registered", snap.UserClub)
+		}
+	}
+	for _, c := range snap.ResolveCommands {
+		if err := w.restoreResolve(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+	}
+	for _, c := range snap.LineupCommands {
+		if err := w.restoreLineup(c, snap.Revision); err != nil {
 			return invalid("command %d: %v", c.Request.ID, err)
 		}
 	}
@@ -295,16 +313,14 @@ func checkVersions(saved, current Versions) error {
 	return nil
 }
 
-// restoreCommand validates a recorded command against the restored official
-// state and adds it to the command log. A recorded result must describe
-// completed rounds whose official results it matches exactly.
-func (w *World) restoreCommand(c CommandRecord, revision Revision) error {
+// restoreResolve validates a recorded ResolveRounds against the restored
+// official state and adds it to the command log. A recorded result must
+// describe completed rounds whose official results it matches exactly, and
+// say a side played a submitted lineup exactly when one is stored.
+func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 	req, res := c.Request, c.Result
-	if !validCommandID(req.ID) || res.Command != req.ID {
-		return fmt.Errorf("request ID %d, result for command %d", req.ID, res.Command)
-	}
-	if _, dup := w.commands[req.ID]; dup {
-		return errors.New("duplicate command ID")
+	if err := w.checkRecordID(req.ID, res.Command); err != nil {
+		return err
 	}
 	rounds, err := canonicalRounds(req.Rounds)
 	if err != nil || len(rounds) == 0 || !slices.Equal(rounds, req.Rounds) || !slices.Equal(res.Rounds, rounds) {
@@ -348,8 +364,60 @@ func (w *World) restoreCommand(c CommandRecord, revision Revision) error {
 		if goals != m.Score {
 			return fmt.Errorf("fixture %d goals %v disagree with score %v", m.Fixture, goals, m.Score)
 		}
+		for i, team := range []ids.TeamID{official.Home, official.Away} {
+			_, submitted := w.selections.Lineup(m.Fixture, team)
+			if by := m.Selected[i]; !by.Valid() || (by == SelectedByManager) != submitted {
+				return fmt.Errorf("fixture %d team %d selected by %s, lineup stored: %t", m.Fixture, team, by, submitted)
+			}
+		}
 	}
-	w.commands[req.ID] = commandRecord{expected: req.ExpectedRevision, rounds: rounds, result: cloneResolved(res)}
+	rec := c.clone()
+	w.commands[req.ID] = commandRecord{resolve: &rec}
+	return nil
+}
+
+// restoreLineup validates a recorded SubmitLineup and adds it to the command
+// log. It must name a user-team fixture that has kicked off and still has a
+// stored lineup (possibly a later resubmission).
+func (w *World) restoreLineup(c LineupRecord, revision Revision) error {
+	req, res := c.Request, c.Result
+	if err := w.checkRecordID(req.ID, res.Command); err != nil {
+		return err
+	}
+	if err := req.Lineup.Validate(); err != nil {
+		return err
+	}
+	team, ok := w.userTeam()
+	if !ok || res.Team != team || res.Fixture != req.Fixture {
+		return fmt.Errorf("lineup for fixture %d team %d is not the user team's request", res.Fixture, res.Team)
+	}
+	f, ok := w.competitions.Fixture(req.Fixture)
+	if !ok || (f.Home != team && f.Away != team) {
+		return fmt.Errorf("fixture %d is not played by team %d", req.Fixture, team)
+	}
+	if info, _ := w.competitions.Round(competitions.RoundRef{Season: f.Season, Round: f.Round}); info.Status == competitions.RoundScheduled {
+		return fmt.Errorf("fixture %d has not kicked off", req.Fixture)
+	}
+	if _, ok := w.selections.Lineup(req.Fixture, team); !ok {
+		return fmt.Errorf("no lineup stored for fixture %d", req.Fixture)
+	}
+	if res.Revision <= req.ExpectedRevision || res.Revision > revision {
+		return fmt.Errorf("result revision %d outside (%d, %d]", res.Revision, req.ExpectedRevision, revision)
+	}
+	rec := c.clone()
+	w.commands[req.ID] = commandRecord{lineup: &rec}
+	return nil
+}
+
+// checkRecordID rejects a zero or duplicated command ID, or a result
+// recorded for another command.
+func (w *World) checkRecordID(request, result CommandID) error {
+	if !validCommandID(request) || result != request {
+		return fmt.Errorf("request ID %d, result for command %d", request, result)
+	}
+	if _, dup := w.commands[request]; dup {
+		return errors.New("duplicate command ID")
+	}
 	return nil
 }
 

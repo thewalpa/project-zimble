@@ -22,15 +22,19 @@ import (
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
+	"github.com/thewalpa/project-zimble/internal/selection"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
-// Config holds the inputs to world creation. Both fields are required.
+// Config holds the inputs to world creation. Seed and Epoch are required.
 type Config struct {
 	Seed random.Seed
 	// Epoch is the UTC civil time of game instant 0. It is fixed for the
 	// career; the clock starts there.
 	Epoch sim.CivilTime
+	// UserClub is the club the human manages. Zero means none: every club
+	// is AI-managed. It is fixed for the career.
+	UserClub ids.ClubID
 }
 
 // DefaultEpoch is the start of a new career: 2025-07-01 00:00 UTC.
@@ -53,6 +57,7 @@ type World struct {
 	leagues          []leagueEntry // ascending competition ID
 	calendar         sim.Calendar
 	engine           matches.Engine
+	userClub         ids.ClubID // zero: no user club
 
 	// revision increments on every committed change; commands record their
 	// results by ID so a retried command is answered, not re-applied.
@@ -69,6 +74,7 @@ type World struct {
 	players      *players.Store
 	employment   *employment.Store
 	competitions *competitions.Store
+	selections   *selection.Store
 }
 
 // leagueEntry is a league definition and its current season.
@@ -82,14 +88,25 @@ const firstSeason competitions.Season = 1
 
 // NewWorld generates a world from the built-in content and cfg.Seed, loads
 // it into the owning modules, schedules the first league season and
-// validates cross-module invariants.
+// validates cross-module invariants. A non-zero cfg.UserClub must name a
+// generated club; choosing one does not change the generated world.
 func NewWorld(cfg Config) (*World, error) {
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, cfg.Seed)
 	if err != nil {
 		return nil, err
 	}
-	return load(defs, []content.League{content.DefaultLeague()}, cfg.Epoch, snap)
+	w, err := load(defs, []content.League{content.DefaultLeague()}, cfg.Epoch, snap)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.UserClub != 0 {
+		if _, ok := w.registry.Club(cfg.UserClub); !ok {
+			return nil, fmt.Errorf("%w: %d", ErrUnknownClub, cfg.UserClub)
+		}
+		w.userClub = cfg.UserClub
+	}
+	return w, nil
 }
 
 // load hands each module its slice of the snapshot, creates one season per
@@ -159,6 +176,7 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		players:          pl,
 		employment:       emp,
 		competitions:     competitions.New(),
+		selections:       mustEmptySelections(),
 		calendar:         calendar,
 		engine:           engine,
 		scheduler:        scheduler,
@@ -266,6 +284,7 @@ func (w *World) Validate() error {
 
 	errs = append(errs, w.validateCompetitions()...)
 	errs = append(errs, w.validateSchedule()...)
+	errs = append(errs, w.validateSelections()...)
 	return errors.Join(errs...)
 }
 

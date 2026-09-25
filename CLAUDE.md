@@ -12,14 +12,15 @@ go run ./cmd/simulate -seed 42
 go run ./cmd/simulate -seed 42 -season   # play every round, print the final table
 go run ./cmd/simulate -season           # no -seed: random seed, reported on stderr
 go run ./cmd/simulate -seed 42 -rounds 7 -save career.json && go run ./cmd/simulate -load career.json -season
+go run ./cmd/simulate -seed 42 -club 3 -mentality attacking -season   # manage club 3, submit lineups
 ```
 
 Run all three checks before reporting work as done.
 
 ## Implementation rules
 
-- **One owner per fact.** `registry` owns identities (clubs, teams, player names); `players` owns positions and attributes; `employment` owns player → club/team; `competitions` owns competition seasons, entrants, fixtures, kickoff times, round status and official results (standings are derived on demand, never stored); `ai` makes selection decisions from detached data only; `core/sim` owns the calendar, world clock and task queue; `app` owns task kinds, task payload records and `Continue`. Match engines (`internal/matches/*`) own only session-local state; they import `matches` and core, never `app`, `sim` or module stores, and never change the world. Other packages read them through exported queries only.
-- **Domain modules import only `internal/core/*`.** Only `internal/app` composes modules. `internal/app/boundaries_test.go` enforces the allowed import graph; every new package needs an entry there, chosen deliberately.
+- **One owner per fact.** `registry` owns identities (clubs, teams, player names); `players` owns positions and attributes; `employment` owns player → club/team; `competitions` owns competition seasons, entrants, fixtures, kickoff times, round status and official results (standings are derived on demand, never stored); `selection` owns submitted lineups per (fixture, team); `ai` makes selection decisions from detached data only; `core/sim` owns the calendar, world clock and task queue; `app` owns the user club, task kinds, task payload records, the command log and `Continue`. Match engines (`internal/matches/*`) own only session-local state; they import `matches` and core, never `app`, `sim` or module stores, and never change the world. Other packages read them through exported queries only.
+- **Domain modules import only `internal/core/*`**, except that `ai` and `selection` may import the `matches` contract for its roles and tactics. Only `internal/app` composes modules. `internal/app/boundaries_test.go` enforces the allowed import graph; every new package needs an entry there, chosen deliberately.
 - **Create packages only when a milestone needs them.** No empty placeholder packages.
 - **Typed IDs** from `internal/core/ids`; zero is invalid. Never use row indices or names as identity.
 - **Modules copy on input and output.** Constructors clone input slices; queries return fresh slices or values. Never expose internal storage.

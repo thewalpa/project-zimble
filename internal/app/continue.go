@@ -28,11 +28,16 @@ type ReachedTarget struct {
 
 // FixtureRoundReady means one or more rounds have kicked off and await
 // results. The world does not advance until ResolveRounds resolves them;
-// Revision is the value to pass as its ExpectedRevision.
+// Revision is the value to pass as the next command's ExpectedRevision.
+//
+// UserFixtures are the batch's fixtures that the user club plays, ascending.
+// Before resolving, the user may SubmitLineup for each (which moves the
+// revision on); a fixture without one is played with the AI selection.
 type FixtureRoundReady struct {
-	At       sim.GameInstant // current world time
-	Revision Revision
-	Rounds   []ReadyRound // by kickoff, competition, season, round
+	At           sim.GameInstant // current world time
+	Revision     Revision
+	Rounds       []ReadyRound // by kickoff, competition, season, round
+	UserFixtures []ids.FixtureID
 }
 
 // ReadyRound is a round awaiting results.
@@ -104,7 +109,7 @@ func (w *World) pendingRounds() (FixtureRoundReady, bool) {
 	if len(pending) == 0 {
 		return FixtureRoundReady{}, false
 	}
-	ready := FixtureRoundReady{At: w.Now(), Revision: w.revision}
+	ready := FixtureRoundReady{At: w.Now(), Revision: w.revision, UserFixtures: w.userFixtures(pending)}
 	for _, r := range pending {
 		ready.Rounds = append(ready.Rounds, ReadyRound{Round: r.Ref, Kickoff: r.Kickoff, Fixtures: r.Fixtures})
 	}

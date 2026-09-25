@@ -143,7 +143,7 @@ func TestRetryAfterLoad(t *testing.T) {
 	loaded := roundTrip(t, w)
 	before := loaded.Snapshot()
 
-	recorded := before.Commands[2]
+	recorded := before.ResolveCommands[2]
 	got, err := loaded.ResolveRounds(recorded.Request)
 	if err != nil {
 		t.Fatal(err)
@@ -230,11 +230,11 @@ func TestSnapshotsShareNoMutableData(t *testing.T) {
 		s.Scheduler.Tasks[0].DueAt = 1
 		s.Payloads[0].Round.Round = 1
 		s.Leagues[0].Definition.Name = "X"
-		s.Commands[0].Request.Rounds[0].Round = 9
-		s.Commands[0].Result.Rounds[0].Round = 9
-		s.Commands[0].Result.Matches[0].Score[0] = 9
-		if len(s.Commands[0].Result.Matches[0].Goals) > 0 {
-			s.Commands[0].Result.Matches[0].Goals[0].Minute = 1
+		s.ResolveCommands[0].Request.Rounds[0].Round = 9
+		s.ResolveCommands[0].Result.Rounds[0].Round = 9
+		s.ResolveCommands[0].Result.Matches[0].Score[0] = 9
+		if len(s.ResolveCommands[0].Result.Matches[0].Goals) > 0 {
+			s.ResolveCommands[0].Result.Matches[0].Goals[0].Minute = 1
 		}
 	}
 
@@ -319,20 +319,20 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 		"clock before pending kickoff": func(s *WorldSnapshot) {
 			s.Scheduler.Now = s.Competitions.Seasons[0].Rounds[3].Kickoff - 1
 		},
-		"command score differs": func(s *WorldSnapshot) { s.Commands[0].Result.Matches[0].Score[0]++ },
+		"command score differs": func(s *WorldSnapshot) { s.ResolveCommands[0].Result.Matches[0].Score[0]++ },
 		"command goals differ": func(s *WorldSnapshot) {
-			s.Commands[1].Result.Matches[1].Goals = nil
-			s.Commands[1].Result.Matches[1].Score = [2]uint16{}
+			s.ResolveCommands[1].Result.Matches[1].Goals = nil
+			s.ResolveCommands[1].Result.Matches[1].Score = [2]uint16{}
 		},
-		"command unknown fixture": func(s *WorldSnapshot) { s.Commands[0].Result.Matches[0].Fixture = 999 },
+		"command unknown fixture": func(s *WorldSnapshot) { s.ResolveCommands[0].Result.Matches[0].Fixture = 999 },
 		"command pending round": func(s *WorldSnapshot) {
-			s.Commands[0].Request.Rounds[0].Round = 4
-			s.Commands[0].Result.Rounds[0].Round = 4
+			s.ResolveCommands[0].Request.Rounds[0].Round = 4
+			s.ResolveCommands[0].Result.Rounds[0].Round = 4
 		},
-		"command duplicate ID":    func(s *WorldSnapshot) { s.Commands[1].Request.ID = 1; s.Commands[1].Result.Command = 1 },
-		"command ID mismatch":     func(s *WorldSnapshot) { s.Commands[0].Result.Command = 9 },
-		"command future revision": func(s *WorldSnapshot) { s.Commands[2].Result.Revision = s.Revision + 1 },
-		"command missing report":  func(s *WorldSnapshot) { s.Commands[0].Result.Matches = s.Commands[0].Result.Matches[1:] },
+		"command duplicate ID":    func(s *WorldSnapshot) { s.ResolveCommands[1].Request.ID = 1; s.ResolveCommands[1].Result.Command = 1 },
+		"command ID mismatch":     func(s *WorldSnapshot) { s.ResolveCommands[0].Result.Command = 9 },
+		"command future revision": func(s *WorldSnapshot) { s.ResolveCommands[2].Result.Revision = s.Revision + 1 },
+		"command missing report":  func(s *WorldSnapshot) { s.ResolveCommands[0].Result.Matches = s.ResolveCommands[0].Result.Matches[1:] },
 		"result without round": func(s *WorldSnapshot) {
 			s.Competitions.Seasons[0].Rounds[0].Status = competitions.RoundAwaitingResults
 		},
@@ -359,7 +359,7 @@ func TestDetailedOutcomesSurviveSave(t *testing.T) {
 	loaded := roundTrip(t, w)
 	goals := 0
 	for i, r := range resolved {
-		again, err := loaded.ResolveRounds(ResolveRounds{ID: r.Command, ExpectedRevision: loaded.Snapshot().Commands[i].Request.ExpectedRevision, Rounds: r.Rounds})
+		again, err := loaded.ResolveRounds(ResolveRounds{ID: r.Command, ExpectedRevision: loaded.Snapshot().ResolveCommands[i].Request.ExpectedRevision, Rounds: r.Rounds})
 		if err != nil {
 			t.Fatal(err)
 		}

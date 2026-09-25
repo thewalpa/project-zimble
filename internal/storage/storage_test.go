@@ -14,6 +14,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/matches"
 )
 
 func world(t *testing.T) *app.World {
@@ -260,5 +261,64 @@ func TestSaveReplacesExistingFileAndReportsBadPaths(t *testing.T) {
 	}
 	if err := Save(filepath.Join(dir, "no-such-dir", "x.json"), w); err == nil || !strings.Contains(err.Error(), "no-such-dir") {
 		t.Fatalf("save into missing directory: %v", err)
+	}
+}
+
+// A managed career saved while a batch is pending keeps its club and the
+// submitted lineup, and resolves identically after loading from a file.
+func TestPendingLineupSurvivesSaveFile(t *testing.T) {
+	cfg := app.DefaultConfig(random.Seed(42))
+	cfg.UserClub = 3
+	w, err := app.NewWorld(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advance(t, w, 2)
+	res, err := w.Continue(w.Schedules()[0].Rounds[13].Kickoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, ok := res.(app.FixtureRoundReady)
+	if !ok || len(ready.UserFixtures) != 1 {
+		t.Fatalf("Continue = %#v, want one user fixture pending", res)
+	}
+	fixture := ready.UserFixtures[0]
+	lineup, err := w.SuggestLineup(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineup.Tactics.Mentality = matches.Defensive
+	if _, err := w.SubmitLineup(app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: fixture, Lineup: lineup}); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(t.TempDir(), "career.json")
+	if err := Save(path, w); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if club, _ := loaded.UserClub(); club != 3 {
+		t.Fatalf("user club %d after load", club)
+	}
+	if got, ok := loaded.SubmittedLineup(fixture); !ok || !got.Equal(lineup) {
+		t.Fatal("submitted lineup lost")
+	}
+	cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
+	for _, r := range ready.Rounds {
+		cmd.Rounds = append(cmd.Rounds, r.Round)
+	}
+	want, err := w.ResolveRounds(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := loaded.ResolveRounds(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) || !reflect.DeepEqual(loaded.Snapshot(), w.Snapshot()) {
+		t.Fatal("loaded career resolved differently")
 	}
 }

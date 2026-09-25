@@ -15,10 +15,19 @@
 //	(nothing)    new world: print the calendar and demonstrate Continue up to
 //	             the first pending round; loaded world: print its status only
 //
+// Management (new worlds only for -club; a loaded career keeps its club):
+//
+//	-club N        manage club N; its fixtures are marked in the output
+//	-mentality M   with -season or -rounds: before each of the club's
+//	               matches, submit the suggested lineup with mentality M
+//	               (defensive, balanced or attacking) instead of leaving the
+//	               AI selection to play
+//
 // Then -save FILE writes the world atomically (only if the run succeeded).
 //
 //	go run ./cmd/simulate -seed 42 -rounds 7 -save career.json
 //	go run ./cmd/simulate -load career.json -season
+//	go run ./cmd/simulate -seed 42 -club 3 -mentality attacking -season
 package main
 
 import (
@@ -31,8 +40,10 @@ import (
 	"os"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/storage"
 )
@@ -67,6 +78,8 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 	save := fs.String("save", "", "after a successful run, save the world to `FILE` (replaced atomically)")
 	season := fs.Bool("season", false, "resolve every remaining round and print the tables")
 	rounds := fs.Int("rounds", 0, "resolve at most `N` more fixture batches")
+	club := fs.Uint64("club", 0, "manage club `N` in a new world")
+	mentalityName := fs.String("mentality", "", "submit the suggested lineup with mentality `M` for each of the managed club's matches")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -86,6 +99,20 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 		return errors.New("-load needs a file name")
 	case set["save"] && *save == "":
 		return errors.New("-save needs a file name")
+	case set["load"] && set["club"]:
+		return errors.New("-club cannot be used with -load: a loaded career keeps its saved club")
+	case set["club"] && *club == 0:
+		return errors.New("-club must name a club ID (1 or more)")
+	case set["mentality"] && !*season && !set["rounds"]:
+		return errors.New("-mentality needs -season or -rounds")
+	}
+	var mentality matches.Mentality
+	if set["mentality"] {
+		m, err := parseMentality(*mentalityName)
+		if err != nil {
+			return err
+		}
+		mentality = m
 	}
 
 	var w *app.World
@@ -104,22 +131,28 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 			*seed = drawn
 			fmt.Fprintf(stderr, "simulate: using random seed %d (rerun with -seed %d to reproduce)\n", drawn, drawn)
 		}
-		created, err := app.NewWorld(app.DefaultConfig(random.Seed(*seed)))
+		cfg := app.DefaultConfig(random.Seed(*seed))
+		cfg.UserClub = ids.ClubID(*club)
+		created, err := app.NewWorld(cfg)
 		if err != nil {
 			return err
 		}
 		w = created
 	}
+	if _, managed := w.UserClub(); mentality != 0 && !managed {
+		return errors.New("-mentality needs a managed club: use -club, or load a career that has one")
+	}
 
 	if err := printSummary(stdout, w.Summary()); err != nil {
 		return err
 	}
+	printManager(stdout, w)
 	var err error
 	switch {
 	case *season:
-		err = playRounds(stdout, w, -1)
+		err = playRounds(stdout, w, -1, mentality)
 	case set["rounds"]:
-		err = playRounds(stdout, w, *rounds)
+		err = playRounds(stdout, w, *rounds, mentality)
 	case set["load"]:
 		err = printStatus(stdout, w)
 	default:
@@ -140,6 +173,36 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 	return nil
 }
 
+func parseMentality(name string) (matches.Mentality, error) {
+	for m := matches.Defensive; m <= matches.Attacking; m++ {
+		if m.String() == name {
+			return m, nil
+		}
+	}
+	return 0, fmt.Errorf("-mentality %q: want defensive, balanced or attacking", name)
+}
+
+// printManager names the managed club, if any.
+func printManager(out io.Writer, w *app.World) {
+	id, ok := w.UserClub()
+	if !ok {
+		return
+	}
+	for _, c := range w.Summary().ClubRows {
+		if c.ID == id {
+			fmt.Fprintf(out, "\nmanaging club %d: %s (%s), team %d\n", c.ID, c.Name, c.ShortName, c.SeniorTeam)
+		}
+	}
+}
+
+// lineupNote describes who picked the managed club's lineup for fixture.
+func lineupNote(w *app.World, fixture ids.FixtureID) string {
+	if l, ok := w.SubmittedLineup(fixture); ok {
+		return fmt.Sprintf("your lineup, %s", l.Tactics.Mentality)
+	}
+	return "AI lineup"
+}
+
 // printStatus shows a world's position without advancing it.
 func printStatus(out io.Writer, w *app.World) error {
 	cal := w.Calendar()
@@ -148,6 +211,9 @@ func printStatus(out io.Writer, w *app.World) error {
 		for _, rr := range r.Rounds {
 			fmt.Fprintf(out, "pending: competition %d season %d round %d, kicked off %s, %d fixtures awaiting results\n",
 				rr.Round.Season.Competition, rr.Round.Season.Season, rr.Round.Round, cal.Format(rr.Kickoff), len(rr.Fixtures))
+		}
+		for _, f := range r.UserFixtures {
+			fmt.Fprintf(out, "your fixture: F%d, %s\n", f, lineupNote(w, f))
 		}
 	} else {
 		fmt.Fprintln(out, "pending: none")
@@ -249,9 +315,10 @@ func demoContinue(out io.Writer, w *app.World) error {
 
 // playRounds alternates Continue and ResolveRounds, resolving at most limit
 // batches (all remaining if limit < 0), printing each, then prints the
-// tables. Command IDs continue after any recorded in the world, so a loaded
-// career never reuses one.
-func playRounds(out io.Writer, w *app.World, limit int) error {
+// tables. With a mentality, it first submits the suggested lineup with that
+// mentality for each of the managed club's fixtures. Command IDs continue
+// after any recorded in the world, so a loaded career never reuses one.
+func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mentality) error {
 	cal := w.Calendar()
 	end := w.Now()
 	for _, s := range w.Schedules() {
@@ -267,7 +334,20 @@ func playRounds(out io.Writer, w *app.World, limit int) error {
 		if !ok {
 			break
 		}
-		cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: ready.Revision}
+		if mentality != 0 {
+			for _, f := range ready.UserFixtures {
+				l, err := w.SuggestLineup(f)
+				if err != nil {
+					return err
+				}
+				l.Tactics.Mentality = mentality
+				sub := app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}
+				if _, err := w.SubmitLineup(sub); err != nil {
+					return err
+				}
+			}
+		}
+		cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
 		for _, r := range ready.Rounds {
 			cmd.Rounds = append(cmd.Rounds, r.Round)
 		}
@@ -278,11 +358,16 @@ func playRounds(out io.Writer, w *app.World, limit int) error {
 		for _, r := range resolved.Rounds {
 			fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)
 			for _, m := range resolved.Matches {
-				if m.Round == r {
-					fmt.Fprintf(out, "  F%-3d %-3s %d-%d %-3s  %s %d-%d %s\n", m.Fixture,
-						m.Home.ShortName, m.Score[0], m.Score[1], m.Away.ShortName,
-						m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
+				if m.Round != r {
+					continue
 				}
+				fmt.Fprintf(out, "  F%-3d %-3s %d-%d %-3s  %s %d-%d %s", m.Fixture,
+					m.Home.ShortName, m.Score[0], m.Score[1], m.Away.ShortName,
+					m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
+				if club, ok := w.UserClub(); ok && (m.Home.Club == club || m.Away.Club == club) {
+					fmt.Fprintf(out, "  <- %s", lineupNote(w, m.Fixture))
+				}
+				fmt.Fprintln(out)
 			}
 		}
 	}

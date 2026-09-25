@@ -565,6 +565,114 @@ So the seed plus those versions is the complete random state at a world boundary
 - JSON is simple but verbose. The checksum detects accidental corruption, not tampering.
 - Directory fsync is best effort. Atomic replacement relies on POSIX rename semantics and hasn't been tested on Windows.
 
-## Next task: user club and lineup commands
+## Milestone 7: user club and lineup commands (done)
 
-Let the user choose a club when creating a career; save it in the snapshot (schema v2). Stop `Continue` at that club's fixtures and accept a `SubmitLineup` command (starting XI, bench, mentality). Validate it against the squad and `matches.Rules` and record it like other commands, with AI selection as the explicit default. Prove the user's lineup changes only that club's matches and survives a save/load while pending.
+A career can be created with a club to manage. When a batch is pending, the manager can submit a lineup (starting XI with roles, bench, mentality) for their club's fixture. `ResolveRounds` plays it; a fixture without one is played with the AI selection, which is the explicit default.
+
+```sh
+go run ./cmd/simulate -seed 42 -club 3 -season                        # managed, AI default: same results as without -club
+go run ./cmd/simulate -seed 42 -club 3 -mentality attacking -season   # submit a lineup before each of club 3's matches
+```
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/selection` | New. `Slot`, `Lineup` (`Validate`, `Clone`, `Equal`, `Players`), `Entry`, `Store` (`New`, `Submit`, `Lineup`, `Entries`, `Snapshot`) |
+| `internal/app` | `Config.UserClub`; `UserClub()`; `FixtureRoundReady.UserFixtures`; `SubmitLineup` command and `LineupSubmitted`; `SuggestLineup`, `SubmittedLineup` queries; `SelectedBy` and `MatchReport.Selected`; errors `ErrUnknownClub`, `ErrNoUserClub`, `ErrNotUserFixture`, `ErrFixtureNotPending`, `ErrInvalidLineup`; `Validate` checks lineups |
+| `internal/app` (save) | `WorldSnapshot.UserClub`, `Lineups`; the command log is now `ResolveCommands []ResolveRecord` and `LineupCommands []LineupRecord` (was `Commands []CommandRecord`) |
+| `internal/storage` | `SchemaVersion` = 2 |
+| `cmd/simulate` | `-club N`, `-mentality M`; managed fixtures are marked in round output and status |
+
+Contract changes: `CommandRecord` became `ResolveRecord`, `WorldSnapshot.Commands` became `ResolveCommands`, and `FixtureRoundReady`/`MatchReport` gained fields. Output without `-club` is byte-identical to milestone 6. The world fingerprint, schedule hash and seed-42 season golden are unchanged.
+
+### Decisions
+
+- **New `selection` module** is the architecture's "Squad and tactics" owner. It holds at most one lineup per (fixture, team) and validates its shape:
+  - 11 starters with valid roles and exactly one goalkeeper;
+  - non-zero player IDs used once across starters and bench;
+  - a valid mentality.
+
+  It imports the `matches` contract (roles, `Tactics`) like `ai` does, so lineups reach the engine without translation. `CLAUDE.md` records this exception.
+- **The user club is career configuration owned by `app`**, fixed at creation. Zero means none, so every club is AI-managed. Choosing a club does not touch world generation or scheduling, so the fingerprint and fixtures are the same with or without one.
+- **Where a lineup can be submitted:** only for a user-club fixture in the pending batch, which is the pre-match decision point. By then the squad can't change before the match. Lineups for future fixtures (templates or preferences) are deferred.
+- **Out of position is allowed:** any player may start in any role, with unchanged ratings. That includes an outfield player in goal, which the match contract permits and the model punishes through Goalkeeping. Bench players play in their natural role, as with the AI.
+- **What the app checks** (`lineupInput`), at submission and again at resolution:
+  - the bench is within the league's `MaxBench`;
+  - every player is employed by the user team and has a profile.
+
+  Starters take the lineup's roles and profile ratings; the bench takes natural roles.
+- **Resubmitting** (a new command ID) replaces the stored lineup. Lineups are kept after the match as the record of what was chosen.
+- **`SuggestLineup`** returns the AI selection as a `Lineup`, so clients can start from the default. Submitting it unchanged plays exactly the AI match; a test proves this against the season golden.
+- **Commands.** `SubmitLineup{ID, ExpectedRevision, Fixture, Lineup}` follows the `ResolveRounds` rules:
+  - checks run first: ID, retry, revision, user club, fixture pending and the user's, lineup against squad and rules;
+  - then one `selection.Submit` call commits;
+  - then the revision increments and the command is recorded.
+
+  Command IDs share one space across kinds, so a lineup command's ID reused for `ResolveRounds` (or the reverse) is `ErrCommandIDReused`. Because a submission moves the revision, clients resolve with `Revision()` rather than the revision reported in `FixtureRoundReady`.
+- **`MatchReport.Selected [2]SelectedBy`** (durable: 1 = AI, 2 = manager) records per side which selection was played.
+- **Continue.** Every batch still stops `Continue`; the user club plays every round of an 8-team league. `FixtureRoundReady.UserFixtures` marks the batch fixtures that need, or can take, the manager's decision. Auto-resolving batches that contain no user fixture is deferred until a world exists where that happens in normal play (byes, cups, several leagues).
+
+### Save schema v2
+
+- `UserClub` (0 = none) and `Lineups` (`[]selection.Entry`, by fixture and team) are authoritative.
+- The command log is one typed list per command kind, each in ascending ID order: `ResolveCommands` and `LineupCommands`. IDs are unique across both lists.
+- Schema v1 saves are rejected with `ErrUnsupportedSave` ("schema version 1, this build reads 2"). There are no migrations yet.
+- **Restore validation** (`ErrInvalidSave`):
+  - the user club is registered;
+  - every lineup is valid in shape, belongs to the user team and is for a fixture that team plays;
+  - that fixture has kicked off, and its bench fits the league rules;
+  - a lineup whose match is still pending selects only current squad players;
+  - each `MatchReport.Selected` value is valid and says "manager" exactly when a lineup is stored for that fixture and team;
+  - each lineup command is valid in shape and for a user fixture that has kicked off, still has a stored lineup, and has a result revision within `(expected, saved]`.
+
+### Verification
+
+- **Default is AI:** with a user club and no lineups, all 56 reports say AI on both sides and the season equals the golden season.
+- **User fixtures:** each of the 14 batches reports exactly the managed team's fixture; a world without a user club reports none.
+- **Lineup is played:**
+  - after a submission, the planned match input for the user side has exactly the submitted starters, roles, bench (natural roles), ratings and mentality;
+  - the opponent side and every other fixture use the AI selection;
+  - the old batch revision is rejected as stale.
+- **Only the user's matches change:** over a full season of changed lineups (attacking, one forward swapped), every non-user fixture's detailed report (score, goals, selections) is identical to the AI season. At least one user match differs, and each lineup adds exactly one revision.
+- **Suggestion equals default:** submitting `SuggestLineup` every round reproduces the golden season. Match details are identical apart from `Selected`.
+- **Rejections leave the world unchanged** (17 cases): zero ID, stale or future revision, another club's fixture, an unknown or zero fixture, a later or already played fixture, 10 starters, 0 or 2 goalkeepers, an invalid role, a duplicate player, another club's player, an unknown player, no mentality, a bench over `MaxBench`. Also: no user club (submit and suggest), and suggesting for a non-pending fixture.
+- **Retries:** the same ID and lineup returns the recorded result with no change; a different lineup, or an ID shared with a `ResolveRounds`, is rejected; a resubmission replaces the lineup and is the one played.
+- **Save while pending with a lineup:**
+  - the JSON round trip is lossless;
+  - the user club, lineup, pending batch and lineup-command retry survive;
+  - resolving gives an identical result and world;
+  - a managed season played to the end after load keeps round-tripping.
+
+  The same holds through real files in `storage` and through the CLI (7 managed rounds, save, load, finish = uninterrupted managed season).
+- **Invalid saves:** 19 lineup, club and command cases are rejected with `ErrInvalidSave`.
+- **Deliberate-bug checks** each made tests fail:
+  - ignoring stored lineups at resolution;
+  - skipping the `Selected` check on restore;
+  - dropping `validateSelections`;
+  - skipping the squad-membership check.
+- **`selection`:** 14 invalid shapes, out of position and empty bench accepted, insert and replace order, all-or-nothing `Submit`, `New` rejects duplicates, and no shared memory in either direction.
+- **CLI:**
+  - `-club` without lineups prints the same results as a plain season;
+  - `-mentality attacking` changes only lines involving the managed club and is reproducible;
+  - option validation covers `-club` with `-load`, `-club 0`, an unknown club, `-mentality` without a mode, an unknown mentality, and `-mentality` without a managed club (new or loaded).
+- Output without `-club` is byte-identical to the previous commit for the demo, `-season` and a save/load cycle.
+
+### Limitations
+
+- The user can't change anything during a match (substitutions, mentality at half time), although the session supports it. Resolution still runs every match to full time.
+- There's no squad query with names, positions and ratings for choosing a lineup, beyond `SuggestLineup` and the existing summary.
+- Lineups can't be prepared before kickoff, and there are no default tactics or formation preferences that carry over between matches.
+- AI-only batches still stop `Continue`.
+- A submitted lineup that became invalid before resolution would fail `ResolveRounds` rather than fall back to the AI. That can't happen yet, because nothing changes squads between submission and resolution.
+- Players never tire between matches, so the same lineups are equally good all season.
+
+## Next task: basic condition
+
+Add the first-playable "basic condition". Condition is a player's fitness (0–10,000). Matches lower it by minutes played, and a daily recovery task (Preparation phase) restores it. It is owned by a medical store (new package, or a separate store inside `players`; decide deliberately).
+- Add pre-match condition to `PlayerInput`, and let the simple engine start fatigue from it. Bump `simple.ModelVersion`.
+- Let AI selection prefer fit players. Bump `ai.SelectionVersion`.
+- Show condition in a squad query that clients can use to build lineups.
+- Apply match exposure in the same all-or-nothing resolution commit.
+- Persist condition in the snapshot (schema v3) and prove that save/load mid-recovery continues identically.
+- Update the golden hashes deliberately.

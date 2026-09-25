@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -287,6 +288,116 @@ func TestLoadAndSaveErrorsAreClear(t *testing.T) {
 		_, err := runCLI(t, strings.Fields(args)...)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: err = %v, want %q", args, err, want)
+		}
+	}
+}
+
+// matchLines returns the printed match lines (those starting "  F" after
+// the Playing header), each without any manager note.
+func matchLines(t *testing.T, out string) []string {
+	t.Helper()
+	var lines []string
+	for _, line := range strings.Split(section(t, out, "Playing to"), "\n") {
+		if strings.HasPrefix(line, "  F") {
+			line, _, _ = strings.Cut(line, "  <- ")
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
+	plain, err := runCLI(t, "-seed", "42", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed, err := runCLI(t, "-seed", "42", "-club", "3", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(managed, "\nmanaging club 3: ") || strings.Contains(plain, "managing club") {
+		t.Fatal("manager line missing, or printed without -club")
+	}
+	if strings.Count(managed, "  <- AI lineup") != 14 || strings.Contains(managed, "your lineup") {
+		t.Fatal("want 14 managed fixtures marked as AI lineups")
+	}
+	if !slices.Equal(matchLines(t, managed), matchLines(t, plain)) || section(t, managed, "Final table") != section(t, plain, "Final table") {
+		t.Fatal("managing a club without lineups changed results")
+	}
+}
+
+func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
+	plain, _ := runCLI(t, "-seed", "42", "-season")
+	out, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
+	if out != again {
+		t.Fatal("managed season is not reproducible")
+	}
+	if strings.Count(out, "  <- your lineup, attacking") != 14 {
+		t.Fatal("want 14 submitted attacking lineups")
+	}
+	got, want := matchLines(t, out), matchLines(t, plain)
+	if len(got) != 56 || len(want) != 56 {
+		t.Fatalf("%d and %d match lines", len(got), len(want))
+	}
+	changed := 0
+	for i := range got {
+		if !strings.Contains(got[i], "DUN") {
+			if got[i] != want[i] {
+				t.Fatalf("unmanaged match changed:\n%s\n%s", got[i], want[i])
+			}
+		} else if got[i] != want[i] {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Fatal("attacking lineups changed none of the managed club's scores")
+	}
+}
+
+func TestManagedCareerSaveLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	straight, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-rounds", "7", "-save", path); err != nil {
+		t.Fatal(err)
+	}
+	status, err := runCLI(t, "-load", path)
+	if err != nil || !strings.Contains(status, "\nmanaging club 3: ") {
+		t.Fatalf("status of a managed save (err %v):\n%s", err, status)
+	}
+	rest, err := runCLI(t, "-load", path, "-mentality", "attacking", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if between(t, rest, "Round 8 ", "Final table") != between(t, straight, "Round 8 ", "Final table") ||
+		section(t, rest, "Final table") != section(t, straight, "Final table") {
+		t.Fatal("managed career differs after save/load")
+	}
+}
+
+func TestManagementOptionsAreValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	if _, err := runCLI(t, "-seed", "42", "-save", path); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string][]string{
+		"-club cannot be used with -load":       {"-load", path, "-club", "3"},
+		"-club must name a club":                {"-seed", "42", "-club", "0"},
+		"unknown club":                          {"-seed", "42", "-club", "99"},
+		"-mentality needs -season or -rounds":   {"-seed", "42", "-club", "3", "-mentality", "attacking"},
+		"want defensive, balanced or attacking": {"-seed", "42", "-club", "3", "-mentality", "reckless", "-season"},
+		"-mentality needs a managed club":       {"-seed", "42", "-mentality", "attacking", "-season"},
+	}
+	cases["-mentality needs a managed club: use -club, or load"] = []string{"-load", path, "-mentality", "defensive", "-rounds", "1"}
+	for want, args := range cases {
+		if _, err := runCLI(t, args...); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%v: err = %v, want %q", args, err, want)
 		}
 	}
 }

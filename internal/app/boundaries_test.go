@@ -29,8 +29,11 @@ var allowedImports = map[string][]string{
 	"internal/matches":        {"internal/core/ids", "internal/core/random"},
 	"internal/matches/simple": {"internal/core/ids", "internal/core/random", "internal/matches"},
 	// AI decides from detached match-contract data; it reads no module state.
-	"internal/ai":      {"internal/core/ids", "internal/matches"},
-	"internal/content": {"internal/core/ids", "internal/core/sim", "internal/players"},
+	"internal/ai": {"internal/core/ids", "internal/matches"},
+	// Selection stores lineups in the match contract's vocabulary (roles,
+	// tactics) so they reach an engine untranslated; it reads no module.
+	"internal/selection": {"internal/core/ids", "internal/matches"},
+	"internal/content":   {"internal/core/ids", "internal/core/sim", "internal/players"},
 	"internal/worldgen": {
 		"internal/content", "internal/core/ids", "internal/core/random",
 		"internal/employment", "internal/players", "internal/registry",
@@ -38,12 +41,15 @@ var allowedImports = map[string][]string{
 	"internal/app": {
 		"internal/competitions", "internal/content", "internal/core/ids", "internal/core/random",
 		"internal/core/sim", "internal/employment", "internal/players", "internal/registry", "internal/worldgen",
-		"internal/ai", "internal/matches", "internal/matches/simple",
+		"internal/ai", "internal/matches", "internal/matches/simple", "internal/selection",
 	},
 	// Storage is an adapter: it encodes app snapshots and never reaches
 	// into modules.
 	"internal/storage": {"internal/app"},
-	"cmd/simulate":     {"internal/app", "internal/core/random", "internal/core/sim", "internal/players", "internal/storage"},
+	"cmd/simulate": {
+		"internal/app", "internal/core/ids", "internal/core/random", "internal/core/sim",
+		"internal/matches", "internal/players", "internal/storage",
+	},
 }
 
 func TestPackageImportBoundaries(t *testing.T) {

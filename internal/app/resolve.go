@@ -45,13 +45,16 @@ type ResolveRounds struct {
 
 // MatchReport summarizes one resolved fixture. Goals are match detail
 // returned to the caller; only the score becomes the official result.
+// Selected says, per side (home, away), whether a submitted lineup or the AI
+// default was played.
 type MatchReport struct {
-	Fixture ids.FixtureID
-	Round   competitions.RoundRef
-	Home    TeamLabel
-	Away    TeamLabel
-	Score   [2]uint16
-	Goals   []matches.Goal
+	Fixture  ids.FixtureID
+	Round    competitions.RoundRef
+	Home     TeamLabel
+	Away     TeamLabel
+	Selected [2]SelectedBy
+	Score    [2]uint16
+	Goals    []matches.Goal
 }
 
 // RoundsResolved is the recorded result of a ResolveRounds command.
@@ -63,17 +66,32 @@ type RoundsResolved struct {
 	Matches  []MatchReport // fixture ID order
 }
 
+// ResolveRecord is a successful ResolveRounds (Rounds in canonical order)
+// and its complete result, including detailed match outcomes, so a retry is
+// answered exactly as before.
+type ResolveRecord struct {
+	Request ResolveRounds
+	Result  RoundsResolved
+}
+
+func (r ResolveRecord) clone() ResolveRecord {
+	r.Request.Rounds = slices.Clone(r.Request.Rounds)
+	r.Result = cloneResolved(r.Result)
+	return r
+}
+
+// commandRecord is one successful command; exactly one field is set.
 type commandRecord struct {
-	expected Revision
-	rounds   []competitions.RoundRef // canonical
-	result   RoundsResolved
+	resolve *ResolveRecord
+	lineup  *LineupRecord
 }
 
 // plannedMatch is a fixture with its detached, validated match input.
 type plannedMatch struct {
-	fixture competitions.Fixture
-	round   competitions.RoundRef
-	input   matches.MatchInput
+	fixture  competitions.Fixture
+	round    competitions.RoundRef
+	input    matches.MatchInput
+	selected [2]SelectedBy
 }
 
 // ResolveRounds plays and records the whole pending batch as one unit of
@@ -86,11 +104,11 @@ type plannedMatch struct {
 //     the same ID may be retried.
 //   - ExpectedRevision must equal Revision, and Rounds must equal the
 //     pending batch exactly.
-//   - Steps: prepare (validate fixtures, reject overlapping teams, select
-//     lineups, build detached inputs) -> simulate every fixture with its own
-//     random stream -> validate every outcome -> record all results and
-//     complete all rounds in one competitions call -> bump the revision and
-//     record the command.
+//   - Steps: prepare (validate fixtures, reject overlapping teams, take each
+//     side's submitted lineup or else the AI selection, build detached
+//     inputs) -> simulate every fixture with its own random stream ->
+//     validate every outcome -> record all results and complete all rounds
+//     in one competitions call -> bump the revision and record the command.
 //
 // Any failure before the final competitions call leaves the world exactly as
 // it was; that call is itself all-or-nothing, and nothing after it can fail.
@@ -103,10 +121,11 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		return RoundsResolved{}, err
 	}
 	if rec, ok := w.commands[cmd.ID]; ok {
-		if rec.expected != cmd.ExpectedRevision || !slices.Equal(rec.rounds, rounds) {
+		r := rec.resolve
+		if r == nil || r.Request.ExpectedRevision != cmd.ExpectedRevision || !slices.Equal(r.Request.Rounds, rounds) {
 			return RoundsResolved{}, fmt.Errorf("%w: command %d", ErrCommandIDReused, cmd.ID)
 		}
-		return cloneResolved(rec.result), nil
+		return cloneResolved(r.Result), nil
 	}
 	if cmd.ExpectedRevision != w.revision {
 		return RoundsResolved{}, fmt.Errorf("%w: expected %d, world is at %d", ErrStaleRevision, cmd.ExpectedRevision, w.revision)
@@ -149,10 +168,11 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		res.Matches = append(res.Matches, MatchReport{
 			Fixture: p.fixture.ID, Round: p.round,
 			Home: w.teamLabel(p.fixture.Home), Away: w.teamLabel(p.fixture.Away),
-			Score: outcomes[i].Score, Goals: outcomes[i].Goals,
+			Selected: p.selected, Score: outcomes[i].Score, Goals: outcomes[i].Goals,
 		})
 	}
-	w.commands[cmd.ID] = commandRecord{expected: cmd.ExpectedRevision, rounds: rounds, result: cloneResolved(res)}
+	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
+	w.commands[cmd.ID] = commandRecord{resolve: &rec}
 	return res, nil
 }
 
@@ -215,15 +235,14 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 		if err != nil {
 			return nil, err
 		}
-		home, err := w.selectTeam(p.fixture.Home, rules)
-		if err != nil {
-			return nil, err
+		p.input = matches.MatchInput{Match: p.fixture.ID, Rules: rules}
+		for _, side := range []matches.Side{matches.Home, matches.Away} {
+			in, by, err := w.sideSelection(p.fixture, side, rules)
+			if err != nil {
+				return nil, err
+			}
+			*p.input.Team(side), p.selected[side.Index()] = in, by
 		}
-		away, err := w.selectTeam(p.fixture.Away, rules)
-		if err != nil {
-			return nil, err
-		}
-		p.input = matches.MatchInput{Match: p.fixture.ID, Home: home, Away: away, Rules: rules}
 		if err := p.input.Validate(simple.MaxBench); err != nil {
 			return nil, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
@@ -238,6 +257,24 @@ func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 		}
 	}
 	return matches.Rules{}, fmt.Errorf("app: competition %d has no league definition", comp)
+}
+
+// sideSelection returns the lineup a side plays: the one submitted for the
+// fixture, revalidated against the current squad, or else the AI selection.
+func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules matches.Rules) (matches.TeamInput, SelectedBy, error) {
+	team := f.Home
+	if side == matches.Away {
+		team = f.Away
+	}
+	if l, ok := w.selections.Lineup(f.ID, team); ok {
+		in, err := w.lineupInput(team, l, rules)
+		if err != nil {
+			return matches.TeamInput{}, 0, fmt.Errorf("app: fixture %d: %w", f.ID, err)
+		}
+		return in, SelectedByManager, nil
+	}
+	in, err := w.selectTeam(team, rules)
+	return in, SelectedByAI, err
 }
 
 // selectTeam builds AI candidates from the team's current squad and picks a
