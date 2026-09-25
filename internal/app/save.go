@@ -16,6 +16,9 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
+	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
+	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/medical"
@@ -82,16 +85,32 @@ type WorldSnapshot struct {
 	Players      []players.Profile
 	Employment   []employment.Assignment
 	Medical      []medical.Record // ascending player
+	Finance      finance.Snapshot
 	Competitions competitions.Snapshot
 	Lineups      []selection.Entry // by fixture, team
 	Scheduler    sim.SchedulerSnapshot
-	Payloads     []PayloadRecord // ascending ID
-	LastPayload  sim.PayloadID   // payload ID allocator
+	// Task payload records, one list per task kind, each ascending by ID.
+	// IDs are unique across both and come from one allocator.
+	KickoffPayloads   []PayloadRecord
+	SeasonEndPayloads []SeasonEndPayload
+	LastPayload       sim.PayloadID
 
 	// The command log, one list per command kind, each in ascending command
 	// ID order. Command IDs are unique across all lists.
-	ResolveCommands []ResolveRecord
-	LineupCommands  []LineupRecord
+	ResolveCommands  []ResolveRecord
+	LineupCommands   []LineupRecord
+	PlayCommands     []PlayMatchRecord
+	DecisionCommands []DecisionRecord
+
+	// The manager's match in progress (nil if none): a replay log of stops
+	// and decisions, rebuilt into a session on demand.
+	Live *LiveSnapshot
+
+	// The retained event journal (oldest first), the event ID allocator and
+	// the inbox read model with its consumer offset.
+	Events    []events.Event
+	LastEvent events.ID
+	Inbox     inbox.Snapshot
 }
 
 func currentVersions(engine matches.Engine) Versions {
@@ -143,16 +162,23 @@ func (w *World) Snapshot() WorldSnapshot {
 		Players:            w.players.Snapshot(),
 		Employment:         w.employment.Snapshot(),
 		Medical:            w.medical.Snapshot(),
+		Finance:            w.finance.Snapshot(),
 		Competitions:       w.competitions.Snapshot(),
 		Lineups:            w.selections.Snapshot(),
 		Scheduler:          w.scheduler.Snapshot(),
 		LastPayload:        w.lastPayload,
+		Events:             events.CloneAll(w.journal),
+		LastEvent:          w.lastEvent,
+		Inbox:              w.inbox.Snapshot(),
 	}
 	for _, l := range w.leagues {
 		snap.Leagues = append(snap.Leagues, LeagueSnapshot{Definition: l.def, Season: l.season})
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.payloads)) {
-		snap.Payloads = append(snap.Payloads, PayloadRecord{ID: id, Round: w.payloads[id]})
+		snap.KickoffPayloads = append(snap.KickoffPayloads, PayloadRecord{ID: id, Round: w.payloads[id]})
+	}
+	for _, id := range slices.Sorted(maps.Keys(w.seasonEnds)) {
+		snap.SeasonEndPayloads = append(snap.SeasonEndPayloads, SeasonEndPayload{ID: id, Season: w.seasonEnds[id]})
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.commands)) {
 		switch rec := w.commands[id]; {
@@ -160,7 +186,14 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.ResolveCommands = append(snap.ResolveCommands, rec.resolve.clone())
 		case rec.lineup != nil:
 			snap.LineupCommands = append(snap.LineupCommands, rec.lineup.clone())
+		case rec.play != nil:
+			snap.PlayCommands = append(snap.PlayCommands, rec.play.clone())
+		case rec.decision != nil:
+			snap.DecisionCommands = append(snap.DecisionCommands, rec.decision.clone())
 		}
+	}
+	if w.live != nil {
+		snap.Live = &LiveSnapshot{Fixture: w.live.fixture, Stops: cloneStops(w.live.stops)}
 	}
 	return snap
 }
@@ -214,6 +247,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if err != nil {
 		return invalid("%v", err)
 	}
+	fin, err := finance.New(snap.Finance)
+	if err != nil {
+		return invalid("%v", err)
+	}
 	comps, err := competitions.Restore(snap.Competitions)
 	if err != nil {
 		return invalid("%v", err)
@@ -242,14 +279,18 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		engine:           engine,
 		userClub:         snap.UserClub,
 		revision:         snap.Revision,
+		journal:          events.CloneAll(snap.Events),
+		lastEvent:        snap.LastEvent,
 		commands:         map[CommandID]commandRecord{},
 		scheduler:        scheduler,
 		payloads:         map[sim.PayloadID]competitions.RoundRef{},
+		seasonEnds:       map[sim.PayloadID]competitions.SeasonRef{},
 		lastPayload:      snap.LastPayload,
 		registry:         reg,
 		players:          pl,
 		employment:       emp,
 		medical:          med,
+		finance:          fin,
 		competitions:     comps,
 		selections:       selections,
 	}
@@ -267,12 +308,26 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		return invalid("no leagues")
 	}
 
-	for _, p := range snap.Payloads {
-		if p.ID == 0 || p.ID > snap.LastPayload {
-			return invalid("payload ID %d is zero or above allocator %d", p.ID, snap.LastPayload)
+	usedPayload := map[sim.PayloadID]bool{}
+	checkPayloadID := func(id sim.PayloadID) error {
+		if id == 0 || id > snap.LastPayload || usedPayload[id] {
+			return fmt.Errorf("payload ID %d is zero, duplicated or above allocator %d", id, snap.LastPayload)
 		}
-		if _, dup := w.payloads[p.ID]; dup {
-			return invalid("duplicate payload %d", p.ID)
+		usedPayload[id] = true
+		return nil
+	}
+	for _, p := range snap.SeasonEndPayloads {
+		if err := checkPayloadID(p.ID); err != nil {
+			return invalid("%v", err)
+		}
+		if _, ok := comps.Entrants(p.Season); !ok {
+			return invalid("season-end payload %d references unknown %s", p.ID, p.Season)
+		}
+		w.seasonEnds[p.ID] = p.Season
+	}
+	for _, p := range snap.KickoffPayloads {
+		if err := checkPayloadID(p.ID); err != nil {
+			return invalid("%v", err)
 		}
 		if _, ok := comps.Round(p.Round); !ok {
 			return invalid("payload %d references unknown %s", p.ID, p.Round)
@@ -285,6 +340,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 			return invalid("user club %d is not registered", snap.UserClub)
 		}
 	}
+	team, _ := w.userTeam()
+	if w.inbox, err = inbox.New(team, snap.Inbox); err != nil {
+		return invalid("%v", err)
+	}
 	for _, c := range snap.ResolveCommands {
 		if err := w.restoreResolve(c, snap.Revision); err != nil {
 			return invalid("command %d: %v", c.Request.ID, err)
@@ -294,6 +353,23 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		if err := w.restoreLineup(c, snap.Revision); err != nil {
 			return invalid("command %d: %v", c.Request.ID, err)
 		}
+	}
+	for _, c := range snap.PlayCommands {
+		if err := w.restoreStep(c.Request.ID, c.Request.ExpectedRevision, c.Request.Fixture, c.Result, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c.clone()
+		w.commands[c.Request.ID] = commandRecord{play: &rec}
+	}
+	for _, c := range snap.DecisionCommands {
+		if err := w.restoreStep(c.Request.ID, c.Request.ExpectedRevision, c.Request.Fixture, c.Result, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c.clone()
+		w.commands[c.Request.ID] = commandRecord{decision: &rec}
+	}
+	if snap.Live != nil {
+		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}
 	}
 
 	if err := w.Validate(); err != nil {
@@ -417,6 +493,30 @@ func (w *World) restoreLineup(c LineupRecord, revision Revision) error {
 	}
 	rec := c.clone()
 	w.commands[req.ID] = commandRecord{lineup: &rec}
+	return nil
+}
+
+// LiveSnapshot is a saved match in progress.
+type LiveSnapshot struct {
+	Fixture ids.FixtureID
+	Stops   []LiveStop
+}
+
+// restoreStep validates a recorded PlayMatch or MatchDecision: a fresh ID,
+// a result for it within the revision range, and a fixture the user team
+// plays. Its recorded view is returned to retries as saved.
+func (w *World) restoreStep(id CommandID, expected Revision, fixture ids.FixtureID, res MatchStepped, revision Revision) error {
+	if err := w.checkRecordID(id, res.Command); err != nil {
+		return err
+	}
+	if res.Revision <= expected || res.Revision > revision {
+		return fmt.Errorf("result revision %d outside (%d, %d]", res.Revision, expected, revision)
+	}
+	team, ok := w.userTeam()
+	f, found := w.competitions.Fixture(fixture)
+	if !ok || !found || (f.Home != team && f.Away != team) || res.Live.Fixture != fixture {
+		return fmt.Errorf("fixture %d is not the user team's", fixture)
+	}
 	return nil
 }
 

@@ -18,6 +18,9 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
+	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
+	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/medical"
@@ -66,16 +69,29 @@ type World struct {
 	revision Revision
 	commands map[CommandID]commandRecord
 
+	// Committed domain events: the retained journal tail, the event ID
+	// allocator, events staged by the commit in progress, and the inbox read
+	// model that consumes them.
+	// The manager's match in progress, if any (see liveState).
+	live *liveState
+
+	journal   []events.Event
+	lastEvent events.ID
+	outbox    []events.Event
+	inbox     *inbox.Inbox
+
 	// Simulation runtime: the world clock, queued tasks and the payload
 	// records they reference. Only app interprets task kinds.
 	scheduler   *sim.Scheduler
-	payloads    map[sim.PayloadID]competitions.RoundRef
-	lastPayload sim.PayloadID
+	payloads    map[sim.PayloadID]competitions.RoundRef  // kickoff payloads
+	seasonEnds  map[sim.PayloadID]competitions.SeasonRef // season-end payloads
+	lastPayload sim.PayloadID                            // shared allocator
 
 	registry     *registry.Registry
 	players      *players.Store
 	employment   *employment.Store
 	medical      *medical.Store
+	finance      *finance.Store
 	competitions *competitions.Store
 	selections   *selection.Store
 }
@@ -108,6 +124,9 @@ func NewWorld(cfg Config) (*World, error) {
 			return nil, fmt.Errorf("%w: %d", ErrUnknownClub, cfg.UserClub)
 		}
 		w.userClub = cfg.UserClub
+		if w.inbox, err = w.newInbox(); err != nil {
+			return nil, err
+		}
 	}
 	return w, nil
 }
@@ -157,7 +176,11 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 	if err != nil {
 		return nil, err
 	}
-	emp, err := employment.New(snap.Assignments)
+	assignments, err := withContracts(calendar, snap)
+	if err != nil {
+		return nil, err
+	}
+	emp, err := employment.New(assignments)
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +197,14 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 	if totalEntrants != len(clubs) {
 		return nil, fmt.Errorf("app: leagues take %d entrants but the world has %d clubs", totalEntrants, len(clubs))
 	}
+	var clubIDs []ids.ClubID
+	for _, c := range snap.Clubs {
+		clubIDs = append(clubIDs, c.ID)
+	}
+	fin, err := openAccounts(clubIDs, defs.Economy.OpeningBalance)
+	if err != nil {
+		return nil, err
+	}
 	w := &World{
 		seed:             snap.Seed,
 		generatorVersion: snap.GeneratorVersion,
@@ -189,15 +220,24 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		players:          pl,
 		employment:       emp,
 		medical:          med,
+		finance:          fin,
 		competitions:     competitions.New(),
 		selections:       mustEmptySelections(),
 		calendar:         calendar,
 		engine:           engine,
 		scheduler:        scheduler,
 		payloads:         map[sim.PayloadID]competitions.RoundRef{},
+		seasonEnds:       map[sim.PayloadID]competitions.SeasonRef{},
 		commands:         map[CommandID]commandRecord{},
 	}
+	// World creation is initial state, not a change: it emits no events.
+	if w.inbox, err = w.newInbox(); err != nil {
+		return nil, err
+	}
 	if err := w.scheduleRecovery(sim.GameInstant(sim.Day)); err != nil {
+		return nil, err
+	}
+	if err := w.scheduleWages(sim.GameInstant(sim.Week)); err != nil {
 		return nil, err
 	}
 	next := 0
@@ -223,6 +263,9 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 			return nil, err
 		}
 		if err := w.scheduleRounds(entry.season); err != nil {
+			return nil, err
+		}
+		if err := w.scheduleSeasonEnd(entry.season); err != nil {
 			return nil, err
 		}
 		w.leagues = append(w.leagues, entry)
@@ -306,29 +349,24 @@ func (w *World) Validate() error {
 	}
 
 	errs = append(errs, w.validateCompetitions()...)
+	errs = append(errs, w.validateSeasons()...)
 	errs = append(errs, w.validateSchedule()...)
 	errs = append(errs, w.validateSelections()...)
+	errs = append(errs, w.validateJournal()...)
+	errs = append(errs, w.validateLive()...)
+	errs = append(errs, w.validateFinance()...)
 	return errors.Join(errs...)
 }
 
-// validateCompetitions checks that every competition season belongs to a
-// known league, each league has its defined number of entrants, every
-// entrant is a registered senior team, and every club enters exactly one
-// league.
+// validateCompetitions checks each league's current season: it has the
+// defined number of entrants, every entrant is a registered senior team, and
+// every club enters exactly one league. validateSeasons checks the seasons
+// over time.
 func (w *World) validateCompetitions() []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("app: "+format, args...)) }
 	if err := w.competitions.Validate(); err != nil {
 		errs = append(errs, err)
-	}
-	known := map[competitions.SeasonRef]bool{}
-	for _, l := range w.leagues {
-		known[l.season] = true
-	}
-	for _, ref := range w.competitions.Seasons() {
-		if !known[ref] {
-			fail("%s belongs to no league", ref)
-		}
 	}
 	clubsEntered := map[ids.ClubID]competitions.SeasonRef{}
 	for _, l := range w.leagues {

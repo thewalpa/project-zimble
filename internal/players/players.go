@@ -44,11 +44,12 @@ func (p Position) String() string {
 }
 
 // Rating is an attribute value on the inclusive scale MinRating..MaxRating.
+// The same 1..100 scale is stored, simulated and shown to users.
 type Rating uint8
 
 const (
 	MinRating Rating = 1
-	MaxRating Rating = 20
+	MaxRating Rating = 100
 )
 
 func (r Rating) Valid() bool { return r >= MinRating && r <= MaxRating }
@@ -93,9 +94,9 @@ type Profile struct {
 	Attributes Attributes
 }
 
-// OverallTenths returns the mean of the position's key attributes, in tenths
-// of a rating point, rounded half up. Integer arithmetic keeps it exact.
-func (p Profile) OverallTenths() int {
+// Overall returns the mean of the position's key attributes on the 1..100
+// scale, rounded half up. Integer arithmetic keeps it exact.
+func (p Profile) Overall() int {
 	keys := keyAttributes[p.Position]
 	if len(keys) == 0 {
 		return 0
@@ -104,7 +105,7 @@ func (p Profile) OverallTenths() int {
 	for _, a := range keys {
 		sum += int(p.Attributes[a])
 	}
-	return (sum*20 + len(keys)) / (2 * len(keys))
+	return (2*sum + len(keys)) / (2 * len(keys))
 }
 
 // Validate reports whether the profile satisfies this module's invariants.

@@ -7,22 +7,22 @@ import (
 )
 
 func validProfile(id ids.PlayerID) Profile {
-	return Profile{Player: id, Position: Midfielder, Attributes: Attributes{5, 10, 15, 8, 12, 20}}
+	return Profile{Player: id, Position: Midfielder, Attributes: Attributes{25, 50, 75, 40, 60, 100}}
 }
 
 func TestNewRejectsInvalidProfiles(t *testing.T) {
 	low, high := validProfile(2), validProfile(2)
 	low.Attributes[Pace] = 0
-	high.Attributes[Stamina] = 21
+	high.Attributes[Stamina] = 101
 	noPos := validProfile(2)
 	noPos.Position = 0
 
 	cases := map[string][]Profile{
-		"zero ID":         {validProfile(0)},
-		"duplicate ID":    {validProfile(1), validProfile(1)},
-		"rating below 1":  {validProfile(1), low},
-		"rating above 20": {validProfile(1), high},
-		"no position":     {noPos},
+		"zero ID":          {validProfile(0)},
+		"duplicate ID":     {validProfile(1), validProfile(1)},
+		"rating below 1":   {validProfile(1), low},
+		"rating above 100": {validProfile(1), high},
+		"no position":      {noPos},
 	}
 	for name, in := range cases {
 		if _, err := New(in); err == nil {
@@ -39,7 +39,7 @@ func TestStoreIsIsolatedFromCallers(t *testing.T) {
 	}
 	in[0].Attributes[Pace] = 1
 	got, _ := s.Profile(2)
-	if got.Attributes[Pace] != 12 {
+	if got.Attributes[Pace] != 60 {
 		t.Fatalf("store changed via input slice: pace = %d", got.Attributes[Pace])
 	}
 	idsOut := s.PlayerIDs()
@@ -52,10 +52,14 @@ func TestStoreIsIsolatedFromCallers(t *testing.T) {
 	}
 }
 
-func TestOverallTenthsUsesPositionKeyAttributes(t *testing.T) {
-	p := Profile{Player: 1, Position: Forward, Attributes: Attributes{1, 1, 10, 15, 12, 1}}
-	// (15 + 12 + 10) / 3 = 12.33 -> 123 tenths.
-	if got := p.OverallTenths(); got != 123 {
-		t.Fatalf("OverallTenths = %d, want 123", got)
+func TestOverallUsesPositionKeyAttributes(t *testing.T) {
+	p := Profile{Player: 1, Position: Forward, Attributes: Attributes{1, 1, 50, 75, 62, 1}}
+	// (75 + 62 + 50) / 3 = 62.33 -> 62; one more point of pace rounds up.
+	if got := p.Overall(); got != 62 {
+		t.Fatalf("Overall = %d, want 62", got)
+	}
+	p.Attributes[Pace]++
+	if got := p.Overall(); got != 63 { // 62.67
+		t.Fatalf("Overall = %d, want 63", got)
 	}
 }

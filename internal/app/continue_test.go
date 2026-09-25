@@ -9,6 +9,9 @@ import (
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
+	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
@@ -40,6 +43,9 @@ type state struct {
 	Pending    []competitions.RoundInfo
 	Commands   int
 	Conditions []medical.Record
+	Events     []events.Event
+	Inbox      inbox.Snapshot
+	Finance    finance.Snapshot
 }
 
 func snapshot(w *World) state {
@@ -48,7 +54,7 @@ func snapshot(w *World) state {
 		payloads[k] = v
 	}
 	return state{w.Now(), w.Revision(), w.scheduler.Pending(), payloads, w.Schedules(), w.Tables(),
-		w.competitions.PendingRounds(), len(w.commands), w.medical.Records()}
+		w.competitions.PendingRounds(), len(w.commands), w.medical.Records(), w.Events(), w.inbox.Snapshot(), w.finance.Snapshot()}
 }
 
 // kickoffTasks returns the queued round kickoff tasks in queue order.
@@ -70,8 +76,8 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 	sched := w.Schedules()[0]
 	want, _ := w.Calendar().Instant(sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15})
 	tasks := kickoffTasks(w)
-	if len(tasks) != 14 || len(w.payloads) != 14 || w.scheduler.Len() != 15 {
-		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 14 of 15", len(tasks), w.scheduler.Len(), len(w.payloads))
+	if len(tasks) != 14 || len(w.payloads) != 14 || w.scheduler.Len() != 17 {
+		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 14 of 17 (with recovery, wages and season end)", len(tasks), w.scheduler.Len(), len(w.payloads))
 	}
 	for i, r := range sched.Rounds {
 		kickoff := want + sim.GameInstant(i)*7*day
@@ -195,6 +201,11 @@ func TestOneContinueEqualsSeveral(t *testing.T) {
 		// often; everything else must match.
 		stOne, stMany := snapshot(one), snapshot(many)
 		stOne.Revision, stMany.Revision = 0, 0
+		for _, st := range []*state{&stOne, &stMany} { // events carry their commit's revision
+			for i := range st.Events {
+				st.Events[i].Revision, st.Events[i].Sequence = 0, 0
+			}
+		}
 		if ready, ok := resOne.(FixtureRoundReady); ok {
 			ready.Revision = 0
 			resOne = ready
@@ -236,18 +247,19 @@ func TestFailedKickoffLeavesStateUnchanged(t *testing.T) {
 }
 
 // A failure anywhere in a kickoff cohort must leave every round in the cohort
-// untouched, whichever task fails.
+// untouched, whichever task fails. (Tasks of another kind form their own
+// cohort, so the bad task here is a kickoff whose payload is missing.)
 func TestFailedCohortIsAllOrNothing(t *testing.T) {
 	for _, stableOrder := range []uint64{0, 999} { // bad task first or last
 		w := newWorld(t, 42)
 		k := firstKickoff(t, w)
 		mustContinue(t, w, k-1)
-		if _, err := w.scheduler.Schedule(sim.TaskSpec{DueAt: k, Phase: sim.PhaseFixtures, StableOrder: stableOrder, Kind: 99}); err != nil {
+		if _, err := w.scheduler.Schedule(sim.TaskSpec{DueAt: k, Phase: sim.PhaseFixtures, StableOrder: stableOrder, Kind: taskRoundKickoff, PayloadID: 999}); err != nil {
 			t.Fatal(err)
 		}
 		before := snapshot(w)
 		if _, err := w.Continue(k); err == nil {
-			t.Fatalf("stableOrder %d: Continue succeeded with an unknown task kind", stableOrder)
+			t.Fatalf("stableOrder %d: Continue succeeded with a missing kickoff payload", stableOrder)
 		}
 		if !reflect.DeepEqual(snapshot(w), before) {
 			t.Fatalf("stableOrder %d: failed cohort partially applied", stableOrder)
@@ -321,8 +333,8 @@ func TestSimultaneousKickoffsAreDeterministic(t *testing.T) {
 			t.Fatalf("ready[%d] = %+v, want competition %d round 1", i, ready.Rounds[i], comp)
 		}
 	}
-	if len(st.Tasks) != 2*14-2+1 {
-		t.Fatalf("%d tasks remain, want 26 kickoffs and a recovery", len(st.Tasks))
+	if len(st.Tasks) != 2*14-2+1+1+2 {
+		t.Fatalf("%d tasks remain, want 26 kickoffs, a recovery, wages and 2 season ends", len(st.Tasks))
 	}
 	res2, st2 := run()
 	if !reflect.DeepEqual(res, res2) || !reflect.DeepEqual(st, st2) {

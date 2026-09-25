@@ -253,3 +253,31 @@ func TestHandlersScheduleOnlyAfterTheirCohort(t *testing.T) {
 	// Outside a run the guard does not apply.
 	mustSchedule(t, s, TaskSpec{DueAt: 35, Phase: PhaseExpiries, Kind: 3})
 }
+
+// Tasks of different kinds at one instant and phase are separate cohorts,
+// each committed on its own; a failing one leaves earlier ones committed.
+func TestCohortsSplitByKind(t *testing.T) {
+	s := newScheduler(t)
+	mustSchedule(t, s, TaskSpec{DueAt: 10, Phase: PhasePreparation, StableOrder: 0, Kind: 1})
+	mustSchedule(t, s, TaskSpec{DueAt: 10, Phase: PhasePreparation, StableOrder: 1, Kind: 2})
+	mustSchedule(t, s, TaskSpec{DueAt: 10, Phase: PhasePreparation, StableOrder: 2, Kind: 2})
+	mustSchedule(t, s, TaskSpec{DueAt: 10, Phase: PhasePreparation, StableOrder: 3, Kind: 3})
+	var cohorts [][]TaskKind
+	_, err := s.RunUntil(20, func(at GameInstant, cohort []Task) (bool, error) {
+		var kinds []TaskKind
+		for _, task := range cohort {
+			kinds = append(kinds, task.Kind)
+		}
+		cohorts = append(cohorts, kinds)
+		if cohort[0].Kind == 3 {
+			return false, errors.New("boom")
+		}
+		return false, nil
+	})
+	if err == nil || !reflect.DeepEqual(cohorts, [][]TaskKind{{1}, {2, 2}, {3}}) {
+		t.Fatalf("cohorts %v, err %v", cohorts, err)
+	}
+	if p := s.Pending(); len(p) != 1 || p[0].Kind != 3 || s.Now() != 10 {
+		t.Fatalf("after failure: pending %v, now %d", p, s.Now())
+	}
+}

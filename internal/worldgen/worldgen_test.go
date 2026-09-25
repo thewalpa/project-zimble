@@ -13,7 +13,8 @@ import (
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-const goldenSeed42 = "8bc01a116a8c9d787dd1c2791dc304ab74d20c8af96d082245b7d8997723f0c1"
+// Last changed by worldgen v2 and content v3 (contract terms and economy).
+const goldenSeed42 = "27d691ea5342a21734ae41fb706472279b2414d3b633071ad03486ac77647355"
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -82,5 +83,28 @@ func TestGenerateRejectsInvalidDefinitions(t *testing.T) {
 	defs.ClubCount = 0
 	if _, err := Generate(defs, 42); err == nil {
 		t.Fatal("Generate accepted invalid definitions")
+	}
+}
+
+// Every player gets contract terms within the economy's ranges; wages follow
+// the formula within the variation band.
+func TestContractTermsFollowTheEconomy(t *testing.T) {
+	defs := content.Default()
+	s := generate(t, 42)
+	econ := defs.Economy
+	if len(s.Contracts) != len(s.Players) {
+		t.Fatalf("%d contracts for %d players", len(s.Contracts), len(s.Players))
+	}
+	years := map[int]int{}
+	for i, c := range s.Contracts {
+		p := s.Profiles[i]
+		lo, hi := econ.Wage(p.Overall(), -econ.WageVariationPct), econ.Wage(p.Overall(), econ.WageVariationPct)
+		if c.Player != p.Player || c.Years < econ.ContractYears[0] || c.Years > econ.ContractYears[1] || c.WeeklyWage < lo || c.WeeklyWage > hi {
+			t.Fatalf("player %d terms %+v (overall %d, wage band %s..%s)", c.Player, c, p.Overall(), lo, hi)
+		}
+		years[c.Years]++
+	}
+	if len(years) != econ.ContractYears[1]-econ.ContractYears[0]+1 {
+		t.Fatalf("contract lengths %v do not cover the range", years)
 	}
 }

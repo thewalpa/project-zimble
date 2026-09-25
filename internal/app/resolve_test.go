@@ -22,8 +22,9 @@ import (
 // and the match model: an intended change must bump the responsible version
 // (worldgen/content/random, competitions.ScheduleVersion,
 // ai.SelectionVersion, medical.Version, simple.ModelVersion) and update this
-// value. Last changed by milestone 8 (condition; selection v2, model v2).
-const goldenSeasonSeed42 = "9b3259c624dde9762ffe1dc03fcab79a1dd4f5da62503919b99efd92590103f1"
+// value. Last changed by contracts and finance (worldgen v2 re-derives every
+// generation stream, content v3).
+const goldenSeasonSeed42 = "7e0c0217846a07df578958a702cdd711e0cd886f80a1b36b5a29247871bdf469"
 
 // seasonEnd is one day after the last kickoff of every league.
 func seasonEnd(w *World) sim.GameInstant {
@@ -71,9 +72,20 @@ func playSeason(t *testing.T, w *World) []RoundsResolved {
 	}
 }
 
+// firstSeasons returns each league's season-1 schedule, whatever season is
+// current.
+func firstSeasons(w *World) []Schedule {
+	var out []Schedule
+	for _, l := range w.leagues {
+		out = append(out, w.schedule(leagueEntry{def: l.def, season: competitions.SeasonRef{Competition: l.def.ID, Season: 1}}))
+	}
+	return out
+}
+
+// resultsFingerprint hashes every league's season-1 fixtures and results.
 func resultsFingerprint(w *World) string {
 	h := sha256.New()
-	for _, s := range w.Schedules() {
+	for _, s := range firstSeasons(w) {
 		for _, r := range s.Rounds {
 			for _, f := range r.Fixtures {
 				fmt.Fprintf(h, "%d %d-%d %v %v\n", f.ID, f.Home.Team, f.Away.Team, f.Played, f.Score)
@@ -85,6 +97,7 @@ func resultsFingerprint(w *World) string {
 
 func TestFullSeasonIntegrity(t *testing.T) {
 	w := newWorld(t, 42)
+	end := seasonEnd(w)
 	resolved := playSeason(t, w)
 	if len(resolved) != 14 {
 		t.Fatalf("%d batches resolved, want 14", len(resolved))
@@ -96,22 +109,27 @@ func TestFullSeasonIntegrity(t *testing.T) {
 		if i > 0 && r.Revision <= resolved[i-1].Revision {
 			t.Fatal("revisions do not increase")
 		}
-		k := w.Schedules()[0].Rounds[i].Kickoff
+		k := firstSeasons(w)[0].Rounds[i].Kickoff
 		if r.At != k {
 			t.Fatalf("batch %d official at %d, kickoff %d", i, r.At, k)
 		}
 	}
-	if res := mustContinue(t, w, seasonEnd(w)); res != (ReachedTarget{Now: seasonEnd(w)}) {
+	if res := mustContinue(t, w, end); res != (ReachedTarget{Now: end}) {
 		t.Fatalf("after the season Continue = %#v", res)
 	}
-	if len(kickoffTasks(w)) != 0 || len(w.competitions.PendingRounds()) != 0 || len(w.payloads) != 0 {
-		t.Fatal("work left after the season")
+	season := competitions.SeasonRef{Competition: 1, Season: 1}
+	if len(w.competitions.PendingRounds()) != 0 || w.leagues[0].season.Season != 2 {
+		t.Fatal("rounds pending, or the next season was not created")
+	}
+	for _, task := range kickoffTasks(w) {
+		if w.payloads[task.PayloadID].Season == season {
+			t.Fatalf("season 1 kickoff task %d left after the season", task.ID)
+		}
 	}
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)
 	}
 
-	season := w.leagues[0].season
 	results := w.competitions.Results(season)
 	fixtures := w.competitions.Fixtures(season)
 	if len(results) != 56 || len(fixtures) != 56 {
@@ -126,13 +144,13 @@ func TestFullSeasonIntegrity(t *testing.T) {
 			t.Fatalf("fixture %d has %d results", f.ID, seen[f.ID])
 		}
 	}
-	for _, r := range w.Schedules()[0].Rounds {
+	for _, r := range firstSeasons(w)[0].Rounds {
 		if r.Status != competitions.RoundCompleted {
 			t.Fatalf("round %d is %s", r.Round, r.Status)
 		}
 	}
 
-	table := w.Tables()[0]
+	table, _ := w.Table(season)
 	if !table.Complete || table.RoundsCompleted != 14 || len(table.Rows) != 8 {
 		t.Fatalf("table header %+v", table)
 	}
@@ -227,10 +245,10 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.
-	if a.Summary().Fingerprint != "8bc01a116a8c9d787dd1c2791dc304ab74d20c8af96d082245b7d8997723f0c1" {
+	if a.Summary().Fingerprint != "27d691ea5342a21734ae41fb706472279b2414d3b633071ad03486ac77647355" {
 		t.Fatal("world fingerprint changed")
 	}
-	if !reflect.DeepEqual(a.competitions.Fixtures(a.leagues[0].season), fixturesBefore) {
+	if !reflect.DeepEqual(a.competitions.Fixtures(competitions.SeasonRef{Competition: 1, Season: 1}), fixturesBefore) {
 		t.Fatal("fixtures changed during the season")
 	}
 	if resultsFingerprint(newWorld(t, 43)) == resultsFingerprint(a) {
@@ -259,7 +277,8 @@ func TestSimultaneousLeaguesResolveAsOneBatch(t *testing.T) {
 		}
 	}
 	playSeason(t, w)
-	for _, table := range w.Tables() {
+	for _, comp := range []ids.CompetitionID{1, 2} {
+		table, _ := w.Table(competitions.SeasonRef{Competition: comp, Season: 1})
 		if !table.Complete {
 			t.Fatalf("competition %d incomplete", table.Competition)
 		}

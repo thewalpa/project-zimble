@@ -11,7 +11,7 @@ import (
 // construction is outside the timed loop. Baseline only.
 func BenchmarkCompleteMatch(b *testing.B) {
 	e := engine(b)
-	in := input(1, 12, 12)
+	in := input(1, 60, 60)
 	random := rs(1)
 	var dst matches.MatchStepResult
 	b.ReportAllocs()
@@ -35,7 +35,7 @@ func BenchmarkCompleteMatch(b *testing.B) {
 // BenchmarkAdvanceOnly isolates the stepping loop from session creation.
 func BenchmarkAdvanceOnly(b *testing.B) {
 	e := engine(b)
-	in := input(1, 12, 12)
+	in := input(1, 60, 60)
 	random := rs(1)
 	var dst matches.MatchStepResult
 	b.ReportAllocs()

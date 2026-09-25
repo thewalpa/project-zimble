@@ -328,3 +328,50 @@ func longestRun(v []bool) int {
 	}
 	return best
 }
+
+// A batch is all-or-nothing, order-independent, and equals creating each
+// season alone in (competition, season) order.
+func TestCreateLeagueSeasonsIsAtomicAndCanonical(t *testing.T) {
+	a := SeasonRef{Competition: 1, Season: 2}
+	b := SeasonRef{Competition: 2, Season: 2}
+	other := teams(11, 12, 13, 14, 15, 16, 17, 18)
+
+	s := create(t, 42, league1, eight())
+	before := s.Snapshot()
+	for name, batch := range map[string][]NewSeason{
+		"second invalid":      {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: teams(1, 2), Timing: weekly}},
+		"duplicate in batch":  {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: a, Entrants: other, Timing: weekly}},
+		"existing season":     {{Ref: b, Entrants: other, Timing: weekly}, {Ref: league1, Entrants: eight(), Timing: weekly}},
+		"bad timing in batch": {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: other, Timing: Timing{}}},
+	} {
+		if err := s.CreateLeagueSeasons(42, batch); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		if !reflect.DeepEqual(s.Snapshot(), before) {
+			t.Fatalf("%s: rejected batch changed the store", name)
+		}
+	}
+
+	batch := create(t, 42, league1, eight())
+	if err := batch.CreateLeagueSeasons(42, []NewSeason{{Ref: b, Entrants: other, Timing: weekly}, {Ref: a, Entrants: eight(), Timing: weekly}}); err != nil {
+		t.Fatal(err)
+	}
+	single := create(t, 42, league1, eight())
+	for _, spec := range []NewSeason{{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: other, Timing: weekly}} {
+		if err := single.CreateLeagueSeason(42, spec.Ref, spec.Entrants, spec.Timing); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(batch.Snapshot(), single.Snapshot()) {
+		t.Fatal("a batch differs from creating its seasons one by one in canonical order")
+	}
+	pairings := func(fs []Fixture) (out [][3]uint64) {
+		for _, f := range fs {
+			out = append(out, [3]uint64{uint64(f.Round), uint64(f.Home), uint64(f.Away)})
+		}
+		return out
+	}
+	if reflect.DeepEqual(pairings(batch.Fixtures(a)), pairings(batch.Fixtures(league1))) {
+		t.Fatal("season 2 repeats season 1's draw")
+	}
+}

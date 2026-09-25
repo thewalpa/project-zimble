@@ -17,9 +17,10 @@ var (
 
 func clamp(v int) uint8 { return uint8(min(max(v, matches.MinRating), matches.MaxRating)) }
 
-// ratings gives a role-appropriate profile around strength, varied by i.
+// ratings gives a role-appropriate profile around strength (1..100),
+// varied by i.
 func ratings(role matches.Role, strength, i int) matches.Ratings {
-	v := i%5 - 2
+	v := (i%5 - 2) * 5
 	low := clamp(strength/3 + v)
 	r := matches.Ratings{
 		Goalkeeping: low, Defending: clamp(strength + v), Passing: clamp(strength - v),
@@ -29,9 +30,9 @@ func ratings(role matches.Role, strength, i int) matches.Ratings {
 	case matches.Goalkeeper:
 		r.Goalkeeping, r.Finishing = clamp(strength+v), low
 	case matches.Defender:
-		r.Finishing = clamp(strength - 4 + v)
+		r.Finishing = clamp(strength - 20 + v)
 	case matches.Forward:
-		r.Defending = clamp(strength - 4 + v)
+		r.Defending = clamp(strength - 20 + v)
 	}
 	return r
 }

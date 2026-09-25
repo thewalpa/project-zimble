@@ -93,7 +93,7 @@ func TestLoadRejectsInconsistentWorlds(t *testing.T) {
 			d.ClubCount = 9
 		},
 		"attribute out of range": func(_ *content.Definitions, s *worldgen.Snapshot) {
-			s.Profiles[0].Attributes[players.Pace] = 21
+			s.Profiles[0].Attributes[players.Pace] = 101
 		},
 		"duplicate player ID": func(_ *content.Definitions, s *worldgen.Snapshot) {
 			s.Players[1].ID = s.Players[0].ID
@@ -151,7 +151,7 @@ func TestNewWorldSchedulesLeagueForSeniorTeams(t *testing.T) {
 
 // Creating the league must not change any generated world data.
 func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
-	const worldFingerprintSeed42 = "8bc01a116a8c9d787dd1c2791dc304ab74d20c8af96d082245b7d8997723f0c1"
+	const worldFingerprintSeed42 = "27d691ea5342a21734ae41fb706472279b2414d3b633071ad03486ac77647355"
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {
@@ -167,8 +167,21 @@ func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
 	if !reflect.DeepEqual(w.registry.Players(), snap.Players) {
 		t.Fatal("player identities differ from the generated snapshot")
 	}
-	if !reflect.DeepEqual(w.employment.Assignments(), snap.Assignments) {
-		t.Fatal("employment differs from the generated snapshot")
+	anchored, err := withContracts(w.Calendar(), snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(w.employment.Assignments(), anchored) {
+		t.Fatal("employment differs from the generated snapshot with anchored contracts")
+	}
+	for i, a := range anchored {
+		c := snap.Contracts[i]
+		if a.Player != c.Player || a.Contract.WeeklyWage != c.WeeklyWage || snap.Assignments[i].Contract != (employment.Contract{}) {
+			t.Fatalf("player %d contract %+v from terms %+v", a.Player, a.Contract, c)
+		}
+		if want, _ := contractExpiry(w.Calendar(), c.Years); a.Contract.Expires != want {
+			t.Fatalf("player %d expires %d, want %d", a.Player, a.Contract.Expires, want)
+		}
 	}
 	for _, want := range snap.Profiles {
 		if got, _ := w.players.Profile(want.Player); got != want {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/players"
@@ -20,8 +21,18 @@ import (
 )
 
 // Version identifies the generation algorithm. Bump it whenever the same
-// seed and content would produce a different snapshot.
-const Version = 1
+// seed and content would produce a different snapshot. Version 2 added
+// contract terms.
+const Version = 2
+
+// ContractTerms are a player's generated contract terms. Years is counted
+// from the career start; the application anchors it to the calendar, which
+// generation does not know.
+type ContractTerms struct {
+	Player     ids.PlayerID
+	Years      int
+	WeeklyWage money.Money
+}
 
 // Snapshot is a generated initial world. Slices are in ascending ID order.
 type Snapshot struct {
@@ -33,7 +44,8 @@ type Snapshot struct {
 	Teams            []registry.Team
 	Players          []registry.Player
 	Profiles         []players.Profile
-	Assignments      []employment.Assignment
+	Assignments      []employment.Assignment // Contract is left zero; see Contracts
+	Contracts        []ContractTerms
 }
 
 // Generate builds a snapshot. Identical definitions, seed and package
@@ -84,8 +96,16 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 				for a, r := range profile.Ranges {
 					attrs[a] = players.Rating(rng.IntRange(int(r.Min), int(r.Max)))
 				}
-				s.Profiles = append(s.Profiles, players.Profile{Player: nextPlayer, Position: q.Position, Attributes: attrs})
+				profile := players.Profile{Player: nextPlayer, Position: q.Position, Attributes: attrs}
+				s.Profiles = append(s.Profiles, profile)
 				s.Assignments = append(s.Assignments, employment.Assignment{Player: nextPlayer, Club: clubID, Team: teamID})
+				// Drawn after the attributes, from the same player stream.
+				econ := defs.Economy
+				years := rng.IntRange(econ.ContractYears[0], econ.ContractYears[1])
+				variation := rng.IntRange(-econ.WageVariationPct, econ.WageVariationPct)
+				s.Contracts = append(s.Contracts, ContractTerms{
+					Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
+				})
 			}
 		}
 	}
@@ -118,5 +138,8 @@ func (s Snapshot) writeCanonical(w io.Writer) {
 	}
 	for _, a := range s.Assignments {
 		fmt.Fprintf(w, "assignment %d club=%d team=%d\n", a.Player, a.Club, a.Team)
+	}
+	for _, c := range s.Contracts {
+		fmt.Fprintf(w, "contract %d years=%d wage=%d\n", c.Player, c.Years, c.WeeklyWage)
 	}
 }

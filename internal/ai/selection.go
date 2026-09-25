@@ -15,18 +15,18 @@ import (
 
 // SelectionVersion identifies the lineup heuristic. Bump it whenever the
 // same squad would produce a different selection.
-const SelectionVersion = 2
+const SelectionVersion = 3
 
 var ErrNoLegalLineup = errors.New("ai: no legal lineup")
 
 // Candidate is a squad player available for selection. Natural is the
 // player's own position, used as their role unless moved to fill a gap.
-// Condition is their current fitness, 1..matches.MaxCondition.
+// Condition is their current fitness, 1..matches.MaxCondition (100).
 type Candidate struct {
 	Player    ids.PlayerID
 	Natural   matches.Role
 	Ratings   matches.Ratings
-	Condition uint16
+	Condition uint8
 }
 
 // formation is 4-4-2, in slot order.

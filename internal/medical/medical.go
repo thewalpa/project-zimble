@@ -1,8 +1,7 @@
 // Package medical owns players' physical condition: how fit each player is
 // to play, how matches wear it down and how rest restores it.
 //
-// Condition is an integer on 0..MaxCondition (per 10,000; MaxCondition is
-// fully fit). Rules take the players' stamina as detached input, because
+// Condition is an integer percentage, 0..MaxCondition (100 is fully fit). Rules take the players' stamina as detached input, because
 // attributes belong to the players module; this package imports no other
 // domain module.
 //
@@ -23,15 +22,15 @@ import (
 
 // Version identifies DefaultParams and the rules below. Bump it whenever the
 // same condition, stamina and exposure would produce a different condition.
-const Version = 1
+const Version = 2
 
 // MaxCondition is full fitness.
-const MaxCondition uint16 = 10_000
+const MaxCondition uint8 = 100
 
-// Stamina bounds match the players module's rating scale.
+// Stamina bounds match the players module's 1..100 rating scale.
 const (
 	MinStamina = 1
-	MaxStamina = 20
+	MaxStamina = 100
 )
 
 // MaxMinutes bounds one match's exposure (regulation plus a margin for
@@ -41,53 +40,54 @@ const MaxMinutes = 150
 // ErrStalePlan: the store changed after the plan was made.
 var ErrStalePlan = errors.New("medical: plan is stale")
 
-// Params are the condition rules, all in condition units per 10,000:
+// Params are the condition rules. Condition is a whole number of points;
+// rates are finer and each result is rounded half up once:
 //
-//   - A match costs minutes * (DrainBase + (MaxStamina-stamina)*DrainStaminaStep),
-//     never taking condition below MinCondition.
-//   - A day of rest restores RecoveryBase + stamina*RecoveryStaminaStep,
-//     never above MaxCondition.
+//   - A match costs minutes * (DrainBase + (MaxStamina-stamina)*DrainStaminaStep)
+//     ten-thousandths of a point, never taking condition below MinCondition.
+//   - A day of rest restores RecoveryBase + stamina*RecoveryStaminaStep
+//     hundredths of a point, never above MaxCondition.
 //
-// With DefaultParams a player of stamina 9 who plays 90 minutes every week
-// holds about level; fitter players recover fully and less fit ones decline.
+// With DefaultParams a player of stamina about 45 who plays 90 minutes every
+// week holds level; fitter players recover fully and less fit ones decline.
 type Params struct {
-	MinCondition                      uint16
-	DrainBase, DrainStaminaStep       int
-	RecoveryBase, RecoveryStaminaStep int
+	MinCondition                      uint8
+	DrainBase, DrainStaminaStep       int // per 10,000 of a point, per minute
+	RecoveryBase, RecoveryStaminaStep int // per 100 of a point, per day
 }
 
 func DefaultParams() Params {
 	return Params{
-		MinCondition: 2_000,
-		DrainBase:    20, DrainStaminaStep: 1, // stamina 6: 3,060 per 90'; 18: 1,980
-		RecoveryBase: 300, RecoveryStaminaStep: 10, // stamina 6: 360 a day; 18: 480
+		MinCondition: 20,
+		DrainBase:    2_000, DrainStaminaStep: 20, // stamina 30: 31 per 90'; 90: 20
+		RecoveryBase: 300, RecoveryStaminaStep: 2, // stamina 30: 4 a day; 90: 5
 	}
 }
 
 func (p Params) Validate() error {
 	if p.MinCondition == 0 || p.MinCondition > MaxCondition || p.DrainBase < 0 || p.DrainStaminaStep < 0 ||
-		p.RecoveryBase < 0 || p.RecoveryStaminaStep < 0 || p.RecoveryBase+MaxStamina*p.RecoveryStaminaStep > int(MaxCondition) {
+		p.RecoveryBase < 0 || p.RecoveryStaminaStep < 0 || p.RecoveryBase+MaxStamina*p.RecoveryStaminaStep > 100*int(MaxCondition) {
 		return fmt.Errorf("medical: invalid params %+v", p)
 	}
 	return nil
 }
 
-// Drain returns the condition a match of minutes costs a player of stamina,
-// before the MinCondition floor.
+// Drain returns the whole points a match of minutes costs a player of
+// stamina, rounded half up, before the MinCondition floor.
 func (p Params) Drain(minutes uint16, stamina uint8) int {
-	return int(minutes) * (p.DrainBase + (MaxStamina-int(stamina))*p.DrainStaminaStep)
+	return (int(minutes)*(p.DrainBase+(MaxStamina-int(stamina))*p.DrainStaminaStep) + 5_000) / 10_000
 }
 
-// Recovery returns the condition one day of rest restores, before the
-// MaxCondition cap.
+// Recovery returns the whole points one day of rest restores, rounded half
+// up, before the MaxCondition cap.
 func (p Params) Recovery(stamina uint8) int {
-	return p.RecoveryBase + int(stamina)*p.RecoveryStaminaStep
+	return (p.RecoveryBase + int(stamina)*p.RecoveryStaminaStep + 50) / 100
 }
 
 // Record is one player's condition.
 type Record struct {
 	Player    ids.PlayerID
-	Condition uint16
+	Condition uint8
 }
 
 // Exposure is the minutes a player played in one match.
@@ -146,7 +146,7 @@ func (s *Store) index(player ids.PlayerID) (int, bool) {
 }
 
 // Condition returns a player's condition.
-func (s *Store) Condition(player ids.PlayerID) (uint16, bool) {
+func (s *Store) Condition(player ids.PlayerID) (uint8, bool) {
 	i, ok := s.index(player)
 	if !ok {
 		return 0, false
@@ -179,7 +179,7 @@ func (s *Store) PlanExposure(exposures []Exposure) (Plan, error) {
 			return Plan{}, fmt.Errorf("medical: unknown player %d", e.Player)
 		}
 		next := max(int(cur)-s.params.Drain(e.Minutes, e.Stamina), int(s.params.MinCondition))
-		plan.rows = append(plan.rows, Record{Player: e.Player, Condition: uint16(next)})
+		plan.rows = append(plan.rows, Record{Player: e.Player, Condition: uint8(next)})
 	}
 	return plan, nil
 }
@@ -201,7 +201,7 @@ func (s *Store) PlanRecovery(rest []Rest) (Plan, error) {
 			return Plan{}, fmt.Errorf("medical: player %d stamina %d out of range", r.Player, r.Stamina)
 		}
 		next := min(int(s.rows[i].Condition)+s.params.Recovery(r.Stamina), int(MaxCondition))
-		plan.rows = append(plan.rows, Record{Player: r.Player, Condition: uint16(next)})
+		plan.rows = append(plan.rows, Record{Player: r.Player, Condition: uint8(next)})
 	}
 	return plan, nil
 }

@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
 
-// Version identifies the content returned by Default.
-const Version = 1
+// Version identifies the content returned by Default. Version 2 moved
+// attribute ranges to the 1..100 scale; version 3 added the economy.
+const Version = 3
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
@@ -39,6 +41,42 @@ type PositionProfile struct {
 	Ranges   [players.NumAttributes]Range
 }
 
+// Economy holds the money rules for generated clubs and contracts.
+//
+// A player's weekly wage is WageReference * (overall / ReferenceOverall)^2,
+// varied uniformly by up to WageVariationPct percent and rounded to the
+// nearest 10 units (never below 10). Contracts run for ContractYears[0] to
+// ContractYears[1] whole years from the career start.
+type Economy struct {
+	OpeningBalance   money.Money
+	GatePerHomeMatch money.Money // paid to the home club for each league match
+	WageReference    money.Money
+	ReferenceOverall int
+	WageVariationPct int
+	ContractYears    [2]int
+}
+
+// Wage returns the weekly wage for an overall rating and a variation in
+// percent (-WageVariationPct..WageVariationPct). Integer arithmetic only;
+// the result fits comfortably in an int64 for validated economies.
+func (e Economy) Wage(overall, variationPct int) money.Money {
+	r := int64(e.ReferenceOverall)
+	w := int64(e.WageReference) * int64(overall) * int64(overall) / (r * r)
+	w = w * int64(100+variationPct) / 100
+	const step = 10 * money.MinorPerUnit
+	w = (w + step/2) / step * step
+	return money.Money(max(w, step))
+}
+
+func (e Economy) validate() error {
+	if e.OpeningBalance < 0 || e.GatePerHomeMatch < 0 || e.WageReference <= 0 || e.WageReference > money.Units(1_000_000) ||
+		e.ReferenceOverall <= 0 || e.WageVariationPct < 0 || e.WageVariationPct > 90 ||
+		e.ContractYears[0] < 1 || e.ContractYears[0] > e.ContractYears[1] || e.ContractYears[1] > 10 {
+		return fmt.Errorf("content: invalid economy %+v", e)
+	}
+	return nil
+}
+
 type Definitions struct {
 	Version      int
 	ClubCount    int
@@ -48,6 +86,7 @@ type Definitions struct {
 	LastNames    []string
 	Roster       []Quota // in generation order
 	Profiles     []PositionProfile
+	Economy      Economy
 }
 
 // Clone returns a deep copy that shares no slices with d.
@@ -112,6 +151,9 @@ func (d Definitions) Validate() error {
 	if d.SquadSize() == 0 {
 		errs = append(errs, errors.New("content: roster template is empty"))
 	}
+	if err := d.Economy.validate(); err != nil {
+		errs = append(errs, err)
+	}
 	for _, pp := range d.Profiles {
 		for a, r := range pp.Ranges {
 			if !r.Min.Valid() || !r.Max.Valid() || r.Min > r.Max {
@@ -152,12 +194,20 @@ func Default() Definitions {
 			{players.Midfielder, 6},
 			{players.Forward, 4},
 		},
-		// Ranges are ordered: goalkeeping, defending, passing, finishing, pace, stamina.
+		// Ranges (1..100) are ordered: goalkeeping, defending, passing, finishing, pace, stamina.
 		Profiles: []PositionProfile{
-			{players.Goalkeeper, [players.NumAttributes]Range{{10, 18}, {3, 8}, {5, 12}, {1, 4}, {3, 10}, {6, 14}}},
-			{players.Defender, [players.NumAttributes]Range{{1, 3}, {9, 18}, {5, 13}, {2, 8}, {6, 15}, {8, 17}}},
-			{players.Midfielder, [players.NumAttributes]Range{{1, 3}, {5, 13}, {9, 18}, {5, 13}, {7, 15}, {9, 18}}},
-			{players.Forward, [players.NumAttributes]Range{{1, 3}, {2, 8}, {6, 14}, {9, 18}, {9, 18}, {7, 15}}},
+			{players.Goalkeeper, [players.NumAttributes]Range{{48, 90}, {11, 37}, {22, 58}, {1, 17}, {11, 48}, {27, 69}}},
+			{players.Defender, [players.NumAttributes]Range{{1, 11}, {43, 90}, {22, 64}, {6, 37}, {27, 74}, {37, 84}}},
+			{players.Midfielder, [players.NumAttributes]Range{{1, 11}, {22, 64}, {43, 90}, {22, 64}, {32, 74}, {43, 90}}},
+			{players.Forward, [players.NumAttributes]Range{{1, 11}, {6, 37}, {27, 69}, {43, 90}, {43, 90}, {32, 74}}},
+		},
+		Economy: Economy{
+			OpeningBalance:   money.Units(2_000_000),
+			GatePerHomeMatch: money.Units(250_000),
+			WageReference:    money.Units(1_600), // a squad costs about 1.7 million a year
+			ReferenceOverall: 60,
+			WageVariationPct: 20,
+			ContractYears:    [2]int{1, 4},
 		},
 	}
 }

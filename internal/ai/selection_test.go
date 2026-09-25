@@ -25,7 +25,7 @@ func squad() []Candidate {
 		n    int
 	}{{matches.Goalkeeper, 3}, {matches.Defender, 7}, {matches.Midfielder, 6}, {matches.Forward, 4}} {
 		for range g.n {
-			out = append(out, Candidate{Player: id, Natural: g.role, Ratings: rating(uint8(5 + (id*7)%13)), Condition: matches.MaxCondition})
+			out = append(out, Candidate{Player: id, Natural: g.role, Ratings: rating(uint8(5 * (5 + (id*7)%13))), Condition: matches.MaxCondition})
 			id++
 		}
 	}
@@ -112,7 +112,7 @@ func TestSelectionIgnoresInputOrderAndDoesNotModifyIt(t *testing.T) {
 func TestTiesBreakByLowerPlayerID(t *testing.T) {
 	c := squad()
 	for i := range c {
-		c[i].Ratings = rating(10)
+		c[i].Ratings = rating(50)
 	}
 	sel := mustSelect(t, c)
 	if sel.Starters[0].Player != 1 || sel.Starters[1].Player != 4 || sel.Starters[5].Player != 11 || sel.Starters[9].Player != 17 {
@@ -141,8 +141,8 @@ func TestSelectionRejectsImpossibleSquads(t *testing.T) {
 		"no goalkeeper": noKeeper,
 		"ten players":   squad()[:10],
 		"duplicate ID":  dup,
-		"zero ID":       append(squad(), Candidate{Player: 0, Natural: matches.Defender, Ratings: rating(5), Condition: matches.MaxCondition}),
-		"invalid role":  append(squad(), Candidate{Player: 99, Natural: 0, Ratings: rating(5), Condition: matches.MaxCondition}),
+		"zero ID":       append(squad(), Candidate{Player: 0, Natural: matches.Defender, Ratings: rating(25), Condition: matches.MaxCondition}),
+		"invalid role":  append(squad(), Candidate{Player: 99, Natural: 0, Ratings: rating(25), Condition: matches.MaxCondition}),
 	}
 	for name, c := range cases {
 		if _, err := SelectTeam(9, c, rules); !errors.Is(err, ErrNoLegalLineup) {
@@ -190,7 +190,7 @@ func TestSelectionWeighsCondition(t *testing.T) {
 		t.Fatalf("setup: star %d, backup %d", starScore, backupScore)
 	}
 	// Just tired enough that the backup's fit score is higher.
-	condition := uint16(backupScore*int(matches.MaxCondition)/starScore - 1)
+	condition := uint8(backupScore*int(matches.MaxCondition)/starScore - 1)
 	for i := range c {
 		if c[i].Player == star {
 			c[i].Condition = condition

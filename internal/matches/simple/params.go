@@ -9,16 +9,19 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match.
-const ModelVersion uint32 = 2
+const ModelVersion uint32 = 3
 
 // Units: probabilities are parts per million (ppm), multipliers are permille
-// (1000 = x1), fatigue is per 10,000 of a rating, ratings inside the model
-// are tenths (rating 12 = 120). All arithmetic is integer so results are
-// identical on every platform.
+// (1000 = x1), readiness is per 10,000 and fatigue per 100,000 of a rating.
+// Inside the model a rating is counted in halves (rating 60 = 120), keeping
+// the magnitudes of the earlier 1..20 model's tenths. All arithmetic is
+// integer so results are identical on every platform.
 const (
-	ppm      = 1_000_000
-	permille = 1000
-	per10k   = 10_000
+	ppm         = 1_000_000
+	permille    = 1000
+	per10k      = 10_000
+	per100k     = 100_000
+	ratingUnits = 2 // model units per rating point
 )
 
 // Weights are integer weights of three attributes; only their ratio matters.
@@ -31,7 +34,7 @@ func (w Weights) sum() int64 { return w.A + w.B + w.C }
 //   - Effective rating = rating * readiness * (1 - fatigue). Readiness comes
 //     from condition at kickoff: ConditionFloor at condition 0 rising
 //     linearly to 1 at full condition. Fatigue grows each minute a player is
-//     on the pitch by FatigueBase - Stamina*FatigueStaminaStep (per 10,000,
+//     on the pitch by FatigueBase - Stamina*FatigueStaminaStep (per 100,000,
 //     floored at 0), capped at FatigueCap. Substitutes start fresh from
 //     their own condition. Stamina has no other effect.
 //   - Team attack = role-weighted mean over outfield players of
@@ -52,13 +55,13 @@ type Params struct {
 
 	BaseChancePPM, MinChancePPM, MaxChancePPM             int64
 	BaseConversionPPM, MinConversionPPM, MaxConversionPPM int64
-	ConversionOffset                                      int64 // tenths
+	ConversionOffset                                      int64 // model units
 	HomeAdvantagePermille                                 int64
 	MentalityOwnPermille                                  [4]int64
 	MentalityConcedePermille                              [4]int64
 
-	FatigueBasePer10k, FatigueStaminaStepPer10k, FatigueCapPer10k int64
-	ConditionFloorPer10k                                          int64
+	FatigueBasePer100k, FatigueStaminaStepPer100k, FatigueCapPer100k int64
+	ConditionFloorPer10k                                             int64
 
 	AttackWeights  Weights // Finishing, Passing, Pace
 	DefenseWeights Weights // Defending, Pace, Passing
@@ -85,10 +88,10 @@ func DefaultParams() Params {
 		MentalityOwnPermille:     [4]int64{0, 800, 1000, 1200},
 		MentalityConcedePermille: [4]int64{0, 850, 1000, 1150},
 
-		FatigueBasePer10k:        30, // stamina 1: 26% by 90'; stamina 20: 9%
-		FatigueStaminaStepPer10k: 1,
-		FatigueCapPer10k:         3000,
-		ConditionFloorPer10k:     7000, // condition 2,000: -24%; 7,000: -9%
+		FatigueBasePer100k:        300, // stamina 1: 27% by 90'; stamina 100: 9%
+		FatigueStaminaStepPer100k: 2,
+		FatigueCapPer100k:         30_000,
+		ConditionFloorPer10k:      7000, // condition 20: -24%; 70: -9%
 
 		AttackWeights:  Weights{4, 4, 2},
 		DefenseWeights: Weights{6, 2, 2},
@@ -114,7 +117,7 @@ func (p Params) Validate() error {
 		return bad("base probability above 1")
 	case p.ConversionOffset <= 0 || p.HomeAdvantagePermille <= 0 || p.HomeAdvantagePermille > 4*permille:
 		return bad("offset or home advantage")
-	case p.FatigueBasePer10k < 0 || p.FatigueStaminaStepPer10k < 0 || p.FatigueCapPer10k < 0 || p.FatigueCapPer10k >= per10k:
+	case p.FatigueBasePer100k < 0 || p.FatigueStaminaStepPer100k < 0 || p.FatigueCapPer100k < 0 || p.FatigueCapPer100k >= per100k:
 		return bad("fatigue")
 	case p.ConditionFloorPer10k <= 0 || p.ConditionFloorPer10k > per10k:
 		return bad("condition floor")

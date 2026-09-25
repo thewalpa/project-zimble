@@ -8,6 +8,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/selection"
 )
@@ -188,6 +189,9 @@ func (w *World) SubmitLineup(cmd SubmitLineup) (LineupSubmitted, error) {
 	if err != nil {
 		return LineupSubmitted{}, err
 	}
+	if w.live != nil && w.live.fixture == cmd.Fixture {
+		return LineupSubmitted{}, fmt.Errorf("%w: fixture %d has kicked off live; use MatchDecision", ErrMatchInProgress, cmd.Fixture)
+	}
 	if _, err := w.lineupInput(team, cmd.Lineup, rules); err != nil {
 		return LineupSubmitted{}, err
 	}
@@ -200,6 +204,8 @@ func (w *World) SubmitLineup(cmd SubmitLineup) (LineupSubmitted, error) {
 	res := LineupSubmitted{Command: cmd.ID, Revision: w.revision, Fixture: cmd.Fixture, Team: team}
 	rec := LineupRecord{Request: cmd, Result: res}.clone()
 	w.commands[cmd.ID] = commandRecord{lineup: &rec}
+	w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindLineupSubmitted, LineupSubmitted: &events.LineupSubmitted{Fixture: cmd.Fixture, Team: team}})
+	w.publish()
 	return res, nil
 }
 

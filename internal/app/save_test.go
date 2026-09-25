@@ -65,7 +65,14 @@ func TestEverySavePointRoundTrips(t *testing.T) {
 			readyBatch(t, w)
 			return w
 		},
-		"season complete": func() *World { w := newWorld(t, 42); playSeason(t, w); mustContinue(t, w, seasonEnd(w)); return w },
+		"off-season": func() *World { w := newWorld(t, 42); playSeason(t, w); return w }, // season 2 created
+		"season 2 pending": func() *World {
+			w := newWorld(t, 42)
+			playSeason(t, w)
+			playBatches(t, w, 2)
+			readyBatch(t, w)
+			return w
+		},
 		"two leagues pending": func() *World {
 			w := twoLeagueWorld(t)
 			playBatches(t, w, 2)
@@ -181,7 +188,7 @@ func TestRestoredAllocatorsIssueFreshIDs(t *testing.T) {
 		usedTasks[task.ID] = true
 	}
 	usedPayloads := map[sim.PayloadID]bool{}
-	for _, p := range snap.Payloads {
+	for _, p := range snap.KickoffPayloads {
 		usedPayloads[p.ID] = true
 	}
 
@@ -228,7 +235,7 @@ func TestSnapshotsShareNoMutableData(t *testing.T) {
 		s.Competitions.Seasons[0].Results[0].HomeGoals = 50
 		s.Competitions.Seasons[0].Rounds[0].Status = competitions.RoundScheduled
 		s.Scheduler.Tasks[0].DueAt = 1
-		s.Payloads[0].Round.Round = 1
+		s.KickoffPayloads[0].Round.Round = 1
 		s.Leagues[0].Definition.Name = "X"
 		s.ResolveCommands[0].Request.Rounds[0].Round = 9
 		s.ResolveCommands[0].Result.Rounds[0].Round = 9
@@ -311,11 +318,11 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 		"task due before clock":      func(s *WorldSnapshot) { s.Scheduler.Now = s.Scheduler.Tasks[0].DueAt + 1 },
 		"payload allocator too low":  func(s *WorldSnapshot) { s.LastPayload = 5 },
 		"payload for unknown round": func(s *WorldSnapshot) {
-			s.Payloads[0].Round = competitions.RoundRef{Season: competitions.SeasonRef{Competition: 7, Season: 1}, Round: 1}
+			s.KickoffPayloads[0].Round = competitions.RoundRef{Season: competitions.SeasonRef{Competition: 7, Season: 1}, Round: 1}
 		},
-		"task without payload":     func(s *WorldSnapshot) { s.Payloads = s.Payloads[1:] },
-		"duplicate payload":        func(s *WorldSnapshot) { s.Payloads[1].ID = s.Payloads[0].ID },
-		"task for completed round": func(s *WorldSnapshot) { s.Payloads[0].Round.Round = 1 },
+		"task without payload":     func(s *WorldSnapshot) { s.KickoffPayloads = s.KickoffPayloads[1:] },
+		"duplicate payload":        func(s *WorldSnapshot) { s.KickoffPayloads[1].ID = s.KickoffPayloads[0].ID },
+		"task for completed round": func(s *WorldSnapshot) { s.KickoffPayloads[0].Round.Round = 1 },
 		"clock before pending kickoff": func(s *WorldSnapshot) {
 			s.Scheduler.Now = s.Competitions.Seasons[0].Rounds[3].Kickoff - 1
 		},

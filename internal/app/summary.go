@@ -3,6 +3,7 @@ package app
 import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
 
@@ -20,8 +21,8 @@ type ClubSummary struct {
 	SeniorTeam ids.TeamID
 	Players    int
 	Positions  []PositionCount // in players.Positions order
-	// Mean of players' OverallTenths, in tenths, rounded half up.
-	AverageOverallTenths int
+	// Mean of players' Overall (1..100), rounded half up.
+	AverageOverall int
 }
 
 // Summary is a derived, deterministic view of the whole world.
@@ -59,7 +60,7 @@ func (w *World) Summary() Summary {
 		for _, id := range squad {
 			p, _ := w.players.Profile(id)
 			counts[p.Position]++
-			total += p.OverallTenths()
+			total += p.Overall()
 		}
 		row := ClubSummary{
 			ID:         c.ID,
@@ -72,7 +73,7 @@ func (w *World) Summary() Summary {
 			row.Positions = append(row.Positions, PositionCount{Position: pos, Count: counts[pos]})
 		}
 		if n := len(squad); n > 0 {
-			row.AverageOverallTenths = (2*total + n) / (2 * n)
+			row.AverageOverall = (2*total + n) / (2 * n)
 		}
 		s.ClubRows = append(s.ClubRows, row)
 	}
@@ -80,15 +81,16 @@ func (w *World) Summary() Summary {
 }
 
 // SquadPlayer is a derived view of one senior-squad player, composed from
-// the registry (name), players (position, attributes) and medical
-// (condition, per 10,000).
+// the registry (name), players (position, attributes and overall, 1..100)
+// and medical (condition, 0..100).
 type SquadPlayer struct {
-	Player        ids.PlayerID
-	Name          string
-	Position      players.Position
-	Attributes    players.Attributes
-	OverallTenths int
-	Condition     uint16
+	Player     ids.PlayerID
+	Name       string
+	Position   players.Position
+	Attributes players.Attributes
+	Overall    int
+	Condition  uint8
+	Contract   employment.Contract
 }
 
 // Squad returns a club's senior squad in ascending player ID order, or false
@@ -105,9 +107,12 @@ func (w *World) Squad(club ids.ClubID) ([]SquadPlayer, bool) {
 			row.Name = p.FullName()
 		}
 		if p, ok := w.players.Profile(id); ok {
-			row.Position, row.Attributes, row.OverallTenths = p.Position, p.Attributes, p.OverallTenths()
+			row.Position, row.Attributes, row.Overall = p.Position, p.Attributes, p.Overall()
 		}
 		row.Condition, _ = w.medical.Condition(id)
+		if a, ok := w.employment.Assignment(id); ok {
+			row.Contract = a.Contract
+		}
 		out = append(out, row)
 	}
 	return out, true

@@ -10,6 +10,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/medical"
@@ -83,8 +84,10 @@ func (r ResolveRecord) clone() ResolveRecord {
 
 // commandRecord is one successful command; exactly one field is set.
 type commandRecord struct {
-	resolve *ResolveRecord
-	lineup  *LineupRecord
+	resolve  *ResolveRecord
+	lineup   *LineupRecord
+	play     *PlayMatchRecord
+	decision *DecisionRecord
 }
 
 // plannedMatch is a fixture with its detached, validated match input.
@@ -116,7 +119,8 @@ type plannedMatch struct {
 //
 // Any failure before the competitions call leaves the world exactly as it
 // was; that call is itself all-or-nothing, and nothing after it can fail
-// (the condition plan was validated against the unchanged medical store).
+// (the condition and gate-receipt plans were validated against the
+// unchanged medical and finance stores).
 func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	if !validCommandID(cmd.ID) {
 		return RoundsResolved{}, fmt.Errorf("%w: zero command ID", ErrInvalidCommand)
@@ -170,12 +174,22 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	if err != nil {
 		return RoundsResolved{}, fmt.Errorf("app: match exposure: %w", err)
 	}
+	gates, err := w.gatePostings(plan)
+	if err != nil {
+		return RoundsResolved{}, err
+	}
+	receipts, err := w.finance.Plan(w.Now(), gates)
+	if err != nil {
+		return RoundsResolved{}, fmt.Errorf("app: gate receipts: %w", err)
+	}
 	if err := w.competitions.CompleteRounds(rounds, scores, w.Now()); err != nil {
 		return RoundsResolved{}, fmt.Errorf("app: record results: %w", err)
 	}
 
 	// Committed. Nothing below can fail.
 	w.applyMedical(wear)
+	w.applyFinance(receipts)
+	w.live = nil // a live match is now finished and official
 	w.revision++
 	res := RoundsResolved{Command: cmd.ID, Revision: w.revision, At: w.Now(), Rounds: rounds}
 	for i, p := range plan {
@@ -187,6 +201,15 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	}
 	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
 	w.commands[cmd.ID] = commandRecord{resolve: &rec}
+	for _, p := range plan {
+		r, _ := w.competitions.Result(p.fixture.ID)
+		w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindMatchCompleted, MatchCompleted: &events.MatchCompleted{
+			Fixture: r.Fixture, Competition: r.Season.Competition, Season: uint16(r.Season.Season), Round: uint8(r.Round),
+			Home: r.Home, Away: r.Away, HomeGoals: r.HomeGoals, AwayGoals: r.AwayGoals,
+		}})
+	}
+	w.emitLedger(w.Now(), commandCause(cmd.ID), receipts)
+	w.publish()
 	return res, nil
 }
 
@@ -354,17 +377,27 @@ func roleOf(p players.Position) matches.Role {
 }
 
 // simulateBatch runs every planned match to full time in fixture ID order,
-// each with its own random stream. It never touches world state; outcomes
+// each with its own random stream. The manager's live match, if any, is
+// replayed from its stops and continued from there. It never touches world state; outcomes
 // are copied out of the reused step buffer.
 func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, error) {
 	outcomes := make([]matches.MatchOutcome, len(plan))
 	var dst matches.MatchStepResult
 	for i := range plan {
 		p := &plan[i]
-		rs := matches.FixtureRandom(w.seed, w.engine.ID(), w.engine.Version(), p.fixture.ID)
-		session, err := w.engine.Start(&p.input, rs)
-		if err != nil {
-			return nil, fmt.Errorf("app: start fixture %d: %w", p.fixture.ID, err)
+		var session matches.MatchSession
+		if w.live != nil && w.live.fixture == p.fixture.ID {
+			// The manager's live match continues from its recorded stops.
+			r, err := w.replay(*p, w.live.stops)
+			if err != nil {
+				return nil, fmt.Errorf("app: resume fixture %d: %w", p.fixture.ID, err)
+			}
+			session = r.session
+		} else {
+			var err error
+			if session, err = w.engine.Start(&p.input, matchRandom(w, p.fixture.ID)); err != nil {
+				return nil, fmt.Errorf("app: start fixture %d: %w", p.fixture.ID, err)
+			}
 		}
 		finished := false
 		// Regulation needs two calls: to half time, then to full time. The

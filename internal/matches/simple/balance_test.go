@@ -39,7 +39,7 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 // this guards against broken signs and gross miscalibration, not tuning.
 func TestModelTrends(t *testing.T) {
 	const n = 2000
-	even := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 12, 12) })
+	even := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 60, 60) })
 	avg := float64(even.goals) / n
 	t.Logf("equal teams: %.2f goals/match, home %d, away %d, draws %d", avg, even.homeWins, even.awayWins, n-even.homeWins-even.awayWins)
 	if avg < 2.0 || avg > 3.5 {
@@ -49,7 +49,7 @@ func TestModelTrends(t *testing.T) {
 		t.Errorf("no home advantage: %d home wins, %d away wins", even.homeWins, even.awayWins)
 	}
 
-	mismatch := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 9, 15) })
+	mismatch := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 45, 75) })
 	t.Logf("weak home v strong away: home %d, away %d", mismatch.homeWins, mismatch.awayWins)
 	if mismatch.awayWins < n*55/100 {
 		t.Errorf("stronger away team won %d/%d, want at least 55%%", mismatch.awayWins, n)
@@ -57,7 +57,7 @@ func TestModelTrends(t *testing.T) {
 
 	withMentality := func(m matches.Mentality) func(ids.FixtureID) *matches.MatchInput {
 		return func(f ids.FixtureID) *matches.MatchInput {
-			in := input(f, 12, 12)
+			in := input(f, 60, 60)
 			in.Home.Tactics.Mentality, in.Away.Tactics.Mentality = m, m
 			return in
 		}
@@ -72,7 +72,7 @@ func TestModelTrends(t *testing.T) {
 
 // Fresh legs matter: replacing tired low-stamina players changes chances.
 func TestFatigueReducesEffectiveRatings(t *testing.T) {
-	s := start(t, input(1, 12, 12))
+	s := start(t, input(1, 60, 60))
 	p := &s.teams[0].players[9]
 	s.minute = 1
 	fresh := s.effective(p, p.r.Finishing)
@@ -92,9 +92,9 @@ func TestFatigueReducesEffectiveRatings(t *testing.T) {
 // fresh substitute of equal ability outperforms a tired starter.
 func TestConditionReducesPerformance(t *testing.T) {
 	const n = 2000
-	tired := func(condition uint16) func(ids.FixtureID) *matches.MatchInput {
+	tired := func(condition uint8) func(ids.FixtureID) *matches.MatchInput {
 		return func(f ids.FixtureID) *matches.MatchInput {
-			in := input(f, 12, 12)
+			in := input(f, 60, 60)
 			for i := range in.Home.Starters {
 				in.Home.Starters[i].Condition = condition
 			}
@@ -102,26 +102,26 @@ func TestConditionReducesPerformance(t *testing.T) {
 		}
 	}
 	fresh := simulate(t, n, tired(matches.MaxCondition))
-	weary := simulate(t, n, tired(4_000))
-	t.Logf("home wins: fresh %d, at condition 4000 %d", fresh.homeWins, weary.homeWins)
+	weary := simulate(t, n, tired(40))
+	t.Logf("home wins: fresh %d, at condition 40 %d", fresh.homeWins, weary.homeWins)
 	if weary.homeWins >= fresh.homeWins || weary.awayWins <= fresh.awayWins {
 		t.Errorf("condition has no effect: home wins %d -> %d, away wins %d -> %d",
 			fresh.homeWins, weary.homeWins, fresh.awayWins, weary.awayWins)
 	}
 
-	in := input(1, 12, 12)
-	in.Home.Starters[9].Condition = 5_000
+	in := input(1, 60, 60)
+	in.Home.Starters[9].Condition = 50
 	s := start(t, in)
 	s.minute = 1
 	low, full := &s.teams[0].players[9], &s.teams[0].players[10]
-	if s.effective(low, 12) >= s.effective(full, 12) {
+	if s.effective(low, 60) >= s.effective(full, 60) {
 		t.Fatal("a tired player's effective rating is not lower")
 	}
 }
 
 func TestConditionOutOfRangeIsRejected(t *testing.T) {
-	for _, c := range []uint16{0, matches.MaxCondition + 1} {
-		in := input(1, 12, 12)
+	for _, c := range []uint8{0, matches.MaxCondition + 1} {
+		in := input(1, 60, 60)
 		in.Away.Bench[2].Condition = c
 		e, err := New(DefaultParams())
 		if err != nil {

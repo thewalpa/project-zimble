@@ -96,27 +96,32 @@ type Table struct {
 	Rows            []TableRow // ranked
 }
 
-// Tables returns each league's standings, derived from official results, in
-// competition ID order. Read-only.
+// Tables returns each league's current-season standings, derived from
+// official results, in competition ID order. Read-only. Table gives any
+// season's.
 func (w *World) Tables() []Table {
 	out := make([]Table, 0, len(w.leagues))
 	for _, l := range w.leagues {
-		t := Table{
-			Competition: l.def.ID, CompetitionName: l.def.Name, Season: l.season.Season,
-			Complete: w.competitions.SeasonCompleted(l.season),
-		}
-		for _, r := range w.competitions.Rounds(l.season) {
-			t.Rounds++
-			if r.Status == competitions.RoundCompleted {
-				t.RoundsCompleted++
-			}
-		}
-		for _, st := range w.competitions.Standings(l.season) {
-			t.Rows = append(t.Rows, TableRow{Standing: st, Label: w.teamLabel(st.Team)})
-		}
-		out = append(out, t)
+		out = append(out, w.table(l.def.Name, l.season))
 	}
 	return out
+}
+
+func (w *World) table(name string, ref competitions.SeasonRef) Table {
+	t := Table{
+		Competition: ref.Competition, CompetitionName: name, Season: ref.Season,
+		Complete: w.competitions.SeasonCompleted(ref),
+	}
+	for _, r := range w.competitions.Rounds(ref) {
+		t.Rounds++
+		if r.Status == competitions.RoundCompleted {
+			t.RoundsCompleted++
+		}
+	}
+	for _, st := range w.competitions.Standings(ref) {
+		t.Rows = append(t.Rows, TableRow{Standing: st, Label: w.teamLabel(st.Team)})
+	}
+	return t
 }
 
 func (w *World) teamLabel(id ids.TeamID) TeamLabel {

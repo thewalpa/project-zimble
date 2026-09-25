@@ -191,6 +191,11 @@ func TestRecoveryDoesNotDependOnContinueChunking(t *testing.T) {
 	mustContinue(t, many, target)
 	a, b := one.Snapshot(), many.Snapshot()
 	a.Revision, b.Revision = 0, 0
+	for _, s := range []*WorldSnapshot{&a, &b} { // events carry their commit's revision
+		for i := range s.Events {
+			s.Events[i].Revision, s.Events[i].Sequence = 0, 0
+		}
+	}
 	if !reflect.DeepEqual(a, b) {
 		t.Fatal("chunked Continue gives a different world")
 	}
@@ -214,7 +219,7 @@ func TestSquadView(t *testing.T) {
 		case i > 0 && squad[i-1].Player >= p.Player:
 			t.Fatal("squad not in ascending ID order")
 		case a.Team != team || p.Name != reg.FullName() || p.Position != prof.Position ||
-			p.Attributes != prof.Attributes || p.OverallTenths != prof.OverallTenths() || p.Condition != c:
+			p.Attributes != prof.Attributes || p.Overall != prof.Overall() || p.Condition != c:
 			t.Fatalf("row %+v disagrees with the owning modules", p)
 		}
 		if p.Condition < medical.MaxCondition {

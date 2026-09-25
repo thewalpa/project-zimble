@@ -40,9 +40,11 @@ import (
 	"os"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/storage"
@@ -218,12 +220,53 @@ func printStatus(out io.Writer, w *app.World) error {
 	} else {
 		fmt.Fprintln(out, "pending: none")
 	}
+	for _, h := range w.History() {
+		if h.Champion != nil {
+			fmt.Fprintf(out, "champion: %s season %d: %s (%s)\n", h.CompetitionName, h.Season.Season, h.Champion.ClubName, h.Champion.ShortName)
+		}
+	}
 	for _, t := range w.Tables() {
 		if err := printTable(out, t); err != nil {
 			return err
 		}
 	}
-	return printSquad(out, w)
+	if err := printSquad(out, w); err != nil {
+		return err
+	}
+	return printInbox(out, w, 10)
+}
+
+// printInbox lists the newest n inbox messages, oldest first.
+func printInbox(out io.Writer, w *app.World, n int) error {
+	items := w.Inbox()
+	if len(items) == 0 {
+		return nil
+	}
+	cal := w.Calendar()
+	fmt.Fprintf(out, "\nInbox (latest %d of %d)\n", min(n, len(items)), len(items))
+	for _, m := range items[max(len(items)-n, 0):] {
+		venue := "away"
+		if m.Home {
+			venue = "home"
+		}
+		fmt.Fprintf(out, "  %s  ", cal.Format(m.At))
+		switch m.Kind {
+		case inbox.KindMatchday:
+			fmt.Fprintf(out, "matchday: %s round %d, F%d v %s (%s)\n",
+				m.CompetitionName, m.Round, m.Fixture, m.OpponentLabel.ClubName, venue)
+		case inbox.KindResult:
+			fmt.Fprintf(out, "result: F%d %d-%d v %s (%s)\n", m.Fixture, m.Goals[0], m.Goals[1], m.OpponentLabel.ClubName, venue)
+		case inbox.KindSeasonEnded:
+			fmt.Fprintf(out, "%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
+			if m.Position > 0 {
+				fmt.Fprintf(out, "; your position: %d", m.Position)
+			}
+			fmt.Fprintln(out)
+		case inbox.KindSeasonStarted:
+			fmt.Fprintf(out, "%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
+		}
+	}
+	return nil
 }
 
 // printSquad lists the managed club's squad with condition, if any.
@@ -234,10 +277,10 @@ func printSquad(out io.Writer, w *app.World) error {
 	}
 	squad, _ := w.Squad(club)
 	fmt.Fprintf(out, "\nSquad (condition: 100%% is fully fit)\n")
-	fmt.Fprintf(out, "%4s  %-3s %-24s %5s %8s\n", "ID", "POS", "NAME", "OVR", "COND")
+	fmt.Fprintf(out, "%4s  %-3s %-24s %5s %6s\n", "ID", "POS", "NAME", "OVR", "COND")
 	for _, p := range squad {
-		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %3d.%d %5d.%d%%\n", p.Player, p.Position, p.Name,
-			p.OverallTenths/10, p.OverallTenths%10, p.Condition/100, p.Condition%100/10)
+		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %5d %5d%%\n", p.Player, p.Position, p.Name,
+			p.Overall, p.Condition)
 		if err != nil {
 			return err
 		}
@@ -261,7 +304,7 @@ func printSummary(out io.Writer, s app.Summary) error {
 		for _, pc := range c.Positions {
 			fmt.Fprintf(out, " %3d", pc.Count)
 		}
-		_, err := fmt.Fprintf(out, " %3d.%d\n", c.AverageOverallTenths/10, c.AverageOverallTenths%10)
+		_, err := fmt.Fprintf(out, " %5d\n", c.AverageOverall)
 		if err != nil {
 			return err
 		}
@@ -332,16 +375,20 @@ func demoContinue(out io.Writer, w *app.World) error {
 	return err
 }
 
-// playRounds alternates Continue and ResolveRounds, resolving at most limit
-// batches (all remaining if limit < 0), printing each, then prints the
-// tables. With a mentality, it first submits the suggested lineup with that
+// playRounds alternates Continue and ResolveRounds within the leagues'
+// current seasons, resolving at most limit batches (all remaining if
+// limit < 0), printing each, then prints those seasons' tables. It stops a
+// day after their last kickoff, past the season end that creates the next
+// seasons, so a later run plays the next season. With a mentality, it first submits the suggested lineup with that
 // mentality for each of the managed club's fixtures. Command IDs continue
 // after any recorded in the world, so a loaded career never reuses one.
 func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mentality) error {
 	cal := w.Calendar()
 	end := w.Now()
+	var seasons []competitions.SeasonRef
 	for _, s := range w.Schedules() {
 		end = max(end, s.Rounds[len(s.Rounds)-1].Kickoff+sim.GameInstant(sim.Day))
+		seasons = append(seasons, competitions.SeasonRef{Competition: s.Competition, Season: s.Season})
 	}
 	fmt.Fprintf(out, "\nPlaying to %s\n", cal.Format(end))
 	for played := 0; limit < 0 || played < limit; played++ {
@@ -390,7 +437,8 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 			}
 		}
 	}
-	for _, t := range w.Tables() {
+	for _, ref := range seasons {
+		t, _ := w.Table(ref)
 		if err := printTable(out, t); err != nil {
 			return err
 		}

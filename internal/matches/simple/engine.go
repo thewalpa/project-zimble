@@ -78,7 +78,7 @@ func (e *Engine) Start(input *matches.MatchInput, rs matches.RandomState) (match
 }
 
 // readiness is the per-10,000 multiplier for a kickoff condition.
-func (e *Engine) readiness(condition uint16) int64 {
+func (e *Engine) readiness(condition uint8) int64 {
 	floor := e.p.ConditionFloorPer10k
 	return floor + (per10k-floor)*int64(condition)/matches.MaxCondition
 }

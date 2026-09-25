@@ -345,7 +345,7 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	}
 	changed := 0
 	for i := range got {
-		if !strings.Contains(got[i], "DUN") {
+		if !strings.Contains(got[i], "QUI") {
 			if got[i] != want[i] {
 				t.Fatalf("unmanaged match changed:\n%s\n%s", got[i], want[i])
 			}
@@ -371,12 +371,18 @@ func TestManagedCareerSaveLoad(t *testing.T) {
 	if err != nil || !strings.Contains(status, "\nmanaging club 3: ") {
 		t.Fatalf("status of a managed save (err %v):\n%s", err, status)
 	}
+	// The inbox shows the latest of the manager's messages.
+	inboxSection := section(t, status, "Inbox (latest 10 of ")
+	if !strings.Contains(inboxSection, "result: F") || !strings.Contains(inboxSection, "matchday: Founders League round 7,") ||
+		strings.Count(inboxSection, "\n  ") != 10 {
+		t.Fatalf("inbox section:\n%s", inboxSection)
+	}
 	// The status lists the squad with condition; some starters are tired.
 	var rows, tired int
 	for _, line := range strings.Split(section(t, status, "Squad (condition"), "\n")[3:] {
 		if strings.HasSuffix(line, "%") {
 			rows++
-			if !strings.HasSuffix(line, " 100.0%") {
+			if !strings.HasSuffix(line, " 100%") {
 				tired++
 			}
 		}
@@ -412,5 +418,48 @@ func TestManagementOptionsAreValidated(t *testing.T) {
 		if _, err := runCLI(t, args...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%v: err = %v, want %q", args, err, want)
 		}
+	}
+}
+
+// -season plays only the current season; the saved career then continues
+// with the next season, a year later, with new fixture IDs.
+func TestSecondSeasonAfterSaveAndLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	first, err := runCLI(t, "-seed", "42", "-season", "-save", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(first, "Final table: Founders League season 1 (14/14 rounds)") || strings.Contains(first, "season 2") {
+		t.Fatalf("first run:\n%s", first)
+	}
+	status, err := runCLI(t, "-load", path)
+	if err != nil || !strings.Contains(status, "\nchampion: Founders League season 1: ") ||
+		!strings.Contains(status, "Founders League season 1 ended: champion ") ||
+		!strings.Contains(status, "Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC") ||
+		!strings.Contains(status, "Table: Founders League season 2 (0/14 rounds)") {
+		t.Fatalf("off-season status (err %v):\n%s", err, status)
+	}
+	second, err := runCLI(t, "-load", path, "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"\nRound 1  Sat 2026-08-08 15:00 UTC", "\n  F57 ", "\n  F112 ",
+		"Final table: Founders League season 2 (14/14 rounds)", "\nChampion: ",
+	} {
+		if !strings.Contains(second, want) {
+			t.Fatalf("second season output missing %q:\n%s", want, second)
+		}
+	}
+	if strings.Contains(second, "\n  F56 ") || strings.Contains(second, "\n  F113 ") {
+		t.Fatal("second season printed another season's fixtures")
+	}
+	if strings.Count(second, "\nRound ") != 14 {
+		t.Fatal("second run did not play exactly 14 rounds")
+	}
+	// -rounds never crosses into the next season.
+	capped, err := runCLI(t, "-seed", "42", "-rounds", "20")
+	if err != nil || strings.Count(capped, "\nRound ") != 14 || !strings.Contains(capped, "Final table: Founders League season 1") {
+		t.Fatalf("-rounds 20 (err %v):\n%s", err, capped)
 	}
 }

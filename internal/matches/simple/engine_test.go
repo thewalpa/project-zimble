@@ -131,7 +131,7 @@ func checkScoreAndParticipation(t *testing.T, in *matches.MatchInput, final matc
 
 func TestCompleteMatchInvariantsAcrossFixtures(t *testing.T) {
 	for fixture := ids.FixtureID(1); fixture <= 300; fixture++ {
-		in := input(fixture, 8+int(fixture)%9, 16-int(fixture)%9)
+		in := input(fixture, 40+5*(int(fixture)%9), 80-5*(int(fixture)%9))
 		cmds := standardCommands
 		if fixture%2 == 0 {
 			cmds = nil
@@ -142,16 +142,16 @@ func TestCompleteMatchInvariantsAcrossFixtures(t *testing.T) {
 }
 
 func TestSameInputSeedAndCommandsGiveSameMatch(t *testing.T) {
-	in := input(7, 12, 12)
+	in := input(7, 60, 60)
 	e1, f1 := run(t, start(t, in), []uint16{30, 45, 70, 90}, standardCommands)
-	e2, f2 := run(t, start(t, input(7, 12, 12)), []uint16{30, 45, 70, 90}, standardCommands)
+	e2, f2 := run(t, start(t, input(7, 60, 60)), []uint16{30, 45, 70, 90}, standardCommands)
 	if !reflect.DeepEqual(e1, e2) || !reflect.DeepEqual(f1, f2) {
 		t.Fatal("identical input, seed and commands produced different matches")
 	}
 	// A different fixture uses a different stream.
 	differs := false
 	for fixture := ids.FixtureID(8); fixture < 20 && !differs; fixture++ {
-		in := input(7, 12, 12)
+		in := input(7, 60, 60)
 		s, err := engine(t).Start(in, rs(fixture))
 		if err != nil {
 			t.Fatal(err)
@@ -178,7 +178,7 @@ func TestAdvanceChunkingDoesNotChangeTheMatch(t *testing.T) {
 	var wantEvents []matches.MatchEvent
 	var want matches.MatchStepResult
 	for _, name := range []string{"command stops only", "every minute", "irregular", "overshooting"} {
-		events, final := run(t, start(t, input(3, 13, 11)), plans[name], standardCommands)
+		events, final := run(t, start(t, input(3, 65, 55)), plans[name], standardCommands)
 		// The last step of a chunked run only holds its own events.
 		final.Events = nil
 		if wantEvents == nil {
@@ -192,7 +192,7 @@ func TestAdvanceChunkingDoesNotChangeTheMatch(t *testing.T) {
 }
 
 func TestHalfTimeIsAMandatoryStop(t *testing.T) {
-	s := start(t, input(1, 12, 12))
+	s := start(t, input(1, 60, 60))
 	var dst matches.MatchStepResult
 	advance(t, s, 90, &dst)
 	if dst.Position != (matches.MatchPosition{Period: matches.HalfTime, Minute: 45}) ||
@@ -217,7 +217,7 @@ func TestHalfTimeIsAMandatoryStop(t *testing.T) {
 }
 
 func TestSubstitutionUpdatesParticipationAndView(t *testing.T) {
-	in := input(4, 12, 12)
+	in := input(4, 60, 60)
 	s := start(t, in)
 	var dst matches.MatchStepResult
 	advance(t, s, 60, &dst)
@@ -250,7 +250,7 @@ func TestSubstitutionUpdatesParticipationAndView(t *testing.T) {
 }
 
 func TestIllegalCommandsLeaveSessionUnchanged(t *testing.T) {
-	s := start(t, input(5, 12, 12))
+	s := start(t, input(5, 60, 60))
 	reject := func(name string, cmd matches.MatchCommand, want error) {
 		t.Helper()
 		before := capture(s)
@@ -305,8 +305,8 @@ func TestIllegalCommandsLeaveSessionUnchanged(t *testing.T) {
 // A session that rejected commands plays out exactly like one that never
 // received them.
 func TestRejectedCommandsDoNotAffectTheMatch(t *testing.T) {
-	clean := start(t, input(6, 12, 12))
-	noisy := start(t, input(6, 12, 12))
+	clean := start(t, input(6, 60, 60))
+	noisy := start(t, input(6, 60, 60))
 	var a, b matches.MatchStepResult
 	for _, stop := range []uint16{20, 45, 90, 90} {
 		advance(t, clean, stop, &a)
@@ -320,7 +320,7 @@ func TestRejectedCommandsDoNotAffectTheMatch(t *testing.T) {
 }
 
 func TestFinishedSessionBehavior(t *testing.T) {
-	s := start(t, input(9, 12, 12))
+	s := start(t, input(9, 60, 60))
 	_, final := run(t, s, fullMatch, nil)
 
 	var dst matches.MatchStepResult
@@ -346,7 +346,7 @@ func TestFinishedSessionBehavior(t *testing.T) {
 }
 
 func TestInvalidAdvanceLeavesSessionAndOutputUnchanged(t *testing.T) {
-	s := start(t, input(10, 12, 12))
+	s := start(t, input(10, 60, 60))
 	var dst matches.MatchStepResult
 	advance(t, s, 30, &dst)
 	saved, before := cloneStep(dst), capture(s)
@@ -378,12 +378,12 @@ func TestStartValidatesInput(t *testing.T) {
 		"duplicate across":  func(in *matches.MatchInput) { in.Away.Starters[4].Player = in.Home.Starters[4].Player },
 		"zero player":       func(in *matches.MatchInput) { in.Away.Bench[2].Player = 0 },
 		"rating 0":          func(in *matches.MatchInput) { in.Home.Starters[5].Ratings.Pace = 0 },
-		"rating 21":         func(in *matches.MatchInput) { in.Away.Bench[6].Ratings.Stamina = 21 },
+		"rating 101":        func(in *matches.MatchInput) { in.Away.Bench[6].Ratings.Stamina = 101 },
 		"invalid role":      func(in *matches.MatchInput) { in.Home.Starters[5].Role = 9 },
 		"invalid mentality": func(in *matches.MatchInput) { in.Away.Tactics.Mentality = 0 },
 	}
 	for name, mutate := range cases {
-		in := input(1, 12, 12)
+		in := input(1, 60, 60)
 		mutate(in)
 		if _, err := engine(t).Start(in, rs(1)); !errors.Is(err, matches.ErrInvalidInput) {
 			t.Errorf("%s: err = %v", name, err)
@@ -399,7 +399,7 @@ func TestStartValidatesInput(t *testing.T) {
 	} {
 		r := rs(1)
 		mutate(&r)
-		if _, err := engine(t).Start(input(1, 12, 12), r); !errors.Is(err, matches.ErrInvalidInput) {
+		if _, err := engine(t).Start(input(1, 60, 60), r); !errors.Is(err, matches.ErrInvalidInput) {
 			t.Errorf("random state %s: err = %v", name, err)
 		}
 	}
@@ -414,7 +414,7 @@ func TestParamsValidation(t *testing.T) {
 		"chance above 1":      func(p *Params) { p.MaxChancePPM = ppm + 1 },
 		"min above max":       func(p *Params) { p.MinConversionPPM = p.MaxConversionPPM + 1 },
 		"zero offset":         func(p *Params) { p.ConversionOffset = 0 },
-		"fatigue cap 100%":    func(p *Params) { p.FatigueCapPer10k = per10k },
+		"fatigue cap 100%":    func(p *Params) { p.FatigueCapPer100k = per100k },
 		"zero attack weights": func(p *Params) { p.AttackWeights = Weights{} },
 		"zero mentality":      func(p *Params) { p.MentalityOwnPermille[matches.Attacking] = 0 },
 		"zero forward shots":  func(p *Params) { p.ShotShare[matches.Forward] = 0 },
@@ -435,7 +435,7 @@ func TestCapabilitiesAreAdvertised(t *testing.T) {
 	if e.Capabilities() != want || e.ID() != EngineID || e.Version() != ModelVersion {
 		t.Fatalf("engine %s v%d capabilities %+v", e.ID(), e.Version(), e.Capabilities())
 	}
-	s := start(t, input(1, 12, 12))
+	s := start(t, input(1, 60, 60))
 	if _, err := s.Checkpoint(); !errors.Is(err, matches.ErrUnsupported) {
 		t.Fatalf("Checkpoint: %v", err)
 	}

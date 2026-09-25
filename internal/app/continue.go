@@ -9,6 +9,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
@@ -21,6 +22,9 @@ const (
 	// (PayloadID 0) and reschedules itself a day later, so exactly one is
 	// always queued, due in (Now, Now+Day] on a whole day since the epoch.
 	taskRecovery sim.TaskKind = 2
+	// taskSeasonEnd closes a league season and creates the next one; its
+	// payload record names the ending season (see scheduleSeasonEnd).
+	taskSeasonEnd sim.TaskKind = 3
 )
 
 // ErrTargetBeforeNow is returned by Continue for a target earlier than Now.
@@ -73,7 +77,9 @@ func (w *World) Calendar() sim.Calendar { return w.calendar }
 //     without advancing time or running tasks.
 //   - Otherwise runs due task cohorts in (DueAt, Phase, StableOrder, ID)
 //     order. A recovery cohort (daily, Preparation phase) restores every
-//     player's condition and does not interrupt. A kickoff cohort (every round kickoff task sharing an instant and
+//     player's condition and does not interrupt; nor does a season-end
+//     cohort, which creates each ending league's next season. A kickoff
+//     cohort (every round kickoff task sharing an instant and
 //     phase) is dispatched atomically: its rounds become awaiting results, the
 //     clock moves to the kickoff and FixtureRoundReady is returned.
 //   - If nothing interrupts, the clock moves to until and ReachedTarget is
@@ -92,10 +98,22 @@ func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 	if ready, ok := w.pendingRounds(); ok {
 		return ready, nil
 	}
-	nowBefore, queued := w.Now(), w.scheduler.Len()
-	stopped, err := w.scheduler.RunUntil(until, w.handleCohort)
-	if w.Now() != nowBefore || w.scheduler.Len() != queued {
+	nowBefore, committed := w.Now(), false
+	stopped, err := w.scheduler.RunUntil(until, func(at sim.GameInstant, cohort []sim.Task) (bool, error) {
+		staged := len(w.outbox)
+		stop, err := w.handleCohort(at, cohort)
+		if err != nil {
+			w.outbox = w.outbox[:staged] // handlers emit only after committing; kept as a guard
+			return false, err
+		}
+		committed = true
+		return stop, nil
+	})
+	// Cohorts committed before any failure stay committed and become
+	// visible, with their events, at one new revision.
+	if w.Now() != nowBefore || committed {
 		w.revision++
+		w.publish()
 	}
 	if err != nil {
 		return nil, err
@@ -140,6 +158,10 @@ func (w *World) handleCohort(at sim.GameInstant, cohort []sim.Task) (bool, error
 		return true, w.kickoff(at, cohort)
 	case taskRecovery:
 		return false, w.recover(at, cohort)
+	case taskSeasonEnd:
+		return false, w.endSeasons(at, cohort)
+	case taskWages:
+		return false, w.payWages(at, cohort)
 	}
 	return false, fmt.Errorf("app: task %d has unknown kind %d", cohort[0].ID, kind)
 }
@@ -160,7 +182,15 @@ func (w *World) kickoff(at sim.GameInstant, cohort []sim.Task) error {
 		return fmt.Errorf("app: kickoff at %d: %w", at, err)
 	}
 	for _, t := range cohort {
+		ref := w.payloads[t.PayloadID]
 		delete(w.payloads, t.PayloadID)
+		info, _ := w.competitions.Round(ref)
+		started := &events.RoundStarted{Competition: ref.Season.Competition, Season: uint16(ref.Season.Season), Round: uint8(ref.Round)}
+		for _, id := range info.Fixtures {
+			f, _ := w.competitions.Fixture(id)
+			started.Fixtures = append(started.Fixtures, events.Pairing{Fixture: f.ID, Home: f.Home, Away: f.Away})
+		}
+		w.emit(at, taskCause(t.ID), events.Event{Kind: events.KindRoundStarted, RoundStarted: started})
 	}
 	return nil
 }
@@ -251,6 +281,9 @@ func (w *World) validateSchedule() []error {
 	payloadUses := map[sim.PayloadID]int{}
 	recoveries := 0
 	for _, t := range w.scheduler.Pending() {
+		if t.Kind == taskSeasonEnd || t.Kind == taskWages {
+			continue // validateSeasons, validateFinance
+		}
 		if t.Kind == taskRecovery {
 			recoveries++
 			if t.PayloadID != 0 || t.Phase != sim.PhasePreparation || t.DueAt <= w.Now() ||

@@ -22,9 +22,9 @@ const (
 	HalfTimeMinute    = 45
 	RegulationMinutes = 90
 	MinRating         = 1
-	MaxRating         = 20
-	// MaxCondition is full fitness; condition is per 10,000 and at least 1.
-	MaxCondition = 10_000
+	MaxRating         = 100
+	// MaxCondition is full fitness; condition is 1..100 in a match input.
+	MaxCondition = 100
 )
 
 var (
@@ -72,7 +72,7 @@ const (
 
 func (r Role) Valid() bool { return r >= Goalkeeper && r <= Forward }
 
-// Ratings are a detached copy of a player's attributes on the 1..20 scale.
+// Ratings are a detached copy of a player's attributes on the 1..100 scale.
 type Ratings struct {
 	Goalkeeping, Defending, Passing, Finishing, Pace, Stamina uint8
 }
@@ -92,7 +92,7 @@ type PlayerInput struct {
 	Player    ids.PlayerID
 	Role      Role
 	Ratings   Ratings
-	Condition uint16
+	Condition uint8
 }
 
 // Mentality is the supported tactical choice.

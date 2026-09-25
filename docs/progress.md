@@ -751,16 +751,444 @@ Condition is an integer per 10,000.
 - There's no per-player match history; minutes played aren't stored outside the drain they cause.
 - Condition can't be set or influenced by the manager, except by choosing who plays.
 
-## Next task: season rollover
+## Milestone 9: season rollover (done)
 
-Let a career reach a second season without resetting identities. At the end of a league season:
-- record its final standings and champion as history, owned by competitions or a small history store (decide deliberately);
-- create the next season's `SeasonRef` with new fixtures, drawn from its own `(seed, competition, season)` stream, and a first kickoff a fixed interval after the previous season;
-- schedule its kickoffs.
+A career now continues past its first season. After the last round is resolved, a season-end task creates each league's next season: the same entrants, a new draw and new fixture IDs, starting 52 weeks after the previous season's first kickoff (season 2: Sat 2026-08-08 15:00 UTC). Past seasons stay in the store, and their tables and champions remain queryable. Condition recovery continues through the off-season.
 
-Do this from a task at a defined instant (for example a season-end task in the Consequences phase), not inside `ResolveRounds`. Condition and recovery continue across the break. Prove the following:
-- two seasons play through `Continue`/`ResolveRounds` with unique fixture IDs;
-- a save in the off-season continues identically;
-- the CLI `-season` plays only the current season.
+```sh
+go run ./cmd/simulate -seed 42 -season -save career.json   # season 1
+go run ./cmd/simulate -load career.json                     # off-season status: season 1 champion, empty season 2 table
+go run ./cmd/simulate -load career.json -season             # season 2 (fixtures F57-F112)
+```
 
-Other open candidates: user in-match decisions (half-time substitutions and mentality for the user's match), an inbox, and auto-resolving batches without user fixtures.
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/competitions` | `NewSeason`, `CreateLeagueSeasons` (all-or-nothing batch, canonical order); `CreateLeagueSeason` wraps a one-season batch |
+| `internal/content` | `League.SeasonInterval` (default 52 weeks), `League.Rounds()`; `Validate` requires the next season to start after the last kickoff and at least 2 entrants. `LeagueVersion` = 2 |
+| `internal/app` | Task kind `taskSeasonEnd` (3) with `SeasonEndPayload` records; `endSeasons`; `validateSeasons`; `Table(season)`, `History()` (`SeasonRecord`); `Tables()` stays current-season |
+| `internal/app` (save) | `Payloads` renamed `KickoffPayloads`; `SeasonEndPayloads` added (IDs unique across both lists, one allocator) |
+| `internal/storage` | `SchemaVersion` = 4 |
+| `cmd/simulate` | `-season` and `-rounds` play only the current season and print that season's tables; status lists past champions |
+
+The world fingerprint, schedule hash and the season-1 golden `9b3259c6…` are unchanged: rollover doesn't touch season 1. The content fingerprint changes because the league definition has a new field.
+
+### Decisions
+
+- **When the season ends.** The season-end task is due at the season's last kickoff, in the Consequences phase, with `StableOrder` = competition ID.
+  - That's the same instant as the last round, but later in the phase order. Because `Continue` runs nothing while a round awaits results, the task can only run after the last round is resolved.
+  - The handler rejects an incomplete season anyway, as a guard.
+  - It doesn't interrupt `Continue`. After the last `ResolveRounds`, the next `Continue`, even to the same instant, runs it.
+- **What it does**, per ending season in the cohort:
+  - checks the payload, that the season is the league's current one and that it is complete;
+  - takes the entrants from the ending season;
+  - sets the first kickoff to the previous first kickoff + `SeasonInterval`, and rejects anything invalid or not in the future;
+  - creates every next season in one `CreateLeagueSeasons` call.
+
+  Only then does it delete the consumed payloads, advance each league's current season and schedule the new kickoff tasks and the next season-end task. That scheduling can't fail (kickoffs are validated and lie after this instant), so a failure there panics as a broken invariant.
+- **Atomic batches.** Leagues whose seasons end at the same instant roll over as one cohort, and `CreateLeagueSeasons` makes their creation all-or-nothing. Seasons are created, and fixture IDs allocated, in (competition, season) order.
+- **Draws.** Each season has its own stream `(seed, "competitions/fixtures", ScheduleVersion, competition, season)`, as before. Season 2 is a new draw, not a copy of season 1.
+- **History is derived, not stored.** Ending a season records nothing new; its fixtures and results stay in `competitions`, and `Table(ref)` and `History()` derive standings and champions on demand. This keeps one owner per fact and avoids a copy that could drift from the results.
+- **Current season.** `app` keeps each league's current season (`LeagueSnapshot.Season`). `Schedules()` and `Tables()` show current seasons, so after rollover they show the new, unplayed season.
+- **CLI.** `-season` and `-rounds` capture the current seasons at the start, stop a day after their last kickoff (past the season end) and print those seasons' tables. A later run plays the next season, and `-rounds 20` stops after 14 rounds.
+- **Validation** (`validateSeasons`, run by `Validate` and on load):
+  - each league's seasons are exactly 1..current;
+  - earlier seasons are complete, have the current entrants and each starts `SeasonInterval` after the previous one;
+  - every competition season belongs to a league;
+  - each league has exactly one season-end task: for its current season, at that season's last kickoff, in the Consequences phase, with `StableOrder` equal to the competition ID;
+  - each season-end payload is used by exactly one task and names a current season.
+
+  `validateCompetitions` now checks only current-season entry rules.
+
+### Verification
+
+- **Three consecutive seasons:**
+  - season 2 starts 364 days after season 1 (Sat 2026-08-08 15:00) with the same entrants and a different draw;
+  - 14 kickoff tasks are queued, and everyone is fully fit before season 2's first kickoff;
+  - after season 2, season 3 exists; fixture IDs run 1–56, 57–112 and 113–168 with no repeats;
+  - completed seasons have exactly one result per fixture, and season 3 has none;
+  - `History` reports two champions equal to the tops of their tables, which match an independent recomputation;
+  - registry, players, employment and the world fingerprint are unchanged.
+- **Timing:** while the last round awaits results, `Continue` even 30 days ahead doesn't end the season. After resolution, `Continue` to the same instant ends it, with one new revision.
+- **Saves:** a save before the season end (last round resolved, task queued) and one in the off-season (100 days later) each continue into an identical next season and world. New save points, the off-season and season 2 pending, round-trip losslessly.
+- **Atomic rollover:** in a two-league world, a missing season-end payload for league 2 fails the cohort with no new season for either league. After repair, both roll over together (competition 1 gets F113–168, competition 2 gets F169–224).
+- **Guards:** ending an incomplete season is rejected with no change. 10 invalid season states are rejected on load:
+  - a missing season-end payload, or one for season 1, for an unknown season or reusing a kickoff payload's ID;
+  - a season-end task that is early, in the wrong phase or missing;
+  - season 1 removed, or a league set back to season 1;
+  - an edited `SeasonInterval`, with the content fingerprint recomputed.
+- **`competitions`:** an invalid batch (bad entrants, a duplicate in the batch, an existing season, bad timing) changes nothing. A batch in any order equals creating each season in canonical order. Season 2 pairings differ from season 1.
+- **`content`:** league validation, including overlapping seasons, is rejected; a season starting one minute after the last kickoff interval is accepted.
+- **Deliberate-bug checks** each made tests fail:
+  - skipping the completeness check;
+  - dropping `validateSeasons`;
+  - not scheduling the new season's kickoffs;
+  - starting the next season a week after the last round instead of `SeasonInterval` after the first kickoff.
+- **CLI:**
+  - `-season -save`, then status, then `-load -season` plays season 2 (Round 1 on 2026-08-08, F57–F112, "Final table … season 2", a champion);
+  - the off-season status shows the season-1 champion;
+  - `-rounds 20` plays 14 rounds.
+
+### Limitations
+
+- The same clubs play every season. There's no promotion or relegation, and no entrant changes between seasons.
+- Nothing else happens at the season end: no prizes, no aging, no contract expiry, no squad turnover. Squads are identical every season apart from condition.
+- The off-season is empty time. The next season is scheduled at the season end, about 9 months ahead.
+- Leagues with different `SeasonInterval` or timing roll over independently. There's no shared season calendar or cross-competition dependency yet (cups, qualification).
+- There's no inbox or event notifying the user that a season ended; the client sees it through `History`, `Tables` and `Schedules`.
+
+## Milestone 10: committed domain events and an inbox (done)
+
+Every committed change now appends typed, past-tense domain events to a journal in the same commit. An inbox read model for the manager consumes them. The status view of a loaded career shows the latest messages:
+
+```text
+Inbox (latest 10 of 30)
+  Sat 2025-11-08 15:00 UTC  matchday: Founders League round 14, F54 v Wyrmsby Wanderers (home)
+  Sat 2025-11-08 15:00 UTC  result: F54 0-0 v Wyrmsby Wanderers (home)
+  Sat 2025-11-08 15:00 UTC  Founders League season 1 ended: champion Hollowick Wanderers; your position: 5
+  Sat 2025-11-08 15:00 UTC  Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC
+```
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/events` | New contract. `Event` envelope (`ID`, `OccurredAt`, `Revision`, `Sequence`, `Cause{Kind, ID}`, `Kind`, `SchemaVersion`) with exactly one typed payload: `RoundStarted`, `MatchCompleted`, `LineupSubmitted`, `SeasonEnded` (final `Ranking`), `SeasonStarted`; `Validate`, `Clone`, `CloneAll`; `SchemaVersion` = 1 |
+| `internal/inbox` | New read model. `Inbox` (`New`, `Apply`, `Messages`, `Offset`, `Snapshot`), `Message`, kinds Matchday/Result/SeasonEnded/SeasonStarted, `MaxMessages` = 200 |
+| `internal/app` | Events staged by each commit and published with its new revision; `Events()`, `Inbox()` (`InboxItem` with labels); `validateJournal`; `Continue` counts a revision when the clock moves or any cohort commits |
+| `internal/app` (save) | `WorldSnapshot.Events` (retained journal), `LastEvent`, `Inbox` (offset and messages) |
+| `internal/storage` | `SchemaVersion` = 5 |
+| `cmd/simulate` | Status prints the latest 10 inbox messages |
+
+All goldens and every CLI mode except status are byte-identical to milestone 9. A season-1 save grows from about 139 KB to 169 KB.
+
+### Events
+
+| Kind | Emitted by | Cause | Payload |
+| --- | --- | --- | --- |
+| `RoundStarted` (1) | kickoff cohort | task | competition, season, round, pairings |
+| `MatchCompleted` (2) | `ResolveRounds` | command | fixture, round, teams, official score |
+| `LineupSubmitted` (3) | `SubmitLineup` | command | fixture, team |
+| `SeasonEnded` (4) | season-end cohort | task | final ranking (champion first) |
+| `SeasonStarted` (5) | season-end cohort | task | next season, first kickoff, entrants |
+
+A managed 8-team season emits 86 events (14 + 56 + 14 + 1 + 1). Daily recovery emits none: per the architecture, numeric adjustments aren't broadcast one by one.
+
+### Decisions
+
+- **Typed union, no `any`.** An event is one envelope with a pointer field per payload kind. `Validate` requires exactly the payload that matches `Kind`, with non-zero identities. JSON omits the unused pointers. `events` imports only core, so any read model can consume it, and it uses plain `Season`/`Round` numbers instead of `competitions` types.
+- **Emit, then publish.** A handler or command calls `emit` only after its all-or-nothing module call has succeeded. After the revision increments, `publish` assigns sequential event IDs, the revision and a per-commit `Sequence` from 1. It then lets the inbox consume the events, appends them to the journal and trims it.
+  - Failed commands, retries of recorded commands, reads and a paused `Continue` emit nothing. As a guard, `Continue` also drops anything a failing cohort handler staged.
+- **Continue revision rule.** Previously `Continue` counted a revision when the clock moved or the queue length changed. Now it counts one when the clock moves or any cohort commits. One `Continue` call that commits several cohorts publishes all their events at one revision. Cohorts committed before a later failure still publish.
+- **Causes.** Task-caused events carry the task ID, command-caused events the command ID. Validation requires a recorded command or an allocated task ID; tasks are consumed, so only the allocator can be checked.
+- **The inbox is a projection.**
+  - It keeps a consumer offset: events at or before it are skipped, the next must be `offset + 1`, and a gap or an invalid event rejects the whole delivery with no change. Delivering in any chunking, or twice, gives the same inbox.
+  - It keeps messages only for the managed team (matchdays, results), plus every season message. Without a user club, only season messages appear.
+  - Messages store IDs; `app.Inbox()` resolves display names.
+  - It is updated synchronously in `publish`, so it's always caught up. Restore requires `Offset == LastEvent`.
+  - It is bounded at 200 messages, oldest dropped. That's about 6 seasons, since a managed season produces 30 messages.
+- **World creation emits no events.** The initial world is state, not a change, so there's no "season 1 scheduled" message. The first events come from the first kickoff.
+- **Retention.** The journal keeps the newest `journalRetention` (1,000) events, about 11 seasons. Only events the inbox has consumed are dropped, which is always all of them, because the inbox is synchronous. Event IDs stay sequential across trimming, because the allocator is saved. Durable history doesn't depend on the journal: results, seasons and champions live in `competitions`.
+- **Persistence.** The retained journal, the allocator and the inbox (offset and messages) are saved. Messages are persisted rather than rebuilt, because trimmed events can't be replayed.
+- **Load-time validation** (`validateJournal`, also part of `Validate`):
+  - **Journal shape:** event IDs are contiguous and end at the allocator; at most `journalRetention` events are kept; each event is valid.
+  - **Ordering:** revisions and times never decrease and never exceed the world's; the sequence restarts at 1 for each commit.
+  - **Causes:** each names a recorded command or an allocated task.
+  - **Payloads** agree with the owning modules: a started round exists, has kicked off at that instant and has those pairings; results equal the official ones, including their time; a lineup's team plays the fixture; season rankings equal the final standings; a started season has those entrants and that first kickoff.
+  - **Inbox:** it has consumed every event, and while the journal is complete (still starting at event 1), it must equal a rebuild from the journal.
+
+### Verification
+
+- **Journal:**
+  - a managed season gives exactly 14/56/14/1/1 events with contiguous IDs;
+  - each `ResolveRounds` result matches its `MatchCompleted` events (same command cause, revision, instant and fixture order);
+  - the season events share their task cause, and the ranking's head is the table's champion;
+  - `Validate`'s cross-checks pass.
+- **Nothing else emits:** reads, a paused `Continue`, a stale `ResolveRounds`, an invalid lineup and a retried command leave the journal unchanged. All existing atomicity tests (8 resolution faults, failed kickoffs, failed cohorts, failed season ends) now also compare events and the inbox.
+- **Inbox:**
+  - 14 matchdays, 14 results, 1 champion and 1 season start;
+  - each result's goals and venue are checked against the official result, and the season message's champion and position against the table;
+  - rebuilding from the journal in chunks of 1, 7 or 50 (re-delivering every prefix), or all at once, equals the live inbox;
+  - an unmanaged world has no match messages.
+- **Saves:** saving between every lineup and result for the first 40 events, then finishing, gives the same journal and inbox as never saving. Every earlier save test now round-trips the journal and inbox too.
+- **Retention:** with retention 30, the journal keeps events 57–86, the allocator and offset stay at 86, the inbox keeps its 30 messages, and the world round-trips.
+- **Invalid saves:** 14 cases are rejected:
+  - a missing event, the allocator ahead of the journal, an unknown kind, a payload of another kind;
+  - an edited score or pairing, a lineup event for a team not in the fixture;
+  - an unknown command cause, an unallocated task cause, a future revision, a broken sequence;
+  - an inbox behind the journal, an edited inbox message or a dropped one.
+- **`events`:** 16 invalid envelopes and payloads are rejected, and clones share nothing.
+- **`inbox`:** exact messages for a known journal; idempotent and chunk-independent delivery; gaps and invalid events rejected atomically; the 200-message bound; restore validation (6 cases plus match messages without a team); copies.
+- **Deliberate-bug checks** each made tests fail: the inbox not fed, a wrong score in `MatchCompleted`, `validateJournal` removed, a retried command emitting.
+- **CLI:** a managed status shows the latest 10 messages including results and the round-7 matchday; the off-season status shows the season-ended and season-scheduled messages.
+
+### Limitations
+
+- No read or unread state, and no way for the user to dismiss or act on a message. The inbox has no commands yet.
+- Matchday messages are informational. The decision itself is still the pending batch (`FixtureRoundReady.UserFixtures`).
+- There's one consumer. Multiple consumers with independent offsets, and asynchronous or lagging projections, would need trimming by the minimum offset and a catch-up on load.
+- There are no events for recovery, and no player-level events (no player history).
+- Event payload versions are all 1 and there are no migrations, like the rest of the save.
+
+## Interactive mode: `cmd/play` (done)
+
+A terminal game loop over the existing app API, so the game can actually be played. No simulation code changed: every goal, table and golden is identical.
+
+```sh
+go run ./cmd/play                    # new career: random seed, choose a club at the prompt
+go run ./cmd/play -seed 42 -club 3   # reproducible new career
+go run ./cmd/play -load career.json  # resume (the save must have a managed club)
+```
+
+| Command | Effect |
+| --- | --- |
+| `status` (`s`) | date, season progress, the waiting match or the next one |
+| `squad` | ID, position, overall, condition, and whether the player is in the current XI or on the bench |
+| `table` (`t`), `fixtures` (`f`) | league table with your row marked; your fixtures with results (W/D/L) |
+| `inbox` (`i`) `[N]` | latest N messages |
+| `lineup` (`l`) | the waiting match's lineup: slot, role, player, ratings, condition, out-of-position flags, bench |
+| `swap A B`, `role P GK\|DF\|MF\|FW`, `mentality` (`m`) `M`, `reset` | edit the lineup draft |
+| `continue` (`c`) | if a match is waiting, play it (submitting the draft if edited), print full time, scorers, other results and new inbox messages; otherwise advance to your next matchday |
+| `season` | play the rest of the season (an edited draft is used for the waiting match only) |
+| `save [FILE]`, `quit` (`q`), `help` | `quit` warns once about unsaved progress; end of input discards it |
+
+### Decisions
+
+- **A client, not a new layer.** `cmd/play` uses only public queries and commands: `Pending`, `SuggestLineup`, `SubmittedLineup`, `SubmitLineup`, `ResolveRounds`, `Continue`, `Squad`, `Schedules`, `Table`, `Inbox`, and `storage.Save`/`Load`. The boundary test gives it its own import entry.
+- **The draft is client state.** Viewing or editing the lineup changes nothing in the world. The draft starts from the submitted lineup, or else from `SuggestLineup`. Every edit is re-validated with `selection.Lineup.Validate` and rejected (with the reason) if it would break the shape, e.g. two goalkeepers. It becomes one `SubmitLineup` only when the match is played, and only if it was edited, so an untouched match stays "selected by AI". Saving doesn't store an unplayed draft, and the game says so.
+- **`continue` does the next thing.** It plays the waiting batch, or advances with `Continue(now + 400 days)` to the next batch. Batches without the user's club are resolved automatically on the way. Because nothing interrupts at the season end, one `continue` after the last round crosses the off-season to the next season's matchday. New inbox messages (season ended with your position, next season scheduled) are printed along the way.
+- **`swap`** exchanges any two squad players' places (XI slot, bench spot, or unselected). A starter slot keeps its role, so swapping a defender into a forward slot plays them out of position, which the lineup view flags. `role` changes a starter's role.
+- **New careers** show the seed and the flags to reproduce them.
+
+### Verification (`cmd/play/main_test.go`, scripted stdin)
+
+- **Choosing a club:** invalid IDs are rejected and re-prompted.
+- **Edits reach the match:** `swap 59 60`, `mentality attacking` and `role 49 mf` are played exactly. After saving, the loaded world's submitted lineup for fixture 3 has player 60 in slot 11, player 49 as a midfielder and attacking mentality. No lineup is submitted for the following, unedited match, and a session that only viewed the lineup submits nothing.
+- **Reproducibility:** the same script prints identical output twice. Every scorer has a name, from either club's squad.
+- **Save and resume:** the loaded session reports 1 of 14 rounds played and the next fixture, and isn't flagged unsaved.
+- **Mistakes:** 11 kinds (no waiting match, an unknown command, unknown or unselected players, bad usage, two goalkeepers, a non-starter role, a bad role or mentality, a bad inbox count) print an error, and the lineup stays the AI suggestion.
+- **`season`:** prints 14 results and the final table. The following `continue` shows the season-ended and season-2-scheduled messages and stops at the 2026-08-08 matchday.
+- **Startup and exit:** end of input reports discarded progress. Bad arguments are rejected: `-load` with `-club`, a missing file, an unknown club, stray arguments, and a save without a managed club.
+
+### Limitations
+
+- There's still nothing to decide during a match: matches play straight through.
+- Lineups can only be edited once the matchday has arrived, not ahead of time, and there's no saved "preferred XI" that carries over. Each match starts from the AI's suggestion.
+- It's plain line-based output with no colours or screen layout. Player attributes are shown in the lineup view only.
+
+## One 100-point scale for ratings and condition (done)
+
+Attributes, overall and condition now use a 100-point scale everywhere: content, generation, storage, the match engine, AI, medical rules, saves and every screen. An intermediate step that only converted ratings for display was replaced by this change. Numbers quoted in earlier milestones (1–20 ratings, condition per 10,000) describe the model as it was then.
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/players` | `MaxRating` = 100; `Overall()` (integer 1..100, rounded half up) replaces `OverallTenths`; the display helpers are removed | – |
+| `internal/content` | Attribute ranges mapped 1→1 … 20→100 (e.g. GK goalkeeping 10–18 → 48–90) | `content.Version` 2 |
+| `internal/matches` | `MaxRating` 100; `MaxCondition` 100; `PlayerInput.Condition` is `uint8` (1..100) | – |
+| `internal/matches/simple` | A rating counts as 2 model units (same magnitudes as the old tenths); fatigue per 100,000 (`FatigueBasePer100k` 300, step 2 per stamina point, cap 30,000); readiness `7,000 + 3,000 × condition / 100` | `ModelVersion` 3 |
+| `internal/ai` | `Candidate.Condition` `uint8`; `fitScore` = RoleScore × condition (0..100) | `SelectionVersion` 3 |
+| `internal/medical` | Condition `uint8` 0..100, `MinCondition` 20, stamina 1..100 | `medical.Version` 2 |
+| `internal/app` | `SquadPlayer{Attributes, Overall, Condition}`, `ClubSummary.AverageOverall` | – |
+| `internal/storage` | Save values change meaning | `SchemaVersion` 7 (the bump was missed here and made with the next milestone) |
+| CLIs | Integer OVR and attributes; condition as `87%` | – |
+
+**Medical rules.** Condition is whole points; rates are finer and rounded half up once per result:
+- **Match drain:** `minutes × (2,000 + (100 − stamina) × 20) / 10,000`. A full match costs 31 at stamina 30, 27 at 50 and 20 at 90.
+- **Daily recovery:** `(300 + 2 × stamina) / 100`, which is 3 points below stamina 25, 4 up to 74 and 5 from 75. So one day of rest gives whole points, while a match still reflects stamina finely.
+- **Balance:** a stamina-45 player who plays every week holds level, as the stamina-9 player did on the old scale. At the end of the seed-42 season, conditions range 58–100 (median 79), and the AI started a different XI than in round 1 in 19 team-rounds.
+
+**Engine balance** (seeded batches of 2,000; the test teams are now built from strengths 45/60/75 instead of 9/12/15):
+- equal teams: 2.77 goals per match, 808 home wins, 686 away wins, 506 draws;
+- weak home against strong away: the away team wins 74%;
+- attacking 7,573 goals against defensive 3,755;
+- a home XI at condition 40 wins 557 instead of 808.
+
+**Goldens** (updated deliberately):
+- world fingerprint `5efa08bf…` (content v2);
+- season `27ecee6a…`;
+- the schedule hash is unchanged, because it doesn't depend on players.
+
+**Tests.** Rescaled everywhere, plus new ones:
+- exact rounding of drain and recovery (`TestRoundingOfWholePoints`);
+- `Overall` rounding at .33 and .67;
+- range rejections at 101.
+
+The `cmd/play` scripts use new player IDs, because the world is newly generated. All checks and CLI modes pass.
+
+**Trade-offs.**
+- Condition in whole points means daily recovery has only three steps (3/4/5). Finer recovery would need fractional state, which the 100-point rule excludes.
+- Readiness, fatigue and drain rates are internal fixed-point multipliers, not scales users see.
+
+## Milestone 11: user in-match decisions (done)
+
+The manager can now play their own match live: stop at any minute, see events and the score, make substitutions and change mentality, then finish. Half time always stops for a decision. Not deciding means "no change", so the explicit default is the kickoff selection played unchanged.
+
+```text
+> watch                      KICKOFF ... 21'  GOAL  DUN  Dario Kowal (1-0) ... HALF TIME
+> sub 60 59                  45'  SUB   DUN  Nils Holm on for Dario Kowal
+> mentality attacking        45'  TACT  DUN  now attacking
+> watch 70 / watch           ... 89'  GOAL  HOL ... FULL TIME
+> continue                   the round is recorded; other results and inbox as before
+```
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/app` | `PlayMatch{ID, ExpectedRevision, Fixture, ToMinute}` and `MatchDecision{..., Command matches.MatchCommand}` commands; `MatchStepped` result; `LiveMatch` view and query; `LiveStop`; errors `ErrNoLiveMatch`, `ErrMatchInProgress`, `ErrMatchDecision`. `ResolveRounds` continues a live match; `SubmitLineup` is rejected once the match is live; `validateLive` |
+| `internal/app` (save) | `Live *LiveSnapshot{Fixture, Stops}`; `PlayCommands`, `DecisionCommands` |
+| `internal/storage` | `SchemaVersion` = 7 (also covers the missed bump of the 100-point rescale) |
+| `cmd/play` | `watch [MIN]`, `sub OUT IN`, live `mentality`, live `lineup` (on the pitch, bench states, players taken off); `status` shows `LIVE`; `swap`/`role`/`reset` are refused after kickoff |
+
+No version bumps: matches that aren't played live are unchanged, and all goldens hold.
+
+### Decisions
+
+- **Replay log, not a stored session.** The world keeps only `liveState{fixture, stops[{Minute, Commands}]}`. Whenever the session is needed (the next step, the view, resolution, validation), `replay` rebuilds it from three things: the frozen match input from `prepareBatch`, the fixture's random stream (`matchRandom`) and the stops.
+  - Each stop is exactly one `Advance` to its minute, which must reach it exactly as `PlayMatch` recorded it.
+  - Then come its commands, then a no-op `Advance` that delivers their events.
+  - This works because sessions are deterministic, and chunking the same stops and commands never changes a match (proven in milestone 4).
+  - Mid-match saves therefore need no engine checkpoint; the simple engine still has none. A restored save is validated by replaying it.
+  - The cost is one replay (about 35 µs) per step, which is negligible.
+- **The input is frozen.** While a match is live, the pending batch blocks `Continue`, and `SubmitLineup` for that fixture is `ErrMatchInProgress`. Nothing that feeds the match input (squad, lineup, condition) can change, so every replay sees the same input.
+- **Half time is mandatory.** `PlayMatch` makes one engine `Advance`, which stops at 45 when crossing it. The recorded stop is the minute actually reached, and the next call continues. `ToMinute` must be after the current minute and at most 90. Reaching 90 finishes the session, but the result is official only through `ResolveRounds`.
+- **Decisions** are for the manager's side only; the other side is rejected before the engine sees it. The engine validates everything else: substitutions left, player on the pitch or on the bench and unused, goalkeepers like-for-like, a new mentality, not finished. A rejected decision changes nothing. An accepted one is appended to the current stop and takes effect from the next minute.
+- **Resolution.** `ResolveRounds` replays the live match and advances it to full time. Every other fixture is simulated as before, the whole batch stays all-or-nothing, and the live state is cleared in the commit. Condition exposure uses the outcome's participation, so a substitute and the player they replaced each lose condition for their own minutes.
+- **Commands and events.** Both new commands take a `CommandID` and `ExpectedRevision`, move the revision and are recorded for retries, including the returned view. Live steps emit no journal events, because the architecture treats match events as match-local until the result is final. `MatchCompleted` still comes from `ResolveRounds`.
+
+### Verification
+
+- **Equivalence:** playing live to 20, 45, 70 and 90 without decisions, then resolving, gives exactly the direct resolution. That holds for every match report (ignoring command IDs and revisions) and every condition. The live events' goals equal the final report's goals, and the `LiveMatch` query equals the last step.
+- **Half-time substitution:**
+  - `PlayMatch` to 60 from kickoff stops at 45 with a decision required;
+  - the substitution is shown in the view (on the pitch, substitutions used) and as an event at 45;
+  - every other fixture is identical to the direct resolution;
+  - the substitute and the replaced player each lose exactly `Drain(45, stamina)`.
+- **Mentality:** a change at 60' shows in the view and as an event at 60.
+- **Rejections leave the world unchanged:**
+  - `PlayMatch` with a zero ID, a stale revision, another fixture, a minute back in time, the same minute or minute 91;
+  - decisions for the opponent, for a player not on the pitch, for the same mentality, an unknown kind, a goalkeeper swapped for an outfielder, and with no live match;
+  - a lineup submitted during the live match.
+
+  Also: substitutions beyond the limit, a decision after full time, and playing before kickoff.
+- **Retries:** both commands return their recorded results unchanged, and reused IDs are rejected across kinds.
+- **Saves:** saving at half time after a substitution round-trips losslessly, with the same `LiveMatch`. Continuing to 75 and resolving on both worlds gives identical results and snapshots.
+- **Invalid saves:** 8 live states are rejected: another fixture, no stops, minutes not increasing, a first stop past half time, a decision for the opponent, an invalid substitution, a play record for another fixture, and a decision record with a future revision.
+- **Deliberate-bug checks** each made tests fail: resolution ignoring the live match, replay dropping decisions, `validateLive` removed, lineups not frozen.
+- **CLI:**
+  - a scripted live session shows kickoff, half time, the substitution and tactic lines, 70', full time and the confirmed round;
+  - a session saved at half time and resumed reports `LIVE 45'` with 2 substitutions left and the substitute on the pitch, and ends with byte-identical output to the uninterrupted session from 70' on;
+  - 6 mistakes are reported.
+
+### Limitations
+
+- The AI makes no in-match decisions for either side, including the manager's opponent.
+- There are no injuries or forced substitutions, stoppage time, extra time or penalties. The only mandatory stop is half time.
+- Recorded `MatchStepped` results (with the full view) make the save grow by a few KB per live match. They're kept for exact retries, and nothing compacts them yet.
+- Only one live match can be in progress: the manager's fixture in the pending batch.
+
+## Milestone 12: contracts and a finance ledger (done)
+
+Every player now has a contract (weekly wage, expiry), and every club has a ledger. Wages are paid weekly, home matches earn gate receipts, and each balance is derived from the ledger. The balance and wage bill appear in `status`, wages and contract ends in `squad`, and the ledger under the new `finances` command.
+
+```text
+Balance 2,000,000.00 | weekly wages 32,890.00
+  56  MF  Callum Ibsen    77  100%     2,660.00  to 2026
+Sat 2025-11-08 15:00 UTC   gate receipts F54     250,000.00     3,157,980.00
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/core/money` | New. `Money` (int64 minor units, 100 per unit), `Units`, checked `Add`/`Neg`/`Sum` (`ErrOverflow`), `String` ("-1,234,567.89") | – |
+| `internal/employment` | `Contract{Expires, WeeklyWage}` in each `Assignment` (validated: positive wage, positive valid expiry; the end is exclusive); `WageBill(club)` with overflow checks | – |
+| `internal/content` | `Economy{OpeningBalance 2,000,000, GatePerHomeMatch 250,000, WageReference 1,600 at ReferenceOverall 60, WageVariationPct 20, ContractYears 1–4}`; `Economy.Wage` | `content.Version` 3 |
+| `internal/worldgen` | `ContractTerms{Player, Years, WeeklyWage}`, drawn after each player's attributes from the same stream | `worldgen.Version` 2 |
+| `internal/finance` | New. Ledger store: `Entry{ID, Club, At, Kind, Amount, Fixture}`, kinds opening/wages/gate; `Plan`/`Apply` (stale plans rejected), `Balance`, `Accounts`, `Entries`, `Entry`, `All`, `Snapshot` | – |
+| `internal/core/sim` | A cohort is the consecutive queued tasks sharing (DueAt, Phase, **Kind**) | – |
+| `internal/events` | `LedgerPosted{Entries[{Entry, Club, Kind, Amount, Balance, Fixture}]}` (kind 6) | – |
+| `internal/app` | Contracts anchored at creation; accounts opened; task kind `taskWages` (4); gate receipts in `ResolveRounds`; `validateFinance`; `Finances(club)`; `SquadPlayer.Contract`; `WorldSnapshot.Finance` | save `SchemaVersion` 8 |
+| `cmd/play` | Balance in `status`, wage and contract in `squad`, `finances [N]` | – |
+
+**Goldens.** The worldgen version is part of every generation stream's key, so bumping it re-derives the whole generated world, club names included. The world fingerprint (`27d691ea…`) and the season golden (`7e0c0217…`) were updated deliberately, and the CLI tests use the new club 3 (Quillford FC) and player IDs. The fixture draw depends only on team IDs, so the schedule hash is unchanged.
+
+### Decisions
+
+- **Money** is int64 minor units with overflow-checked arithmetic everywhere it's summed: wage bills, balances, plans. `Units` panics on overflow and is for constants only. It's formatted without a currency symbol.
+- **Contracts belong to `employment`**, because employment owns the relationship.
+  - Generation doesn't know the calendar, so worldgen draws `Years` and the wage, and `app` anchors them at creation. A contract of N years ends at 00:00 on the first of the epoch's month, N years on (2027-07-01 for 2 years). The interval is half-open, per the architecture.
+  - `Snapshot.Assignments` from worldgen have a zero contract; `withContracts` fills it in.
+- **Wages:** `WageReference × (overall / 60)²`, varied uniformly by ±20%, rounded to the nearest 10 units, at least 10. A 60-overall player costs about 1,600 a week, and the default squad about 33,000.
+- **The finance ledger** is the only owner of money.
+  - A club's balance is the sum of its entries; it's rebuilt on restore and never stored.
+  - Each account opens with an opening entry at instant 0.
+  - Kinds carry sign rules: wages are negative; gate receipts are positive and name the fixture; only gate receipts name a fixture.
+  - Balances may go negative. Financial difficulty is an allowed outcome, but nothing reacts to it yet.
+- **Weekly wages:** one task (kind 4), in the Preparation phase with `StableOrder` 1, due on whole weeks since the epoch. The first run is at instant `Week`.
+  - It posts one entry per club for its current `WageBill`: plan, then schedule next week, then apply.
+  - It emits one `LedgerPosted` event, with no inbox message: a weekly message would crowd out results, and the balance is always in `status`.
+  - Invariant: exactly one wage task, due in `(Now, Now+Week]` on a whole week.
+- **Cohorts by kind.** Wages and daily recovery fall due at the same midnight in the same phase. Previously a cohort was all tasks at one (instant, phase), and mixing kinds was an error. Now each kind runs as its own cohort, in queue order, each all-or-nothing. A failure in a later cohort leaves earlier ones committed (they're independent). Kickoffs of several competitions are still one cohort.
+- **Gate receipts** pay the home club `GatePerHomeMatch` for every resolved league match. The plan is made after the outcomes are checked, then `CompleteRounds`, then medical and finance apply. The whole batch stays all-or-nothing, and one `LedgerPosted` follows the batch's `MatchCompleted` events.
+- **Balance of the economy:**
+  - 7 home games × 250,000 = 1.75 million a season, against about 1.71 million a year in wages (52 weeks of an average squad);
+  - the seed-42 club 3 ends season 1 at 3.16 million, and the off-season weeks bring it back toward break-even.
+- **Validation** (`validateFinance`, on `Validate` and load):
+  - accounts exactly match the registered clubs, and each opened at 0 with the content's opening balance;
+  - no entry lies in the future;
+  - wage entries fall on whole weeks, at most one per club and week;
+  - every gate entry pays the content's amount once, to the home club of a fixture with an official result, at the time the result was recorded, and every official result is paid;
+  - exactly one wage task is queued;
+  - every `LedgerPosted` event matches its ledger entries, including the balance after each.
+
+### Verification
+
+- **`money`:** overflow detection on `Add`, `Neg` and `Sum`, a `Units` panic, and formatting including both int64 extremes.
+- **`employment`:** 4 new invalid-contract cases, and a wage bill with an overflow case.
+- **`content`:** 5 invalid economies, and the wage formula at known points (60 → 1,600; ±20%; 30 → 400; 90 → 3,600; floor 10; rounding to 10s).
+- **`worldgen`:** every contract is within the year range and wage band, and all lengths 1–4 occur.
+- **`finance`:**
+  - balances equal the entry sums, including negatives, and survive a restore;
+  - 10 invalid posting sets and a posting back in time are rejected without change, including overflow and "later posting overflows";
+  - stale and replayed plans are rejected;
+  - 6 invalid ledgers are rejected.
+- **Scheduler:** same-instant tasks of three kinds form three cohorts in queue order, and a failing third cohort leaves the first two committed.
+- **App:**
+  - five weeks give exactly five wage entries per club at weeks 1–5, each equal to the bill, with the right balance and 5 wage events of 8 entries;
+  - a season gives exactly 7 home receipts per club, and retrying three resolve commands pays nothing;
+  - the off-season has at least 35 wage runs;
+  - balances always equal the entry sums, the world validates and round-trips;
+  - a wage bill overflow fails the run with no entry, no event and no reschedule, and pays exactly once after repair;
+  - the squad shows contracts ending on 1 July of 2026–2029;
+  - `Finances` agrees with the modules;
+  - 11 invalid finance states are rejected on load: an edited opening or gate amount, repeated wages, a gate paid twice, a gate for an unplayed fixture, a missing gate, an account for no club, a missing or off-schedule wage task, a contract without a wage, and an edited ledger event.
+- **The existing atomicity tests** (8 resolution faults, failed cohorts, season ends) now also compare the finance snapshot.
+- **Deliberate-bug checks** each made tests fail: a gate paid twice, wages not rescheduled, `validateFinance` removed, the wrong club's wage bill.
+- **CLI:** the money views (balance, the squad's wage and contract columns, ledger lines, bad usage), plus every earlier CLI test with the new world.
+
+### Limitations
+
+- **Contracts never expire:** expiry is only shown, and a player past it stays and is still paid. There are no renewals and no free agents.
+- **Income is only gate receipts**, a flat amount per home match. There's no prize money, TV money, sponsorship or attendance model.
+- **Nothing reacts to money:** no board, no budget and no debt consequences. The AI ignores finances.
+- **No inbox messages for money.** The ledger grows by about 60 entries per club per year, and there's no compaction.
+
+## Next task: contract expiry, renewals and free agents
+
+Make contracts matter.
+- **Expiry.** An expiry task (Expiries phase, at each contract's end) ends the employment. The player leaves the club and becomes a free agent, which is a new state: `employment` must represent "unemployed". The squad shrinks, AI selection must still produce legal lineups, and `app.Validate` must stop requiring every player to be employed.
+- **Renewals.** Add a `RenewContract` command for the user club (new years and wage, validated against simple rules), and a deterministic AI renewal policy for other clubs and for the user's defaults. Emit events and inbox messages for expiries and renewals.
+- **Proofs.**
+  - Player IDs are never reused.
+  - A renewed contract is paid at its new wage from the next week.
+  - Retries and save/load never renew twice.
+  - A squad that falls below a legal lineup is handled explicitly: minimum squad rules and AI re-signing of free agents.
+
+Other open candidates:
+- AI in-match decisions (the opponent reacting at half time);
+- auto-resolving batches without user fixtures;
+- inbox read state;
+- development and aging;
+- youth intake.

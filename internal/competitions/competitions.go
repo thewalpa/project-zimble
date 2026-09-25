@@ -7,6 +7,7 @@
 package competitions
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -87,49 +88,76 @@ func New() *Store {
 	}
 }
 
+// NewSeason describes one league season to create.
+type NewSeason struct {
+	Ref      SeasonRef
+	Entrants []ids.TeamID
+	Timing   Timing
+}
+
 // CreateLeagueSeason schedules a double round-robin league for the entrants.
 // Entrant order does not matter: entrants are sorted by ID before the seeded
 // draw. The entrants slice is not retained or modified. Every round starts
 // as RoundScheduled. On error the store is unchanged.
 func (s *Store) CreateLeagueSeason(seed random.Seed, ref SeasonRef, entrants []ids.TeamID, timing Timing) error {
-	if !ref.Valid() {
-		return fmt.Errorf("competitions: invalid season %+v", ref)
-	}
-	if _, dup := s.seasonIdx[ref]; dup {
-		return fmt.Errorf("competitions: %s already exists", ref)
-	}
-	canonical, err := canonicalEntrants(entrants)
-	if err != nil {
-		return err
-	}
-	kickoffs, err := roundKickoffs(timing, 2*(len(canonical)-1))
-	if err != nil {
-		return err
-	}
+	return s.CreateLeagueSeasons(seed, []NewSeason{{Ref: ref, Entrants: entrants, Timing: timing}})
+}
 
-	rng := random.Derive(seed, "competitions/fixtures", ScheduleVersion,
-		uint64(ref.Competition), uint64(ref.Season))
-	pairs := doubleRoundRobin(canonical, rng)
-
-	fixtures := make([]Fixture, len(pairs))
+// CreateLeagueSeasons creates several league seasons as one unit: every
+// season is validated and generated before any is stored, so on error the
+// store is unchanged. Seasons are created, and fixture IDs allocated, in
+// (competition, season) order whatever the input order. Each season's draw
+// uses its own stream, keyed by (seed, competition, season).
+func (s *Store) CreateLeagueSeasons(seed random.Seed, specs []NewSeason) error {
+	specs = slices.Clone(specs)
+	slices.SortFunc(specs, func(a, b NewSeason) int {
+		return cmp.Or(cmp.Compare(a.Ref.Competition, b.Ref.Competition), cmp.Compare(a.Ref.Season, b.Ref.Season))
+	})
+	staged := make([]season, 0, len(specs))
 	next := s.lastFixture
-	for i, p := range pairs {
-		next++
-		fixtures[i] = Fixture{ID: next, Season: ref, Round: p.round, Home: p.home, Away: p.away, Kickoff: kickoffs[p.round-1]}
-	}
-	rounds := make([]roundState, len(kickoffs))
-	for i, k := range kickoffs {
-		rounds[i] = roundState{kickoff: k, status: RoundScheduled}
-	}
-	if err := checkDoubleRoundRobin(canonical, fixtures); err != nil {
-		return fmt.Errorf("competitions: generated invalid schedule for %s: %w", ref, err)
+	for i, spec := range specs {
+		ref := spec.Ref
+		if !ref.Valid() {
+			return fmt.Errorf("competitions: invalid season %+v", ref)
+		}
+		if _, dup := s.seasonIdx[ref]; dup || (i > 0 && specs[i-1].Ref == ref) {
+			return fmt.Errorf("competitions: %s already exists", ref)
+		}
+		canonical, err := canonicalEntrants(spec.Entrants)
+		if err != nil {
+			return err
+		}
+		kickoffs, err := roundKickoffs(spec.Timing, 2*(len(canonical)-1))
+		if err != nil {
+			return err
+		}
+
+		rng := random.Derive(seed, "competitions/fixtures", ScheduleVersion,
+			uint64(ref.Competition), uint64(ref.Season))
+		pairs := doubleRoundRobin(canonical, rng)
+
+		fixtures := make([]Fixture, len(pairs))
+		for i, p := range pairs {
+			next++
+			fixtures[i] = Fixture{ID: next, Season: ref, Round: p.round, Home: p.home, Away: p.away, Kickoff: kickoffs[p.round-1]}
+		}
+		rounds := make([]roundState, len(kickoffs))
+		for i, k := range kickoffs {
+			rounds[i] = roundState{kickoff: k, status: RoundScheduled}
+		}
+		if err := checkDoubleRoundRobin(canonical, fixtures); err != nil {
+			return fmt.Errorf("competitions: generated invalid schedule for %s: %w", ref, err)
+		}
+		staged = append(staged, season{ref: ref, entrants: canonical, fixtures: fixtures, results: make([]result, len(fixtures)), rounds: rounds})
 	}
 
-	si := len(s.seasons)
-	s.seasonIdx[ref] = si
-	s.seasons = append(s.seasons, season{ref: ref, entrants: canonical, fixtures: fixtures, results: make([]result, len(fixtures)), rounds: rounds})
-	for i, f := range fixtures {
-		s.fixtureIdx[f.ID] = fixtureLoc{season: si, index: i}
+	for _, se := range staged {
+		si := len(s.seasons)
+		s.seasonIdx[se.ref] = si
+		s.seasons = append(s.seasons, se)
+		for i, f := range se.fixtures {
+			s.fixtureIdx[f.ID] = fixtureLoc{season: si, index: i}
+		}
 	}
 	s.lastFixture = next
 	return nil

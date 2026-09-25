@@ -141,7 +141,10 @@ func (s *Scheduler) Pending() []Task {
 	return out
 }
 
-// CohortHandler handles every task sharing one (DueAt, Phase). It must either
+// CohortHandler handles one cohort: the consecutive queued tasks (in queue
+// order) that share the head's DueAt, Phase and Kind. Tasks of different
+// kinds at the same instant and phase form separate cohorts, run in queue
+// order, each committed on its own. The handler must either
 // fully apply the cohort and return a nil error, or apply nothing (including
 // scheduling nothing) and return an error. stop asks RunUntil to return after
 // committing the cohort. It may schedule follow-up tasks (see Schedule).
@@ -184,12 +187,13 @@ func (s *Scheduler) RunUntil(target GameInstant, handle CohortHandler) (stopped 
 	return false, nil
 }
 
-// cohort returns the queued tasks sharing the head's (DueAt, Phase), in order.
+// cohort returns the consecutive queued tasks sharing the head's (DueAt,
+// Phase, Kind), in order.
 func (s *Scheduler) cohort() []Task {
 	all := s.Pending()
 	head := all[0]
 	n := 1
-	for n < len(all) && all[n].DueAt == head.DueAt && all[n].Phase == head.Phase {
+	for n < len(all) && all[n].DueAt == head.DueAt && all[n].Phase == head.Phase && all[n].Kind == head.Kind {
 		n++
 	}
 	return all[:n]
