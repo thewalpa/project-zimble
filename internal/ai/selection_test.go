@@ -25,7 +25,7 @@ func squad() []Candidate {
 		n    int
 	}{{matches.Goalkeeper, 3}, {matches.Defender, 7}, {matches.Midfielder, 6}, {matches.Forward, 4}} {
 		for range g.n {
-			out = append(out, Candidate{Player: id, Natural: g.role, Ratings: rating(uint8(5 + (id*7)%13))})
+			out = append(out, Candidate{Player: id, Natural: g.role, Ratings: rating(uint8(5 + (id*7)%13)), Condition: matches.MaxCondition})
 			id++
 		}
 	}
@@ -141,8 +141,8 @@ func TestSelectionRejectsImpossibleSquads(t *testing.T) {
 		"no goalkeeper": noKeeper,
 		"ten players":   squad()[:10],
 		"duplicate ID":  dup,
-		"zero ID":       append(squad(), Candidate{Player: 0, Natural: matches.Defender, Ratings: rating(5)}),
-		"invalid role":  append(squad(), Candidate{Player: 99, Natural: 0, Ratings: rating(5)}),
+		"zero ID":       append(squad(), Candidate{Player: 0, Natural: matches.Defender, Ratings: rating(5), Condition: matches.MaxCondition}),
+		"invalid role":  append(squad(), Candidate{Player: 99, Natural: 0, Ratings: rating(5), Condition: matches.MaxCondition}),
 	}
 	for name, c := range cases {
 		if _, err := SelectTeam(9, c, rules); !errors.Is(err, ErrNoLegalLineup) {
@@ -164,5 +164,60 @@ func TestSmallBenchRules(t *testing.T) {
 	sel, err = SelectTeam(9, squad()[2:14], rules)
 	if err != nil || len(sel.Bench) != 1 || sel.Bench[0].Role == matches.Goalkeeper {
 		t.Fatalf("bench %v, err %v; want the single spare outfield player", sel.Bench, err)
+	}
+}
+
+// A tired player gives way to a fresher one of similar ability, but not to
+// a much weaker one; condition also travels into the match input.
+func TestSelectionWeighsCondition(t *testing.T) {
+	c := squad()
+	fresh := mustSelect(t, c)
+	star := fresh.Starters[0].Player // the chosen goalkeeper
+	var backup Candidate
+	for _, x := range c {
+		if x.Natural == matches.Goalkeeper && x.Player != star && RoleScore(x.Ratings, matches.Goalkeeper) > RoleScore(backup.Ratings, matches.Goalkeeper) {
+			backup = x
+		}
+	}
+	var starScore int
+	for _, x := range c {
+		if x.Player == star {
+			starScore = RoleScore(x.Ratings, matches.Goalkeeper)
+		}
+	}
+	backupScore := RoleScore(backup.Ratings, matches.Goalkeeper)
+	if backupScore >= starScore || backupScore == 0 {
+		t.Fatalf("setup: star %d, backup %d", starScore, backupScore)
+	}
+	// Just tired enough that the backup's fit score is higher.
+	condition := uint16(backupScore*int(matches.MaxCondition)/starScore - 1)
+	for i := range c {
+		if c[i].Player == star {
+			c[i].Condition = condition
+		}
+	}
+	tired := mustSelect(t, c)
+	if tired.Starters[0].Player != backup.Player {
+		t.Fatalf("goalkeeper %d at condition %d still starts over %d", star, condition, backup.Player)
+	}
+	if tired.Bench[0].Player != star || tired.Bench[0].Condition != condition {
+		t.Fatalf("tired goalkeeper not first on the bench with their condition: %+v", tired.Bench[0])
+	}
+	// A little tiredness is not enough.
+	for i := range c {
+		if c[i].Player == star {
+			c[i].Condition = matches.MaxCondition - 1
+		}
+	}
+	if mustSelect(t, c).Starters[0].Player != star {
+		t.Fatal("a barely tired better goalkeeper was dropped")
+	}
+	for i := range c {
+		if c[i].Player == star {
+			c[i].Condition = 0
+		}
+	}
+	if _, err := SelectTeam(1, c, matches.Rules{MaxSubstitutions: 3, MaxBench: 7}); err == nil {
+		t.Fatal("zero condition accepted")
 	}
 }

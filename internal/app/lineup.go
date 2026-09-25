@@ -208,8 +208,9 @@ func sameSubmission(a, b SubmitLineup) bool {
 }
 
 // lineupInput validates a lineup against the team's current squad and the
-// competition's rules, and builds its detached match input. Starters play
-// their slot's role; bench players their natural role.
+// competition's rules, and builds its detached match input with current
+// condition. Starters play their slot's role; bench players their natural
+// role.
 func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.Rules) (matches.TeamInput, error) {
 	fail := func(format string, args ...any) (matches.TeamInput, error) {
 		return matches.TeamInput{}, fmt.Errorf("%w for team %d: "+format, append([]any{ErrInvalidLineup, team}, args...)...)
@@ -224,11 +225,7 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 		if a, ok := w.employment.Assignment(id); !ok || a.Team != team {
 			return ai.Candidate{}, fmt.Errorf("player %d is not in the squad", id)
 		}
-		p, ok := w.players.Profile(id)
-		if !ok {
-			return ai.Candidate{}, fmt.Errorf("player %d has no profile", id)
-		}
-		return candidate(p), nil
+		return w.candidate(id)
 	}
 	in := matches.TeamInput{Team: team, Tactics: l.Tactics}
 	for _, s := range l.Starters {
@@ -236,14 +233,14 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 		if err != nil {
 			return fail("%v", err)
 		}
-		in.Starters = append(in.Starters, matches.PlayerInput{Player: c.Player, Role: s.Role, Ratings: c.Ratings})
+		in.Starters = append(in.Starters, matches.PlayerInput{Player: c.Player, Role: s.Role, Ratings: c.Ratings, Condition: c.Condition})
 	}
 	for _, id := range l.Bench {
 		c, err := player(id)
 		if err != nil {
 			return fail("%v", err)
 		}
-		in.Bench = append(in.Bench, matches.PlayerInput{Player: c.Player, Role: c.Natural, Ratings: c.Ratings})
+		in.Bench = append(in.Bench, matches.PlayerInput{Player: c.Player, Role: c.Natural, Ratings: c.Ratings, Condition: c.Condition})
 	}
 	return in, nil
 }

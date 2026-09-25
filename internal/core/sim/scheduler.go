@@ -73,8 +73,13 @@ func compareTasks(a, b Task) int {
 	return 0
 }
 
-// ErrTargetBeforeNow is returned when asked to run to a time already passed.
-var ErrTargetBeforeNow = errors.New("sim: target is before the current time")
+var (
+	// ErrTargetBeforeNow is returned when asked to run to a time already passed.
+	ErrTargetBeforeNow = errors.New("sim: target is before the current time")
+	// ErrNotAfterCohort: a handler tried to schedule work that would not run
+	// after the cohort it is handling.
+	ErrNotAfterCohort = errors.New("sim: task must be due after the running cohort")
+)
 
 // Scheduler owns the world clock and the queue of pending tasks. It is not
 // safe for concurrent use.
@@ -82,6 +87,11 @@ type Scheduler struct {
 	now    GameInstant
 	lastID TaskID
 	queue  taskHeap
+
+	// While a cohort handler runs: the cohort's instant and phase.
+	running  bool
+	runAt    GameInstant
+	runPhase Phase
 }
 
 // NewScheduler returns an empty scheduler whose clock reads start.
@@ -97,8 +107,15 @@ func (s *Scheduler) Now() GameInstant { return s.now }
 func (s *Scheduler) Len() int { return len(s.queue) }
 
 // Schedule validates spec, assigns the next task ID and queues it.
+//
+// A cohort handler may schedule follow-up work, but only after its own
+// cohort: at a later instant, or at the same instant in a later phase (which
+// then runs in the same RunUntil call if the target allows). Anything else is
+// ErrNotAfterCohort, so same-instant work cannot loop or run out of order.
 func (s *Scheduler) Schedule(spec TaskSpec) (Task, error) {
 	switch {
+	case s.running && (spec.DueAt < s.runAt || (spec.DueAt == s.runAt && spec.Phase <= s.runPhase)):
+		return Task{}, fmt.Errorf("%w: due %d phase %d, cohort %d phase %d", ErrNotAfterCohort, spec.DueAt, spec.Phase, s.runAt, s.runPhase)
 	case !spec.DueAt.Valid():
 		return Task{}, fmt.Errorf("sim: due instant %d outside supported range", spec.DueAt)
 	case spec.DueAt < s.now:
@@ -125,8 +142,9 @@ func (s *Scheduler) Pending() []Task {
 }
 
 // CohortHandler handles every task sharing one (DueAt, Phase). It must either
-// fully apply the cohort and return a nil error, or apply nothing and return
-// an error. stop asks RunUntil to return after committing the cohort.
+// fully apply the cohort and return a nil error, or apply nothing (including
+// scheduling nothing) and return an error. stop asks RunUntil to return after
+// committing the cohort. It may schedule follow-up tasks (see Schedule).
 type CohortHandler func(at GameInstant, cohort []Task) (stop bool, err error)
 
 // RunUntil processes due cohorts in queue order. The target is inclusive:
@@ -148,11 +166,13 @@ func (s *Scheduler) RunUntil(target GameInstant, handle CohortHandler) (stopped 
 	for len(s.queue) > 0 && s.queue[0].DueAt <= target {
 		cohort := s.cohort()
 		head := cohort[0]
+		s.running, s.runAt, s.runPhase = true, head.DueAt, head.Phase
 		stop, err := handle(head.DueAt, slices.Clone(cohort))
+		s.running = false
 		if err != nil {
 			return false, err
 		}
-		for range cohort {
+		for range cohort { // tasks scheduled by the handler sort after the cohort
 			heap.Pop(&s.queue)
 		}
 		s.now = head.DueAt

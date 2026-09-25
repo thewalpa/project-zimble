@@ -12,6 +12,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
+	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
 )
@@ -92,6 +93,7 @@ type plannedMatch struct {
 	round    competitions.RoundRef
 	input    matches.MatchInput
 	selected [2]SelectedBy
+	stamina  map[ids.PlayerID]uint8 // every selected player's, for exposure
 }
 
 // ResolveRounds plays and records the whole pending batch as one unit of
@@ -105,13 +107,16 @@ type plannedMatch struct {
 //   - ExpectedRevision must equal Revision, and Rounds must equal the
 //     pending batch exactly.
 //   - Steps: prepare (validate fixtures, reject overlapping teams, take each
-//     side's submitted lineup or else the AI selection, build detached
-//     inputs) -> simulate every fixture with its own random stream ->
-//     validate every outcome -> record all results and complete all rounds
-//     in one competitions call -> bump the revision and record the command.
+//     side's submitted lineup or else the AI selection, with current
+//     condition, build detached inputs) -> simulate every fixture with its
+//     own random stream -> validate every outcome -> plan every
+//     participant's condition loss -> record all results and complete all
+//     rounds in one competitions call -> apply the condition plan, bump the
+//     revision and record the command.
 //
-// Any failure before the final competitions call leaves the world exactly as
-// it was; that call is itself all-or-nothing, and nothing after it can fail.
+// Any failure before the competitions call leaves the world exactly as it
+// was; that call is itself all-or-nothing, and nothing after it can fail
+// (the condition plan was validated against the unchanged medical store).
 func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	if !validCommandID(cmd.ID) {
 		return RoundsResolved{}, fmt.Errorf("%w: zero command ID", ErrInvalidCommand)
@@ -151,17 +156,26 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		return RoundsResolved{}, err
 	}
 	scores := make([]competitions.Score, len(plan))
+	var exposures []medical.Exposure
 	for i, p := range plan {
 		if err := w.checkOutcome(p, outcomes[i]); err != nil {
 			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
 		scores[i] = competitions.Score{Fixture: p.fixture.ID, HomeGoals: outcomes[i].Score[0], AwayGoals: outcomes[i].Score[1]}
+		for _, pt := range outcomes[i].Participants {
+			exposures = append(exposures, medical.Exposure{Player: pt.Player, Minutes: pt.Minutes(), Stamina: p.stamina[pt.Player]})
+		}
+	}
+	wear, err := w.medical.PlanExposure(exposures)
+	if err != nil {
+		return RoundsResolved{}, fmt.Errorf("app: match exposure: %w", err)
 	}
 	if err := w.competitions.CompleteRounds(rounds, scores, w.Now()); err != nil {
 		return RoundsResolved{}, fmt.Errorf("app: record results: %w", err)
 	}
 
 	// Committed. Nothing below can fail.
+	w.applyMedical(wear)
 	w.revision++
 	res := RoundsResolved{Command: cmd.ID, Revision: w.revision, At: w.Now(), Rounds: rounds}
 	for i, p := range plan {
@@ -243,6 +257,13 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 			}
 			*p.input.Team(side), p.selected[side.Index()] = in, by
 		}
+		p.stamina = map[ids.PlayerID]uint8{}
+		for _, side := range []matches.Side{matches.Home, matches.Away} {
+			t := p.input.Team(side)
+			for _, pl := range append(slices.Clone(t.Starters), t.Bench...) {
+				p.stamina[pl.Player] = pl.Ratings.Stamina
+			}
+		}
 		if err := p.input.Validate(simple.MaxBench); err != nil {
 			return nil, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
@@ -286,16 +307,25 @@ func (w *World) selectTeam(team ids.TeamID, rules matches.Rules) (matches.TeamIn
 	}
 	var candidates []ai.Candidate
 	for _, id := range w.employment.Squad(team) {
-		p, ok := w.players.Profile(id)
-		if !ok {
-			return matches.TeamInput{}, fmt.Errorf("app: squad player %d has no profile", id)
+		c, err := w.candidate(id)
+		if err != nil {
+			return matches.TeamInput{}, err
 		}
-		candidates = append(candidates, candidate(p))
+		candidates = append(candidates, c)
 	}
 	return ai.SelectTeam(team, candidates, rules)
 }
 
-func candidate(p players.Profile) ai.Candidate {
+// candidate is a detached copy of a player's profile and current condition.
+func (w *World) candidate(id ids.PlayerID) (ai.Candidate, error) {
+	p, ok := w.players.Profile(id)
+	if !ok {
+		return ai.Candidate{}, fmt.Errorf("app: player %d has no profile", id)
+	}
+	condition, ok := w.medical.Condition(id)
+	if !ok {
+		return ai.Candidate{}, fmt.Errorf("app: player %d has no condition record", id)
+	}
 	a := p.Attributes
 	return ai.Candidate{
 		Player:  p.Player,
@@ -305,7 +335,8 @@ func candidate(p players.Profile) ai.Candidate {
 			Passing: uint8(a[players.Passing]), Finishing: uint8(a[players.Finishing]),
 			Pace: uint8(a[players.Pace]), Stamina: uint8(a[players.Stamina]),
 		},
-	}
+		Condition: condition,
+	}, nil
 }
 
 func roleOf(p players.Position) matches.Role {

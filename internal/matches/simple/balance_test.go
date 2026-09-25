@@ -87,3 +87,53 @@ func TestFatigueReducesEffectiveRatings(t *testing.T) {
 		t.Fatal("a substitute is as tired as a starter")
 	}
 }
+
+// Condition at kickoff matters: the same team plays worse when tired, and a
+// fresh substitute of equal ability outperforms a tired starter.
+func TestConditionReducesPerformance(t *testing.T) {
+	const n = 2000
+	tired := func(condition uint16) func(ids.FixtureID) *matches.MatchInput {
+		return func(f ids.FixtureID) *matches.MatchInput {
+			in := input(f, 12, 12)
+			for i := range in.Home.Starters {
+				in.Home.Starters[i].Condition = condition
+			}
+			return in
+		}
+	}
+	fresh := simulate(t, n, tired(matches.MaxCondition))
+	weary := simulate(t, n, tired(4_000))
+	t.Logf("home wins: fresh %d, at condition 4000 %d", fresh.homeWins, weary.homeWins)
+	if weary.homeWins >= fresh.homeWins || weary.awayWins <= fresh.awayWins {
+		t.Errorf("condition has no effect: home wins %d -> %d, away wins %d -> %d",
+			fresh.homeWins, weary.homeWins, fresh.awayWins, weary.awayWins)
+	}
+
+	in := input(1, 12, 12)
+	in.Home.Starters[9].Condition = 5_000
+	s := start(t, in)
+	s.minute = 1
+	low, full := &s.teams[0].players[9], &s.teams[0].players[10]
+	if s.effective(low, 12) >= s.effective(full, 12) {
+		t.Fatal("a tired player's effective rating is not lower")
+	}
+}
+
+func TestConditionOutOfRangeIsRejected(t *testing.T) {
+	for _, c := range []uint16{0, matches.MaxCondition + 1} {
+		in := input(1, 12, 12)
+		in.Away.Bench[2].Condition = c
+		e, err := New(DefaultParams())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.Start(in, rs(1)); err == nil {
+			t.Errorf("condition %d accepted", c)
+		}
+	}
+	p := DefaultParams()
+	p.ConditionFloorPer10k = 0
+	if _, err := New(p); err == nil {
+		t.Error("zero condition floor accepted")
+	}
+}

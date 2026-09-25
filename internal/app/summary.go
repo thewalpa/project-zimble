@@ -78,3 +78,37 @@ func (w *World) Summary() Summary {
 	}
 	return s
 }
+
+// SquadPlayer is a derived view of one senior-squad player, composed from
+// the registry (name), players (position, attributes) and medical
+// (condition, per 10,000).
+type SquadPlayer struct {
+	Player        ids.PlayerID
+	Name          string
+	Position      players.Position
+	Attributes    players.Attributes
+	OverallTenths int
+	Condition     uint16
+}
+
+// Squad returns a club's senior squad in ascending player ID order, or false
+// for an unknown club. Clients use it to build lineups. Read-only.
+func (w *World) Squad(club ids.ClubID) ([]SquadPlayer, bool) {
+	team, ok := w.registry.SeniorTeam(club)
+	if !ok {
+		return nil, false
+	}
+	var out []SquadPlayer
+	for _, id := range w.employment.Squad(team) {
+		row := SquadPlayer{Player: id}
+		if p, ok := w.registry.Player(id); ok {
+			row.Name = p.FullName()
+		}
+		if p, ok := w.players.Profile(id); ok {
+			row.Position, row.Attributes, row.OverallTenths = p.Position, p.Attributes, p.OverallTenths()
+		}
+		row.Condition, _ = w.medical.Condition(id)
+		out = append(out, row)
+	}
+	return out, true
+}

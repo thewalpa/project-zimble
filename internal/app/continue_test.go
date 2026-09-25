@@ -9,6 +9,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
@@ -30,14 +31,15 @@ func mustContinue(t *testing.T, w *World, until sim.GameInstant) ContinueResult 
 
 // state captures everything Continue may change.
 type state struct {
-	Now       sim.GameInstant
-	Revision  Revision
-	Tasks     []sim.Task
-	Payloads  map[sim.PayloadID]competitions.RoundRef
-	Schedules []Schedule
-	Tables    []Table
-	Pending   []competitions.RoundInfo
-	Commands  int
+	Now        sim.GameInstant
+	Revision   Revision
+	Tasks      []sim.Task
+	Payloads   map[sim.PayloadID]competitions.RoundRef
+	Schedules  []Schedule
+	Tables     []Table
+	Pending    []competitions.RoundInfo
+	Commands   int
+	Conditions []medical.Record
 }
 
 func snapshot(w *World) state {
@@ -45,7 +47,19 @@ func snapshot(w *World) state {
 	for k, v := range w.payloads {
 		payloads[k] = v
 	}
-	return state{w.Now(), w.Revision(), w.scheduler.Pending(), payloads, w.Schedules(), w.Tables(), w.competitions.PendingRounds(), len(w.commands)}
+	return state{w.Now(), w.Revision(), w.scheduler.Pending(), payloads, w.Schedules(), w.Tables(),
+		w.competitions.PendingRounds(), len(w.commands), w.medical.Records()}
+}
+
+// kickoffTasks returns the queued round kickoff tasks in queue order.
+func kickoffTasks(w *World) []sim.Task {
+	var out []sim.Task
+	for _, t := range w.scheduler.Pending() {
+		if t.Kind == taskRoundKickoff {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
@@ -55,9 +69,9 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 	}
 	sched := w.Schedules()[0]
 	want, _ := w.Calendar().Instant(sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15})
-	tasks := w.scheduler.Pending()
-	if len(tasks) != 14 || len(w.payloads) != 14 {
-		t.Fatalf("%d tasks, %d payloads; want 14", len(tasks), len(w.payloads))
+	tasks := kickoffTasks(w)
+	if len(tasks) != 14 || len(w.payloads) != 14 || w.scheduler.Len() != 15 {
+		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 14 of 15", len(tasks), w.scheduler.Len(), len(w.payloads))
 	}
 	for i, r := range sched.Rounds {
 		kickoff := want + sim.GameInstant(i)*7*day
@@ -84,7 +98,7 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	if res := mustContinue(t, w, k-1); res != (ReachedTarget{Now: k - 1}) {
 		t.Fatalf("before kickoff: %#v", res)
 	}
-	if w.scheduler.Len() != 14 || len(w.competitions.PendingRounds()) != 0 {
+	if len(kickoffTasks(w)) != 14 || len(w.competitions.PendingRounds()) != 0 {
 		t.Fatal("a task ran before its kickoff")
 	}
 
@@ -97,8 +111,8 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	if r.Round != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) || r.Kickoff != k || len(r.Fixtures) != 4 {
 		t.Fatalf("ready round = %+v", r)
 	}
-	if w.Now() != k || w.scheduler.Len() != 13 || len(w.payloads) != 13 {
-		t.Fatalf("now=%d tasks=%d payloads=%d", w.Now(), w.scheduler.Len(), len(w.payloads))
+	if w.Now() != k || len(kickoffTasks(w)) != 13 || len(w.payloads) != 13 {
+		t.Fatalf("now=%d tasks=%d payloads=%d", w.Now(), len(kickoffTasks(w)), len(w.payloads))
 	}
 	if !reflect.DeepEqual(w.competitions.Fixtures(w.leagues[0].season), fixturesBefore) {
 		t.Fatal("kickoff changed fixtures")
@@ -198,11 +212,11 @@ func TestOneContinueEqualsSeveral(t *testing.T) {
 func TestFailedKickoffLeavesStateUnchanged(t *testing.T) {
 	w := newWorld(t, 42)
 	k := firstKickoff(t, w)
-	mustContinue(t, w, k-day)
+	mustContinue(t, w, k-1) // the kickoff is the next due cohort
 	before := snapshot(w)
 
 	// Remove round 1's payload record: its handler must fail.
-	task := w.scheduler.Pending()[0]
+	task := kickoffTasks(w)[0]
 	ref := w.payloads[task.PayloadID]
 	delete(w.payloads, task.PayloadID)
 	if _, err := w.Continue(k + day); err == nil {
@@ -227,6 +241,7 @@ func TestFailedCohortIsAllOrNothing(t *testing.T) {
 	for _, stableOrder := range []uint64{0, 999} { // bad task first or last
 		w := newWorld(t, 42)
 		k := firstKickoff(t, w)
+		mustContinue(t, w, k-1)
 		if _, err := w.scheduler.Schedule(sim.TaskSpec{DueAt: k, Phase: sim.PhaseFixtures, StableOrder: stableOrder, Kind: 99}); err != nil {
 			t.Fatal(err)
 		}
@@ -306,8 +321,8 @@ func TestSimultaneousKickoffsAreDeterministic(t *testing.T) {
 			t.Fatalf("ready[%d] = %+v, want competition %d round 1", i, ready.Rounds[i], comp)
 		}
 	}
-	if len(st.Tasks) != 2*14-2 {
-		t.Fatalf("%d tasks remain, want 26", len(st.Tasks))
+	if len(st.Tasks) != 2*14-2+1 {
+		t.Fatalf("%d tasks remain, want 26 kickoffs and a recovery", len(st.Tasks))
 	}
 	res2, st2 := run()
 	if !reflect.DeepEqual(res, res2) || !reflect.DeepEqual(st, st2) {

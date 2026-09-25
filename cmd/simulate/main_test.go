@@ -371,6 +371,19 @@ func TestManagedCareerSaveLoad(t *testing.T) {
 	if err != nil || !strings.Contains(status, "\nmanaging club 3: ") {
 		t.Fatalf("status of a managed save (err %v):\n%s", err, status)
 	}
+	// The status lists the squad with condition; some starters are tired.
+	var rows, tired int
+	for _, line := range strings.Split(section(t, status, "Squad (condition"), "\n")[3:] {
+		if strings.HasSuffix(line, "%") {
+			rows++
+			if !strings.HasSuffix(line, " 100.0%") {
+				tired++
+			}
+		}
+	}
+	if rows != 20 || tired == 0 || tired == 20 {
+		t.Fatalf("squad: %d rows, %d tired:\n%s", rows, tired, status)
+	}
 	rest, err := runCLI(t, "-load", path, "-mentality", "attacking", "-season")
 	if err != nil {
 		t.Fatal(err)

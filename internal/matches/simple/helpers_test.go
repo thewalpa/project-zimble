@@ -40,11 +40,11 @@ func teamInput(team ids.TeamID, firstPlayer ids.PlayerID, strength int, m matche
 	t := matches.TeamInput{Team: team, Tactics: matches.Tactics{Mentality: m}}
 	id := firstPlayer
 	for i, role := range starterRoles {
-		t.Starters = append(t.Starters, matches.PlayerInput{Player: id, Role: role, Ratings: ratings(role, strength, i)})
+		t.Starters = append(t.Starters, matches.PlayerInput{Player: id, Role: role, Ratings: ratings(role, strength, i), Condition: matches.MaxCondition})
 		id++
 	}
 	for i, role := range benchRoles {
-		t.Bench = append(t.Bench, matches.PlayerInput{Player: id, Role: role, Ratings: ratings(role, strength, i+11)})
+		t.Bench = append(t.Bench, matches.PlayerInput{Player: id, Role: role, Ratings: ratings(role, strength, i+11), Condition: matches.MaxCondition})
 		id++
 	}
 	return t

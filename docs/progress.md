@@ -667,12 +667,100 @@ Contract changes: `CommandRecord` became `ResolveRecord`, `WorldSnapshot.Command
 - A submitted lineup that became invalid before resolution would fail `ResolveRounds` rather than fall back to the AI. That can't happen yet, because nothing changes squads between submission and resolution.
 - Players never tire between matches, so the same lineups are equally good all season.
 
-## Next task: basic condition
+## Milestone 8: basic condition (done)
 
-Add the first-playable "basic condition". Condition is a player's fitness (0–10,000). Matches lower it by minutes played, and a daily recovery task (Preparation phase) restores it. It is owned by a medical store (new package, or a separate store inside `players`; decide deliberately).
-- Add pre-match condition to `PlayerInput`, and let the simple engine start fatigue from it. Bump `simple.ModelVersion`.
-- Let AI selection prefer fit players. Bump `ai.SelectionVersion`.
-- Show condition in a squad query that clients can use to build lineups.
-- Apply match exposure in the same all-or-nothing resolution commit.
-- Persist condition in the snapshot (schema v3) and prove that save/load mid-recovery continues identically.
-- Update the golden hashes deliberately.
+Players now have a condition (fitness). Playing lowers it by minutes played, and a daily recovery task restores it. Condition weakens players in matches, and the AI rotates tired players out. A loaded managed career's status shows the squad with condition.
+
+```sh
+go run ./cmd/simulate -seed 42 -club 3 -rounds 3 -save career.json && go run ./cmd/simulate -load career.json   # squad with condition
+```
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/medical` | New. `Store` (`New`, `Condition`, `Records`, `Snapshot`, `PlanExposure`, `PlanRecovery`, `Apply`), `Plan`, `Params` (`Drain`, `Recovery`), `Record`, `Exposure`, `Rest`, `MaxCondition`, `Version` = 1, `ErrStalePlan` |
+| `internal/core/sim` | A cohort handler may schedule follow-up tasks, but only after its own cohort; anything else is `ErrNotAfterCohort` |
+| `internal/matches` | `PlayerInput.Condition` (required, 1..`MaxCondition` = 10,000) |
+| `internal/matches/simple` | `Params.ConditionFloorPer10k` (7,000); readiness multiplies effective ratings. `ModelVersion` = 2 |
+| `internal/ai` | `Candidate.Condition`; players are ranked by `RoleScore × condition`. `SelectionVersion` = 2 |
+| `internal/app` | Medical store (all players start fully fit); task kind `taskRecovery` (2); cohort dispatch by kind; exposure applied during `ResolveRounds`; `Squad(club)` query; `Versions.Medical` (must match); `WorldSnapshot.Medical` |
+| `internal/storage` | `SchemaVersion` = 3 |
+| `cmd/simulate` | Status of a managed career lists the squad with condition |
+
+The world fingerprint and schedule hash are unchanged. The season golden changed deliberately and is now `9b3259c6…`. Three versions cover the change: `simple.ModelVersion` 2 (which also re-derives every fixture's random stream, because the engine version is part of it), `ai.SelectionVersion` 2 and the new `medical.Version` 1.
+
+### Rules (`medical.Version` = 1, `DefaultParams`)
+
+Condition is an integer per 10,000.
+
+- **Match drain:** `minutes × (20 + (20 − stamina))`, never below `MinCondition` (2,000). With stamina 6, a full match costs 3,060; with stamina 18, it costs 1,980.
+- **Daily recovery:** `300 + 10 × stamina`, capped at 10,000. With stamina 6 that's 360 a day; with stamina 18, 480.
+- **Balance:** a stamina-9 player who plays 90 minutes every week holds about level. Fitter players recover fully, and less fit ones decline until rotated.
+- **Seed-42 season:** at the end, conditions range from 6,760 to 10,000 (median 8,400). The AI started a different XI than in round 1 in 42 of 112 team-rounds.
+- **In a match (simple engine):** readiness = `7,000 + 3,000 × condition / 10,000`, per 10,000. It multiplies every effective rating before in-match fatigue: condition 7,000 is −9% and 2,000 is −24%. Substitutes start from their own condition.
+- **AI selection:** `fitScore = RoleScore × condition`, so a player at 70% is worth 70% of their role score. Starters, gap-fillers and bench all use it; ties still go to the lower ID.
+
+### Decisions
+
+- **Owner.** A separate `medical` package, not a store inside `players`: condition changes daily while attributes don't, and the architecture's Medical row will grow injuries and availability. It imports only `core/ids`. Stamina comes from `players` as detached input to each rule, so no derived rate is stored twice.
+- **Two-step changes.** `PlanExposure` and `PlanRecovery` validate everything and compute the new values without touching the store; `Apply` commits.
+  - A plan is tied to the store's generation, so a stale or replayed plan is `ErrStalePlan` and changes nothing.
+  - This lets `ResolveRounds` stay all-or-nothing across two modules: plan exposure (can fail), then `competitions.CompleteRounds` (all-or-nothing), then apply exposure. The last step can't fail, because nothing touched medical in between; a failure there panics as a broken invariant.
+- **Exposure.** Every participant loses condition for the minutes played (all 22 starters, since the AI makes no substitutions). Unused bench players are unaffected. Stamina comes from the match input's ratings.
+- **The daily recovery task.**
+  - It is one queued task with no payload, in the Preparation phase, due on whole days since the epoch; with the default epoch that's 00:00 UTC. The first is due at instant `Day`.
+  - Its handler plans recovery for every player, schedules tomorrow's task, then applies. Scheduling is the only step after planning that can fail, and a failure there changes nothing.
+  - It never interrupts `Continue`, so a single `Continue` call can now commit many cohorts.
+  - Invariant (checked by `Validate` and on load): exactly one recovery task, due in `(Now, Now+Day]` on a whole day.
+  - This is the first recurring task. Future weekly wages and monthly development follow the same pattern.
+- **Scheduler guard.** While a handler runs, `Schedule` accepts only tasks at a later instant, or at the same instant in a later phase (these run in the same `RunUntil` call). This enforces the architecture's same-instant rule, and it guarantees that removing the finished cohort afterwards removes exactly the cohort's tasks.
+- **Cohorts have one kind.** `handleCohort` rejects mixed kinds and dispatches kickoff (which interrupts) or recovery (which doesn't). Recovery and kickoffs never share a cohort, since they're in different phases.
+- **The contract requires condition.** `Condition` 0 is rejected rather than read as "exhausted", so a producer that forgets the field fails loudly. The medical floor keeps real values at 2,000 or above, and `medical.New` rejects stored values outside `MinCondition..MaxCondition`.
+- **`Squad(club)`** composes registry, players and medical per player, in ascending ID order. It is read-only.
+
+### Verification
+
+- **`medical`:**
+  - rejects invalid stores: zero or duplicate player, condition above maximum or below the floor, invalid params;
+  - drain grows with minutes and falls with stamina; floor, recovery and cap are exact; unexposed players are untouched;
+  - 9 invalid plans rejected, and planning never mutates;
+  - stale and replayed plans rejected without change;
+  - no shared memory.
+- **Scheduler:** a handler's 9 attempts to schedule into an earlier instant, an earlier phase or its own cohort are rejected. A self-rescheduling task and a later-phase follow-up run in order within one call. The guard doesn't apply outside a run.
+- **Engine:** a home XI at condition 4,000 wins less and loses more over 2,000 seeded matches; a tired player's effective rating is lower; conditions 0 and 10,001 are rejected, and so is a zero floor. Existing invariant and balance tests pass at full condition.
+- **AI:** a goalkeeper just tired enough gives way to the backup and becomes first substitute, carrying their condition. A barely tired better goalkeeper keeps the place. Condition 0 is rejected.
+- **App:**
+  - conditions after round 2 equal an independent computation from the same outcomes (all 88 participants), and nobody else changes;
+  - daily recovery is exact for three days, with exactly one recovery task, correctly aligned, after each day; recovery never interrupts;
+  - every planned input carries the medical condition, and the AI rotates in 42 team-rounds;
+  - recovery over one `Continue` call equals recovery over many (the whole snapshot matches apart from the revision);
+  - saving mid-recovery (three midnights after round 3, at 20:00) and finishing the season gives the identical world;
+  - `Squad` agrees with the owning modules, with exactly the 11 starters tired after one match;
+  - the 8 injected resolution failures now also prove conditions are unchanged, because the compared state includes medical records;
+  - 11 invalid medical and recovery-task saves are rejected, and a medical version mismatch is `ErrIncompatibleSave`.
+- **Deliberate-bug checks** each made tests fail: exposure not applied, recovery not applied, AI ignoring condition, engine ignoring readiness, scheduler guard removed.
+- **CLI:** a managed status lists 20 squad rows with some players tired. The save/load season matches the uninterrupted one, and runs are reproducible.
+- **Benchmarks** (same machine as milestone 4): a complete match ~33,900 ns/op with 13 allocs; stepping only ~31,500 ns/op with 0 allocs. `B/op` rose from 4,752 to 5,584 because each session player carries readiness.
+
+### Limitations
+
+- No injuries, availability or medical staff. Condition is the only health fact.
+- Recovery ignores training, age and match congestion. With weekly rounds, condition matters mostly for low-stamina players.
+- The AI still makes no in-match substitutions, so starters always play 90 minutes.
+- There's no per-player match history; minutes played aren't stored outside the drain they cause.
+- Condition can't be set or influenced by the manager, except by choosing who plays.
+
+## Next task: season rollover
+
+Let a career reach a second season without resetting identities. At the end of a league season:
+- record its final standings and champion as history, owned by competitions or a small history store (decide deliberately);
+- create the next season's `SeasonRef` with new fixtures, drawn from its own `(seed, competition, season)` stream, and a first kickoff a fixed interval after the previous season;
+- schedule its kickoffs.
+
+Do this from a task at a defined instant (for example a season-end task in the Consequences phase), not inside `ResolveRounds`. Condition and recovery continue across the break. Prove the following:
+- two seasons play through `Continue`/`ResolveRounds` with unique fixture IDs;
+- a save in the off-season continues identically;
+- the CLI `-season` plays only the current season.
+
+Other open candidates: user in-match decisions (half-time substitutions and mentality for the user's match), an inbox, and auto-resolving batches without user fixtures.

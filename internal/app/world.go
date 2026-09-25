@@ -20,6 +20,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
+	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
 	"github.com/thewalpa/project-zimble/internal/selection"
@@ -52,6 +53,7 @@ type World struct {
 	leagueVersion    int
 	scheduleVersion  int
 	selectionVersion int
+	medicalVersion   int
 	fingerprint      string
 	defs             content.Definitions
 	leagues          []leagueEntry // ascending competition ID
@@ -73,6 +75,7 @@ type World struct {
 	registry     *registry.Registry
 	players      *players.Store
 	employment   *employment.Store
+	medical      *medical.Store
 	competitions *competitions.Store
 	selections   *selection.Store
 }
@@ -158,6 +161,15 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 	if err != nil {
 		return nil, err
 	}
+	// Every player starts the career fully fit.
+	var fit []medical.Record
+	for _, p := range snap.Players {
+		fit = append(fit, medical.Record{Player: p.ID, Condition: medical.MaxCondition})
+	}
+	med, err := medical.New(medical.DefaultParams(), fit)
+	if err != nil {
+		return nil, err
+	}
 	clubs := reg.Clubs()
 	if totalEntrants != len(clubs) {
 		return nil, fmt.Errorf("app: leagues take %d entrants but the world has %d clubs", totalEntrants, len(clubs))
@@ -170,11 +182,13 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		leagueVersion:    content.LeagueVersion,
 		scheduleVersion:  competitions.ScheduleVersion,
 		selectionVersion: ai.SelectionVersion,
+		medicalVersion:   medical.Version,
 		fingerprint:      snap.Fingerprint(),
 		defs:             defs,
 		registry:         reg,
 		players:          pl,
 		employment:       emp,
+		medical:          med,
 		competitions:     competitions.New(),
 		selections:       mustEmptySelections(),
 		calendar:         calendar,
@@ -182,6 +196,9 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		scheduler:        scheduler,
 		payloads:         map[sim.PayloadID]competitions.RoundRef{},
 		commands:         map[CommandID]commandRecord{},
+	}
+	if err := w.scheduleRecovery(sim.GameInstant(sim.Day)); err != nil {
+		return nil, err
 	}
 	next := 0
 	for _, def := range leagueDefs {
@@ -254,9 +271,15 @@ func (w *World) Validate() error {
 			fail("player %d employed by club %d but assigned to team %d of club %d", a.Player, a.Club, a.Team, team.Club)
 		}
 	}
+	if conditions := w.medical.Records(); len(conditions) != len(identities) {
+		fail("%d player identities but %d condition records", len(identities), len(conditions))
+	}
 	for _, p := range identities {
 		if _, ok := w.players.Profile(p.ID); !ok {
 			fail("player %d has no profile", p.ID)
+		}
+		if _, ok := w.medical.Condition(p.ID); !ok {
+			fail("player %d has no condition record", p.ID)
 		}
 		if _, ok := w.employment.Assignment(p.ID); !ok {
 			fail("player %d has no employment assignment", p.ID)

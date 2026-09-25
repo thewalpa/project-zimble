@@ -26,13 +26,14 @@ func (s *session) playMinute(dst *matches.MatchStepResult) {
 	}
 }
 
-// effective returns a rating in tenths after fatigue. Minutes already
-// played this match (before the current one) drive fatigue.
+// effective returns a rating in tenths after readiness (condition at
+// kickoff) and fatigue. Minutes already played this match (before the
+// current one) drive fatigue.
 func (s *session) effective(p *player, rating uint8) int64 {
 	played := int64(s.minute) - 1 - int64(p.on)
 	perMinute := max(s.p.FatigueBasePer10k-int64(p.r.Stamina)*s.p.FatigueStaminaStepPer10k, 0)
 	fatigue := min(max(played, 0)*perMinute, s.p.FatigueCapPer10k)
-	return int64(rating) * 10 * (per10k - fatigue) / per10k
+	return int64(rating) * 10 * p.ready * (per10k - fatigue) / (per10k * per10k)
 }
 
 // attackDefense returns a team's weighted mean attack and defense, in tenths.

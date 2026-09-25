@@ -194,14 +194,13 @@ func TestSubmittedLineupIsPlayed(t *testing.T) {
 				t.Fatalf("fixture %d: user side %+v, selected by %s", p.fixture.ID, in, by)
 			}
 			for i, s := range l.Starters {
-				prof, _ := w.players.Profile(s.Player)
-				if in.Starters[i] != (matches.PlayerInput{Player: s.Player, Role: s.Role, Ratings: candidate(prof).Ratings}) {
+				c, _ := w.candidate(s.Player)
+				if in.Starters[i] != (matches.PlayerInput{Player: s.Player, Role: s.Role, Ratings: c.Ratings, Condition: c.Condition}) {
 					t.Fatalf("starter %d is %+v, submitted %+v", i, in.Starters[i], s)
 				}
 			}
 			for i, id := range l.Bench {
-				prof, _ := w.players.Profile(id)
-				if c := candidate(prof); in.Bench[i] != (matches.PlayerInput{Player: id, Role: c.Natural, Ratings: c.Ratings}) {
+				if c, _ := w.candidate(id); in.Bench[i] != (matches.PlayerInput{Player: id, Role: c.Natural, Ratings: c.Ratings, Condition: c.Condition}) {
 					t.Fatalf("substitute %d is %+v, submitted %d", i, in.Bench[i], id)
 				}
 			}

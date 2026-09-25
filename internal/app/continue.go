@@ -9,10 +9,19 @@ import (
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/medical"
+	"github.com/thewalpa/project-zimble/internal/players"
 )
 
 // Task kinds interpreted by app. Values are durable; never reorder.
-const taskRoundKickoff sim.TaskKind = 1
+const (
+	// taskRoundKickoff begins a round; its payload record names the round.
+	taskRoundKickoff sim.TaskKind = 1
+	// taskRecovery is one day of rest for every player. It has no payload
+	// (PayloadID 0) and reschedules itself a day later, so exactly one is
+	// always queued, due in (Now, Now+Day] on a whole day since the epoch.
+	taskRecovery sim.TaskKind = 2
+)
 
 // ErrTargetBeforeNow is returned by Continue for a target earlier than Now.
 var ErrTargetBeforeNow = sim.ErrTargetBeforeNow
@@ -63,7 +72,8 @@ func (w *World) Calendar() sim.Calendar { return w.calendar }
 //   - If any round awaits results, returns FixtureRoundReady for those rounds
 //     without advancing time or running tasks.
 //   - Otherwise runs due task cohorts in (DueAt, Phase, StableOrder, ID)
-//     order. A kickoff cohort (every round kickoff task sharing an instant and
+//     order. A recovery cohort (daily, Preparation phase) restores every
+//     player's condition and does not interrupt. A kickoff cohort (every round kickoff task sharing an instant and
 //     phase) is dispatched atomically: its rounds become awaiting results, the
 //     clock moves to the kickoff and FixtureRoundReady is returned.
 //   - If nothing interrupts, the clock moves to until and ReachedTarget is
@@ -116,28 +126,86 @@ func (w *World) pendingRounds() (FixtureRoundReady, bool) {
 	return ready, true
 }
 
-// handleCohort validates every task before changing anything, then begins
-// all the cohort's rounds in one competitions call. Only after that succeeds
-// are the consumed payloads deleted; nothing after it can fail.
+// handleCohort dispatches a cohort by task kind. Every task in a cohort must
+// have the same kind.
 func (w *World) handleCohort(at sim.GameInstant, cohort []sim.Task) (bool, error) {
+	kind := cohort[0].Kind
+	for _, t := range cohort {
+		if t.Kind != kind {
+			return false, fmt.Errorf("app: cohort at %d mixes task kinds %d and %d", at, kind, t.Kind)
+		}
+	}
+	switch kind {
+	case taskRoundKickoff:
+		return true, w.kickoff(at, cohort)
+	case taskRecovery:
+		return false, w.recover(at, cohort)
+	}
+	return false, fmt.Errorf("app: task %d has unknown kind %d", cohort[0].ID, kind)
+}
+
+// kickoff validates every task before changing anything, then begins all
+// the cohort's rounds in one competitions call. Only after that succeeds are
+// the consumed payloads deleted; nothing after it can fail.
+func (w *World) kickoff(at sim.GameInstant, cohort []sim.Task) error {
 	refs := make([]competitions.RoundRef, 0, len(cohort))
 	for _, t := range cohort {
-		if t.Kind != taskRoundKickoff {
-			return false, fmt.Errorf("app: task %d has unknown kind %d", t.ID, t.Kind)
-		}
 		ref, ok := w.payloads[t.PayloadID]
 		if !ok {
-			return false, fmt.Errorf("app: task %d references missing payload %d", t.ID, t.PayloadID)
+			return fmt.Errorf("app: task %d references missing payload %d", t.ID, t.PayloadID)
 		}
 		refs = append(refs, ref)
 	}
 	if err := w.competitions.BeginRounds(refs, at); err != nil {
-		return false, fmt.Errorf("app: kickoff at %d: %w", at, err)
+		return fmt.Errorf("app: kickoff at %d: %w", at, err)
 	}
 	for _, t := range cohort {
 		delete(w.payloads, t.PayloadID)
 	}
-	return true, nil
+	return nil
+}
+
+// recover gives every player one day of rest and queues the next day's
+// recovery. It plans first, then schedules (the only step that can fail
+// after planning, and it changes nothing when it fails), then applies.
+func (w *World) recover(at sim.GameInstant, cohort []sim.Task) error {
+	if len(cohort) != 1 || cohort[0].PayloadID != 0 {
+		return fmt.Errorf("app: recovery cohort at %d has %d tasks, first payload %d", at, len(cohort), cohort[0].PayloadID)
+	}
+	var rest []medical.Rest
+	for _, r := range w.medical.Records() {
+		p, ok := w.players.Profile(r.Player)
+		if !ok {
+			return fmt.Errorf("app: player %d has a condition but no profile", r.Player)
+		}
+		rest = append(rest, medical.Rest{Player: r.Player, Stamina: uint8(p.Attributes[players.Stamina])})
+	}
+	plan, err := w.medical.PlanRecovery(rest)
+	if err != nil {
+		return fmt.Errorf("app: recovery at %d: %w", at, err)
+	}
+	if err := w.scheduleRecovery(at + sim.GameInstant(sim.Day)); err != nil {
+		return err
+	}
+	w.applyMedical(plan)
+	return nil
+}
+
+// scheduleRecovery queues the daily recovery task due at.
+func (w *World) scheduleRecovery(at sim.GameInstant) error {
+	_, err := w.scheduler.Schedule(sim.TaskSpec{DueAt: at, Phase: sim.PhasePreparation, Kind: taskRecovery})
+	if err != nil {
+		return fmt.Errorf("app: schedule recovery at %d: %w", at, err)
+	}
+	return nil
+}
+
+// applyMedical commits a medical plan made in the same operation. The store
+// cannot have changed since planning, so failure is a programming error.
+func (w *World) applyMedical(plan medical.Plan) {
+	if err := w.medical.Apply(plan); err != nil {
+		panic(fmt.Sprintf("app: unreachable: %v", err))
+	}
 }
 
 // scheduleRounds queues one kickoff task per round of a season. StableOrder
@@ -181,7 +249,16 @@ func (w *World) validateSchedule() []error {
 
 	tasksFor := map[competitions.RoundRef][]sim.Task{}
 	payloadUses := map[sim.PayloadID]int{}
+	recoveries := 0
 	for _, t := range w.scheduler.Pending() {
+		if t.Kind == taskRecovery {
+			recoveries++
+			if t.PayloadID != 0 || t.Phase != sim.PhasePreparation || t.DueAt <= w.Now() ||
+				t.DueAt > w.Now()+sim.GameInstant(sim.Day) || t.DueAt%sim.GameInstant(sim.Day) != 0 {
+				fail("recovery task %d due %d phase %d payload %d, now %d", t.ID, t.DueAt, t.Phase, t.PayloadID, w.Now())
+			}
+			continue
+		}
 		if t.Kind != taskRoundKickoff {
 			fail("task %d has unknown kind %d", t.ID, t.Kind)
 			continue
@@ -193,6 +270,9 @@ func (w *World) validateSchedule() []error {
 			continue
 		}
 		tasksFor[ref] = append(tasksFor[ref], t)
+	}
+	if recoveries != 1 {
+		fail("%d recovery tasks queued, want 1", recoveries)
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.payloads)) {
 		if payloadUses[id] != 1 {

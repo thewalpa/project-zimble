@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match.
-const ModelVersion uint32 = 1
+const ModelVersion uint32 = 2
 
 // Units: probabilities are parts per million (ppm), multipliers are permille
 // (1000 = x1), fatigue is per 10,000 of a rating, ratings inside the model
@@ -28,10 +28,12 @@ func (w Weights) sum() int64 { return w.A + w.B + w.C }
 
 // Params are the model's tunable constants. How attributes affect play:
 //
-//   - Effective rating = rating * (1 - fatigue). Fatigue grows each minute a
-//     player is on the pitch by FatigueBase - Stamina*FatigueStaminaStep
-//     (per 10,000, floored at 0), capped at FatigueCap. Substitutes start
-//     fresh. Stamina has no other effect.
+//   - Effective rating = rating * readiness * (1 - fatigue). Readiness comes
+//     from condition at kickoff: ConditionFloor at condition 0 rising
+//     linearly to 1 at full condition. Fatigue grows each minute a player is
+//     on the pitch by FatigueBase - Stamina*FatigueStaminaStep (per 10,000,
+//     floored at 0), capped at FatigueCap. Substitutes start fresh from
+//     their own condition. Stamina has no other effect.
 //   - Team attack = role-weighted mean over outfield players of
 //     Finishing:Passing:Pace in AttackWeights; role weights AttackShare.
 //   - Team defense = role-weighted mean over outfield players of
@@ -56,6 +58,7 @@ type Params struct {
 	MentalityConcedePermille                              [4]int64
 
 	FatigueBasePer10k, FatigueStaminaStepPer10k, FatigueCapPer10k int64
+	ConditionFloorPer10k                                          int64
 
 	AttackWeights  Weights // Finishing, Passing, Pace
 	DefenseWeights Weights // Defending, Pace, Passing
@@ -85,6 +88,7 @@ func DefaultParams() Params {
 		FatigueBasePer10k:        30, // stamina 1: 26% by 90'; stamina 20: 9%
 		FatigueStaminaStepPer10k: 1,
 		FatigueCapPer10k:         3000,
+		ConditionFloorPer10k:     7000, // condition 2,000: -24%; 7,000: -9%
 
 		AttackWeights:  Weights{4, 4, 2},
 		DefenseWeights: Weights{6, 2, 2},
@@ -112,6 +116,8 @@ func (p Params) Validate() error {
 		return bad("offset or home advantage")
 	case p.FatigueBasePer10k < 0 || p.FatigueStaminaStepPer10k < 0 || p.FatigueCapPer10k < 0 || p.FatigueCapPer10k >= per10k:
 		return bad("fatigue")
+	case p.ConditionFloorPer10k <= 0 || p.ConditionFloorPer10k > per10k:
+		return bad("condition floor")
 	case p.AttackWeights.sum() <= 0 || p.DefenseWeights.sum() <= 0 || !nonNegative(p.AttackWeights.A, p.AttackWeights.B, p.AttackWeights.C, p.DefenseWeights.A, p.DefenseWeights.B, p.DefenseWeights.C):
 		return bad("attribute weights")
 	}

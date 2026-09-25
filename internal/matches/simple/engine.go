@@ -66,15 +66,21 @@ func (e *Engine) Start(input *matches.MatchInput, rs matches.RandomState) (match
 		t.id = in.Team
 		t.mentality = in.Tactics.Mentality
 		for i, p := range in.Starters {
-			t.players[i] = player{id: p.Player, role: p.Role, r: p.Ratings, state: onPitch, started: true}
+			t.players[i] = player{id: p.Player, role: p.Role, r: p.Ratings, ready: e.readiness(p.Condition), state: onPitch, started: true}
 			t.pitch[i] = uint8(i)
 		}
 		for i, p := range in.Bench {
-			t.players[matches.StartersPerTeam+i] = player{id: p.Player, role: p.Role, r: p.Ratings, state: onBench}
+			t.players[matches.StartersPerTeam+i] = player{id: p.Player, role: p.Role, r: p.Ratings, ready: e.readiness(p.Condition), state: onBench}
 		}
 		t.n = matches.StartersPerTeam + len(in.Bench)
 	}
 	return s, nil
+}
+
+// readiness is the per-10,000 multiplier for a kickoff condition.
+func (e *Engine) readiness(condition uint16) int64 {
+	floor := e.p.ConditionFloorPer10k
+	return floor + (per10k-floor)*int64(condition)/matches.MaxCondition
 }
 
 // Restore is unsupported: this engine does not produce checkpoints.
@@ -94,6 +100,7 @@ type player struct {
 	id      ids.PlayerID
 	role    matches.Role
 	r       matches.Ratings
+	ready   int64 // per 10,000, from condition at kickoff
 	state   playerState
 	started bool
 	on, off uint16 // minutes; see matches.Participation

@@ -23,6 +23,7 @@ var allowedImports = map[string][]string{
 	"internal/players":      {"internal/core/ids"},
 	"internal/registry":     {"internal/core/ids"},
 	"internal/employment":   {"internal/core/ids"},
+	"internal/medical":      {"internal/core/ids"},
 	"internal/competitions": {"internal/core/ids", "internal/core/random", "internal/core/sim"},
 	// Match engines depend only on the contract and core; never on app,
 	// the scheduler or module stores.
@@ -42,6 +43,7 @@ var allowedImports = map[string][]string{
 		"internal/competitions", "internal/content", "internal/core/ids", "internal/core/random",
 		"internal/core/sim", "internal/employment", "internal/players", "internal/registry", "internal/worldgen",
 		"internal/ai", "internal/matches", "internal/matches/simple", "internal/selection",
+		"internal/medical",
 	},
 	// Storage is an adapter: it encodes app snapshots and never reaches
 	// into modules.

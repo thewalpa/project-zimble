@@ -18,11 +18,12 @@ import (
 )
 
 // goldenSeasonSeed42 pins every official result of the default seed-42
-// season. It covers world generation, scheduling, AI selection and the match
-// model: an intended change must bump the responsible version
+// season. It covers world generation, scheduling, AI selection, condition
+// and the match model: an intended change must bump the responsible version
 // (worldgen/content/random, competitions.ScheduleVersion,
-// ai.SelectionVersion, simple.ModelVersion) and update this value.
-const goldenSeasonSeed42 = "5e1590f18de270092996c3cfd72f0dd877bf82c26009708acb361ffd93b983ad"
+// ai.SelectionVersion, medical.Version, simple.ModelVersion) and update this
+// value. Last changed by milestone 8 (condition; selection v2, model v2).
+const goldenSeasonSeed42 = "9b3259c624dde9762ffe1dc03fcab79a1dd4f5da62503919b99efd92590103f1"
 
 // seasonEnd is one day after the last kickoff of every league.
 func seasonEnd(w *World) sim.GameInstant {
@@ -103,7 +104,7 @@ func TestFullSeasonIntegrity(t *testing.T) {
 	if res := mustContinue(t, w, seasonEnd(w)); res != (ReachedTarget{Now: seasonEnd(w)}) {
 		t.Fatalf("after the season Continue = %#v", res)
 	}
-	if w.scheduler.Len() != 0 || len(w.competitions.PendingRounds()) != 0 || len(w.payloads) != 0 {
+	if len(kickoffTasks(w)) != 0 || len(w.competitions.PendingRounds()) != 0 || len(w.payloads) != 0 {
 		t.Fatal("work left after the season")
 	}
 	if err := w.Validate(); err != nil {

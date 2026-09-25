@@ -201,3 +201,55 @@ func TestPendingIsACopy(t *testing.T) {
 		t.Fatal("Pending exposed or consumed queue state")
 	}
 }
+
+// A handler can reschedule itself (a recurring task) and schedule work later
+// in the same instant, which runs in the same call; it cannot schedule into
+// its own or an earlier position.
+func TestHandlersScheduleOnlyAfterTheirCohort(t *testing.T) {
+	s := newScheduler(t)
+	mustSchedule(t, s, TaskSpec{DueAt: 10, Phase: PhasePreparation, Kind: 1})
+	var ran []Task
+	var rejected []error
+	handle := func(at GameInstant, cohort []Task) (bool, error) {
+		ran = append(ran, cohort...)
+		if cohort[0].Kind != 1 {
+			return false, nil
+		}
+		for _, spec := range []TaskSpec{
+			{DueAt: at - 1, Phase: PhasePresentation, Kind: 9}, // earlier instant
+			{DueAt: at, Phase: PhaseExpiries, Kind: 9},         // earlier phase
+			{DueAt: at, Phase: PhasePreparation, Kind: 9},      // own cohort
+		} {
+			if _, err := s.Schedule(spec); err != nil {
+				rejected = append(rejected, err)
+			}
+		}
+		mustSchedule(t, s, TaskSpec{DueAt: at, Phase: PhaseConsequences, Kind: 2}) // later phase
+		mustSchedule(t, s, TaskSpec{DueAt: at + 10, Phase: PhasePreparation, Kind: 1})
+		return false, nil
+	}
+	if _, err := s.RunUntil(35, handle); err != nil {
+		t.Fatal(err)
+	}
+	if len(rejected) != 9 {
+		t.Fatalf("%d schedules rejected, want 9", len(rejected))
+	}
+	for _, err := range rejected {
+		if !errors.Is(err, ErrNotAfterCohort) {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	var got []GameInstant
+	var kinds []TaskKind
+	for _, task := range ran {
+		got, kinds = append(got, task.DueAt), append(kinds, task.Kind)
+	}
+	if !slices.Equal(got, []GameInstant{10, 10, 20, 20, 30, 30}) || !slices.Equal(kinds, []TaskKind{1, 2, 1, 2, 1, 2}) {
+		t.Fatalf("ran %v kinds %v", got, kinds)
+	}
+	if p := s.Pending(); len(p) != 1 || p[0].DueAt != 40 || s.Now() != 35 {
+		t.Fatalf("pending %v, now %d", p, s.Now())
+	}
+	// Outside a run the guard does not apply.
+	mustSchedule(t, s, TaskSpec{DueAt: 35, Phase: PhaseExpiries, Kind: 3})
+}

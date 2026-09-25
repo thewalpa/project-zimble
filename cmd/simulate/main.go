@@ -223,6 +223,25 @@ func printStatus(out io.Writer, w *app.World) error {
 			return err
 		}
 	}
+	return printSquad(out, w)
+}
+
+// printSquad lists the managed club's squad with condition, if any.
+func printSquad(out io.Writer, w *app.World) error {
+	club, ok := w.UserClub()
+	if !ok {
+		return nil
+	}
+	squad, _ := w.Squad(club)
+	fmt.Fprintf(out, "\nSquad (condition: 100%% is fully fit)\n")
+	fmt.Fprintf(out, "%4s  %-3s %-24s %5s %8s\n", "ID", "POS", "NAME", "OVR", "COND")
+	for _, p := range squad {
+		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %3d.%d %5d.%d%%\n", p.Player, p.Position, p.Name,
+			p.OverallTenths/10, p.OverallTenths%10, p.Condition/100, p.Condition%100/10)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

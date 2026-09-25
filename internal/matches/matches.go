@@ -23,6 +23,8 @@ const (
 	RegulationMinutes = 90
 	MinRating         = 1
 	MaxRating         = 20
+	// MaxCondition is full fitness; condition is per 10,000 and at least 1.
+	MaxCondition = 10_000
 )
 
 var (
@@ -84,10 +86,13 @@ func (r Ratings) valid() bool {
 	return true
 }
 
+// PlayerInput is one selected player. Condition is their fitness at
+// kickoff, 1..MaxCondition.
 type PlayerInput struct {
-	Player  ids.PlayerID
-	Role    Role
-	Ratings Ratings
+	Player    ids.PlayerID
+	Role      Role
+	Ratings   Ratings
+	Condition uint16
 }
 
 // Mentality is the supported tactical choice.
@@ -184,8 +189,8 @@ func (in *MatchInput) Validate(maxBench int) error {
 				return fail("%s player ID %d invalid or duplicated", side, p.Player)
 			}
 			seen[p.Player] = true
-			if !p.Role.Valid() || !p.Ratings.valid() {
-				return fail("%s player %d has invalid role or ratings", side, p.Player)
+			if !p.Role.Valid() || !p.Ratings.valid() || p.Condition == 0 || p.Condition > MaxCondition {
+				return fail("%s player %d has invalid role, ratings or condition", side, p.Player)
 			}
 			if i < StartersPerTeam && p.Role == Goalkeeper {
 				keepers++

@@ -18,6 +18,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
+	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
 	"github.com/thewalpa/project-zimble/internal/selection"
@@ -41,6 +42,7 @@ type Versions struct {
 	Random        int    // random.Version (per-fixture match streams)
 	Schedule      int    // competitions.ScheduleVersion (future seasons)
 	Selection     int    // ai.SelectionVersion (future lineups)
+	Medical       int    // medical.Version (condition loss and recovery)
 	EngineID      string // match engine built by the composition root
 	EngineVersion uint32
 }
@@ -79,6 +81,7 @@ type WorldSnapshot struct {
 	Registry     registry.Init
 	Players      []players.Profile
 	Employment   []employment.Assignment
+	Medical      []medical.Record // ascending player
 	Competitions competitions.Snapshot
 	Lineups      []selection.Entry // by fixture, team
 	Scheduler    sim.SchedulerSnapshot
@@ -95,7 +98,7 @@ func currentVersions(engine matches.Engine) Versions {
 	return Versions{
 		Generator: worldgen.Version, Content: content.Version, League: content.LeagueVersion,
 		Random: random.Version, Schedule: competitions.ScheduleVersion, Selection: ai.SelectionVersion,
-		EngineID: engine.ID(), EngineVersion: engine.Version(),
+		Medical: medical.Version, EngineID: engine.ID(), EngineVersion: engine.Version(),
 	}
 }
 
@@ -130,7 +133,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Versions: Versions{
 			Generator: w.generatorVersion, Content: w.contentVersion, League: w.leagueVersion,
 			Random: w.randomVersion, Schedule: w.scheduleVersion, Selection: w.selectionVersion,
-			EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
+			Medical: w.medicalVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
 		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs()),
@@ -139,6 +142,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Registry:           w.registry.Snapshot(),
 		Players:            w.players.Snapshot(),
 		Employment:         w.employment.Snapshot(),
+		Medical:            w.medical.Snapshot(),
 		Competitions:       w.competitions.Snapshot(),
 		Lineups:            w.selections.Snapshot(),
 		Scheduler:          w.scheduler.Snapshot(),
@@ -206,6 +210,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if err != nil {
 		return invalid("%v", err)
 	}
+	med, err := medical.New(medical.DefaultParams(), snap.Medical)
+	if err != nil {
+		return invalid("%v", err)
+	}
 	comps, err := competitions.Restore(snap.Competitions)
 	if err != nil {
 		return invalid("%v", err)
@@ -227,6 +235,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		leagueVersion:    snap.Versions.League,
 		scheduleVersion:  snap.Versions.Schedule,
 		selectionVersion: snap.Versions.Selection,
+		medicalVersion:   snap.Versions.Medical,
 		fingerprint:      snap.WorldFingerprint,
 		defs:             defs,
 		calendar:         calendar,
@@ -240,6 +249,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		registry:         reg,
 		players:          pl,
 		employment:       emp,
+		medical:          med,
 		competitions:     comps,
 		selections:       selections,
 	}
@@ -303,6 +313,7 @@ func checkVersions(saved, current Versions) error {
 		{"random", saved.Random, current.Random},
 		{"schedule", saved.Schedule, current.Schedule},
 		{"AI selection", saved.Selection, current.Selection},
+		{"medical", saved.Medical, current.Medical},
 		{"match engine", saved.EngineID, current.EngineID},
 		{"match engine version", saved.EngineVersion, current.EngineVersion},
 	} {
