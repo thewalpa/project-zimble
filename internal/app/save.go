@@ -82,6 +82,7 @@ type WorldSnapshot struct {
 	ContentFingerprint string // SHA-256 of Content and the league definitions
 	Content            content.Definitions
 	Leagues            []LeagueSnapshot // ascending competition ID
+	Cups               []content.Cup    // effective rules, pinned by the save; ascending competition ID
 	Revision           Revision
 
 	Registry     registry.Init
@@ -128,11 +129,12 @@ func currentVersions(engine matches.Engine) Versions {
 }
 
 // contentFingerprint identifies the effective content of a career.
-func contentFingerprint(defs content.Definitions, leagues []content.League) string {
+func contentFingerprint(defs content.Definitions, leagues []content.League, cups []content.Cup) string {
 	data, err := json.Marshal(struct {
 		Content content.Definitions
 		Leagues []content.League
-	}{defs, leagues})
+		Cups    []content.Cup
+	}{defs, leagues, cups})
 	if err != nil {
 		panic(fmt.Sprintf("app: content is not serializable: %v", err)) // plain data; cannot happen
 	}
@@ -162,7 +164,7 @@ func (w *World) Snapshot() WorldSnapshot {
 			Youth: w.youthVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
-		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs()),
+		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs(), w.cups),
 		Content:            w.defs.Clone(),
 		Revision:           w.revision,
 		Registry:           w.registry.Snapshot(),
@@ -180,6 +182,10 @@ func (w *World) Snapshot() WorldSnapshot {
 	}
 	for _, l := range w.leagues {
 		snap.Leagues = append(snap.Leagues, LeagueSnapshot{Definition: l.def, Season: l.season})
+	}
+	for _, c := range w.cups {
+		c.Qualifiers = slices.Clone(c.Qualifiers)
+		snap.Cups = append(snap.Cups, c)
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.payloads)) {
 		snap.KickoffPayloads = append(snap.KickoffPayloads, PayloadRecord{ID: id, Round: w.payloads[id]})
@@ -232,7 +238,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	for _, l := range snap.Leagues {
 		leagueDefs = append(leagueDefs, l.Definition)
 	}
-	if got := contentFingerprint(defs, leagueDefs); got != snap.ContentFingerprint {
+	if got := contentFingerprint(defs, leagueDefs, snap.Cups); got != snap.ContentFingerprint {
 		return invalid("content fingerprint %s does not match its content (%s)", snap.ContentFingerprint, got)
 	}
 	if err := defs.Validate(); err != nil {
@@ -321,6 +327,14 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if len(w.leagues) == 0 {
 		return invalid("no leagues")
 	}
+	cups, err := checkCups(leagueDefs, snap.Cups)
+	if err != nil {
+		return invalid("%v", err)
+	}
+	if !slices.EqualFunc(cups, snap.Cups, func(a, b content.Cup) bool { return a.ID == b.ID }) {
+		return invalid("cups not in ascending competition ID order")
+	}
+	w.cups = cups
 
 	usedPayload := map[sim.PayloadID]bool{}
 	checkPayloadID := func(id sim.PayloadID) error {
@@ -473,9 +487,9 @@ func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 			return fmt.Errorf("fixture %d reported in %s", m.Fixture, m.Round)
 		case m.Home.Team != official.Home || m.Away.Team != official.Away:
 			return fmt.Errorf("fixture %d teams differ from the official fixture", m.Fixture)
-		case m.Score != [2]uint16{official.HomeGoals, official.AwayGoals} || res.At != official.RecordedAt:
-			return fmt.Errorf("fixture %d report %v at %d differs from official %d-%d at %d",
-				m.Fixture, m.Score, res.At, official.HomeGoals, official.AwayGoals, official.RecordedAt)
+		case m.Score != [2]uint16{official.HomeGoals, official.AwayGoals} || m.Shootout != [2]uint16{official.HomePenalties, official.AwayPenalties} || res.At != official.RecordedAt:
+			return fmt.Errorf("fixture %d report %v (penalties %v) at %d differs from official %d-%d at %d",
+				m.Fixture, m.Score, m.Shootout, res.At, official.HomeGoals, official.AwayGoals, official.RecordedAt)
 		}
 		var goals [2]uint16
 		for _, g := range m.Goals {

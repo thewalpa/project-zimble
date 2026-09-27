@@ -393,9 +393,12 @@ func demoContinue(out io.Writer, w *app.World) error {
 // current seasons, resolving at most limit batches (all remaining if
 // limit < 0), printing each, then prints those seasons' tables. It stops a
 // day after their last kickoff, past the season end that creates the next
-// seasons, so a later run plays the next season. With a mentality, it first submits the suggested lineup with that
-// mentality for each of the managed club's fixtures. Command IDs continue
-// after any recorded in the world, so a loaded career never reuses one.
+// seasons, so a later run plays the next season. With limit < 0 it then
+// plays the cup editions that season end created, to a day after their
+// finals, and names their winners. With a mentality, it first submits the
+// suggested lineup with that mentality for each of the managed club's
+// fixtures. Command IDs continue after any recorded in the world, so a
+// loaded career never reuses one.
 func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mentality) error {
 	cal := w.Calendar()
 	end := w.Now()
@@ -406,49 +409,12 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 	}
 	fmt.Fprintf(out, "\nPlaying to %s\n", cal.Format(end))
 	for played := 0; limit < 0 || played < limit; played++ {
-		res, err := w.Continue(end)
+		ok, err := playBatch(out, w, end, mentality)
 		if err != nil {
 			return err
 		}
-		ready, ok := res.(app.FixtureRoundReady)
 		if !ok {
 			break
-		}
-		if mentality != 0 {
-			for _, f := range ready.UserFixtures {
-				l, err := w.SuggestLineup(f)
-				if err != nil {
-					return err
-				}
-				l.Tactics.Mentality = mentality
-				sub := app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}
-				if _, err := w.SubmitLineup(sub); err != nil {
-					return err
-				}
-			}
-		}
-		cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
-		for _, r := range ready.Rounds {
-			cmd.Rounds = append(cmd.Rounds, r.Round)
-		}
-		resolved, err := w.ResolveRounds(cmd)
-		if err != nil {
-			return err
-		}
-		for _, r := range resolved.Rounds {
-			fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)
-			for _, m := range resolved.Matches {
-				if m.Round != r {
-					continue
-				}
-				fmt.Fprintf(out, "  F%-3d %-3s %d-%d %-3s  %s %d-%d %s", m.Fixture,
-					m.Home.ShortName, m.Score[0], m.Score[1], m.Away.ShortName,
-					m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
-				if club, ok := w.UserClub(); ok && (m.Home.Club == club || m.Away.Club == club) {
-					fmt.Fprintf(out, "  <- %s", lineupNote(w, m.Fixture))
-				}
-				fmt.Fprintln(out)
-			}
 		}
 	}
 	for _, ref := range seasons {
@@ -457,7 +423,101 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 			return err
 		}
 	}
+	if limit >= 0 {
+		return nil
+	}
+	for _, c := range w.Cups() {
+		if c.Complete {
+			continue
+		}
+		final := c.Rounds[len(c.Rounds)-1].Kickoff + sim.GameInstant(sim.Day)
+		fmt.Fprintf(out, "\n%s %d: playing to %s\n", c.Name, c.Edition, cal.Format(final))
+		for {
+			ok, err := playBatch(out, w, final, mentality)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				break
+			}
+		}
+		if e, ok := w.Cup(competitions.SeasonRef{Competition: c.Competition, Season: c.Edition}); ok && e.Champion != nil {
+			fmt.Fprintf(out, "\n%s %d winner: %s (%s)\n", e.Name, e.Edition, e.Champion.ClubName, e.Champion.ShortName)
+		}
+	}
 	return nil
+}
+
+// playBatch continues to the next batch before end, submits the managed
+// club's lineups (with a mentality), resolves it and prints it. It reports
+// false when no batch came before end.
+func playBatch(out io.Writer, w *app.World, end sim.GameInstant, mentality matches.Mentality) (bool, error) {
+	cal := w.Calendar()
+	res, err := w.Continue(end)
+	if err != nil {
+		return false, err
+	}
+	ready, ok := res.(app.FixtureRoundReady)
+	if !ok {
+		return false, nil
+	}
+	if mentality != 0 {
+		for _, f := range ready.UserFixtures {
+			l, err := w.SuggestLineup(f)
+			if err != nil {
+				return false, err
+			}
+			l.Tactics.Mentality = mentality
+			sub := app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}
+			if _, err := w.SubmitLineup(sub); err != nil {
+				return false, err
+			}
+		}
+	}
+	cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
+	for _, r := range ready.Rounds {
+		cmd.Rounds = append(cmd.Rounds, r.Round)
+	}
+	resolved, err := w.ResolveRounds(cmd)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range resolved.Rounds {
+		if len(resolved.Matches) > 0 {
+			info, _ := w.FixtureInfo(firstFixture(resolved, r))
+			if info.Cup {
+				fmt.Fprintf(out, "\n%s %s  %s  (competition %d)\n", info.CompetitionName, info.RoundName, cal.Format(resolved.At), r.Season.Competition)
+			} else {
+				fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)
+			}
+		}
+		for _, m := range resolved.Matches {
+			if m.Round != r {
+				continue
+			}
+			fmt.Fprintf(out, "  F%-3d %-3s %d-%d %-3s  %s %d-%d %s", m.Fixture,
+				m.Home.ShortName, m.Score[0], m.Score[1], m.Away.ShortName,
+				m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
+			if m.Shootout != [2]uint16{} {
+				fmt.Fprintf(out, " (%d-%d on penalties)", m.Shootout[0], m.Shootout[1])
+			}
+			if club, ok := w.UserClub(); ok && (m.Home.Club == club || m.Away.Club == club) {
+				fmt.Fprintf(out, "  <- %s", lineupNote(w, m.Fixture))
+			}
+			fmt.Fprintln(out)
+		}
+	}
+	return true, nil
+}
+
+// firstFixture is the first resolved fixture of round r.
+func firstFixture(res app.RoundsResolved, r competitions.RoundRef) ids.FixtureID {
+	for _, m := range res.Matches {
+		if m.Round == r {
+			return m.Fixture
+		}
+	}
+	return 0
 }
 
 func printTable(out io.Writer, t app.Table) error {

@@ -100,3 +100,65 @@ func (s *session) conversionPPM(side matches.Side, shooter int) int64 {
 	c := s.p.BaseConversionPPM * (fin + s.p.ConversionOffset) / (keeper + s.p.ConversionOffset)
 	return min(max(c, s.p.MinConversionPPM), s.p.MaxConversionPPM)
 }
+
+// maxSuddenDeath bounds the sudden-death pairs of a shootout; a draw after
+// them (practically impossible) is settled by one even draw.
+const maxSuddenDeath = 50
+
+// shootout takes a penalty shootout at full time. Each side's takers are
+// its players on the pitch, best effective finishing first (ties: slot
+// order), in turn; the sides kick alternately, home first. After five kicks
+// each, or as soon as one side cannot be caught, the shootout is decided;
+// otherwise it goes to sudden death, pair by pair.
+func (s *session) shootout() [2]uint16 {
+	var takers [2][matches.StartersPerTeam]int
+	var keeper [2]int64
+	for side := range s.teams {
+		t := &s.teams[side]
+		for slot, i := range t.pitch {
+			takers[side][slot] = int(i)
+			if p := &t.players[i]; p.role == matches.Goalkeeper {
+				keeper[side] = s.effective(p, p.r.Goalkeeping)
+			}
+		}
+		order := takers[side][:]
+		// Insertion sort: stable, and at most eleven players.
+		for a := 1; a < len(order); a++ {
+			for b := a; b > 0 && s.finishing(t, order[b]) > s.finishing(t, order[b-1]); b-- {
+				order[b], order[b-1] = order[b-1], order[b]
+			}
+		}
+	}
+	var goals [2]uint16
+	kick := func(side, n int) {
+		taker := &s.teams[side].players[takers[side][n%matches.StartersPerTeam]]
+		c := s.p.ShootoutConversionPPM * (s.effective(taker, taker.r.Finishing) + s.p.ConversionOffset) / (keeper[1-side] + s.p.ConversionOffset)
+		if int64(s.rng.IntN(ppm)) < min(max(c, s.p.MinShootoutPPM), s.p.MaxShootoutPPM) {
+			goals[side]++
+		}
+	}
+	const firstKicks = 5
+	for n := range firstKicks {
+		for side := range 2 {
+			kick(side, n)
+			// Kicks left after this one: the home side's remaining turns,
+			// and the away side's, including this round's if home just kicked.
+			left := [2]int{firstKicks - n - 1, firstKicks - n - 1 + (1 - side)}
+			if int(goals[0])+left[0] < int(goals[1]) || int(goals[1])+left[1] < int(goals[0]) {
+				return goals
+			}
+		}
+	}
+	for n := firstKicks; n < firstKicks+maxSuddenDeath && goals[0] == goals[1]; n++ {
+		kick(0, n)
+		kick(1, n)
+	}
+	if goals[0] == goals[1] {
+		goals[s.rng.IntN(2)]++
+	}
+	return goals
+}
+
+func (s *session) finishing(t *team, i int) int64 {
+	return s.effective(&t.players[i], t.players[i].r.Finishing)
+}

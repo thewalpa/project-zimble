@@ -11,7 +11,7 @@
       <p class="muted">A match you were watching in the terminal is in progress. Play match finishes it.</p>
     {{else if $d.Matchday}}
       <h2>Matchday</h2>
-      <p class="big">Round {{$d.Matchday.Round}} v {{$d.Matchday.Opponent}}</p>
+      <p class="big">{{$d.Matchday.Name}} v {{$d.Matchday.Opponent}}</p>
       <p class="muted">{{$d.Matchday.When}}</p>
       <div class="actions">
         <a class="button" href="/lineup">Pick lineup</a>
@@ -19,7 +19,7 @@
       </div>
     {{else if $d.Next}}
       <h2>Next match</h2>
-      <p class="big">Round {{$d.Next.Round}} v {{$d.Next.Opponent}}</p>
+      <p class="big">{{$d.Next.Name}} v {{$d.Next.Opponent}}</p>
       <p class="muted">{{$d.Next.When}}</p>
       <div class="actions">
         <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Go to matchday</button></form>

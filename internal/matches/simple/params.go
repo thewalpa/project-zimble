@@ -46,8 +46,11 @@ func (w Weights) sum() int64 { return w.A + w.B + w.C }
 //     HomeAdvantage; clamped to [MinChance, MaxChance].
 //   - Shooter: weighted by ShotShare[role] * effective Finishing.
 //   - Conversion = BaseConversion * (Finishing + ConversionOffset) /
-//     (opponent Goalkeeping + ConversionOffset), clamped. Goalkeeping has no
-//     other effect.
+//     (opponent Goalkeeping + ConversionOffset), clamped.
+//   - A knockout match level after 90 minutes goes to a penalty shootout. A
+//     kick scores with ShootoutConversion * (taker Finishing +
+//     ConversionOffset) / (keeper Goalkeeping + ConversionOffset), clamped
+//     to [MinShootout, MaxShootout].
 //
 // Arrays indexed by matches.Role (index 0 unused) or matches.Mentality.
 type Params struct {
@@ -68,6 +71,8 @@ type Params struct {
 	AttackShare    [5]int64
 	DefenseShare   [5]int64
 	ShotShare      [5]int64
+
+	ShootoutConversionPPM, MinShootoutPPM, MaxShootoutPPM int64
 }
 
 // DefaultParams returns the constants of ModelVersion. Equal teams produce
@@ -99,6 +104,10 @@ func DefaultParams() Params {
 		AttackShare:  [5]int64{0, 0, 1, 3, 5},
 		DefenseShare: [5]int64{0, 0, 5, 3, 1},
 		ShotShare:    [5]int64{0, 0, 1, 3, 6},
+
+		ShootoutConversionPPM: 760_000, // equal taker and keeper: about 3 in 4
+		MinShootoutPPM:        500_000,
+		MaxShootoutPPM:        930_000,
 	}
 }
 
@@ -115,6 +124,8 @@ func (p Params) Validate() error {
 		return bad("conversion range")
 	case p.BaseChancePPM > ppm || p.BaseConversionPPM > ppm:
 		return bad("base probability above 1")
+	case !(0 < p.MinShootoutPPM && p.MinShootoutPPM <= p.MaxShootoutPPM && p.MaxShootoutPPM < ppm && 0 < p.ShootoutConversionPPM && p.ShootoutConversionPPM <= ppm):
+		return bad("shootout range")
 	case p.ConversionOffset <= 0 || p.HomeAdvantagePermille <= 0 || p.HomeAdvantagePermille > 4*permille:
 		return bad("offset or home advantage")
 	case p.FatigueBasePer100k < 0 || p.FatigueStaminaStepPer100k < 0 || p.FatigueCapPer100k < 0 || p.FatigueCapPer100k >= per100k:

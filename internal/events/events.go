@@ -108,6 +108,9 @@ type MatchCompleted struct {
 	Home, Away  ids.TeamID
 	HomeGoals   uint16
 	AwayGoals   uint16
+	// A knockout match level after regulation: the penalty shootout.
+	HomePenalties uint16 `json:",omitempty"`
+	AwayPenalties uint16 `json:",omitempty"`
 }
 
 // LineupSubmitted: a team's manager submitted a lineup for a fixture.
@@ -116,20 +119,21 @@ type LineupSubmitted struct {
 	Team    ids.TeamID
 }
 
-// SeasonEnded: a league season finished. Ranking is its final table, top
-// first; Ranking[0] is the champion.
+// SeasonEnded: a league season or cup edition finished. Ranking is its
+// final order, best first (a league's table; a cup's by the round each team
+// reached); Ranking[0] is the champion.
 type SeasonEnded struct {
 	Competition ids.CompetitionID
 	Season      uint16
 	Ranking     []ids.TeamID
 }
 
-// SeasonStarted: a league season was created and scheduled.
+// SeasonStarted: a league season or cup edition was created and scheduled.
 type SeasonStarted struct {
 	Competition  ids.CompetitionID
 	Season       uint16
 	FirstKickoff sim.GameInstant
-	Entrants     []ids.TeamID // ascending
+	Entrants     []ids.TeamID // a league's ascending, a cup's in bracket order
 }
 
 // LedgerEntry is one posted ledger entry. Kind uses the finance module's

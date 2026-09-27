@@ -36,8 +36,10 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 	}
 	weeks := int(w.Now() / (7 * day)) // one wage run per elapsed week
 	want := map[events.Kind]int{
-		events.KindRoundStarted: 14, events.KindMatchCompleted: 56, events.KindLineupSubmitted: 14,
-		events.KindSeasonEnded: 1, events.KindSeasonStarted: 1, events.KindLedgerPosted: 14 + weeks,
+		// Two leagues, then both leagues' second seasons and the first cup
+		// edition.
+		events.KindRoundStarted: 28, events.KindMatchCompleted: 112, events.KindLineupSubmitted: 14,
+		events.KindSeasonEnded: 2, events.KindSeasonStarted: 3, events.KindLedgerPosted: 14 + weeks,
 	}
 	if !reflect.DeepEqual(count, want) {
 		t.Fatalf("event counts %v, want %v", count, want)
@@ -143,14 +145,15 @@ func TestInboxIsAProjectionOfTheJournal(t *testing.T) {
 				t.Fatalf("result message %+v for %+v", m, r)
 			}
 		case inbox.KindSeasonEnded:
-			table, _ := w.Table(competitions.SeasonRef{Competition: 1, Season: 1})
+			// The club's own league gives its position; the other league 0.
+			table, _ := w.Table(competitions.SeasonRef{Competition: m.Competition, Season: 1})
 			pos := slices.IndexFunc(table.Rows, func(r TableRow) bool { return r.Team == team }) + 1
-			if m.ChampionLabel != table.Rows[0].Label || m.Position != pos || m.CompetitionName != "Founders League" {
+			if m.ChampionLabel != table.Rows[0].Label || m.Position != pos || m.CompetitionName != table.CompetitionName || (m.Competition == 1) != (pos > 0) {
 				t.Fatalf("season message %+v, position %d", m, pos)
 			}
 		}
 	}
-	if want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 1, inbox.KindSeasonStarted: 1}; !reflect.DeepEqual(count, want) {
+	if want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 2, inbox.KindSeasonStarted: 3}; !reflect.DeepEqual(count, want) {
 		t.Fatalf("message counts %v, want %v", count, want)
 	}
 
@@ -204,7 +207,7 @@ func TestJournalRetention(t *testing.T) {
 	if len(j) != 30 || j[len(j)-1].ID != w.lastEvent || w.lastEvent < 100 || w.inbox.Offset() != w.lastEvent {
 		t.Fatalf("journal %d..%d (%d events), allocator %d", j[0].ID, j[len(j)-1].ID, len(j), w.lastEvent)
 	}
-	if len(w.Inbox()) != 30 {
+	if len(w.Inbox()) != 14+14+2+3 { // matchdays, results, season ends and starts
 		t.Fatalf("inbox lost messages when the journal was trimmed: %d", len(w.Inbox()))
 	}
 	roundTrip(t, w)

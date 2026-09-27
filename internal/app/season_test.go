@@ -47,7 +47,7 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if reflect.DeepEqual(pairings(s1), pairings(s2)) {
 		t.Fatal("season 2 repeats season 1's draw")
 	}
-	if n := len(kickoffTasks(w)); n != 14 {
+	if n := len(kickoffTasks(w)); n != 28 { // both leagues; the cup was played
 		t.Fatalf("%d kickoff tasks queued for season 2", n)
 	}
 	// Nine months of rest: everyone starts season 2 fully fit.
@@ -62,25 +62,47 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if w.leagues[0].season != s3 {
 		t.Fatalf("current season %s after season 2", w.leagues[0].season)
 	}
+	// Fixture IDs are never reused and each season's follow the previous
+	// one's (the other league and the cup take IDs in between).
 	seen := map[ids.FixtureID]bool{}
+	var last ids.FixtureID
 	for i, ref := range []competitions.SeasonRef{s1, s2, s3} {
 		fixtures := w.competitions.Fixtures(ref)
 		if len(fixtures) != 56 {
 			t.Fatalf("%s has %d fixtures", ref, len(fixtures))
 		}
+		first := last
 		for _, f := range fixtures {
-			if seen[f.ID] || f.ID <= ids.FixtureID(56*i) || f.ID > ids.FixtureID(56*(i+1)) {
+			if seen[f.ID] || f.ID <= first {
 				t.Fatalf("fixture ID %d of %s repeated or out of sequence", f.ID, ref)
 			}
 			seen[f.ID] = true
+			last = max(last, f.ID)
 			if _, done := w.competitions.Result(f.ID); done != (i < 2) {
 				t.Fatalf("fixture %d of %s: result recorded = %v", f.ID, ref, done)
 			}
 		}
 	}
 
-	hist := w.History()
-	if len(hist) != 3 || hist[2].Complete || hist[2].Champion != nil {
+	// History: both leagues' three seasons, then two complete cup editions
+	// won by their final's winner.
+	all := w.History()
+	if len(all) != 8 {
+		t.Fatalf("history %+v", all)
+	}
+	for _, rec := range all[6:] {
+		cup, ok := w.Cup(rec.Season)
+		final := cup.Rounds[len(cup.Rounds)-1].Ties[0]
+		winner := final.Home
+		if final.Score[1] > final.Score[0] || (final.Score[0] == final.Score[1] && final.Shootout[1] > final.Shootout[0]) {
+			winner = final.Away
+		}
+		if !ok || rec.Format != competitions.FormatKnockout || !rec.Complete || rec.Champion == nil || *rec.Champion != winner || *cup.Champion != winner {
+			t.Fatalf("cup %s: history %+v, final %+v", rec.Season, rec, final)
+		}
+	}
+	hist := all[:3] // the first league
+	if hist[2].Complete || hist[2].Champion != nil {
 		t.Fatalf("history %+v", hist)
 	}
 	for i, ref := range []competitions.SeasonRef{s1, s2} {
@@ -144,21 +166,21 @@ func TestSaveAroundSeasonEndContinuesIdentically(t *testing.T) {
 		straight := newWorld(t, 42)
 		stop(straight)
 		loaded := roundTrip(t, straight)
-		// playSeason stops after a season end; from "before season end" the
-		// first call only runs it.
+		// Play on until season 3 begins: from "before season end" that runs
+		// the season end, the first cup edition, then season 2 and its cup.
 		next := func(w *World) []RoundsResolved {
-			r := playSeason(t, w)
-			if len(r) == 0 {
-				r = playSeason(t, w)
+			var out []RoundsResolved
+			for w.leagues[0].season.Season < 3 {
+				out = append(out, playSeason(t, w)...)
 			}
-			return r
+			return out
 		}
 		a, b := next(straight), next(loaded)
 		if !reflect.DeepEqual(a, b) || !reflect.DeepEqual(loaded.Snapshot(), straight.Snapshot()) {
 			t.Fatalf("%s: the next season differs after a save", name)
 		}
-		if n := len(a); n != 14 || loaded.leagues[0].season.Season != 3 {
-			t.Fatalf("%s: %d batches, now in %s", name, n, loaded.leagues[0].season)
+		if n := len(a); n < 14+3 {
+			t.Fatalf("%s: %d batches", name, n)
 		}
 	}
 }
@@ -261,7 +283,7 @@ func TestRestoreRejectsInvalidSeasonState(t *testing.T) {
 		},
 		"season interval edited": func(s *WorldSnapshot) {
 			s.Leagues[0].Definition.SeasonInterval += sim.Day
-			s.ContentFingerprint = contentFingerprint(s.Content, []content.League{s.Leagues[0].Definition})
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
 		},
 	}
 	for name, mutate := range cases {
@@ -274,4 +296,13 @@ func TestRestoreRejectsInvalidSeasonState(t *testing.T) {
 	if _, err := Restore(build()); err != nil {
 		t.Fatalf("unmodified snapshot rejected: %v", err)
 	}
+}
+
+// leagueDefsOf returns a snapshot's league definitions.
+func leagueDefsOf(s *WorldSnapshot) []content.League {
+	var out []content.League
+	for _, l := range s.Leagues {
+		out = append(out, l.Definition)
+	}
+	return out
 }

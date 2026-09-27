@@ -1,0 +1,31 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if not $d}}
+<h1>Continental Cup</h1>
+<div class="panel"><p class="muted">No edition has been drawn yet. When both league seasons end, the top four of each league meet in a knockout: quarter-finals, semi-finals and a final, one match each, a week apart. A level match is decided on penalties.</p></div>
+{{end}}
+{{range $d}}
+<h1>{{.Name}} {{.Edition}}</h1>
+<p class="muted">The top four of each league; the champions can meet only in the final. The better-placed team hosts the quarter-final.{{if .Mine}} Your club is in it.{{end}}</p>
+{{if .Champion}}<div class="note">Won by <b>{{.Champion.ClubName}}</b>.</div>{{end}}
+<div class="grid">
+  {{range .Rounds}}
+  <div class="panel">
+    <h2>{{.Title}}</h2>
+    <p class="muted" style="margin-top:0">{{.When}}</p>
+    {{if .Ties}}
+    <table>
+      {{range .Ties}}
+      <tr {{if .Mine}}class="me"{{end}}>
+        <td>{{if .HomeWins}}<b>{{.Home.ClubName}}</b>{{else}}{{.Home.ClubName}}{{end}}</td>
+        <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
+        <td>{{if .AwayWins}}<b>{{.Away.ClubName}}</b>{{else}}{{.Away.ClubName}}{{end}}</td>
+      </tr>
+      {{end}}
+    </table>
+    {{else}}<p class="muted">To be decided.</p>{{end}}
+  </div>
+  {{end}}
+</div>
+{{end}}
+{{end}}

@@ -130,10 +130,13 @@ type TeamInput struct {
 	Bench    []PlayerInput
 }
 
-// Rules are the competition's match rules.
+// Rules are the competition's match rules. In a knockout match a draw after
+// regulation is decided by a penalty shootout; it needs an engine with the
+// Penalties capability.
 type Rules struct {
 	MaxSubstitutions uint8
 	MaxBench         uint8
+	Knockout         bool
 }
 
 // MatchInput is logically immutable input for one match. Engines copy what
@@ -285,6 +288,7 @@ type MatchEvent struct {
 // Side.Index(), so it never aliases session memory.
 type MatchView struct {
 	Score             [2]uint16
+	Shootout          [2]uint16 // after a shootout: penalties scored
 	Mentality         [2]Mentality
 	SubstitutionsUsed [2]uint8
 	OnPitch           [2][StartersPerTeam]ids.PlayerID // slot order
@@ -303,7 +307,8 @@ type Resolution uint8
 
 const (
 	ResolutionRegulation Resolution = 1 // 90 minutes only
-	// 2 (extra time) and 3 (penalties) are reserved.
+	// 2 (extra time) is reserved.
+	ResolutionPenalties Resolution = 3 // level after 90 minutes, then a penalty shootout
 )
 
 type Goal struct {
@@ -335,8 +340,23 @@ type MatchOutcome struct {
 	EngineID      string
 	EngineVersion uint32
 	Score         [2]uint16
+	Shootout      [2]uint16 // shootout penalties scored; zero unless Resolution is ResolutionPenalties
 	Goals         []Goal
 	Participants  []Participation
+}
+
+// Winner returns the side that won a completed outcome: by score, else by
+// shootout. ok is false for a draw.
+func (o MatchOutcome) Winner() (Side, bool) {
+	for _, pair := range [][2]uint16{o.Score, o.Shootout} {
+		switch {
+		case pair[0] > pair[1]:
+			return Home, true
+		case pair[1] > pair[0]:
+			return Away, true
+		}
+	}
+	return 0, false
 }
 
 // MatchStepResult is caller-owned output for Advance. Advance resets the

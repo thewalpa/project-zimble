@@ -217,7 +217,7 @@ func TestMoneyViews(t *testing.T) {
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
-		"continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 129 1", "q", "q")
+		"continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 168 1", "q", "q")
 	contains(t, out,
 		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
 		"  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year",
@@ -237,7 +237,7 @@ func TestContracts(t *testing.T) {
 		"! app: squads cannot change while rounds await results",
 		"  56  MF  Callum Ibsen              27    76  100%     2,570.00  to 2028",
 		"Elias Adeyemi joined until 1 July 2027 at 1,160.00 a week.",
-		"Nils Abbott joined until 1 July 2027 at 1,160.00 a week.",
+		"Tomas Grady joined until 1 July 2027 at 940.00 a week.",
 	)
 	if strings.Count(out, "Elias Adeyemi joined") != 1 {
 		t.Fatal("signed a player on a matchday, or twice")
@@ -251,10 +251,39 @@ func TestPlayerYearMessages(t *testing.T) {
 	contains(t, out,
 		"Wed 2027-06-30 00:00 UTC  development: 4 of your players improved and 7 declined over the year (type squad)",
 		"Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36",
-		"Wed 2027-06-30 00:00 UTC  youth: Yannick Okafor joined from the youth ranks until 1 July 2030 at 430.00 a week",
+		"Wed 2027-06-30 00:00 UTC  youth: Viktor Okafor joined from the youth ranks until 1 July 2030 at 1,110.00 a week",
 		"Every year on the eve of that date, young players improve, older ones decline, and some retire.",
 	)
 	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Hugo Kowal") {
 		t.Fatal("the retired goalkeeper is still in the squad")
 	}
+}
+
+// The cup is drawn when the leagues end and shown by cup; its results reach
+// the inbox, penalties included.
+func TestCup(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "cup", "season", "continue", "cup", "q", "q")
+	contains(t, out,
+		"No cup has been drawn yet",
+		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
+		"Continental Cup 1 won by Glenrock Town",
+		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
+		"  Glenrock Town            0-0 Brackenmoor Town (3-1 on penalties)",
+		"Final, Sat 2025-12-06 15:00 UTC",
+		"Winner: Glenrock Town",
+	)
+}
+
+// A managed club in the cup: its matchday is named after the round, and the
+// result can be decided on penalties.
+func TestManagedCupRun(t *testing.T) {
+	// Glenrock Town (club 15) won the first edition.
+	out := play(t, []string{"-seed", "42", "-club", "15"}, "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q")
+	contains(t, out,
+		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final v Greyfen United (away).",
+		"matchday: Continental Cup semi-final v Brackenmoor Town (home)",
+		"FULL TIME  Glenrock Town 0-0 Brackenmoor Town (3-1 on penalties)  (W)",
+		"result: 0-0 (3-1 on penalties) v Brackenmoor Town (home)",
+		"Continental Cup 1 won by Glenrock Town: your club won it!",
+	)
 }

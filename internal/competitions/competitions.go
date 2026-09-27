@@ -1,6 +1,11 @@
-// Package competitions owns competition-season instances: their entrants,
-// fixtures, kickoff times, round status and official results. Standings are
-// derived from results on demand.
+// Package competitions owns competition-season instances: their format,
+// entrants, fixtures, kickoff times, round status and official results.
+// Standings, rankings and champions are derived from results on demand.
+//
+// A league season is a double round robin ranked by its table. A knockout
+// season is a fixed bracket of single-match ties (see knockout.go): each
+// round's fixtures are created from the previous round's winners when that
+// round's results are recorded.
 //
 // Whether an entrant team exists is checked by the application, which can
 // read the registry; this package does not import other domain modules.
@@ -42,6 +47,27 @@ func (r SeasonRef) String() string {
 // Round is a 1-based round number within a competition season.
 type Round uint8
 
+// Format is how a competition season is played. Values are durable; never
+// reorder.
+type Format uint8
+
+const (
+	FormatLeague   Format = 1 // double round robin, ranked by the table
+	FormatKnockout Format = 2 // single-match ties in a fixed bracket; a level tie goes to penalties
+)
+
+func (f Format) Valid() bool { return f == FormatLeague || f == FormatKnockout }
+
+func (f Format) String() string {
+	switch f {
+	case FormatLeague:
+		return "league"
+	case FormatKnockout:
+		return "knockout"
+	}
+	return fmt.Sprintf("Format(%d)", uint8(f))
+}
+
 // Fixture is a scheduled meeting. Its ID is opaque and unique across all
 // competitions and seasons in the store; Season, Round, Home and Away are its
 // natural key. Kickoff is owned here; every fixture in a round currently
@@ -55,9 +81,9 @@ type Fixture struct {
 	Kickoff sim.GameInstant
 }
 
-// Timing is the explicit scheduling input for a league season. Round r
-// kicks off at FirstKickoff + (r-1)*RoundInterval. Timing never affects
-// pairings or fixture IDs.
+// Timing is the explicit scheduling input for a season. Round r kicks off
+// at FirstKickoff + (r-1)*RoundInterval. Timing never affects pairings or
+// fixture IDs.
 type Timing struct {
 	FirstKickoff  sim.GameInstant
 	RoundInterval sim.Duration
@@ -67,7 +93,8 @@ type fixtureLoc struct{ season, index int }
 
 type season struct {
 	ref      SeasonRef
-	entrants []ids.TeamID // ascending
+	format   Format
+	entrants []ids.TeamID // league: ascending; knockout: bracket order
 	fixtures []Fixture    // by round, then ID
 	results  []result     // parallel to fixtures
 	rounds   []roundState // index = round-1
@@ -88,9 +115,11 @@ func New() *Store {
 	}
 }
 
-// NewSeason describes one league season to create.
+// NewSeason describes one season to create. A league's entrant order does
+// not matter; a knockout's entrants are its bracket (see knockout.go).
 type NewSeason struct {
 	Ref      SeasonRef
+	Format   Format
 	Entrants []ids.TeamID
 	Timing   Timing
 }
@@ -100,15 +129,25 @@ type NewSeason struct {
 // draw. The entrants slice is not retained or modified. Every round starts
 // as RoundScheduled. On error the store is unchanged.
 func (s *Store) CreateLeagueSeason(seed random.Seed, ref SeasonRef, entrants []ids.TeamID, timing Timing) error {
-	return s.CreateLeagueSeasons(seed, []NewSeason{{Ref: ref, Entrants: entrants, Timing: timing}})
+	return s.CreateSeasons(seed, []NewSeason{{Ref: ref, Format: FormatLeague, Entrants: entrants, Timing: timing}})
 }
 
-// CreateLeagueSeasons creates several league seasons as one unit: every
+// CreateLeagueSeasons creates league seasons with CreateSeasons.
+func (s *Store) CreateLeagueSeasons(seed random.Seed, specs []NewSeason) error {
+	specs = slices.Clone(specs)
+	for i := range specs {
+		specs[i].Format = FormatLeague
+	}
+	return s.CreateSeasons(seed, specs)
+}
+
+// CreateSeasons creates several seasons of any format as one unit: every
 // season is validated and generated before any is stored, so on error the
 // store is unchanged. Seasons are created, and fixture IDs allocated, in
-// (competition, season) order whatever the input order. Each season's draw
-// uses its own stream, keyed by (seed, competition, season).
-func (s *Store) CreateLeagueSeasons(seed random.Seed, specs []NewSeason) error {
+// (competition, season) order whatever the input order. Each league draw
+// uses its own stream, keyed by (seed, competition, season); a knockout
+// bracket involves no draw.
+func (s *Store) CreateSeasons(seed random.Seed, specs []NewSeason) error {
 	specs = slices.Clone(specs)
 	slices.SortFunc(specs, func(a, b NewSeason) int {
 		return cmp.Or(cmp.Compare(a.Ref.Competition, b.Ref.Competition), cmp.Compare(a.Ref.Season, b.Ref.Season))
@@ -122,6 +161,17 @@ func (s *Store) CreateLeagueSeasons(seed random.Seed, specs []NewSeason) error {
 		}
 		if _, dup := s.seasonIdx[ref]; dup || (i > 0 && specs[i-1].Ref == ref) {
 			return fmt.Errorf("competitions: %s already exists", ref)
+		}
+		if spec.Format == FormatKnockout {
+			se, err := newKnockout(ref, spec.Entrants, spec.Timing, &next)
+			if err != nil {
+				return err
+			}
+			staged = append(staged, se)
+			continue
+		}
+		if spec.Format != FormatLeague {
+			return fmt.Errorf("competitions: %s has invalid format %d", ref, spec.Format)
 		}
 		canonical, err := canonicalEntrants(spec.Entrants)
 		if err != nil {
@@ -148,7 +198,7 @@ func (s *Store) CreateLeagueSeasons(seed random.Seed, specs []NewSeason) error {
 		if err := checkDoubleRoundRobin(canonical, fixtures); err != nil {
 			return fmt.Errorf("competitions: generated invalid schedule for %s: %w", ref, err)
 		}
-		staged = append(staged, season{ref: ref, entrants: canonical, fixtures: fixtures, results: make([]result, len(fixtures)), rounds: rounds})
+		staged = append(staged, season{ref: ref, format: FormatLeague, entrants: canonical, fixtures: fixtures, results: make([]result, len(fixtures)), rounds: rounds})
 	}
 
 	for _, se := range staged {
@@ -172,7 +222,17 @@ func (s *Store) Seasons() []SeasonRef {
 	return out
 }
 
-// Entrants returns a season's entrant teams in ascending ID order.
+// Format returns a season's format.
+func (s *Store) Format(ref SeasonRef) (Format, bool) {
+	i, ok := s.seasonIdx[ref]
+	if !ok {
+		return 0, false
+	}
+	return s.seasons[i].format, true
+}
+
+// Entrants returns a season's entrant teams: a league's in ascending ID
+// order, a knockout's in bracket order.
 func (s *Store) Entrants(ref SeasonRef) ([]ids.TeamID, bool) {
 	i, ok := s.seasonIdx[ref]
 	if !ok {
@@ -198,12 +258,13 @@ func (s *Store) Fixture(id ids.FixtureID) (Fixture, bool) {
 	return s.seasons[loc.season].fixtures[loc.index], true
 }
 
-// Validate re-checks every season's schedule and global fixture uniqueness.
+// Validate re-checks every season's schedule and results against its format
+// and global fixture uniqueness.
 func (s *Store) Validate() error {
 	var errs []error
 	seen := map[ids.FixtureID]SeasonRef{}
 	for _, se := range s.seasons {
-		if err := checkDoubleRoundRobin(se.entrants, se.fixtures); err != nil {
+		if err := se.checkFormat(); err != nil {
 			errs = append(errs, fmt.Errorf("competitions: %s: %w", se.ref, err))
 		}
 		for _, f := range se.fixtures {
@@ -235,6 +296,25 @@ func (s *Store) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// checkFormat checks a season's fixtures and results against its format.
+func (se *season) checkFormat() error {
+	switch se.format {
+	case FormatLeague:
+		if err := checkDoubleRoundRobin(se.entrants, se.fixtures); err != nil {
+			return err
+		}
+		for i, r := range se.results {
+			if r.pens != [2]uint16{} {
+				return fmt.Errorf("league fixture %d has a shootout", se.fixtures[i].ID)
+			}
+		}
+		return nil
+	case FormatKnockout:
+		return se.checkKnockout()
+	}
+	return fmt.Errorf("invalid format %d", se.format)
 }
 
 // canonicalEntrants validates entrants and returns a sorted copy.

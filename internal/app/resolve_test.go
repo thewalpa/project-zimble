@@ -24,7 +24,15 @@ import (
 // ai.SelectionVersion, medical.Version, simple.ModelVersion) and update this
 // value. Last changed by contracts and finance (worldgen v2 re-derives every
 // generation stream, content v3).
-const goldenSeasonSeed42 = "7e0c0217846a07df578958a702cdd711e0cd886f80a1b36b5a29247871bdf469"
+//
+// It covers the first league's season 1, which the second league and the
+// cup leave unchanged; the second league's season 1 and the first cup
+// edition have their own goldens.
+const (
+	goldenSeasonSeed42       = "7e0c0217846a07df578958a702cdd711e0cd886f80a1b36b5a29247871bdf469"
+	goldenSecondLeagueSeed42 = "99110526c9cdaf0e652ba932d54b2b3db7d7b99e2150767056c0173921133044"
+	goldenCupSeed42          = "fbb6d1a22e6b59cdd1f0a2ba214f8938dd109ebd7c43a81e4ee322200bd18c1a"
+)
 
 // seasonEnd is one day after the last kickoff of every league.
 func seasonEnd(w *World) sim.GameInstant {
@@ -53,13 +61,43 @@ func commandFor(ready FixtureRoundReady, id CommandID) ResolveRounds {
 	return cmd
 }
 
-// playSeason alternates Continue and ResolveRounds until every scheduled
-// round is resolved.
+// cupEnd is one day after the final of every cup's latest edition, or now.
+func cupEnd(w *World) sim.GameInstant {
+	end := w.Now()
+	for _, c := range w.Cups() {
+		end = max(end, c.Rounds[len(c.Rounds)-1].Kickoff+day)
+	}
+	return end
+}
+
+// playSeason plays the leagues' current seasons and then the cup editions
+// they qualify teams for, to one day after each cup final.
 func playSeason(t *testing.T, w *World) []RoundsResolved {
+	t.Helper()
+	out := playLeagues(t, w)
+	return append(out, playCup(t, w)...)
+}
+
+// playCup plays every cup's latest edition, to one day after its final.
+func playCup(t *testing.T, w *World) []RoundsResolved {
+	t.Helper()
+	return playUntil(t, w, cupEnd)
+}
+
+// playLeagues plays the leagues' current seasons, to one day after their
+// last kickoff (which creates the next seasons and any cup edition).
+func playLeagues(t *testing.T, w *World) []RoundsResolved {
+	t.Helper()
+	return playUntil(t, w, seasonEnd)
+}
+
+// playUntil alternates Continue and ResolveRounds until Continue reaches
+// target(w), recomputed before each Continue.
+func playUntil(t *testing.T, w *World, target func(*World) sim.GameInstant) []RoundsResolved {
 	t.Helper()
 	var out []RoundsResolved
 	for id := CommandID(len(w.commands) + 1); ; id++ { // next unused command ID
-		res := mustContinue(t, w, seasonEnd(w))
+		res := mustContinue(t, w, target(w))
 		ready, ok := res.(FixtureRoundReady)
 		if !ok {
 			return out
@@ -83,13 +121,21 @@ func firstSeasons(w *World) []Schedule {
 }
 
 // resultsFingerprint hashes every league's season-1 fixtures and results.
+// resultsFingerprint hashes the first league's season-1 fixtures and
+// results.
 func resultsFingerprint(w *World) string {
+	return seasonFingerprint(w, competitions.SeasonRef{Competition: 1, Season: 1})
+}
+
+// seasonFingerprint hashes any season's fixtures and results (penalties
+// only where there was a shootout, so league hashes keep their format).
+func seasonFingerprint(w *World, ref competitions.SeasonRef) string {
 	h := sha256.New()
-	for _, s := range firstSeasons(w) {
-		for _, r := range s.Rounds {
-			for _, f := range r.Fixtures {
-				fmt.Fprintf(h, "%d %d-%d %v %v\n", f.ID, f.Home.Team, f.Away.Team, f.Played, f.Score)
-			}
+	for _, f := range w.competitions.Fixtures(ref) {
+		line := w.fixtureLine(f)
+		fmt.Fprintf(h, "%d %d-%d %v %v\n", f.ID, f.Home, f.Away, line.Played, line.Score)
+		if line.Shootout != [2]uint16{} {
+			fmt.Fprintf(h, "penalties %v\n", line.Shootout)
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -98,12 +144,13 @@ func resultsFingerprint(w *World) string {
 func TestFullSeasonIntegrity(t *testing.T) {
 	w := newWorld(t, 42)
 	end := seasonEnd(w)
-	resolved := playSeason(t, w)
+	resolved := playLeagues(t, w)
 	if len(resolved) != 14 {
 		t.Fatalf("%d batches resolved, want 14", len(resolved))
 	}
 	for i, r := range resolved {
-		if len(r.Matches) != 4 || len(r.Rounds) != 1 || r.Rounds[0].Round != competitions.Round(i+1) {
+		// Both leagues' rounds kick off together: one batch.
+		if len(r.Matches) != 8 || len(r.Rounds) != 2 || r.Rounds[0].Round != competitions.Round(i+1) {
 			t.Fatalf("batch %d: %d matches, rounds %v", i, len(r.Matches), r.Rounds)
 		}
 		if i > 0 && r.Revision <= resolved[i-1].Revision {
@@ -240,12 +287,21 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	if !reflect.DeepEqual(ra, rb) || !reflect.DeepEqual(a.Tables(), b.Tables()) {
 		t.Fatal("same seed produced different seasons")
 	}
-	if got := resultsFingerprint(a); got != goldenSeasonSeed42 {
-		t.Fatalf("season fingerprint = %s, want %s", got, goldenSeasonSeed42)
+	for _, g := range []struct {
+		ref    competitions.SeasonRef
+		golden string
+	}{
+		{competitions.SeasonRef{Competition: 1, Season: 1}, goldenSeasonSeed42},
+		{competitions.SeasonRef{Competition: 2, Season: 1}, goldenSecondLeagueSeed42},
+		{competitions.SeasonRef{Competition: 3, Season: 1}, goldenCupSeed42},
+	} {
+		if got := seasonFingerprint(a, g.ref); got != g.golden {
+			t.Errorf("%s fingerprint = %s, want %s", g.ref, got, g.golden)
+		}
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.
-	if a.Summary().Fingerprint != "5682a824c61455c1042ab93fbda2f81eea50e990f2744ede9dad01fcf5792bae" {
+	if a.Summary().Fingerprint != "cbc055bbf242f14f5491eabbdad165ee1e13e7c79663b7d8fcf7bfd85fa7f35d" {
 		t.Fatal("world fingerprint changed")
 	}
 	if !reflect.DeepEqual(a.competitions.Fixtures(competitions.SeasonRef{Competition: 1, Season: 1}), fixturesBefore) {
@@ -291,7 +347,7 @@ func TestSimultaneousLeaguesResolveAsOneBatch(t *testing.T) {
 
 func TestOverlappingTeamsAreRejected(t *testing.T) {
 	w := newWorld(t, 42)
-	addLeague(t, w, 2) // same eight teams, same kickoffs
+	addLeague(t, w, 9) // league 1's eight teams, same kickoffs
 	ready := readyBatch(t, w)
 	before := snapshot(w)
 	if _, err := w.ResolveRounds(commandFor(ready, 1)); !errors.Is(err, ErrOverlappingTeams) {
@@ -470,12 +526,12 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 			return func() { w.employment = orig }
 		}},
 		"simulation: start fails on third match": {engine: &faultyEngine{failStart: want.Matches[2].Fixture}, minStart: 3},
-		"simulation: match never finishes":       {engine: &faultyEngine{neverFinish: last}, minStart: 4},
-		"validation: score disagrees with goals": {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Score[0]++ }}, minStart: 4},
-		"validation: outcome for another match":  {engine: &faultyEngine{tamperAt: first, tamper: func(d *matches.MatchStepResult) { d.Outcome.Match = 999 }}, minStart: 4},
-		"validation: wrong engine version":       {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.EngineVersion++ }}, minStart: 4},
-		"validation: extra participant minutes":  {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Participants[0].OffMinute = 80 }}, minStart: 4},
-		"validation: result not completed":       {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Status = matches.ResultPending }}, minStart: 4},
+		"simulation: match never finishes":       {engine: &faultyEngine{neverFinish: last}, minStart: 8},
+		"validation: score disagrees with goals": {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Score[0]++ }}, minStart: 8},
+		"validation: outcome for another match":  {engine: &faultyEngine{tamperAt: first, tamper: func(d *matches.MatchStepResult) { d.Outcome.Match = 999 }}, minStart: 8},
+		"validation: wrong engine version":       {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.EngineVersion++ }}, minStart: 8},
+		"validation: extra participant minutes":  {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Participants[0].OffMinute = 80 }}, minStart: 8},
+		"validation: result not completed":       {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Status = matches.ResultPending }}, minStart: 8},
 	}
 	for name, f := range faults {
 		w := newWorld(t, 42)
@@ -502,7 +558,7 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 		if !reflect.DeepEqual(snapshot(w), before) {
 			t.Fatalf("%s: failure changed the world", name)
 		}
-		if p := w.competitions.PendingRounds(); len(p) != 1 || len(w.competitions.Results(w.leagues[0].season)) != 0 {
+		if p := w.competitions.PendingRounds(); len(p) != 2 || len(w.competitions.Results(w.leagues[0].season)) != 0 || len(w.competitions.Results(w.leagues[1].season)) != 0 {
 			t.Fatalf("%s: batch no longer pending or partial results recorded", name)
 		}
 		got, err := w.ResolveRounds(cmd)

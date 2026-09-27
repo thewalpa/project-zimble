@@ -131,7 +131,8 @@ func (s *Store) PendingRounds() []RoundInfo {
 }
 
 // BeginRounds marks rounds as kicked off and awaiting results. Every ref must
-// exist, appear once, be RoundScheduled and kick off exactly at at. All refs
+// exist, appear once, be RoundScheduled, have its fixtures and kick off
+// exactly at at. All refs
 // are checked before any is changed: on error the store is unchanged.
 // Fixtures are not marked played and no results are created.
 func (s *Store) BeginRounds(refs []RoundRef, at sim.GameInstant) error {
@@ -152,6 +153,9 @@ func (s *Store) BeginRounds(refs []RoundRef, at sim.GameInstant) error {
 		st := &s.seasons[i].rounds[ref.Round-1]
 		if st.status != RoundScheduled {
 			return fmt.Errorf("competitions: %s is %s, not scheduled", ref, st.status)
+		}
+		if !slices.ContainsFunc(s.seasons[i].fixtures, func(f Fixture) bool { return f.Round == ref.Round }) {
+			return fmt.Errorf("competitions: %s has no fixtures yet: the previous round is not complete", ref)
 		}
 		if st.kickoff != at {
 			return fmt.Errorf("competitions: %s kicks off at %d, not %d", ref, st.kickoff, at)

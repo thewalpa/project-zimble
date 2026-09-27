@@ -213,6 +213,8 @@ func (s *session) loop() {
 			s.squad()
 		case "table", "t":
 			s.table()
+		case "cup":
+			s.cup()
 		case "fixtures", "f":
 			s.fixtures()
 		case "finances", "money":
@@ -281,6 +283,7 @@ func (s *session) help() {
   status (s)            date, season progress and your next match
   squad                 your players: ID, position, rating, condition
   table (t)             the league table
+  cup                   the Continental Cup: this edition's bracket and results
   fixtures (f)          your club's fixtures and results this season
   inbox (i) [N]         the latest N inbox messages (default 10)
   finances [N]          your balance, weekly wage bill and latest N ledger entries
@@ -340,17 +343,48 @@ func (s *session) userSchedule() (app.Schedule, bool) {
 	return app.Schedule{}, false
 }
 
-// fixtureInfo finds a fixture of the club's current season.
-func (s *session) fixtureInfo(id ids.FixtureID) (app.FixtureLine, app.RoundSchedule, bool) {
-	sc, _ := s.userSchedule()
-	for _, r := range sc.Rounds {
-		for _, f := range r.Fixtures {
-			if f.ID == id {
-				return f, r, true
+// fixtureInfo finds a fixture of any competition.
+func (s *session) fixtureInfo(id ids.FixtureID) app.FixtureInfo {
+	info, _ := s.w.FixtureInfo(id)
+	return info
+}
+
+// matchName names a fixture's round: "round 3" in the league, "Continental
+// Cup quarter-final" in a cup.
+func matchName(info app.FixtureInfo) string {
+	if info.Cup {
+		return info.CompetitionName + " " + info.RoundName
+	}
+	return info.RoundName
+}
+
+// nextFixture is the club's next scheduled fixture in its league or a cup.
+func (s *session) nextFixture() (app.FixtureInfo, bool) {
+	var best app.FixtureInfo
+	found := false
+	consider := func(id ids.FixtureID, home, away ids.ClubID, played bool) {
+		if played || (home != s.club() && away != s.club()) {
+			return
+		}
+		if info := s.fixtureInfo(id); !found || info.Kickoff < best.Kickoff {
+			best, found = info, true
+		}
+	}
+	if sc, ok := s.userSchedule(); ok {
+		for _, r := range sc.Rounds {
+			for _, f := range r.Fixtures {
+				consider(f.ID, f.Home.Club, f.Away.Club, f.Played)
 			}
 		}
 	}
-	return app.FixtureLine{}, app.RoundSchedule{}, false
+	for _, c := range s.w.Cups() {
+		for _, r := range c.Rounds {
+			for _, f := range r.Ties {
+				consider(f.ID, f.Home.Club, f.Away.Club, f.Played)
+			}
+		}
+	}
+	return best, found
 }
 
 // describe says who the club plays in a fixture and where.
@@ -388,17 +422,13 @@ func (s *session) status() {
 		return
 	}
 	if fixture, ok := s.pendingFixture(); ok {
-		f, r, _ := s.fixtureInfo(fixture)
-		s.printf("MATCHDAY: round %d v %s is waiting. Check lineup, then watch it live or continue to play.\n", r.Round, s.describe(f))
+		info := s.fixtureInfo(fixture)
+		s.printf("MATCHDAY: %s v %s is waiting. Check lineup, then watch it live or continue to play.\n", matchName(info), s.describe(info.FixtureLine))
 		return
 	}
-	for _, r := range sc.Rounds {
-		for _, f := range r.Fixtures {
-			if !f.Played && (f.Home.Club == s.club() || f.Away.Club == s.club()) {
-				s.printf("Next: round %d v %s, %s. Type continue to go there.\n", r.Round, s.describe(f), cal.Format(r.Kickoff))
-				return
-			}
-		}
+	if info, ok := s.nextFixture(); ok {
+		s.printf("Next: %s v %s, %s. Type continue to go there.\n", matchName(info), s.describe(info.FixtureLine), cal.Format(info.Kickoff))
+		return
 	}
 	s.printf("Season finished. Type continue for the next season.\n")
 }
@@ -435,6 +465,10 @@ func (s *session) table() {
 		return
 	}
 	t, _ := s.w.Table(competitions.SeasonRef{Competition: sc.Competition, Season: sc.Season})
+	if t.RoundsCompleted == 0 && t.Season > 1 {
+		// The off-season: last season's final table.
+		t, _ = s.w.Table(competitions.SeasonRef{Competition: sc.Competition, Season: sc.Season - 1})
+	}
 	s.printf("\n%s season %d (%d/%d rounds)\n", t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	s.printf("%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
 	for _, r := range t.Rows {
@@ -466,8 +500,13 @@ func (s *session) fixtures() {
 }
 
 // outcome is W, D or L from the club's point of view.
+// outcome is W, D or L for the club in a played fixture; a shootout
+// decides a level knockout match.
 func outcome(f app.FixtureLine, club ids.ClubID) string {
 	us, them := f.Score[0], f.Score[1]
+	if us == them {
+		us, them = f.Shootout[0], f.Shootout[1]
+	}
 	if f.Away.Club == club {
 		us, them = them, us
 	}
@@ -511,16 +550,32 @@ func (s *session) printMessage(m app.InboxItem) {
 	s.printf("  %s  ", cal.Format(m.At))
 	switch m.Kind {
 	case inbox.KindMatchday:
-		s.printf("matchday: round %d v %s (%s)\n", m.Round, m.OpponentLabel.ClubName, venue)
+		s.printf("matchday: %s v %s (%s)\n", itemMatchName(m), m.OpponentLabel.ClubName, venue)
 	case inbox.KindResult:
-		s.printf("result: %d-%d v %s (%s)\n", m.Goals[0], m.Goals[1], m.OpponentLabel.ClubName, venue)
+		s.printf("result: %d-%d%s v %s (%s)\n", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue)
 	case inbox.KindSeasonEnded:
+		if m.Cup {
+			s.printf("%s %d won by %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
+			switch m.Stage {
+			case "":
+			case "winner":
+				s.printf(": your club won it!")
+			default:
+				s.printf("; you went out in the %s", m.Stage)
+			}
+			s.printf("\n")
+			break
+		}
 		s.printf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 		if m.Position > 0 {
 			s.printf("; you finished %s", ordinal(m.Position))
 		}
 		s.printf("\n")
 	case inbox.KindSeasonStarted:
+		if m.Cup {
+			s.printf("%s %d drawn: first kickoff %s (type cup)\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
+			break
+		}
 		s.printf("%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
 	case inbox.KindRenewed:
 		s.printf("contract: %s renewed until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
@@ -639,7 +694,7 @@ func (s *session) showLineup() error {
 	if err != nil {
 		return err
 	}
-	f, r, _ := s.fixtureInfo(d.fixture)
+	info := s.fixtureInfo(d.fixture)
 	squad := s.squadByID()
 	state := "AI suggestion"
 	if _, ok := s.w.SubmittedLineup(d.fixture); ok {
@@ -648,7 +703,7 @@ func (s *session) showLineup() error {
 	if d.edited {
 		state = "your changes (used when you continue)"
 	}
-	s.printf("\nRound %d v %s, %s: %s\n", r.Round, s.describe(f), s.w.Calendar().Format(r.Kickoff), state)
+	s.printf("\n%s v %s, %s: %s\n", capitalize(matchName(info)), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
 	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %5s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", " GK DEF PAS FIN PAC STA")
 	for i, sl := range d.lineup.Starters {
@@ -849,8 +904,8 @@ func (s *session) advance() error {
 			continue
 		}
 		s.newMessages()
-		f, r, _ := s.fixtureInfo(ready.UserFixtures[0])
-		s.printf("\nMATCHDAY %s: round %d v %s.\n", s.w.Calendar().Format(r.Kickoff), r.Round, s.describe(f))
+		info := s.fixtureInfo(ready.UserFixtures[0])
+		s.printf("\nMATCHDAY %s: %s v %s.\n", s.w.Calendar().Format(info.Kickoff), matchName(info), s.describe(info.FixtureLine))
 		s.printf("Type lineup to check your team, or continue to play with it.\n")
 		return nil
 	}
@@ -864,9 +919,8 @@ func (s *session) play() error {
 	}
 	for _, m := range res.Matches {
 		if m.Home.Club == s.club() || m.Away.Club == s.club() {
-			f, _, _ := s.fixtureInfo(m.Fixture)
-			f.Score, f.Played = m.Score, true
-			s.printf("\nFULL TIME  %s %d-%d %s  (%s)\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, outcome(f, s.club()))
+			f := app.FixtureLine{Home: m.Home, Away: m.Away, Played: true, Score: m.Score, Shootout: m.Shootout}
+			s.printf("\nFULL TIME  %s %d-%d %s%s  (%s)\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout), outcome(f, s.club()))
 			names := map[ids.PlayerID]string{}
 			for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {
 				squad, _ := s.w.Squad(c)
@@ -887,7 +941,7 @@ func (s *session) play() error {
 	s.printf("\nOther results:\n")
 	for _, m := range res.Matches {
 		if m.Home.Club != s.club() && m.Away.Club != s.club() {
-			s.printf("  %-22s %d-%d %s\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
+			s.printf("  %-22s %d-%d %s%s\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout))
 		}
 	}
 	s.newMessages()
@@ -951,14 +1005,18 @@ func (s *session) season() error {
 			}
 			for _, m := range res.Matches {
 				if m.Home.Club == s.club() || m.Away.Club == s.club() {
-					f, r, _ := s.fixtureInfo(m.Fixture)
-					f.Score = m.Score
-					s.printf("  R%-2d %-22s %d-%d %-22s %s\n", r.Round, m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, outcome(f, s.club()))
+					f := app.FixtureLine{Home: m.Home, Away: m.Away, Played: true, Score: m.Score, Shootout: m.Shootout}
+					s.printf("  R%-2d %-22s %d-%d %-22s %s\n", m.Round.Round, m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, outcome(f, s.club()))
 				}
 			}
 			continue
 		}
 		if t, _ := s.w.Table(ref); t.Complete {
+			// Run the season end due now, which schedules the next
+			// season and draws any cup it qualifies teams for.
+			if _, err := s.w.Continue(s.w.Now()); err != nil {
+				return err
+			}
 			break
 		}
 		if err := s.advanceQuietly(); err != nil {
@@ -1019,8 +1077,8 @@ func (s *session) watch(args []string) error {
 			return err
 		}
 		s.draft, s.liveShown = nil, 0
-		f, _, _ := s.fixtureInfo(fixture)
-		s.printf("\nKICKOFF  %s v %s\n", f.Home.ClubName, f.Away.ClubName)
+		info := s.fixtureInfo(fixture)
+		s.printf("\nKICKOFF  %s v %s (%s)\n", info.Home.ClubName, info.Away.ClubName, matchName(info))
 	}
 	target := uint16(matches.HalfTimeMinute)
 	if current >= matches.HalfTimeMinute {
@@ -1047,7 +1105,7 @@ func (s *session) watch(args []string) error {
 	case matches.MatchDecisionRequired:
 		s.printf("  HALF TIME\nMake changes (sub OUT IN, mentality M, lineup), then watch or continue.\n")
 	case matches.MatchFinished:
-		s.printf("  FULL TIME\nType continue to confirm the result and see the round.\n")
+		s.printf("%s  FULL TIME\nType continue to confirm the result and see the round.\n", penalties(l.View.Shootout))
 	default:
 		s.printf("\nwatch to play on, sub/mentality to make changes, continue to finish the match.\n")
 	}
@@ -1230,4 +1288,66 @@ func (s *session) finances(args []string) error {
 		s.printf("%-26s %-16s %14s %16s\n", cal.Format(e.At), what, e.Amount, balances[i])
 	}
 	return nil
+}
+
+// --- cups ------------------------------------------------------------------
+
+// penalties renders a shootout, e.g. " (4-3 on penalties)", or nothing.
+func penalties(p [2]uint16) string {
+	if p == [2]uint16{} {
+		return ""
+	}
+	return fmt.Sprintf(" (%d-%d on penalties)", p[0], p[1])
+}
+
+// itemMatchName names an inbox message's round like matchName.
+func itemMatchName(m app.InboxItem) string {
+	if m.Cup {
+		return m.CompetitionName + " " + m.RoundName
+	}
+	return m.RoundName
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// cup shows every cup's latest edition: its rounds, ties and results.
+func (s *session) cup() {
+	cups := s.w.Cups()
+	if len(cups) == 0 {
+		s.printf("No cup has been drawn yet: the Continental Cup starts when the league seasons end, with the top four of each league.\n")
+		return
+	}
+	cal := s.w.Calendar()
+	for _, c := range cups {
+		s.printf("\n%s %d\n", c.Name, c.Edition)
+		for _, r := range c.Rounds {
+			title := capitalize(r.Name)
+			if len(r.Ties) != 1 && r.Name != "final" {
+				title += "s"
+			}
+			s.printf("\n%s, %s\n", title, cal.Format(r.Kickoff))
+			if len(r.Ties) == 0 {
+				s.printf("  to be decided\n")
+			}
+			for _, f := range r.Ties {
+				result := "v"
+				if f.Played {
+					result = fmt.Sprintf("%d-%d", f.Score[0], f.Score[1])
+				}
+				mark := "  "
+				if f.Home.Club == s.club() || f.Away.Club == s.club() {
+					mark = "* "
+				}
+				s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, penalties(f.Shootout))
+			}
+		}
+		if c.Champion != nil {
+			s.printf("\nWinner: %s\n", c.Champion.ClubName)
+		}
+	}
 }

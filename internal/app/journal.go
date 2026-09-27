@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
-	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/inbox"
@@ -162,6 +161,7 @@ func (w *World) checkEventFacts(e events.Event) error {
 		p := e.MatchCompleted
 		r, ok := w.competitions.Result(p.Fixture)
 		if !ok || r.Home != p.Home || r.Away != p.Away || r.HomeGoals != p.HomeGoals || r.AwayGoals != p.AwayGoals ||
+			r.HomePenalties != p.HomePenalties || r.AwayPenalties != p.AwayPenalties ||
 			r.Season.Competition != p.Competition || r.Season.Season != competitions.Season(p.Season) || r.Round != competitions.Round(p.Round) || r.RecordedAt != e.OccurredAt {
 			return errors.New("differs from the official result")
 		}
@@ -174,12 +174,8 @@ func (w *World) checkEventFacts(e events.Event) error {
 	case events.KindSeasonEnded:
 		p := e.SeasonEnded
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}
-		var ranking []ids.TeamID
-		for _, st := range w.competitions.Standings(ref) {
-			ranking = append(ranking, st.Team)
-		}
-		if !w.competitions.SeasonCompleted(ref) || !slices.Equal(ranking, p.Ranking) {
-			return errors.New("ranking differs from the final standings")
+		if !w.competitions.SeasonCompleted(ref) || !slices.Equal(w.competitions.Ranking(ref), p.Ranking) {
+			return errors.New("ranking differs from the final ranking")
 		}
 	case events.KindLedgerPosted:
 		return w.checkLedgerEvent(e.LedgerPosted)
@@ -209,6 +205,9 @@ func (w *World) checkEventFacts(e events.Event) error {
 type InboxItem struct {
 	inbox.Message
 	CompetitionName string
+	Cup             bool      // the competition is a cup
+	RoundName       string    // matchday, result: see RoundName
+	Stage           string    // season ended, cup: "winner", or the round the team went out in, e.g. "semi-final"
 	OpponentLabel   TeamLabel // matchday, result
 	ChampionLabel   TeamLabel // season ended
 	PlayerName      string    // renewed, left, joined, retired, youth
@@ -219,8 +218,16 @@ func (w *World) Inbox() []InboxItem {
 	var out []InboxItem
 	for _, m := range w.inbox.Messages() {
 		item := InboxItem{Message: m}
-		if li, ok := w.leagueIndex(m.Competition); ok {
-			item.CompetitionName = w.leagues[li].def.Name
+		if m.Competition != 0 {
+			item.CompetitionName = w.competitionName(m.Competition)
+			_, item.Cup = w.cupIndex(m.Competition)
+		}
+		ref := competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}
+		if m.Round != 0 {
+			item.RoundName = w.RoundName(competitions.RoundRef{Season: ref, Round: competitions.Round(m.Round)})
+		}
+		if item.Cup && m.Kind == inbox.KindSeasonEnded && m.Position > 0 {
+			item.Stage = w.cupStage(ref, m.Position)
 		}
 		if m.Opponent != 0 {
 			item.OpponentLabel = w.teamLabel(m.Opponent)

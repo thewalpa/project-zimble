@@ -1464,6 +1464,94 @@ The web frontend now allows viewing the squads of any team and viewing full game
   - `w.PlayerName(id)` retrieves any registered player's full name.
   - `w.ClubLabel(club)` retrieves a club's senior team label.
 
+## Milestone 15: a second league and the Continental Cup (done)
+
+The world now has two nations of eight clubs, each with its own league (the Founders League, as before, and the new Harbour League), played on the same calendar. When both league seasons end, the top four of each meet in the Continental Cup: single-match quarter-finals, semi-finals and a final, a week apart, starting two weeks after the leagues' last round. A match level after 90 minutes is decided by a penalty shootout.
+
+```text
+Continental Cup quarter-final  Sat 2025-11-22 15:00 UTC  (competition 3)
+  F225 GRY 2-4 GLE  Greyfen United 2-4 Glenrock Town
+  F226 FOX 1-4 BRK  Foxmere Town 1-4 Brackenmoor Town
+  F227 ASH 0-1 DUN  Ashcombe City 0-1 Dunmarrow Albion
+  F228 ELD 1-2 LAR  Eldhaven United 1-2 Larkspur Rovers
+Continental Cup semi-final  Sat 2025-11-29 15:00 UTC  (competition 3)
+  F229 GLE 0-0 BRK  Glenrock Town 0-0 Brackenmoor Town (3-1 on penalties)
+  F230 DUN 1-0 LAR  Dunmarrow Albion 1-0 Larkspur Rovers
+Continental Cup 1 winner: Glenrock Town (GLE)
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/matches` | `Rules.Knockout`; `ResolutionPenalties` (3); `MatchOutcome.Shootout` and `MatchView.Shootout`; `MatchOutcome.Winner` | – |
+| `internal/matches/simple` | A penalty shootout after a level knockout match; shootout params; `Capabilities.Penalties` | – (league matches unchanged; see Decisions) |
+| `internal/competitions` | `Format` (league 1, knockout 2) per season; `CreateSeasons` for both formats; knockout brackets (`knockout.go`); penalties in `Score`, `Result` (`Winner`) and snapshots; `Ranking`, `Champion`, `Format` queries; knockout rounds need their fixtures to kick off | – |
+| `internal/content` | `Nation{Name, Clubs, Towns}` replaces `ClubCount` and `Towns`; Eastmarch's twelve towns; `DefaultLeagues` (adds the Harbour League, ID 2); `Cup`, `Qualifier`, `Cup.Seeding`, `DefaultCups` (Continental Cup, ID 3) | `content.Version` 5, `content.LeagueVersion` 3 |
+| `internal/worldgen` | Clubs are generated nation by nation, each nation from its own stream (the first nation keeps the earlier stream) | `worldgen.Version` 4 |
+| `internal/events` | `MatchCompleted.HomePenalties`/`AwayPenalties` (omitted when zero); `SeasonEnded` and `SeasonStarted` also cover cup editions | – |
+| `internal/inbox` | `Message.Shootout` (for, against) | – |
+| `internal/app` | Pinned cup definitions (`WorldSnapshot.Cups`, in the content fingerprint); cup editions drawn in `endSeasons`; cup match rules (knockout); shootouts through resolution, reports, events and restore; `validateSeasons` covers cups; views `Cups`, `Cup`, `FixtureInfo`, `RoundName`; `InboxItem.Cup`, `RoundName`, `Stage`; `History` includes cup editions | save `SchemaVersion` 11 |
+| `cmd/play` | `cup` shows the bracket; cup matchdays and results named after their round, with penalties; the next fixture may be a cup tie; `season` also runs the season end; the table shows last season's in the off-season | – |
+| `cmd/simulate` | `-season` also plays the cup edition that follows and names its winner | – |
+| `cmd/web` | A Cup page (bracket); cup ties on Home and Fixtures; both league tables; penalties in reports, results and the inbox; fixtures for a club of either league | – |
+
+**Goldens.**
+- The world fingerprint changed deliberately (`cbc055bb…`): a second nation, and new versions.
+- The first nation's clubs, players and contracts are unchanged, and so is the Founders League's season 1: its golden (`7e0c0217…`) now covers that league alone, and still matches.
+- New goldens pin the Harbour League's season 1 (`99110526…`) and the first cup edition (`fbb6d1a2…`).
+
+### Decisions
+
+- **Two parallel leagues, not divisions.** Each nation's clubs form one league. There is no promotion or relegation; the cup is where they meet.
+- **The first nation is unchanged.** Each nation draws its towns from its own stream; the first uses the stream of earlier generator versions, and player streams are keyed by player ID, so Westmark's clubs and players are exactly those of a one-nation world (tested). League 1's fixtures keep IDs 1–56 (fixture IDs are allocated in competition order), so its first season plays exactly as before.
+- **A knockout season is a competitions format, not a new module.** Competitions already owns seasons, fixtures, rounds and official results. A knockout season has a fixed bracket (its entrants, in order); each round's fixtures are created when the previous round's results are recorded, inside the same all-or-nothing `CompleteRounds`, from its winners in bracket order. Fixture IDs follow everything allocated before, so they are never reused. Validation replays the bracket from the results.
+- **Seeding is the cup's rule, in content** (`Cup.Seeding`): the qualifiers are interleaved by position (both champions, both runners-up, and so on) and placed in the standard bracket. With two leagues of four: A1 v B4, B2 v A3, B1 v A4, A2 v B3. The two champions can meet only in the final. The first team of each tie is at home: the better seed in the quarter-finals, then the winner of the upper tie.
+- **Cup editions follow the leagues.** Edition N is drawn in the season-end cohort that moves the last qualifying league past season N (with the default calendar, both end together), from their final rankings, in the same `CreateSeasons` call as the next league seasons. Its first round is `FirstRoundDelay` (two weeks) after the latest qualifying season's last kickoff. It is caused by the cohort's last season-end task. An edition's own season end closes it without creating anything.
+  - Nothing new is stored for this: the latest edition is derived from the competitions store, and validation checks that edition N exists exactly when every qualifying league's current season is past N, with the bracket and timing `cupEdition` would build.
+- **Penalties belong to the match engine.** A tie needs a winner, and deciding results is the engine's job, so the contract's reserved penalties resolution is now implemented. `Rules.Knockout` asks for a shootout when the match is level after 90 minutes. The simple engine takes it after regulation, from the same stream: five kicks each, alternating, ending early once one side cannot be caught, then sudden death. The takers are the players on the pitch, best finishing first. A kick scores with 76% for equal taker and keeper, scaled by finishing against goalkeeping and clamped to 50–93%. Level after 50 sudden-death pairs (practically impossible), one even draw decides.
+  - **`simple.ModelVersion` stays 3:** a league match (no knockout rule) produces exactly the same outcome as before, and the shootout's draws come after all 90 minutes, so even a knockout's regulation play is unchanged (tested). The knockout rule is new input, not changed behavior. The app refuses knockout matches with an engine that lacks the Penalties capability.
+- **Official results carry the shootout** (`HomePenalties`, `AwayPenalties`): a league result never has one; a knockout result has one exactly when the goals are level, and it must decide the tie. Standings ignore it (knockouts have no table). `Ranking` orders a knockout by the round each team reached (the champion, the runner-up, the semi-final losers, then the quarter-final losers, each in bracket order), and it is what `SeasonEnded` carries for a cup.
+- **Gate receipts** are paid for cup matches too, to the home club.
+- **Clients** name rounds from `RoundName` ("round 3", "quarter-final", "semi-final", "final") and describe any fixture with `FixtureInfo`, since a cup tie is in no league schedule. The inbox says how far the managed club went ("you went out in the semi-final", "your club won it!").
+- **"Play the season" also runs the season end** (in `cmd/play` and `cmd/web`), so the next season and the cup draw are visible at once. In the off-season the table shows last season's final table.
+
+### Verification
+
+- **Engine:** in 400 fixtures, the knockout rule never changes regulation play; every knockout match has a winner, and every shootout is well formed (best of five, or sudden death won by exactly one) and repeatable. Better takers against a weak goalkeeper win at least 65% of shootouts. `Winner`; 4 invalid shootout params.
+- **Competitions:**
+  - an eight-team bracket through to the champion, with penalty winners progressing, fixture IDs continuing the allocator, and a round without fixtures refusing to kick off;
+  - the ranking (champion, runner-up, semi-final and quarter-final losers, each in bracket order);
+  - 4 invalid knockout results and a league result with penalties are rejected without change;
+  - 5 invalid brackets and a season without a format are rejected atomically;
+  - mixed-format creation allocates IDs in competition order;
+  - the bracket round-trips a snapshot, and 10 invalid knockout snapshots are rejected (wrong or early fixtures, missing rounds, level results, penalties after a win, a league with penalties).
+- **Content and worldgen:** nations validated (unique town names and codes across nations); cup validation (9 cases) and seeding (8 and 4 teams); the first nation is identical to a one-nation world.
+- **App (`cup_test.go`):**
+  - the first edition is drawn when both leagues end, with exactly the promised bracket, home teams and timing, and a matching `SeasonStarted`;
+  - over four seeds, every tie has a winner, winners meet in the next round, the champion won the final, reports and events agree with the official shootouts, the ranking ends the edition, and at least one tie went to penalties;
+  - only cup fixtures reach the engine as knockouts;
+  - saving before every cup round and while each awaits results continues exactly like never saving;
+  - a managed club in the cup gets named matchdays, results with penalties and the stage it reached, and can submit cup lineups;
+  - 7 invalid cup saves are rejected (edited or removed definitions, a clashing ID, a reseeded bracket, an edited shootout, a missing season-end task).
+- **Existing tests** now cover two leagues: 16 clubs, both leagues' batches together (8 matches, 2 rounds), 28 kickoff tasks, doubled events, cup gate receipts, and history with cup editions. `playSeason` plays a season and its cup (`playLeagues` and `playCup` separately).
+- **Deliberate-bug checks,** each caught:
+  - cups not flagged as knockouts;
+  - the cup bracket check removed from validation.
+- **CLI and web:**
+  - `cup` before and after the draw;
+  - a managed cup run won on penalties (the outcome shows W, a real bug fixed along the way);
+  - `-season` plays the cup and prints its winner;
+  - the browser cup run: the cup page, the cup tie as the next match and the matchday, a penalty win, the bracket, fixtures, both tables and the winner's inbox message.
+
+### Limitations
+
+- **The Continental Cup is the only cup,** single matches only: no two-legged ties, no extra time and no away goals.
+- **Leagues are parallel:** no promotion or relegation, and every league has eight clubs (`competitions.SupportedEntrants`).
+- **No prize money** for the cup; only gate receipts.
+- **Players move between nations freely** as free agents; nations have no other meaning yet (no registration rules, no national identity for players).
+- **A change to `Cup.Seeding`** would alter future editions of existing saves without a must-match version; it is covered only by `content.LeagueVersion`, which saves record for provenance.
+
 ## Next task: transfers between clubs with fees
 
 Let players move between clubs during the contract year, for a fee, as the architecture's boundary example describes. Now that abilities change, a club may want another club's player.

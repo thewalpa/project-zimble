@@ -1,6 +1,7 @@
 // Package simple is the first match engine: each minute, each side may
 // create a chance from team strengths, mentality and fatigue, and a chance
-// may become a goal. Regulation time only. See Params for the model.
+// may become a goal. Regulation time, then a penalty shootout if a knockout
+// match is level. See Params for the model.
 package simple
 
 import (
@@ -38,7 +39,7 @@ func (e *Engine) ID() string      { return EngineID }
 func (e *Engine) Version() uint32 { return e.p.Version }
 
 func (e *Engine) Capabilities() matches.Capabilities {
-	return matches.Capabilities{Substitutions: true, Mentality: true}
+	return matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true}
 }
 
 // Start validates and copies input; the session never references input's
@@ -145,6 +146,8 @@ type session struct {
 	period  matches.Period
 	minute  uint16
 	score   [2]uint16
+	pens    [2]uint16 // shootout, after a level knockout match
+	decided bool      // a shootout was taken
 	seq     uint32
 	goals   []matches.Goal
 	pending []matches.MatchEvent // command events for the next Advance
@@ -178,6 +181,11 @@ func (s *session) Advance(req matches.AdvanceRequest, dst *matches.MatchStepResu
 			s.endPeriod(dst, matches.FirstHalf, matches.HalfTime)
 		case matches.RegulationMinutes:
 			s.endPeriod(dst, matches.SecondHalf, matches.FullTime)
+			// Drawn after regulation, so the 90 minutes are the same
+			// whether or not the match is a knockout.
+			if s.rules.Knockout && s.score[0] == s.score[1] {
+				s.pens, s.decided = s.shootout(), true
+			}
 		}
 	}
 	s.fill(dst)
@@ -200,7 +208,7 @@ func (s *session) fill(dst *matches.MatchStepResult) {
 	default:
 		dst.Status, dst.Stop = matches.MatchRunning, matches.StopTarget
 	}
-	dst.View = matches.MatchView{Score: s.score}
+	dst.View = matches.MatchView{Score: s.score, Shootout: s.pens}
 	for side := range s.teams {
 		t := &s.teams[side]
 		dst.View.Mentality[side] = t.mentality
@@ -221,6 +229,9 @@ func (s *session) fill(dst *matches.MatchStepResult) {
 	}
 	o.Status = matches.ResultCompleted
 	o.Score = s.score
+	if s.decided {
+		o.Resolution, o.Shootout = matches.ResolutionPenalties, s.pens
+	}
 	o.Goals = append(o.Goals, s.goals...)
 	for side := range s.teams {
 		t := &s.teams[side]

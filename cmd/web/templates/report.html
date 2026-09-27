@@ -7,7 +7,7 @@
 {{else if not $d.Played}}
   <div class="panel">
     <h2>{{$d.Home.ClubName}} v {{$d.Away.ClubName}}</h2>
-    <p class="muted">{{$d.Competition}} season {{$d.Season}} · Round {{$d.Round}} · Kickoff {{$d.Kickoff}}</p>
+    <p class="muted">{{$d.Context}} · Kickoff {{$d.Kickoff}}</p>
     <p>This match has not been played yet.</p>
     <div class="actions">
       <a class="button" href="/fixtures">Back to fixtures</a>
@@ -15,7 +15,7 @@
   </div>
 {{else}}
   <div class="panel">
-    <p class="muted" style="margin-top:0;">{{$d.Competition}} season {{$d.Season}} · Round {{$d.Round}} · {{$d.Kickoff}}</p>
+    <p class="muted" style="margin-top:0;">{{$d.Context}} · {{$d.Kickoff}}</p>
     <div style="display:flex; align-items:center; justify-content:center; gap:20px; margin: 16px 0; text-align:center;">
       <div style="flex:1; text-align:right;">
         <div style="font-size:20px; font-weight:700;"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
@@ -24,6 +24,7 @@
       <div style="display:inline-flex; align-items:center; gap:10px;">
         {{if $d.Outcome}}<span class="pill {{$d.Outcome}}">{{$d.Outcome}}</span>{{end}}
         <span style="font-size:32px; font-weight:800; letter-spacing:2px; font-variant-numeric:tabular-nums;">{{index $d.Score 0}} - {{index $d.Score 1}}</span>
+        {{if $d.Penalties}}<span class="muted">{{$d.Penalties}}</span>{{end}}
       </div>
       <div style="flex:1; text-align:left;">
         <div style="font-size:20px; font-weight:700;"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>

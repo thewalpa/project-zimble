@@ -1,6 +1,9 @@
 package app
 
 import (
+	"fmt"
+	"math/bits"
+
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
@@ -15,13 +18,15 @@ type TeamLabel struct {
 }
 
 // FixtureLine is one fixture with display names resolved. Score is the
-// official result when Played is true.
+// official result when Played is true; Shootout the penalties of a knockout
+// match level after regulation.
 type FixtureLine struct {
-	ID     ids.FixtureID
-	Home   TeamLabel
-	Away   TeamLabel
-	Played bool
-	Score  [2]uint16
+	ID       ids.FixtureID
+	Home     TeamLabel
+	Away     TeamLabel
+	Played   bool
+	Score    [2]uint16
+	Shootout [2]uint16
 }
 
 // RoundSchedule holds one round's kickoff, status and fixtures in fixture ID
@@ -70,11 +75,7 @@ func (w *World) schedule(l leagueEntry) Schedule {
 	}
 	for _, f := range w.competitions.Fixtures(l.season) {
 		r := &s.Rounds[f.Round-1]
-		line := FixtureLine{ID: f.ID, Home: w.teamLabel(f.Home), Away: w.teamLabel(f.Away)}
-		if res, ok := w.competitions.Result(f.ID); ok {
-			line.Played, line.Score = true, [2]uint16{res.HomeGoals, res.AwayGoals}
-		}
-		r.Fixtures = append(r.Fixtures, line)
+		r.Fixtures = append(r.Fixtures, w.fixtureLine(f))
 	}
 	return s
 }
@@ -143,4 +144,127 @@ func (w *World) ClubLabel(club ids.ClubID) (TeamLabel, bool) {
 		return TeamLabel{}, false
 	}
 	return w.teamLabel(team), true
+}
+
+func (w *World) fixtureLine(f competitions.Fixture) FixtureLine {
+	line := FixtureLine{ID: f.ID, Home: w.teamLabel(f.Home), Away: w.teamLabel(f.Away)}
+	if res, ok := w.competitions.Result(f.ID); ok {
+		line.Played, line.Score = true, [2]uint16{res.HomeGoals, res.AwayGoals}
+		line.Shootout = [2]uint16{res.HomePenalties, res.AwayPenalties}
+	}
+	return line
+}
+
+// RoundName names a round for display, in lower case: "round N" for a
+// league, and "final", "semi-final", "quarter-final" or "round N" for a cup,
+// counted back from its last round.
+func (w *World) RoundName(ref competitions.RoundRef) string {
+	if format, _ := w.competitions.Format(ref.Season); format == competitions.FormatKnockout {
+		switch len(w.competitions.Rounds(ref.Season)) - int(ref.Round) {
+		case 0:
+			return "final"
+		case 1:
+			return "semi-final"
+		case 2:
+			return "quarter-final"
+		}
+	}
+	return fmt.Sprintf("round %d", ref.Round)
+}
+
+// cupStage describes how far the team ranked at position (1-based) got in a
+// cup edition: "winner", or the name of the round it lost in. In a bracket,
+// positions 2^k+1..2^(k+1) lose in the round k before the final's.
+func (w *World) cupStage(ref competitions.SeasonRef, position int) string {
+	if position <= 1 {
+		return "winner"
+	}
+	rounds := len(w.competitions.Rounds(ref))
+	back := bits.Len(uint(position - 1)) // 1 for the final, 2 for the semi-finals...
+	return w.RoundName(competitions.RoundRef{Season: ref, Round: competitions.Round(rounds - back + 1)})
+}
+
+// FixtureInfo is one fixture of any competition, with display names.
+type FixtureInfo struct {
+	FixtureLine
+	Round           competitions.RoundRef
+	CompetitionName string
+	Cup             bool
+	RoundName       string
+	Kickoff         sim.GameInstant
+}
+
+// FixtureInfo describes a fixture of any league season or cup edition.
+// Read-only.
+func (w *World) FixtureInfo(id ids.FixtureID) (FixtureInfo, bool) {
+	f, ok := w.competitions.Fixture(id)
+	if !ok {
+		return FixtureInfo{}, false
+	}
+	ref := competitions.RoundRef{Season: f.Season, Round: f.Round}
+	_, cup := w.cupIndex(f.Season.Competition)
+	return FixtureInfo{
+		FixtureLine: w.fixtureLine(f), Round: ref, CompetitionName: w.competitionName(f.Season.Competition),
+		Cup: cup, RoundName: w.RoundName(ref), Kickoff: f.Kickoff,
+	}, true
+}
+
+// CupRound is one round of a cup edition. Ties are empty until the previous
+// round is complete.
+type CupRound struct {
+	Round   competitions.Round
+	Name    string // see RoundName
+	Kickoff sim.GameInstant
+	Status  competitions.RoundStatus
+	Ties    []FixtureLine
+}
+
+// CupEdition is a derived view of one cup edition's bracket.
+type CupEdition struct {
+	Competition ids.CompetitionID
+	Name        string
+	Edition     competitions.Season
+	Entrants    []TeamLabel // bracket order
+	Rounds      []CupRound  // ascending
+	Complete    bool
+	Champion    *TeamLabel
+}
+
+// Cups returns the latest edition of each cup that has one, in competition
+// ID order. Read-only.
+func (w *World) Cups() []CupEdition {
+	var out []CupEdition
+	for _, c := range w.cups {
+		if e := w.latestEdition(c.ID); e > 0 {
+			v, _ := w.Cup(competitions.SeasonRef{Competition: c.ID, Season: e})
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// Cup returns any edition of a cup. Read-only.
+func (w *World) Cup(ref competitions.SeasonRef) (CupEdition, bool) {
+	ci, ok := w.cupIndex(ref.Competition)
+	entrants, exists := w.competitions.Entrants(ref)
+	if !ok || !exists {
+		return CupEdition{}, false
+	}
+	v := CupEdition{Competition: ref.Competition, Name: w.cups[ci].Name, Edition: ref.Season, Complete: w.competitions.SeasonCompleted(ref)}
+	for _, t := range entrants {
+		v.Entrants = append(v.Entrants, w.teamLabel(t))
+	}
+	for _, r := range w.competitions.Rounds(ref) {
+		cr := CupRound{Round: r.Ref.Round, Name: w.RoundName(r.Ref), Kickoff: r.Kickoff, Status: r.Status}
+		for _, id := range r.Fixtures {
+			f, _ := w.competitions.Fixture(id)
+			cr.Ties = append(cr.Ties, w.fixtureLine(f))
+		}
+		v.Rounds = append(v.Rounds, cr)
+	}
+	if champion, ok := w.competitions.Champion(ref); ok {
+		label := w.teamLabel(champion)
+		v.Champion = &label
+	}
+	return v, true
 }

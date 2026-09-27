@@ -17,7 +17,8 @@ type Snapshot struct {
 
 type SeasonSnapshot struct {
 	Ref      SeasonRef
-	Entrants []ids.TeamID     // ascending
+	Format   Format
+	Entrants []ids.TeamID     // league: ascending; knockout: bracket order
 	Fixtures []Fixture        // by round, then fixture ID
 	Rounds   []RoundSnapshot  // index = round-1
 	Results  []ResultSnapshot // fixture order; only fixtures with official results
@@ -29,10 +30,12 @@ type RoundSnapshot struct {
 }
 
 type ResultSnapshot struct {
-	Fixture    ids.FixtureID
-	HomeGoals  uint16
-	AwayGoals  uint16
-	RecordedAt sim.GameInstant
+	Fixture       ids.FixtureID
+	HomeGoals     uint16
+	AwayGoals     uint16
+	HomePenalties uint16
+	AwayPenalties uint16
+	RecordedAt    sim.GameInstant
 }
 
 // Snapshot exports the store's state as fresh copies.
@@ -41,6 +44,7 @@ func (s *Store) Snapshot() Snapshot {
 	for _, se := range s.seasons {
 		ss := SeasonSnapshot{
 			Ref:      se.ref,
+			Format:   se.format,
 			Entrants: slices.Clone(se.entrants),
 			Fixtures: slices.Clone(se.fixtures),
 			Rounds:   make([]RoundSnapshot, len(se.rounds)),
@@ -51,7 +55,8 @@ func (s *Store) Snapshot() Snapshot {
 		for i, r := range se.results {
 			if r.recorded {
 				ss.Results = append(ss.Results, ResultSnapshot{
-					Fixture: se.fixtures[i].ID, HomeGoals: r.home, AwayGoals: r.away, RecordedAt: r.at,
+					Fixture: se.fixtures[i].ID, HomeGoals: r.home, AwayGoals: r.away,
+					HomePenalties: r.pens[0], AwayPenalties: r.pens[1], RecordedAt: r.at,
 				})
 			}
 		}
@@ -64,13 +69,15 @@ func (s *Store) Snapshot() Snapshot {
 // nothing and regenerates nothing: fixtures, kickoffs, statuses and results
 // are taken as saved and fully validated.
 //
-// Rejected: invalid or duplicate season refs; non-canonical or invalid
-// entrants; wrong round counts, invalid statuses or non-increasing kickoffs;
-// fixtures out of order, in the wrong season or round, with a kickoff that
-// differs from their round, with zero, duplicate or above-allocator IDs, or
-// breaking the double round-robin invariants; results for unknown fixtures,
-// duplicated, above MaxGoals, recorded before kickoff, or not matching
-// "results exist exactly for completed rounds".
+// Rejected: invalid or duplicate season refs; invalid formats; invalid
+// entrants (a league's must be canonical); wrong round counts, invalid
+// statuses or non-increasing kickoffs; fixtures out of order, in the wrong
+// season or round, with a kickoff that differs from their round, or with
+// zero, duplicate or above-allocator IDs; results for unknown fixtures,
+// duplicated, recorded before kickoff, or not matching "results exist
+// exactly for completed rounds"; and anything breaking the format's
+// invariants (the double round robin, or the bracket replayed from its
+// results) or result rules.
 func Restore(snap Snapshot) (*Store, error) {
 	s := New()
 	s.lastFixture = snap.LastFixture
@@ -84,14 +91,26 @@ func Restore(snap Snapshot) (*Store, error) {
 		if _, dup := s.seasonIdx[ss.Ref]; dup {
 			return fail("duplicate season")
 		}
-		canonical, err := canonicalEntrants(ss.Entrants)
-		if err != nil {
-			return fail("%v", err)
+		var want int
+		switch ss.Format {
+		case FormatLeague:
+			canonical, err := canonicalEntrants(ss.Entrants)
+			if err != nil {
+				return fail("%v", err)
+			}
+			if !slices.Equal(canonical, ss.Entrants) {
+				return fail("entrants not in canonical order")
+			}
+			want = 2 * (len(canonical) - 1)
+		case FormatKnockout:
+			if err := checkBracket(ss.Entrants); err != nil {
+				return fail("%v", err)
+			}
+			want, _ = knockoutRounds(len(ss.Entrants))
+		default:
+			return fail("invalid format %d", ss.Format)
 		}
-		if !slices.Equal(canonical, ss.Entrants) {
-			return fail("entrants not in canonical order")
-		}
-		if want := 2 * (len(canonical) - 1); len(ss.Rounds) != want {
+		if len(ss.Rounds) != want {
 			return fail("%d rounds, want %d", len(ss.Rounds), want)
 		}
 		rounds := make([]roundState, len(ss.Rounds))
@@ -122,10 +141,6 @@ func Restore(snap Snapshot) (*Store, error) {
 			}
 			pos[f.ID] = i
 		}
-		if err := checkDoubleRoundRobin(canonical, fixtures); err != nil {
-			return fail("%v", err)
-		}
-
 		results := make([]result, len(fixtures))
 		for _, r := range ss.Results {
 			i, ok := pos[r.Fixture]
@@ -134,12 +149,13 @@ func Restore(snap Snapshot) (*Store, error) {
 				return fail("result for unknown fixture %d", r.Fixture)
 			case results[i].recorded:
 				return fail("fixture %d has two results", r.Fixture)
-			case r.HomeGoals > MaxGoals || r.AwayGoals > MaxGoals:
-				return fail("fixture %d score %d-%d exceeds %d", r.Fixture, r.HomeGoals, r.AwayGoals, MaxGoals)
 			case !r.RecordedAt.Valid() || r.RecordedAt < fixtures[i].Kickoff:
 				return fail("fixture %d result recorded at %d, before kickoff %d", r.Fixture, r.RecordedAt, fixtures[i].Kickoff)
 			}
-			results[i] = result{recorded: true, home: r.HomeGoals, away: r.AwayGoals, at: r.RecordedAt}
+			if err := checkScore(ss.Format, r.Fixture, [2]uint16{r.HomeGoals, r.AwayGoals}, [2]uint16{r.HomePenalties, r.AwayPenalties}); err != nil {
+				return fail("%v", err)
+			}
+			results[i] = result{recorded: true, home: r.HomeGoals, away: r.AwayGoals, pens: [2]uint16{r.HomePenalties, r.AwayPenalties}, at: r.RecordedAt}
 		}
 		for i, f := range fixtures {
 			if results[i].recorded != (rounds[f.Round-1].status == RoundCompleted) {
@@ -147,8 +163,12 @@ func Restore(snap Snapshot) (*Store, error) {
 			}
 		}
 
+		se := season{ref: ss.Ref, format: ss.Format, entrants: slices.Clone(ss.Entrants), fixtures: fixtures, results: results, rounds: rounds}
+		if err := se.checkFormat(); err != nil {
+			return fail("%v", err)
+		}
 		s.seasonIdx[ss.Ref] = si
-		s.seasons = append(s.seasons, season{ref: ss.Ref, entrants: canonical, fixtures: fixtures, results: results, rounds: rounds})
+		s.seasons = append(s.seasons, se)
 		for i, f := range fixtures {
 			s.fixtureIdx[f.ID] = fixtureLoc{season: si, index: i}
 		}

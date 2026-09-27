@@ -63,6 +63,7 @@ type World struct {
 	fingerprint        string
 	defs               content.Definitions
 	leagues            []leagueEntry // ascending competition ID
+	cups               []content.Cup // ascending competition ID; editions live in competitions
 	calendar           sim.Calendar
 	engine             matches.Engine
 	userClub           ids.ClubID // zero: no user club
@@ -118,7 +119,7 @@ func NewWorld(cfg Config) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
-	w, err := load(defs, []content.League{content.DefaultLeague()}, cfg.Epoch, snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), cfg.Epoch, snap)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +143,9 @@ func NewWorld(cfg Config) (*World, error) {
 //
 // Leagues are processed in competition ID order; each takes the next
 // league.Entrants clubs in club ID order, so every club enters exactly one
-// league.
-func load(defs content.Definitions, leagueDefs []content.League, epoch sim.CivilTime, snap worldgen.Snapshot) (*World, error) {
+// league. Cups have no season until their qualifying league seasons end
+// (see endSeasons).
+func load(defs content.Definitions, leagueDefs []content.League, cupDefs []content.Cup, epoch sim.CivilTime, snap worldgen.Snapshot) (*World, error) {
 	leagueDefs = slices.Clone(leagueDefs)
 	slices.SortFunc(leagueDefs, func(a, b content.League) int { return cmp.Compare(a.ID, b.ID) })
 	if len(leagueDefs) == 0 {
@@ -158,6 +160,10 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 			return nil, fmt.Errorf("app: duplicate league ID %d", l.ID)
 		}
 		totalEntrants += l.Entrants
+	}
+	cupDefs, err := checkCups(leagueDefs, cupDefs)
+	if err != nil {
+		return nil, err
 	}
 	calendar, err := sim.NewCalendar(epoch)
 	if err != nil {
@@ -226,6 +232,7 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		youthVersion:       worldgen.YouthVersion,
 		fingerprint:        snap.Fingerprint(),
 		defs:               defs,
+		cups:               cupDefs,
 		registry:           reg,
 		players:            pl,
 		employment:         emp,
@@ -329,8 +336,8 @@ func (w *World) Validate() error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("app: "+format, args...)) }
 
 	clubs := w.registry.Clubs()
-	if len(clubs) != w.defs.ClubCount {
-		fail("world has %d clubs, want %d", len(clubs), w.defs.ClubCount)
+	if len(clubs) != w.defs.ClubCount() {
+		fail("world has %d clubs, want %d", len(clubs), w.defs.ClubCount())
 	}
 
 	identities := w.registry.Players()
@@ -422,4 +429,53 @@ func (w *World) validateCompetitions() []error {
 		}
 	}
 	return errs
+}
+
+// checkCups validates cup definitions against the leagues and returns them
+// in competition ID order: each is valid, no competition ID is used twice,
+// and every qualifier is a league with at least that many entrants.
+func checkCups(leagueDefs []content.League, cupDefs []content.Cup) ([]content.Cup, error) {
+	cupDefs = slices.Clone(cupDefs)
+	slices.SortFunc(cupDefs, func(a, b content.Cup) int { return cmp.Compare(a.ID, b.ID) })
+	entrants := map[ids.CompetitionID]int{}
+	for _, l := range leagueDefs {
+		entrants[l.ID] = l.Entrants
+	}
+	for i, c := range cupDefs {
+		if err := c.Validate(); err != nil {
+			return nil, err
+		}
+		if _, clash := entrants[c.ID]; clash || (i > 0 && cupDefs[i-1].ID == c.ID) {
+			return nil, fmt.Errorf("app: competition ID %d is used twice", c.ID)
+		}
+		for _, q := range c.Qualifiers {
+			if n, ok := entrants[q.League]; !ok || n < q.Places {
+				return nil, fmt.Errorf("app: cup %d takes %d places from league %d, which has %d entrants", c.ID, q.Places, q.League, n)
+			}
+		}
+		c.Qualifiers = slices.Clone(c.Qualifiers)
+		cupDefs[i] = c
+	}
+	return cupDefs, nil
+}
+
+// cupIndex finds a cup definition by competition ID.
+func (w *World) cupIndex(comp ids.CompetitionID) (int, bool) {
+	for i, c := range w.cups {
+		if c.ID == comp {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+// competitionName names a league or cup.
+func (w *World) competitionName(comp ids.CompetitionID) string {
+	if li, ok := w.leagueIndex(comp); ok {
+		return w.leagues[li].def.Name
+	}
+	if ci, ok := w.cupIndex(comp); ok {
+		return w.cups[ci].Name
+	}
+	return fmt.Sprintf("competition %d", comp)
 }

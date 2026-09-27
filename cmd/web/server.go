@@ -27,7 +27,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report"}
+var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup"}
 
 type config struct {
 	seed     random.Seed
@@ -93,7 +93,7 @@ func newServer(cfg config) (*server, error) {
 		path string
 		view func(*http.Request) (string, any, error)
 	}{
-		{"/squad", s.squad}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures},
+		{"/squad", s.squad}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup},
 		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
@@ -291,8 +291,8 @@ func (s *server) advance() error {
 			}
 			continue
 		}
-		f, r, _, _ := s.fixtureInfo(ready.UserFixtures[0])
-		s.say("Matchday: round %d v %s. Check your lineup, then play the match.", r.Round, s.opponent(f))
+		info, _ := s.fixtureInfo(ready.UserFixtures[0])
+		s.say("Matchday: %s v %s. Check your lineup, then play the match.", matchName(info), s.opponent(info.FixtureLine))
 		return nil
 	}
 }
@@ -337,6 +337,11 @@ func (s *server) playSeason(url.Values) (string, error) {
 			continue
 		}
 		if s.seasonDone(sc) {
+			// Run the season end due now, which schedules the next
+			// season and draws any cup it qualifies teams for.
+			if _, err := s.w.Continue(s.w.Now()); err != nil {
+				return "", err
+			}
 			break
 		}
 		res, err := s.w.Continue(s.w.Now() + 400*sim.GameInstant(sim.Day))

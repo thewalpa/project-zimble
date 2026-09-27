@@ -97,14 +97,14 @@ func TestEverySavePointRoundTrips(t *testing.T) {
 func TestSaveAfterRoundSevenAndFinish(t *testing.T) {
 	straight := newWorld(t, 42)
 	first := playBatches(t, straight, 7)
-	restLive := playSeason(t, straight)
+	restLive := playLeagues(t, straight)
 
 	w := newWorld(t, 42)
 	if got := playBatches(t, w, 7); !reflect.DeepEqual(got, first) {
 		t.Fatal("first half differs")
 	}
 	loaded := roundTrip(t, w)
-	restLoaded := playSeason(t, loaded)
+	restLoaded := playLeagues(t, loaded)
 
 	if len(restLive) != 7 || !reflect.DeepEqual(restLoaded, restLive) {
 		t.Fatal("remaining results or detailed outcomes differ after reload")
@@ -226,7 +226,7 @@ func TestSnapshotsShareNoMutableData(t *testing.T) {
 	want := w.Snapshot()
 
 	scribble := func(s *WorldSnapshot) {
-		s.Content.Towns[0].Name = "X"
+		s.Content.Nations[0].Towns[0].Name = "X"
 		s.Content.Roster[0].Count = 99
 		s.Registry.Clubs[0].Name = "X"
 		s.Players[0].Attributes[0] = 1
@@ -307,10 +307,13 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 		return w.Snapshot()
 	}
 	cases := map[string]func(*WorldSnapshot){
-		"content changed":            func(s *WorldSnapshot) { s.Content.Towns[0].Name = "Elsewhere" },
-		"league rules changed":       func(s *WorldSnapshot) { s.Leagues[0].Definition.MaxBench = 5 },
-		"invalid epoch":              func(s *WorldSnapshot) { s.Epoch = sim.CivilTime{} },
-		"no leagues":                 func(s *WorldSnapshot) { s.Leagues = nil; s.ContentFingerprint = contentFingerprint(s.Content, nil) },
+		"content changed":      func(s *WorldSnapshot) { s.Content.Nations[0].Towns[0].Name = "Elsewhere" },
+		"league rules changed": func(s *WorldSnapshot) { s.Leagues[0].Definition.MaxBench = 5 },
+		"invalid epoch":        func(s *WorldSnapshot) { s.Epoch = sim.CivilTime{} },
+		"no leagues": func(s *WorldSnapshot) {
+			s.Leagues = nil
+			s.ContentFingerprint = contentFingerprint(s.Content, nil, s.Cups)
+		},
 		"player without profile":     func(s *WorldSnapshot) { s.Players = s.Players[1:] },
 		"assignment to unknown team": func(s *WorldSnapshot) { s.Employment[0].Team = 99 },
 		"fixture allocator too low":  func(s *WorldSnapshot) { s.Competitions.LastFixture = 10 },

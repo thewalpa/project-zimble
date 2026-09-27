@@ -56,6 +56,7 @@ type Message struct {
 	Opponent    ids.TeamID      // matchday, result
 	Home        bool            // matchday, result: the team plays at home
 	Goals       [2]uint16       // result: for, against
+	Shootout    [2]uint16       // result of a knockout match level after regulation: penalties for, against
 	Champion    ids.TeamID      // season ended
 	Position    int             // season ended: the team's final position, 0 if it did not take part
 	Kickoff     sim.GameInstant // season started: first kickoff
@@ -160,9 +161,9 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 		if b.team != 0 && (p.Home == b.team || p.Away == b.team) {
 			m.Kind, m.Competition, m.Season, m.Round, m.Fixture = KindResult, p.Competition, p.Season, p.Round, p.Fixture
 			m.Home, m.Opponent = b.side(p.Home, p.Away)
-			m.Goals = [2]uint16{p.HomeGoals, p.AwayGoals}
+			m.Goals, m.Shootout = [2]uint16{p.HomeGoals, p.AwayGoals}, [2]uint16{p.HomePenalties, p.AwayPenalties}
 			if !m.Home {
-				m.Goals = [2]uint16{p.AwayGoals, p.HomeGoals}
+				m.Goals, m.Shootout = [2]uint16{p.AwayGoals, p.HomeGoals}, [2]uint16{p.AwayPenalties, p.HomePenalties}
 			}
 			return m, true
 		}

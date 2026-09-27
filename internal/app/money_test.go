@@ -67,7 +67,7 @@ func TestWagesArePaidWeekly(t *testing.T) {
 	for _, e := range w.Events() {
 		if e.Kind == events.KindLedgerPosted {
 			ledger++
-			if len(e.LedgerPosted.Entries) != 8 || e.Cause.Kind != events.CauseTask {
+			if len(e.LedgerPosted.Entries) != 16 || e.Cause.Kind != events.CauseTask {
 				t.Fatalf("wage event %+v", e)
 			}
 		}
@@ -84,6 +84,14 @@ func TestGateReceiptsAndSeasonRollover(t *testing.T) {
 	w := newWorld(t, 42)
 	resolved := playSeason(t, w)
 	gate := w.defs.Economy.GatePerHomeMatch
+	// Every club plays 7 league home games; cup entrants also host cup ties.
+	homes := map[ids.ClubID]int{}
+	for _, ref := range w.competitions.Seasons() {
+		for _, r := range w.competitions.Results(ref) {
+			homes[w.teamLabel(r.Home).Club]++
+		}
+	}
+	cupHomes := 0
 	for _, c := range w.registry.Clubs() {
 		receipts := 0
 		for _, e := range w.finance.Entries(c.ID) {
@@ -94,9 +102,13 @@ func TestGateReceiptsAndSeasonRollover(t *testing.T) {
 				}
 			}
 		}
-		if receipts != 7 {
-			t.Fatalf("club %d had %d home receipts, want 7", c.ID, receipts)
+		if receipts != homes[c.ID] || receipts < 7 {
+			t.Fatalf("club %d had %d home receipts, want %d (7 in the league)", c.ID, receipts, homes[c.ID])
 		}
+		cupHomes += receipts - 7
+	}
+	if cupHomes != 4+2+1 {
+		t.Fatalf("%d cup home receipts, want one per cup tie", cupHomes)
 	}
 	before := w.finance.Snapshot()
 	for _, r := range w.Snapshot().ResolveCommands[:3] {

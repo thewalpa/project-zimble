@@ -12,10 +12,10 @@
 {{end}}
 <div class="panel scroll">
 <table>
-  <tr><th class="n">Round</th><th>Kickoff</th><th>Opponent</th><th class="n">Score</th><th></th></tr>
+  <tr><th>Round</th><th>Kickoff</th><th>Opponent</th><th class="n">Score</th><th></th></tr>
   {{range $d.Rows}}
   <tr>
-    <td class="n">{{.Round}}</td>
+    <td>{{.Name}}</td>
     <td>{{.When}}</td>
     <td><a href="/squad?club={{.OpponentClub}}">{{.Opponent}}</a></td>
     <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}"><b>{{.Result}}</b></a>{{else}}<span class="muted">-</span>{{end}}</td>

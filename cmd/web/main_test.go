@@ -130,7 +130,7 @@ func TestNewCareerFromTheBrowser(t *testing.T) {
 func TestPlayingAMatchday(t *testing.T) {
 	c := career(t)
 	page := c.post("/continue", nil)
-	contains(t, page, "Matchday: round 1 v Brackenmoor Town (home)", "Pick lineup", "Play match")
+	contains(t, page, "Matchday: Round 1 v Brackenmoor Town (home)", "Pick lineup", "Play match")
 
 	page = c.get("/lineup")
 	if n := strings.Count(page, `name="slot-`); n != 20 {
@@ -281,7 +281,7 @@ func TestContractsInTheBrowser(t *testing.T) {
 	contains(t, c.post("/renew", url.Values{"player": {"44"}, "years": {"2"}, "wage": {"3,000"}}), "the contract is not in its final year")
 
 	page = c.post("/continue", nil) // the contract year, then the first matchday of season 2
-	contains(t, page, "Matchday: round 1 v Greyfen United (away)", "Oscar Bellamy left the club as a free agent")
+	contains(t, page, "Matchday: Round 1 v Greyfen United (away)", "Oscar Bellamy left the club as a free agent")
 	page = c.get("/free")
 	contains(t, page, "Elias Adeyemi", "Signings wait until the matchday has been played", "disabled")
 	sign := url.Values{"player": {"72"}, "years": {"1"}, "wage": {"1160"}}
@@ -412,4 +412,28 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 		otherPage := c.get(fmt.Sprintf("/report?fixture=%d", other.Fixture))
 		contains(t, otherPage, "Game report", "Round 1", "Back to fixtures")
 	}
+}
+
+// A cup run in the browser: the cup page before and after the draw, the
+// cup tie as the next match and the matchday, a win on penalties, the
+// bracket, the club's fixtures and both league tables.
+func TestCupInTheBrowser(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 15, savePath: filepath.Join(t.TempDir(), "career.json")}) // Glenrock Town
+	contains(t, c.get("/cup"), "No edition has been drawn yet")
+	c.post("/season", nil)
+	contains(t, c.get("/"), "Next match", "Continental Cup quarter-final v Greyfen United (away)")
+	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Greyfen United (away).")
+	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Greyfen United (away)")
+	c.post("/continue", nil) // the quarter-final
+	c.post("/continue", nil) // to the semi-final
+	page := c.post("/continue", nil)
+	contains(t, page, "Glenrock Town 0-0 Brackenmoor Town (3-1 on penalties)", `class="pill W"`)
+	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "0-0 (3-1 on penalties)", "Your club is in it.")
+	contains(t, c.get("/fixtures"), "Continental Cup semi-final", "Continental Cup final")
+	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
+	c.post("/continue", nil) // to the final
+	c.post("/continue", nil) // the final
+	c.post("/continue", nil) // the cup ends; on to the contract stop
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Glenrock Town: your club won it!", "(3-1 on penalties) v Brackenmoor Town (home), Continental Cup semi-final")
+	contains(t, c.get("/cup"), "Won by <b>Glenrock Town</b>")
 }

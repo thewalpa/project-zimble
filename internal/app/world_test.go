@@ -30,7 +30,7 @@ func TestNewWorldBuildsValidWorld(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := w.Summary()
-	if s.Clubs != 8 || s.Teams != 8 || s.Players != 160 {
+	if s.Clubs != 16 || s.Teams != 16 || s.Players != 320 {
 		t.Fatalf("clubs=%d teams=%d players=%d", s.Clubs, s.Teams, s.Players)
 	}
 	seenTeams := map[ids.TeamID]bool{}
@@ -90,7 +90,7 @@ func TestLoadRejectsInconsistentWorlds(t *testing.T) {
 			s.Profiles[0].Position = players.Forward
 		},
 		"wrong club count": func(d *content.Definitions, _ *worldgen.Snapshot) {
-			d.ClubCount = 9
+			d.Nations[1].Clubs = 7
 		},
 		"attribute out of range": func(_ *content.Definitions, s *worldgen.Snapshot) {
 			s.Profiles[0].Attributes[players.Pace] = 101
@@ -109,7 +109,7 @@ func TestLoadRejectsInconsistentWorlds(t *testing.T) {
 			t.Fatal(err)
 		}
 		corrupt(&defs, &snap)
-		if _, err := load(defs, []content.League{content.DefaultLeague()}, DefaultEpoch(), snap); err == nil {
+		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), DefaultEpoch(), snap); err == nil {
 			t.Errorf("%s: load succeeded, want error", name)
 		}
 	}
@@ -125,17 +125,25 @@ func TestNewWorldSchedulesLeagueForSeniorTeams(t *testing.T) {
 	for _, row := range w.Summary().ClubRows {
 		seniorTeams[row.SeniorTeam] = true
 	}
+	// Every senior team plays 14 league fixtures, all in one league.
 	played := map[ids.TeamID]int{}
-	for i, r := range sched.Rounds {
-		if r.Round != competitions.Round(i+1) || len(r.Fixtures) != 4 {
-			t.Fatalf("round %d: number %d with %d fixtures", i+1, r.Round, len(r.Fixtures))
-		}
-		for _, f := range r.Fixtures {
-			for _, side := range []TeamLabel{f.Home, f.Away} {
-				if !seniorTeams[side.Team] || side.ClubName == "" || side.ShortName == "" {
-					t.Fatalf("fixture %d has unresolved or non-senior side %+v", f.ID, side)
+	league := map[ids.TeamID]ids.CompetitionID{}
+	for _, sc := range w.Schedules() {
+		for i, r := range sc.Rounds {
+			if r.Round != competitions.Round(i+1) || len(r.Fixtures) != 4 {
+				t.Fatalf("round %d: number %d with %d fixtures", i+1, r.Round, len(r.Fixtures))
+			}
+			for _, f := range r.Fixtures {
+				for _, side := range []TeamLabel{f.Home, f.Away} {
+					if !seniorTeams[side.Team] || side.ClubName == "" || side.ShortName == "" {
+						t.Fatalf("fixture %d has unresolved or non-senior side %+v", f.ID, side)
+					}
+					if other, ok := league[side.Team]; ok && other != sc.Competition {
+						t.Fatalf("team %d plays in leagues %d and %d", side.Team, other, sc.Competition)
+					}
+					played[side.Team]++
+					league[side.Team] = sc.Competition
 				}
-				played[side.Team]++
 			}
 		}
 	}
@@ -151,13 +159,13 @@ func TestNewWorldSchedulesLeagueForSeniorTeams(t *testing.T) {
 
 // Creating the league must not change any generated world data.
 func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
-	const worldFingerprintSeed42 = "5682a824c61455c1042ab93fbda2f81eea50e990f2744ede9dad01fcf5792bae"
+	const worldFingerprintSeed42 = "cbc055bbf242f14f5491eabbdad165ee1e13e7c79663b7d8fcf7bfd85fa7f35d"
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := load(defs, []content.League{content.DefaultLeague()}, DefaultEpoch(), snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), DefaultEpoch(), snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +231,19 @@ func TestLoadRejectsInvalidLeagueDefinition(t *testing.T) {
 		"zero ID":        {ID: 0, Name: "L", Entrants: 8},
 		"wrong entrants": {ID: 1, Name: "L", Entrants: 6},
 	} {
-		if _, err := load(defs, []content.League{league}, DefaultEpoch(), snap); err == nil {
+		if _, err := load(defs, []content.League{league, content.DefaultLeagues()[1]}, nil, DefaultEpoch(), snap); err == nil {
+			t.Errorf("%s: load succeeded, want error", name)
+		}
+	}
+	for name, mutate := range map[string]func(*content.Cup){
+		"cup with a league's ID":   func(c *content.Cup) { c.ID = 2 },
+		"unknown qualifier league": func(c *content.Cup) { c.Qualifiers[1].League = 9 },
+		"more places than teams":   func(c *content.Cup) { c.Qualifiers = []content.Qualifier{{League: 1, Places: 16}} },
+		"invalid cup":              func(c *content.Cup) { c.Name = "" },
+	} {
+		cup := content.DefaultCups()[0]
+		mutate(&cup)
+		if _, err := load(defs, content.DefaultLeagues(), []content.Cup{cup}, DefaultEpoch(), snap); err == nil {
 			t.Errorf("%s: load succeeded, want error", name)
 		}
 	}

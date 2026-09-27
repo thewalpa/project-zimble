@@ -419,6 +419,10 @@ func TestParamsValidation(t *testing.T) {
 		"zero mentality":      func(p *Params) { p.MentalityOwnPermille[matches.Attacking] = 0 },
 		"zero forward shots":  func(p *Params) { p.ShotShare[matches.Forward] = 0 },
 		"negative keeper":     func(p *Params) { p.DefenseShare[matches.Goalkeeper] = -1 },
+		"certain penalties":   func(p *Params) { p.MaxShootoutPPM = ppm },
+		"no penalties":        func(p *Params) { p.MinShootoutPPM = 0 },
+		"penalty range":       func(p *Params) { p.MinShootoutPPM = p.MaxShootoutPPM + 1 },
+		"zero penalty base":   func(p *Params) { p.ShootoutConversionPPM = 0 },
 	}
 	for name, mutate := range cases {
 		p := DefaultParams()
@@ -431,7 +435,7 @@ func TestParamsValidation(t *testing.T) {
 
 func TestCapabilitiesAreAdvertised(t *testing.T) {
 	e := engine(t)
-	want := matches.Capabilities{Substitutions: true, Mentality: true}
+	want := matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true}
 	if e.Capabilities() != want || e.ID() != EngineID || e.Version() != ModelVersion {
 		t.Fatalf("engine %s v%d capabilities %+v", e.ID(), e.Version(), e.Capabilities())
 	}
@@ -441,5 +445,96 @@ func TestCapabilitiesAreAdvertised(t *testing.T) {
 	}
 	if _, err := e.Restore(matches.MatchCheckpoint{EngineID: EngineID}); !errors.Is(err, matches.ErrUnsupported) {
 		t.Fatalf("Restore: %v", err)
+	}
+}
+
+// playOut runs a match to full time and returns its outcome.
+func playOut(t *testing.T, in *matches.MatchInput) matches.MatchOutcome {
+	t.Helper()
+	_, res := run(t, start(t, in), []uint16{matches.RegulationMinutes, matches.RegulationMinutes}, nil)
+	return res.Outcome
+}
+
+// A knockout match always has a winner. Its 90 minutes are exactly those of
+// the same match without the knockout rule; a level match adds a
+// well-formed shootout.
+func TestKnockoutShootouts(t *testing.T) {
+	shootouts := 0
+	for f := ids.FixtureID(1); f <= 400; f++ {
+		league := input(f, 60, 60)
+		cup := input(f, 60, 60)
+		cup.Rules.Knockout = true
+		a, b := playOut(t, league), playOut(t, cup)
+		if a.Resolution != matches.ResolutionRegulation || a.Shootout != [2]uint16{} {
+			t.Fatalf("fixture %d: a league match went to penalties: %+v", f, a)
+		}
+		if a.Score != b.Score || !slices.Equal(a.Goals, b.Goals) || !slices.Equal(a.Participants, b.Participants) {
+			t.Fatalf("fixture %d: the knockout rule changed regulation play", f)
+		}
+		if _, ok := b.Winner(); !ok {
+			t.Fatalf("fixture %d: a knockout match ended level: %+v", f, b)
+		}
+		if b.Score[0] != b.Score[1] {
+			if b.Resolution != matches.ResolutionRegulation || b.Shootout != [2]uint16{} {
+				t.Fatalf("fixture %d: a decided match has a shootout: %+v", f, b)
+			}
+			continue
+		}
+		shootouts++
+		p := b.Shootout
+		hi, lo := max(p[0], p[1]), min(p[0], p[1])
+		// Best of five: a lead of up to three over five kicks each; beyond
+		// five, sudden death wins by exactly one.
+		if b.Resolution != matches.ResolutionPenalties || hi == lo || (hi > 5 && hi-lo != 1) || hi-lo > 3 {
+			t.Fatalf("fixture %d: shootout %v, resolution %d", f, p, b.Resolution)
+		}
+		if again := playOut(t, cup); again.Shootout != p {
+			t.Fatalf("fixture %d: the shootout is not repeatable", f)
+		}
+	}
+	if shootouts < 40 {
+		t.Fatalf("only %d of 400 level matches", shootouts)
+	}
+}
+
+// Better penalty takers against a weaker goalkeeper win more shootouts.
+func TestShootoutsFavourBetterTakers(t *testing.T) {
+	wins, level := 0, 0
+	for f := ids.FixtureID(1); f <= 3000 && level < 400; f++ {
+		in := input(f, 60, 60)
+		in.Rules.Knockout = true
+		for i := range in.Home.Starters {
+			in.Home.Starters[i].Ratings.Finishing = 95
+		}
+		in.Away.Starters[0].Ratings.Goalkeeping = 30
+		o := playOut(t, in)
+		if o.Resolution != matches.ResolutionPenalties {
+			continue
+		}
+		level++
+		if o.Shootout[0] > o.Shootout[1] {
+			wins++
+		}
+	}
+	if level < 100 || wins*100 < level*65 {
+		t.Fatalf("the better side won %d of %d shootouts", wins, level)
+	}
+}
+
+func TestWinner(t *testing.T) {
+	for _, c := range []struct {
+		score, pens [2]uint16
+		side        matches.Side
+		ok          bool
+	}{
+		{[2]uint16{2, 1}, [2]uint16{}, matches.Home, true},
+		{[2]uint16{0, 3}, [2]uint16{}, matches.Away, true},
+		{[2]uint16{1, 1}, [2]uint16{4, 5}, matches.Away, true},
+		{[2]uint16{1, 1}, [2]uint16{}, 0, false},
+	} {
+		side, ok := matches.MatchOutcome{Score: c.score, Shootout: c.pens}.Winner()
+		if side != c.side || ok != c.ok {
+			t.Errorf("Winner(%v, %v) = %v, %v", c.score, c.pens, side, ok)
+		}
 	}
 }

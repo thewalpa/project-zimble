@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -75,9 +76,15 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 	}
 	sched := w.Schedules()[0]
 	want, _ := w.Calendar().Instant(sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15})
-	tasks := kickoffTasks(w)
-	if len(tasks) != 14 || len(w.payloads) != 14 || w.scheduler.Len() != 19 {
-		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 14 of 19 (with recovery, wages, season end, contract year and player year)", len(tasks), w.scheduler.Len(), len(w.payloads))
+	all := kickoffTasks(w)
+	if len(all) != 28 || len(w.payloads) != 28 || w.scheduler.Len() != 34 {
+		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 28 of 34 (two leagues, with recovery, wages, 2 season ends, contract year and player year)", len(all), w.scheduler.Len(), len(w.payloads))
+	}
+	var tasks []sim.Task // the first league's, in queue order
+	for _, task := range all {
+		if task.StableOrder == 1 {
+			tasks = append(tasks, task)
+		}
 	}
 	for i, r := range sched.Rounds {
 		kickoff := want + sim.GameInstant(i)*7*day
@@ -104,20 +111,20 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	if res := mustContinue(t, w, k-1); res != (ReachedTarget{Now: k - 1}) {
 		t.Fatalf("before kickoff: %#v", res)
 	}
-	if len(kickoffTasks(w)) != 14 || len(w.competitions.PendingRounds()) != 0 {
+	if len(kickoffTasks(w)) != 28 || len(w.competitions.PendingRounds()) != 0 {
 		t.Fatal("a task ran before its kickoff")
 	}
 
 	res := mustContinue(t, w, k)
 	ready, ok := res.(FixtureRoundReady)
-	if !ok || ready.At != k || len(ready.Rounds) != 1 {
+	if !ok || ready.At != k || len(ready.Rounds) != 2 {
 		t.Fatalf("at kickoff: %#v", res)
 	}
 	r := ready.Rounds[0]
 	if r.Round != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) || r.Kickoff != k || len(r.Fixtures) != 4 {
 		t.Fatalf("ready round = %+v", r)
 	}
-	if w.Now() != k || len(kickoffTasks(w)) != 13 || len(w.payloads) != 13 {
+	if w.Now() != k || len(kickoffTasks(w)) != 26 || len(w.payloads) != 26 {
 		t.Fatalf("now=%d tasks=%d payloads=%d", w.Now(), len(kickoffTasks(w)), len(w.payloads))
 	}
 	if !reflect.DeepEqual(w.competitions.Fixtures(w.leagues[0].season), fixturesBefore) {
@@ -284,23 +291,19 @@ func addLeague(t *testing.T, w *World, comp ids.CompetitionID) {
 	}
 }
 
-// twoLeagueWorld builds 16 clubs split into two leagues with identical
-// timing, so every round of both leagues kicks off together. The leagues are
-// passed out of ID order to check canonical ordering.
+// twoLeagueWorld builds the default world (16 clubs, two leagues with
+// identical timing, so every round of both leagues kicks off together) with
+// the leagues passed out of ID order, to check canonical ordering.
 func twoLeagueWorld(t *testing.T) *World {
 	t.Helper()
 	defs := content.Default()
-	defs.ClubCount = 16
-	defs.Towns = append(defs.Towns,
-		content.Town{Name: "Ashenby", Short: "ASH"}, content.Town{Name: "Brindle", Short: "BRN"},
-		content.Town{Name: "Corvale", Short: "COR"}, content.Town{Name: "Drummond", Short: "DRM"})
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := content.DefaultLeague()
-	second.ID, second.Name = 2, "Second League"
-	w, err := load(defs, []content.League{second, content.DefaultLeague()}, DefaultEpoch(), snap)
+	leagues := content.DefaultLeagues()
+	slices.Reverse(leagues)
+	w, err := load(defs, leagues, content.DefaultCups(), DefaultEpoch(), snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +347,7 @@ func TestSimultaneousKickoffsAreDeterministic(t *testing.T) {
 
 func TestWorldRejectsDoubleBookedLeague(t *testing.T) {
 	w := newWorld(t, 42)
-	addLeague(t, w, 2)
+	addLeague(t, w, 9)
 	if err := w.Validate(); err == nil {
 		t.Fatal("Validate accepted a league outside the world's definitions sharing every team")
 	}
@@ -374,7 +377,7 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 		"not a real date":         {Year: 2025, Month: 2, Day: 30},
 		"after the first kickoff": {Year: 2025, Month: 8, Day: 9, Hour: 15, Minute: 1},
 	} {
-		if _, err := load(defs, []content.League{content.DefaultLeague()}, epoch, snap); err == nil {
+		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), epoch, snap); err == nil {
 			t.Errorf("%s: load succeeded", name)
 		}
 	}
@@ -382,7 +385,7 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 		t.Error("NewWorld accepted a config without an epoch")
 	}
 	// Epoch exactly at the first kickoff is allowed: round 1 is due at once.
-	w, err := load(defs, []content.League{content.DefaultLeague()}, sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package content
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/money"
@@ -12,23 +13,28 @@ func TestDefaultIsValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if d.ClubCount != 8 || d.SquadSize() != 20 {
-		t.Fatalf("clubs=%d squad=%d, want 8 and 20", d.ClubCount, d.SquadSize())
+	if d.ClubCount() != 16 || len(d.Nations) != 2 || d.SquadSize() != 20 {
+		t.Fatalf("clubs=%d in %d nations, squad=%d; want 16, 2 and 20", d.ClubCount(), len(d.Nations), d.SquadSize())
 	}
 }
 
 func TestDefaultReturnsIndependentCopies(t *testing.T) {
 	a := Default()
-	a.Towns[0].Name = "Changed"
-	if Default().Towns[0].Name == "Changed" {
+	a.Nations[1].Towns[0].Name = "Changed"
+	if Default().Nations[1].Towns[0].Name == "Changed" {
 		t.Fatal("Default shares slices between calls")
 	}
 }
 
 func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 	cases := map[string]func(*Definitions){
-		"too few towns":    func(d *Definitions) { d.Towns = d.Towns[:3] },
-		"duplicate short":  func(d *Definitions) { d.Towns[1].Short = d.Towns[0].Short },
+		"too few towns":    func(d *Definitions) { d.Nations[0].Towns = d.Nations[0].Towns[:3] },
+		"duplicate short":  func(d *Definitions) { d.Nations[0].Towns[1].Short = d.Nations[0].Towns[0].Short },
+		"short across":     func(d *Definitions) { d.Nations[1].Towns[0].Short = d.Nations[0].Towns[0].Short },
+		"town across":      func(d *Definitions) { d.Nations[1].Towns[0].Name = d.Nations[0].Towns[0].Name },
+		"no nations":       func(d *Definitions) { d.Nations = nil },
+		"no clubs":         func(d *Definitions) { d.Nations[1].Clubs = 0 },
+		"same nation":      func(d *Definitions) { d.Nations[1].Name = d.Nations[0].Name },
 		"empty names":      func(d *Definitions) { d.FirstNames = nil },
 		"bad quota":        func(d *Definitions) { d.Roster[0].Count = 0 },
 		"min above count":  func(d *Definitions) { d.Roster[0].Min = d.Roster[0].Count + 1 },
@@ -114,5 +120,46 @@ func TestYouthRange(t *testing.T) {
 		if got := y.Range(c.in); got != c.want {
 			t.Errorf("Range(%v) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+func TestCupValidation(t *testing.T) {
+	for _, c := range DefaultCups() {
+		if err := c.Validate(); err != nil || c.Entrants() != 8 {
+			t.Fatalf("default cup %+v: %v", c, err)
+		}
+	}
+	cases := map[string]func(*Cup){
+		"six entrants":    func(c *Cup) { c.Qualifiers[1].Places = 2 },
+		"one entrant":     func(c *Cup) { c.Qualifiers = []Qualifier{{League: 1, Places: 1}} },
+		"same league":     func(c *Cup) { c.Qualifiers[1].League = 1 },
+		"zero league":     func(c *Cup) { c.Qualifiers[0].League = 0 },
+		"no places":       func(c *Cup) { c.Qualifiers = append(c.Qualifiers, Qualifier{League: 5}) },
+		"no delay":        func(c *Cup) { c.FirstRoundDelay = 0 },
+		"no interval":     func(c *Cup) { c.RoundInterval = 0 },
+		"no name":         func(c *Cup) { c.Name = "" },
+		"subs over bench": func(c *Cup) { c.MaxSubstitutions = c.MaxBench + 1 },
+	}
+	for name, mutate := range cases {
+		c := DefaultCups()[0]
+		c.Qualifiers = slices.Clone(c.Qualifiers)
+		mutate(&c)
+		if err := c.Validate(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// Seeding interleaves the leagues by position and uses the standard
+// bracket: the two champions can meet only in the final.
+func TestCupSeeding(t *testing.T) {
+	got := DefaultCups()[0].Seeding()
+	want := [][2]int{{0, 1}, {1, 4}, {1, 2}, {0, 3}, {1, 1}, {0, 4}, {0, 2}, {1, 3}} // A1 B4, B2 A3, B1 A4, A2 B3
+	if !slices.Equal(got, want) {
+		t.Fatalf("seeding %v, want %v", got, want)
+	}
+	four := Cup{Qualifiers: []Qualifier{{League: 1, Places: 2}, {League: 2, Places: 1}, {League: 3, Places: 1}}}
+	if got := four.Seeding(); !slices.Equal(got, [][2]int{{0, 1}, {0, 2}, {1, 1}, {2, 1}}) {
+		t.Fatalf("four-team seeding %v", got)
 	}
 }

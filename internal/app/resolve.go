@@ -56,6 +56,7 @@ type MatchReport struct {
 	Away     TeamLabel
 	Selected [2]SelectedBy
 	Score    [2]uint16
+	Shootout [2]uint16 // a knockout match level after regulation: penalties scored
 	Goals    []matches.Goal
 }
 
@@ -167,7 +168,8 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		if err := w.checkOutcome(p, outcomes[i]); err != nil {
 			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
-		scores[i] = competitions.Score{Fixture: p.fixture.ID, HomeGoals: outcomes[i].Score[0], AwayGoals: outcomes[i].Score[1]}
+		o := outcomes[i]
+		scores[i] = competitions.Score{Fixture: p.fixture.ID, HomeGoals: o.Score[0], AwayGoals: o.Score[1], HomePenalties: o.Shootout[0], AwayPenalties: o.Shootout[1]}
 		for _, pt := range outcomes[i].Participants {
 			exposures = append(exposures, medical.Exposure{Player: pt.Player, Minutes: pt.Minutes(), Stamina: p.stamina[pt.Player]})
 		}
@@ -198,7 +200,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		res.Matches = append(res.Matches, MatchReport{
 			Fixture: p.fixture.ID, Round: p.round,
 			Home: w.teamLabel(p.fixture.Home), Away: w.teamLabel(p.fixture.Away),
-			Selected: p.selected, Score: outcomes[i].Score, Goals: outcomes[i].Goals,
+			Selected: p.selected, Score: outcomes[i].Score, Shootout: outcomes[i].Shootout, Goals: outcomes[i].Goals,
 		})
 	}
 	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
@@ -208,6 +210,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindMatchCompleted, MatchCompleted: &events.MatchCompleted{
 			Fixture: r.Fixture, Competition: r.Season.Competition, Season: uint16(r.Season.Season), Round: uint8(r.Round),
 			Home: r.Home, Away: r.Away, HomeGoals: r.HomeGoals, AwayGoals: r.AwayGoals,
+			HomePenalties: r.HomePenalties, AwayPenalties: r.AwayPenalties,
 		}})
 	}
 	w.emitLedger(w.Now(), commandCause(cmd.ID), receipts)
@@ -296,13 +299,21 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 	return plan, nil
 }
 
+// matchRules returns a competition's match rules. Cup matches are knockout
+// matches, which need an engine that can take penalty shootouts.
 func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
-	for _, l := range w.leagues {
-		if l.def.ID == comp {
-			return matches.Rules{MaxSubstitutions: l.def.MaxSubstitutions, MaxBench: l.def.MaxBench}, nil
-		}
+	if li, ok := w.leagueIndex(comp); ok {
+		d := w.leagues[li].def
+		return matches.Rules{MaxSubstitutions: d.MaxSubstitutions, MaxBench: d.MaxBench}, nil
 	}
-	return matches.Rules{}, fmt.Errorf("app: competition %d has no league definition", comp)
+	if ci, ok := w.cupIndex(comp); ok {
+		if !w.engine.Capabilities().Penalties {
+			return matches.Rules{}, fmt.Errorf("app: the %s engine cannot decide cup matches: no penalties", w.engine.ID())
+		}
+		d := w.cups[ci]
+		return matches.Rules{MaxSubstitutions: d.MaxSubstitutions, MaxBench: d.MaxBench, Knockout: true}, nil
+	}
+	return matches.Rules{}, fmt.Errorf("app: competition %d has no league or cup definition", comp)
 }
 
 // sideSelection returns the lineup a side plays: the one submitted for the
@@ -429,8 +440,14 @@ func (w *World) checkOutcome(p plannedMatch, o matches.MatchOutcome) error {
 	switch {
 	case o.Status != matches.ResultCompleted:
 		return fmt.Errorf("result status %d is not completed", o.Status)
-	case o.Resolution != matches.ResolutionRegulation:
-		return fmt.Errorf("resolution %d is not regulation", o.Resolution)
+	case o.Resolution != matches.ResolutionRegulation && o.Resolution != matches.ResolutionPenalties:
+		return fmt.Errorf("resolution %d is neither regulation nor penalties", o.Resolution)
+	case (o.Resolution == matches.ResolutionPenalties) != (p.input.Rules.Knockout && o.Score[0] == o.Score[1]):
+		return fmt.Errorf("resolution %d for score %v (knockout %t)", o.Resolution, o.Score, p.input.Rules.Knockout)
+	case o.Resolution == matches.ResolutionRegulation && o.Shootout != [2]uint16{}:
+		return fmt.Errorf("shootout %v without penalties", o.Shootout)
+	case o.Resolution == matches.ResolutionPenalties && (o.Shootout[0] == o.Shootout[1] || o.Shootout[0] > competitions.MaxGoals || o.Shootout[1] > competitions.MaxGoals):
+		return fmt.Errorf("shootout %v decides nothing", o.Shootout)
 	case o.Match != p.fixture.ID:
 		return fmt.Errorf("outcome is for match %d", o.Match)
 	case o.EngineID != w.engine.ID() || o.EngineVersion != w.engine.Version():
@@ -506,10 +523,11 @@ func (w *World) MatchReport(fixture ids.FixtureID) (MatchReport, bool) {
 		return MatchReport{}, false
 	}
 	return MatchReport{
-		Fixture: fixture,
-		Round:   competitions.RoundRef{Season: res.Season, Round: res.Round},
-		Home:    w.teamLabel(res.Home),
-		Away:    w.teamLabel(res.Away),
-		Score:   [2]uint16{res.HomeGoals, res.AwayGoals},
+		Fixture:  fixture,
+		Round:    competitions.RoundRef{Season: res.Season, Round: res.Round},
+		Home:     w.teamLabel(res.Home),
+		Away:     w.teamLabel(res.Away),
+		Score:    [2]uint16{res.HomeGoals, res.AwayGoals},
+		Shootout: [2]uint16{res.HomePenalties, res.AwayPenalties},
 	}, true
 }

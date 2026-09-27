@@ -16,13 +16,24 @@ import (
 
 // Version identifies the content returned by Default. Version 2 moved
 // attribute ranges to the 1..100 scale; version 3 added the economy;
-// version 4 added player ages and youth intake.
-const Version = 4
+// version 4 added player ages and youth intake; version 5 added a second
+// nation.
+const Version = 5
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
 	Name  string
 	Short string
+}
+
+// Nation is a country whose clubs are generated from its own towns. Clubs
+// are generated nation by nation, in order; each league takes the next block
+// of clubs (see League), so league i holds nation i's clubs when their sizes
+// match.
+type Nation struct {
+	Name  string
+	Clubs int
+	Towns []Town // at least Clubs
 }
 
 // Quota is how many players of a position a senior squad holds. Count is
@@ -115,8 +126,7 @@ func (y Youth) Range(r Range) Range {
 
 type Definitions struct {
 	Version      int
-	ClubCount    int
-	Towns        []Town
+	Nations      []Nation // in generation order
 	ClubSuffixes []string
 	FirstNames   []string
 	LastNames    []string
@@ -129,9 +139,21 @@ type Definitions struct {
 	Youth Youth
 }
 
+// ClubCount is the number of clubs the nations generate.
+func (d Definitions) ClubCount() int {
+	n := 0
+	for _, na := range d.Nations {
+		n += na.Clubs
+	}
+	return n
+}
+
 // Clone returns a deep copy that shares no slices with d.
 func (d Definitions) Clone() Definitions {
-	d.Towns = slices.Clone(d.Towns)
+	d.Nations = slices.Clone(d.Nations)
+	for i := range d.Nations {
+		d.Nations[i].Towns = slices.Clone(d.Nations[i].Towns)
+	}
 	d.ClubSuffixes = slices.Clone(d.ClubSuffixes)
 	d.FirstNames = slices.Clone(d.FirstNames)
 	d.LastNames = slices.Clone(d.LastNames)
@@ -173,18 +195,22 @@ func (d Definitions) Profile(p players.Position) (PositionProfile, bool) {
 // Validate checks that the definitions can generate a valid world.
 func (d Definitions) Validate() error {
 	var errs []error
-	if d.ClubCount <= 0 {
-		errs = append(errs, fmt.Errorf("content: club count %d must be positive", d.ClubCount))
+	if len(d.Nations) == 0 {
+		errs = append(errs, errors.New("content: no nations"))
 	}
-	if len(d.Towns) < d.ClubCount {
-		errs = append(errs, fmt.Errorf("content: %d towns for %d clubs", len(d.Towns), d.ClubCount))
-	}
-	names, shorts := map[string]bool{}, map[string]bool{}
-	for _, t := range d.Towns {
-		if t.Name == "" || t.Short == "" || names[t.Name] || shorts[t.Short] {
-			errs = append(errs, fmt.Errorf("content: town %+v is empty or duplicated", t))
+	// Town names and codes are unique across nations, so club names are.
+	names, shorts, nations := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, na := range d.Nations {
+		if na.Name == "" || nations[na.Name] || na.Clubs <= 0 || len(na.Towns) < na.Clubs {
+			errs = append(errs, fmt.Errorf("content: nation %q (%d clubs, %d towns) is invalid or duplicated", na.Name, na.Clubs, len(na.Towns)))
 		}
-		names[t.Name], shorts[t.Short] = true, true
+		nations[na.Name] = true
+		for _, t := range na.Towns {
+			if t.Name == "" || t.Short == "" || names[t.Name] || shorts[t.Short] {
+				errs = append(errs, fmt.Errorf("content: town %+v is empty or duplicated", t))
+			}
+			names[t.Name], shorts[t.Short] = true, true
+		}
 	}
 	if len(d.ClubSuffixes) == 0 || len(d.FirstNames) == 0 || len(d.LastNames) == 0 {
 		errs = append(errs, errors.New("content: name pools must not be empty"))
@@ -228,13 +254,20 @@ func (d Definitions) Validate() error {
 // Default returns a fresh copy of the built-in definitions.
 func Default() Definitions {
 	return Definitions{
-		Version:   Version,
-		ClubCount: 8,
-		Towns: []Town{
-			{"Brackenmoor", "BRK"}, {"Eldhaven", "ELD"}, {"Marrowdale", "MRW"},
-			{"Osterholm", "OST"}, {"Quillford", "QUI"}, {"Saltmere", "SAL"},
-			{"Veldmouth", "VEL"}, {"Wyrmsby", "WYR"}, {"Caldershaw", "CAL"},
-			{"Dunmarrow", "DUN"}, {"Greyfen", "GRY"}, {"Hollowick", "HOL"},
+		Version: Version,
+		Nations: []Nation{
+			{Name: "Westmark", Clubs: 8, Towns: []Town{
+				{"Brackenmoor", "BRK"}, {"Eldhaven", "ELD"}, {"Marrowdale", "MRW"},
+				{"Osterholm", "OST"}, {"Quillford", "QUI"}, {"Saltmere", "SAL"},
+				{"Veldmouth", "VEL"}, {"Wyrmsby", "WYR"}, {"Caldershaw", "CAL"},
+				{"Dunmarrow", "DUN"}, {"Greyfen", "GRY"}, {"Hollowick", "HOL"},
+			}},
+			{Name: "Eastmarch", Clubs: 8, Towns: []Town{
+				{"Ashcombe", "ASH"}, {"Brightwater", "BRI"}, {"Coldharbour", "COL"},
+				{"Drakeford", "DRA"}, {"Emberton", "EMB"}, {"Foxmere", "FOX"},
+				{"Glenrock", "GLE"}, {"Havenport", "HAV"}, {"Ironbridge", "IRO"},
+				{"Juniper Vale", "JUN"}, {"Kestrel Bay", "KES"}, {"Larkspur", "LAR"},
+			}},
 		},
 		ClubSuffixes: []string{"United", "Rovers", "Athletic", "Albion", "Wanderers", "Town", "City", "FC"},
 		FirstNames: []string{
