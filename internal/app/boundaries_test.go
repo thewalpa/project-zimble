@@ -63,6 +63,12 @@ var allowedImports = map[string][]string{
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/events", "internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
 	},
+	// The web client is another presentation adapter: app queries and
+	// commands, the contract types they return, and storage for saving.
+	"cmd/web": {
+		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
+		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
+	},
 	"cmd/simulate": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/random", "internal/core/sim",
 		"internal/inbox", "internal/matches", "internal/players", "internal/storage",

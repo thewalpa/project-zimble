@@ -1402,6 +1402,48 @@ Players now have birth dates and a career. Every year, on the eve of the contrac
 - **Retired players stay in the registry forever** (about 10 a year), with their profiles, which grows the save slowly.
 - **AI signings still take the best overall regardless of age.**
 
+## Web client: `cmd/web` (done)
+
+The career can now be played in the browser. `go run ./cmd/web` serves a local web app at `http://127.0.0.1:8080`. It takes the same flags as `cmd/play` (`-seed`, `-club`, `-load`), plus `-addr` and `-save`. Without `-club`, the first page lets you choose a club.
+
+Pages: **Home** (the season, the next match or waiting matchday, the latest result with scorers, and recent inbox messages), **Squad** (ages, ratings, attributes, contracts, and renewal forms for final-year players), **Lineup** (each player's selection and the mentality), **Table**, **Fixtures**, **Free agents** (signing forms), **Inbox** and **Finances**. The header always offers Continue (or Play match) and Save.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | New. `main.go` (flags), `server.go` (routes, guards, commands), `views.go` (view models), `templates/*.html` (embedded; no JavaScript) |
+| `internal/app` | `Content()`: a copy of the career's pinned content definitions (roster quotas and contract lengths for the forms) |
+| `internal/app/boundaries_test.go` | `cmd/web` may import app, storage and the contract types the queries return, like `cmd/play` |
+
+### Decisions
+
+- **A presentation adapter only.** Every page is built from app queries, and every change is an app command (`ResolveRounds`, `SubmitLineup`, `RenewContract`, `SignPlayer`) or `storage.Save`. The web client owns no football rules. The progression policy (continue to the club's next matchday, resolving other batches on the way; stop once on the day before the contract-year end while contracts would lapse) is the same as `cmd/play`'s, reimplemented in the client.
+- **Standard library only:** `net/http` with method-and-path patterns, `html/template` (auto-escaping), and `embed`. Pages render on the server and changes are plain HTML forms, so no JavaScript is needed.
+- **One career, one writer.** The server holds one world and handles one request at a time under a mutex. It listens on localhost by default.
+- **Changes are POST forms, then a redirect** (post/redirect/get), so reloading a page never repeats a change. Notes about the outcome ("Lineup saved", errors) are shown once on the next page.
+- **Stale pages are refused.** Every career form carries the revision the page was rendered at, and a form from another revision changes nothing. This covers a second tab, the back button, or a double submit, the same way `ExpectedRevision` protects commands.
+- **Cross-site requests are refused** (`Sec-Fetch-Site: cross-site`, or an `Origin` of another host). This matters because the server changes a game on the user's machine.
+- **The lineup form submits the whole lineup** as one `SubmitLineup`, instead of the terminal's local draft edited step by step. Starters are ordered goalkeeper, defenders, midfielders, forwards. The form starts from the submitted lineup, or else the AI's suggestion.
+
+### Verification (`cmd/web/main_test.go`, over HTTP with `httptest`)
+
+- choosing a club (and rejecting an unknown one, or a second career);
+- a matchday: continue, the lineup form (20 players), submitting an attacking lineup, playing it, and the result on Home, Fixtures and the Table;
+- 5 lineup rejections that submit nothing (10 starters, two goalkeepers, an unknown mentality, the wrong fixture, a bench of 9);
+- stale forms (old or malformed revisions) and cross-site requests change nothing; GET on an action is 405, and an unknown path is 404;
+- the contract flow of `cmd/play`'s test: the contract stop, 7 renewal forms, a renewal at the suggested terms, 3 bad offers, the contract year, a signing refused on a matchday and accepted after it, and signing the same player twice refused;
+- saving, loading the save (seed and revision kept), and refusing a save without a managed club;
+- every page renders at the start, on a matchday, after it, in the off-season and in two new seasons (with retirements, youth and development in the inbox);
+- flags: the address and seed, `-load` with `-seed`, stray arguments, a missing file, a failed seed draw.
+
+### Limitations
+
+- **No live matches in the browser.** A match is played in one step. A live match started in `cmd/play` and saved is finished by Play match.
+- **One career per server, one player.** No sessions or accounts; the server is meant for localhost.
+- **The progression policy is duplicated** in `cmd/play` and `cmd/web`. If a third client appears, it belongs in an app query ("next stop").
+- **Pages refresh only on navigation.** Nothing updates on its own.
+
 ## Next task: transfers between clubs with fees
 
 Let players move between clubs during the contract year, for a fee, as the architecture's boundary example describes. Now that abilities change, a club may want another club's player.

@@ -1,0 +1,12 @@
+{{define "content"}}
+<h1>Fixtures</h1>
+<p class="muted">{{.Data.Season}}</p>
+<div class="panel scroll">
+<table>
+  <tr><th class="n">Round</th><th>Kickoff</th><th>Opponent</th><th class="n">Score</th><th></th></tr>
+  {{range .Data.Rows}}
+  <tr><td class="n">{{.Round}}</td><td>{{.When}}</td><td>{{.Opponent}}</td><td class="n">{{.Result}}</td><td>{{if .Outcome}}<span class="pill {{.Outcome}}">{{.Outcome}}</span>{{end}}</td></tr>
+  {{end}}
+</table>
+</div>
+{{end}}

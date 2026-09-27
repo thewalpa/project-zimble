@@ -1,0 +1,25 @@
+{{define "content"}}
+{{$d := .Data}}{{$rev := .Rev}}
+<h1>Free agents</h1>
+<p class="muted">Players without a club. They accept from their asking wage up to double it, and retire on the eve of the contract-year end once they are {{$d.RetireAge}}.{{if $d.Locked}} <b>Signings wait until the matchday has been played.</b>{{end}}</p>
+<div class="panel scroll">
+{{if $d.Rows}}
+<table>
+  <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th><th class="n">Asks</th><th>Offer</th></tr>
+  {{range $d.Rows}}
+  <tr>
+    <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td><td class="n">{{.Demand}}</td>
+    <td>{{if .Room}}
+      <form class="inline" method="post" action="/sign">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/free"><input type="hidden" name="player" value="{{.Player}}">
+        <select name="years" aria-label="Years">{{$y := .Offer.Years}}{{range $d.YearOptions}}<option value="{{.}}" {{if eq . $y}}selected{{end}}>{{.}} yr</option>{{end}}</select>
+        <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage">
+        <button {{if $d.Locked}}disabled{{end}}>Sign</button>
+      </form>
+    {{else}}<span class="muted">no room at {{.Position}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">There are no free agents. Players whose contracts are not renewed become free agents.</p>{{end}}
+</div>
+{{end}}

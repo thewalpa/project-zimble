@@ -1,0 +1,7 @@
+{{define "content"}}
+<h1>Inbox</h1>
+<div class="panel">
+{{if .Data}}<ul class="plain">{{range .Data}}<li><span class="when">{{.When}}</span>{{.Text}}</li>{{end}}</ul>
+{{else}}<p class="muted">No messages yet.</p>{{end}}
+</div>
+{{end}}

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Career}}{{.Club.ClubName}} · {{end}}Zimble</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #e3e6ec;
+  --accent: #1f6feb; --accent-ink: #ffffff; --good: #1a7f37; --bad: #cf222e; --even: #9a6700;
+  --note: #eaf2ff; --error: #ffebe9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
+    --accent: #4c8dff; --accent-ink: #0b0d12; --good: #3fb950; --bad: #f85149; --even: #d29922;
+    --note: #16233a; --error: #3a1a1c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); }
+.bar { max-width: 1100px; margin: 0 auto; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
+.brand { font-weight: 700; font-size: 18px; }
+.brand small { font-weight: 400; color: var(--muted); margin-left: 6px; }
+.facts { color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+.spacer { flex: 1; }
+nav { max-width: 1100px; margin: 0 auto; padding: 0 16px; display: flex; gap: 4px; flex-wrap: wrap; }
+nav a { padding: 8px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+nav a.on { color: var(--ink); border-bottom-color: var(--accent); }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 12px; }
+h2 { font-size: 17px; margin: 0 0 10px; }
+.muted { color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.grid .panel { margin-bottom: 0; }
+.note { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; background: var(--note); }
+.note.error { background: var(--error); }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr.me td { font-weight: 700; }
+tr.final td { background: color-mix(in srgb, var(--even) 10%, transparent); }
+button, .button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+input, select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input.wage { width: 7em; }
+form.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.pill { display: inline-block; min-width: 1.8em; text-align: center; padding: 1px 6px; border-radius: 999px; font-weight: 700; font-size: 12px; color: #fff; }
+.W { background: var(--good); } .D { background: var(--even); } .L { background: var(--bad); }
+.big { font-size: 20px; font-weight: 700; }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+ul.plain li:last-child { border-bottom: 0; }
+.when { color: var(--muted); font-size: 13px; display: block; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">{{if .Career}}{{.Club.ClubName}}<small>{{.Club.ShortName}}</small>{{else}}Zimble{{end}}</div>
+    {{if .Career}}
+    <div class="facts"><span>{{.Date}}</span><span>Balance {{.Balance}}</span>{{if .Unsaved}}<span>Unsaved</span>{{end}}</div>
+    <div class="spacer"></div>
+    <form class="inline" method="post" action="/continue">
+      <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
+      <button class="primary">{{if .Pending}}Play match{{else}}Continue{{end}}</button>
+    </form>
+    <form class="inline" method="post" action="/save">
+      <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
+      <button>Save</button>
+    </form>
+    {{end}}
+  </div>
+  {{if .Career}}
+  <nav>
+    <a href="/" {{if eq .Page "home"}}class="on"{{end}}>Home</a>
+    <a href="/squad" {{if eq .Page "squad"}}class="on"{{end}}>Squad</a>
+    <a href="/lineup" {{if eq .Page "lineup"}}class="on"{{end}}>Lineup</a>
+    <a href="/table" {{if eq .Page "table"}}class="on"{{end}}>Table</a>
+    <a href="/fixtures" {{if eq .Page "fixtures"}}class="on"{{end}}>Fixtures</a>
+    <a href="/free" {{if eq .Page "free"}}class="on"{{end}}>Free agents</a>
+    <a href="/inbox" {{if eq .Page "inbox"}}class="on"{{end}}>Inbox</a>
+    <a href="/finances" {{if eq .Page "finances"}}class="on"{{end}}>Finances</a>
+  </nav>
+  {{end}}
+</header>
+<main>
+  {{range .Notes}}<div class="note{{if .Error}} error{{end}}">{{.Text}}</div>{{end}}
+  {{template "content" .}}
+</main>
+</body>
+</html>

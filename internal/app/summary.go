@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
@@ -132,3 +133,8 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	}
 	return row
 }
+
+// Content returns a copy of the career's content definitions: the rules
+// pinned when the career began (roster quotas, contract lengths, economy).
+// Read-only.
+func (w *World) Content() content.Definitions { return w.defs.Clone() }

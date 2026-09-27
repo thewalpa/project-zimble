@@ -1,0 +1,31 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Lineup</h1>
+{{if not $d.Fixture}}
+<div class="panel"><p class="muted">No match is waiting. Continue to your next matchday to pick a lineup.</p></div>
+{{else}}
+<p><b>{{$d.Title}}</b><br><span class="muted">{{$d.State}}. Pick eleven starters with exactly one goalkeeper; a player may start out of position. Up to seven on the bench.</span></p>
+<form method="post" action="/lineup">
+  <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup"><input type="hidden" name="fixture" value="{{$d.Fixture}}">
+  <div class="panel">
+    <label>Mentality
+      <select name="mentality">{{range $d.Mentalities}}<option value="{{.}}" {{if eq . $d.Mentality}}selected{{end}}>{{.}}</option>{{end}}</select>
+    </label>
+  </div>
+  <div class="panel scroll">
+  <table>
+    <tr><th>Selection</th><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th>
+        <th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th></tr>
+    {{range $d.Rows}}{{$slot := .Slot}}
+    <tr>
+      <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>
+      <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
+      {{range .Attributes}}<td class="n">{{.}}</td>{{end}}
+    </tr>
+    {{end}}
+  </table>
+  </div>
+  <div class="actions"><button class="primary">Save lineup</button></div>
+</form>
+{{end}}
+{{end}}

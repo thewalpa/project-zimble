@@ -1,0 +1,27 @@
+{{define "content"}}
+{{$d := .Data}}{{$rev := .Rev}}
+<h1>Squad</h1>
+<p class="muted">Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness. Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire.</p>
+<div class="panel scroll">
+<table>
+  <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th>
+      <th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th>
+      <th class="n">Wage/week</th><th class="n">Until</th><th>Contract</th></tr>
+  {{range $d.Rows}}
+  <tr {{if .FinalYear}}class="final"{{end}}>
+    <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
+    {{range .Attributes}}<td class="n">{{.}}</td>{{end}}
+    <td class="n">{{.Contract.WeeklyWage}}</td><td class="n">{{.Ends}}</td>
+    <td>{{if .FinalYear}}
+      <form class="inline" method="post" action="/renew">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/squad"><input type="hidden" name="player" value="{{.Player}}">
+        <select name="years" aria-label="Years">{{$y := .Offer.Years}}{{range $d.YearOptions}}<option value="{{.}}" {{if eq . $y}}selected{{end}}>{{.}} yr</option>{{end}}</select>
+        <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage" title="Asks for {{.Demand}}; accepts up to double">
+        <button>Renew</button>
+      </form>
+    {{else}}<span class="muted">asks {{.Demand}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+</div>
+{{end}}

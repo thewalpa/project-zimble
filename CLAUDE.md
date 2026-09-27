@@ -15,6 +15,7 @@ go run ./cmd/simulate -seed 42 -rounds 7 -save career.json && go run ./cmd/simul
 go run ./cmd/simulate -seed 42 -club 3 -mentality attacking -season   # manage club 3, submit lineups
 go run ./cmd/simulate -seed 42 -season -save career.json && go run ./cmd/simulate -load career.json -season   # seasons 1 and 2
 go run ./cmd/play                        # interactive career (type help); -seed 42 -club 3, or -load career.json
+go run ./cmd/web                         # the career in the browser at http://127.0.0.1:8080; same flags as play, plus -addr and -save
 ```
 
 Run all three checks before reporting work as done.

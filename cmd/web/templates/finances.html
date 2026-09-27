@@ -1,0 +1,15 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Finances</h1>
+<div class="grid">
+  <div class="panel"><span class="muted">Balance</span><p class="big">{{$d.Balance}}</p></div>
+  <div class="panel"><span class="muted">Weekly wage bill</span><p class="big">{{$d.WeeklyWage}}</p></div>
+</div>
+<div class="panel scroll" style="margin-top:16px">
+<h2>Ledger <span class="muted">(latest {{len $d.Rows}} of {{$d.Entries}})</span></h2>
+<table>
+  <tr><th>Date</th><th>What</th><th class="n">Amount</th><th class="n">Balance</th></tr>
+  {{range $d.Rows}}<tr><td>{{.When}}</td><td>{{.What}}</td><td class="n">{{.Amount}}</td><td class="n">{{.Balance}}</td></tr>{{end}}
+</table>
+</div>
+{{end}}

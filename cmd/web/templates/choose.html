@@ -1,0 +1,15 @@
+{{define "content"}}
+<h1>New career</h1>
+<p class="muted">World seed {{.Data.Seed}}. Choose the club you will manage; OVR is the squad's average rating (1–100).</p>
+<div class="panel scroll">
+<table>
+  <tr><th>Club</th><th></th><th class="n">Players</th><th class="n">OVR</th><th></th></tr>
+  {{range .Data.Clubs}}
+  <tr>
+    <td>{{.Name}}</td><td class="muted">{{.ShortName}}</td><td class="n">{{.Players}}</td><td class="n">{{.AverageOverall}}</td>
+    <td><form class="inline" method="post" action="/new"><input type="hidden" name="club" value="{{.ID}}"><button class="primary">Manage</button></form></td>
+  </tr>
+  {{end}}
+</table>
+</div>
+{{end}}
