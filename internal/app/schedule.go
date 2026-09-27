@@ -134,3 +134,13 @@ func (w *World) teamLabel(id ids.TeamID) TeamLabel {
 	}
 	return l
 }
+
+// ClubLabel returns a club's senior team label, or false if the club is unknown.
+// Read-only.
+func (w *World) ClubLabel(club ids.ClubID) (TeamLabel, bool) {
+	team, ok := w.registry.SeniorTeam(club)
+	if !ok {
+		return TeamLabel{}, false
+	}
+	return w.teamLabel(team), true
+}

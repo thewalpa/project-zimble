@@ -1444,6 +1444,26 @@ Pages: **Home** (the season, the next match or waiting matchday, the latest resu
 - **The progression policy is duplicated** in `cmd/play` and `cmd/web`. If a third client appears, it belongs in an app query ("next stop").
 - **Pages refresh only on navigation.** Nothing updates on its own.
 
+## Web client update: other team squads and game reports (done)
+
+The web frontend now allows viewing the squads of any team and viewing full game reports by clicking on match scores.
+
+### Changes
+
+- **View squads of other teams:**
+  - `GET /squad?club=ID` displays the complete squad of any club (names, age, ratings, condition, attributes, contract expiry, and weekly wage). Contract renewal forms are only displayed for the user's managed club.
+  - A club switcher bar on the Squad page allows navigating between all clubs in the league.
+  - Club names in the Table (`/table`) and opponent names in Fixtures (`/fixtures`) link directly to that club's squad.
+- **Game reports when clicking on scores:**
+  - `GET /report?fixture=ID` displays the detailed game report for any completed fixture: competition, round, kickoff time, teams, score, manager vs AI selection status, and goal timeline with minute and scorer name.
+  - In Fixtures (`/fixtures`), all played scores link directly to their game report.
+  - On Home (`/`), the Latest Result score and all Other Results link directly to their respective game reports.
+  - Navigation links on the game report allow jumping directly to both teams' squads, the league table, or back to fixtures.
+- **App queries:**
+  - `w.MatchReport(fixture)` returns the recorded match report for any resolved fixture.
+  - `w.PlayerName(id)` retrieves any registered player's full name.
+  - `w.ClubLabel(club)` retrieves a club's senior team label.
+
 ## Next task: transfers between clubs with fees
 
 Let players move between clubs during the contract year, for a fee, as the architecture's boundary example describes. Now that abilities change, a club may want another club's player.

@@ -34,9 +34,14 @@
   {{with $d.Report}}
   <div class="panel">
     <h2>Latest result</h2>
-    <p class="big"><span class="pill {{.Outcome}}">{{.Outcome}}</span> {{.Title}}</p>
+    <p class="big"><span class="pill {{.Outcome}}">{{.Outcome}}</span> <a href="/report?fixture={{.Fixture}}">{{.Title}}</a></p>
     {{if .Goals}}<ul class="plain">{{range .Goals}}<li>{{.}}</li>{{end}}</ul>{{end}}
-    {{if .Others}}<p class="muted" style="margin-bottom:4px">Other results</p><ul class="plain">{{range .Others}}<li>{{.}}</li>{{end}}</ul>{{end}}
+    {{if .Others}}
+      <p class="muted" style="margin-bottom:4px">Other results</p>
+      <ul class="plain">
+        {{range .Others}}<li><a href="/report?fixture={{.Fixture}}">{{.Title}}</a></li>{{end}}
+      </ul>
+    {{end}}
   </div>
   {{end}}
   <div class="panel">

@@ -327,7 +327,7 @@ func TestSaveAndLoad(t *testing.T) {
 // off-season and after the player year (with retirements and youth).
 func TestEveryPageRenders(t *testing.T) {
 	c := career(t)
-	pages := []string{"/", "/squad", "/lineup", "/table", "/fixtures", "/free", "/inbox", "/finances"}
+	pages := []string{"/", "/squad", "/lineup", "/table", "/fixtures", "/free", "/inbox", "/finances", "/report"}
 	check := func(stage string) {
 		for _, p := range pages {
 			page := c.get(p)
@@ -373,5 +373,43 @@ func TestFlags(t *testing.T) {
 	failing := func() (uint64, error) { return 0, errors.New("no entropy") }
 	if err := run(nil, &out, &errOut, failing, serve); err == nil {
 		t.Error("a failed seed draw was ignored")
+	}
+}
+
+func TestOtherTeamSquads(t *testing.T) {
+	c := career(t)
+	squadPage := c.get("/squad")
+	contains(t, squadPage, "Squad", "QUI (You)")
+
+	tablePage := c.get("/table")
+	contains(t, tablePage, `<a href="/squad?club=1">`, `<a href="/squad?club=2">`, `<a href="/squad?club=3">`)
+
+	club1Page := c.get("/squad?club=1")
+	contains(t, club1Page, "Hollowick Town squad", "GK", "DEF", "PAS", "FIN", "PAC", "STA")
+	if strings.Contains(club1Page, `action="/renew"`) {
+		t.Fatal("other club's squad has renewal form")
+	}
+	contains(t, club1Page, `href="/squad?club=3"`)
+}
+
+func TestGameReportsWhenClickingOnScores(t *testing.T) {
+	c := career(t)
+	c.post("/continue", nil)
+	homePage := c.post("/continue", nil)
+
+	contains(t, homePage, "Latest result", `<a href="/report?fixture=`)
+	if c.s.report == nil {
+		t.Fatal("expected match report")
+	}
+
+	fixturesPage := c.get("/fixtures")
+	contains(t, fixturesPage, fmt.Sprintf(`<a href="/report?fixture=%d">`, c.s.report.Fixture))
+
+	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", c.s.report.Fixture))
+	contains(t, reportPage, "Game report", "Founders League", "Round 1", "Goals", "Back to fixtures", "League table")
+
+	for _, other := range c.s.report.Others {
+		otherPage := c.get(fmt.Sprintf("/report?fixture=%d", other.Fixture))
+		contains(t, otherPage, "Game report", "Round 1", "Back to fixtures")
 	}
 }

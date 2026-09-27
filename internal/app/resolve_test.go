@@ -514,3 +514,39 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchReportAndQueries(t *testing.T) {
+	w := newWorld(t, 42)
+	if _, ok := w.MatchReport(1); ok {
+		t.Fatal("MatchReport before resolution")
+	}
+	ready := readyBatch(t, w)
+	res, err := w.ResolveRounds(commandFor(ready, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, ok := w.MatchReport(1)
+	if !ok {
+		t.Fatal("MatchReport not found after resolution")
+	}
+	if rep.Fixture != 1 || rep.Home.Club == 0 || rep.Away.Club == 0 {
+		t.Fatalf("unexpected MatchReport: %+v", rep)
+	}
+	if rep.Score != res.Matches[0].Score {
+		t.Fatalf("score mismatch: got %v, want %v", rep.Score, res.Matches[0].Score)
+	}
+	name, ok := w.PlayerName(1)
+	if !ok || name == "" {
+		t.Fatalf("PlayerName(1) = %q, %v", name, ok)
+	}
+	if _, ok := w.PlayerName(99999); ok {
+		t.Fatal("PlayerName(99999) found")
+	}
+	label, ok := w.ClubLabel(1)
+	if !ok || label.ClubName == "" {
+		t.Fatalf("ClubLabel(1) = %+v, %v", label, ok)
+	}
+	if _, ok := w.ClubLabel(99999); ok {
+		t.Fatal("ClubLabel(99999) found")
+	}
+}

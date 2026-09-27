@@ -138,3 +138,12 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 // pinned when the career began (roster quotas, contract lengths, economy).
 // Read-only.
 func (w *World) Content() content.Definitions { return w.defs.Clone() }
+
+// PlayerName returns a player's full name from the registry, or false if the
+// player is unknown. Read-only.
+func (w *World) PlayerName(id ids.PlayerID) (string, bool) {
+	if p, ok := w.registry.Player(id); ok {
+		return p.FullName(), true
+	}
+	return "", false
+}

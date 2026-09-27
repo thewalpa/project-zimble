@@ -486,3 +486,30 @@ func cloneResolved(r RoundsResolved) RoundsResolved {
 	}
 	return r
 }
+
+// MatchReport returns the match report for a completed fixture, or false if
+// none is recorded. Read-only.
+func (w *World) MatchReport(fixture ids.FixtureID) (MatchReport, bool) {
+	for _, rec := range w.commands {
+		if rec.resolve == nil {
+			continue
+		}
+		for _, m := range rec.resolve.Result.Matches {
+			if m.Fixture == fixture {
+				m.Goals = slices.Clone(m.Goals)
+				return m, true
+			}
+		}
+	}
+	res, ok := w.competitions.Result(fixture)
+	if !ok {
+		return MatchReport{}, false
+	}
+	return MatchReport{
+		Fixture: fixture,
+		Round:   competitions.RoundRef{Season: res.Season, Round: res.Round},
+		Home:    w.teamLabel(res.Home),
+		Away:    w.teamLabel(res.Away),
+		Score:   [2]uint16{res.HomeGoals, res.AwayGoals},
+	}, true
+}

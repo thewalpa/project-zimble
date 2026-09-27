@@ -1,11 +1,26 @@
 {{define "content"}}
-<h1>Fixtures</h1>
-<p class="muted">{{.Data.Season}}</p>
+{{$d := .Data}}
+<h1>Fixtures{{if $d.Club.ClubName}} · {{$d.Club.ClubName}}{{end}}</h1>
+<p class="muted">{{$d.Season}}</p>
+{{if $d.Clubs}}
+<div class="actions" style="margin-bottom: 14px;">
+  <span class="muted" style="align-self:center; font-size:13px; font-weight:600;">Club:</span>
+  {{range $d.Clubs}}
+    <a class="button{{if .Selected}} primary{{end}}" href="/fixtures?club={{.ID}}">{{.ShortName}}{{if .IsUser}} (You){{end}}</a>
+  {{end}}
+</div>
+{{end}}
 <div class="panel scroll">
 <table>
   <tr><th class="n">Round</th><th>Kickoff</th><th>Opponent</th><th class="n">Score</th><th></th></tr>
-  {{range .Data.Rows}}
-  <tr><td class="n">{{.Round}}</td><td>{{.When}}</td><td>{{.Opponent}}</td><td class="n">{{.Result}}</td><td>{{if .Outcome}}<span class="pill {{.Outcome}}">{{.Outcome}}</span>{{end}}</td></tr>
+  {{range $d.Rows}}
+  <tr>
+    <td class="n">{{.Round}}</td>
+    <td>{{.When}}</td>
+    <td><a href="/squad?club={{.OpponentClub}}">{{.Opponent}}</a></td>
+    <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}"><b>{{.Result}}</b></a>{{else}}<span class="muted">-</span>{{end}}</td>
+    <td>{{if .Outcome}}<a href="/report?fixture={{.Fixture}}" style="text-decoration:none;"><span class="pill {{.Outcome}}">{{.Outcome}}</span></a>{{end}}</td>
+  </tr>
   {{end}}
 </table>
 </div>

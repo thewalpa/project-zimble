@@ -7,7 +7,7 @@
   <tr><th class="n">#</th><th>Club</th><th class="n">P</th><th class="n">W</th><th class="n">D</th><th class="n">L</th><th class="n">GF</th><th class="n">GA</th><th class="n">GD</th><th class="n">Pts</th></tr>
   {{range $d.Table.Rows}}
   <tr {{if eq .Label.Club $d.Club}}class="me"{{end}}>
-    <td class="n">{{.Rank}}</td><td>{{.Label.ClubName}}</td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
+    <td class="n">{{.Rank}}</td><td><a href="/squad?club={{.Label.Club}}">{{.Label.ClubName}}</a></td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
     <td class="n">{{.GoalsFor}}</td><td class="n">{{.GoalsAgainst}}</td><td class="n">{{.GoalDifference}}</td><td class="n"><b>{{.Points}}</b></td>
   </tr>
   {{end}}

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net/http"
 	"slices"
+	"strconv"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -84,24 +86,31 @@ func (s *server) seasonDone(sc app.Schedule) bool {
 	return t.Complete
 }
 
-func (s *server) fixtureInfo(id ids.FixtureID) (app.FixtureLine, app.RoundSchedule, bool) {
-	sc, _ := s.userSchedule()
-	for _, r := range sc.Rounds {
-		for _, f := range r.Fixtures {
-			if f.ID == id {
-				return f, r, true
+func (s *server) fixtureInfo(id ids.FixtureID) (app.FixtureLine, app.RoundSchedule, string, bool) {
+	for _, sc := range s.w.Schedules() {
+		for _, r := range sc.Rounds {
+			for _, f := range r.Fixtures {
+				if f.ID == id {
+					return f, r, sc.CompetitionName, true
+				}
 			}
 		}
 	}
-	return app.FixtureLine{}, app.RoundSchedule{}, false
+	return app.FixtureLine{}, app.RoundSchedule{}, "", false
 }
 
-// opponent names the club's opponent in a fixture and the venue.
-func (s *server) opponent(f app.FixtureLine) string {
-	if f.Home.Club == s.club() {
-		return f.Away.ClubName + " (home)"
+// clubOpponent names the club's opponent in a fixture and the venue, plus opponent club ID.
+func (s *server) clubOpponent(f app.FixtureLine, club ids.ClubID) (string, ids.ClubID) {
+	if f.Home.Club == club {
+		return f.Away.ClubName + " (home)", f.Away.Club
 	}
-	return f.Home.ClubName + " (away)"
+	return f.Home.ClubName + " (away)", f.Home.Club
+}
+
+// opponent names the user club's opponent in a fixture and the venue.
+func (s *server) opponent(f app.FixtureLine) string {
+	opp, _ := s.clubOpponent(f, s.club())
+	return opp
 }
 
 func (s *server) pendingFixture() (ids.FixtureID, bool) {
@@ -121,6 +130,9 @@ func (s *server) expiring() []app.SquadPlayer {
 
 // name is a player's name, from the squad or the free agents.
 func (s *server) name(id ids.PlayerID) string {
+	if n, ok := s.w.PlayerName(id); ok {
+		return n
+	}
 	squad, _ := s.w.Squad(s.club())
 	for _, p := range append(squad, s.w.FreeAgents()...) {
 		if p.Player == id {
@@ -161,11 +173,17 @@ type fixtureView struct {
 	When     string
 }
 
+type otherResult struct {
+	Fixture ids.FixtureID
+	Title   string
+}
+
 type matchReport struct {
+	Fixture ids.FixtureID
 	Title   string
 	Outcome string
 	Goals   []string
-	Others  []string
+	Others  []otherResult
 }
 
 type messageView struct {
@@ -193,7 +211,7 @@ type chooseView struct {
 	Clubs []app.ClubSummary
 }
 
-func (s *server) home() (string, any, error) {
+func (s *server) home(*http.Request) (string, any, error) {
 	if s.w == nil {
 		preview, err := app.NewWorld(app.DefaultConfig(s.seed))
 		if err != nil {
@@ -249,23 +267,21 @@ func (s *server) reportOf(res app.RoundsResolved) *matchReport {
 	for _, m := range res.Matches {
 		line := fmt.Sprintf("%s %d-%d %s", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
 		if m.Home.Club != s.club() && m.Away.Club != s.club() {
-			r.Others = append(r.Others, line)
+			r.Others = append(r.Others, otherResult{Fixture: m.Fixture, Title: line})
 			continue
 		}
+		r.Fixture = m.Fixture
 		r.Title, r.Outcome = line, outcome(m.Score, m.Home.Club == s.club())
-		names := map[ids.PlayerID]string{}
-		for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {
-			squad, _ := s.w.Squad(c)
-			for _, p := range squad {
-				names[p.Player] = p.Name
-			}
-		}
 		for _, g := range m.Goals {
 			team := m.Home.ShortName
 			if g.Side == matches.Away {
 				team = m.Away.ShortName
 			}
-			r.Goals = append(r.Goals, fmt.Sprintf("%d'  %s %s", g.Minute, team, names[g.Scorer]))
+			pName, _ := s.w.PlayerName(g.Scorer)
+			if pName == "" {
+				pName = s.name(g.Scorer)
+			}
+			r.Goals = append(r.Goals, fmt.Sprintf("%d'  %s %s", g.Minute, team, pName))
 		}
 	}
 	if r.Title == "" {
@@ -276,6 +292,14 @@ func (s *server) reportOf(res app.RoundsResolved) *matchReport {
 
 // --- squad and contracts --------------------------------------------------------
 
+type clubOption struct {
+	ID        ids.ClubID
+	Name      string
+	ShortName string
+	Selected  bool
+	IsUser    bool
+}
+
 type squadRow struct {
 	app.SquadPlayer
 	Ends      int
@@ -284,22 +308,48 @@ type squadRow struct {
 }
 
 type squadView struct {
+	Club        app.TeamLabel
+	IsUserClub  bool
+	Clubs       []clubOption
 	Rows        []squadRow
 	ContractEnd string
 	YearOptions []int
 }
 
-func (s *server) squad() (string, any, error) {
-	squad, _ := s.w.Squad(s.club())
+func (s *server) squad(r *http.Request) (string, any, error) {
+	viewClub := s.club()
+	if cStr := r.URL.Query().Get("club"); cStr != "" {
+		if n, err := strconv.ParseUint(cStr, 10, 64); err == nil && n != 0 {
+			if _, ok := s.w.Squad(ids.ClubID(n)); ok {
+				viewClub = ids.ClubID(n)
+			}
+		}
+	}
+	squad, _ := s.w.Squad(viewClub)
+	clubLabel, _ := s.w.ClubLabel(viewClub)
+	isUserClub := (viewClub == s.club())
 	end := s.w.ContractYearEnd()
 	e := s.w.Content().Economy
-	v := squadView{ContractEnd: s.endDate(end)}
+	v := squadView{
+		Club:        clubLabel,
+		IsUserClub:  isUserClub,
+		ContractEnd: s.endDate(end),
+	}
 	for y := e.ContractYears[0]; y <= e.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
 	}
+	for _, c := range s.w.Summary().ClubRows {
+		v.Clubs = append(v.Clubs, clubOption{
+			ID:        c.ID,
+			Name:      c.Name,
+			ShortName: c.ShortName,
+			Selected:  c.ID == viewClub,
+			IsUser:    c.ID == s.club(),
+		})
+	}
 	for _, p := range squad {
 		c, _ := s.w.Calendar().Civil(p.Contract.Expires)
-		row := squadRow{SquadPlayer: p, Ends: c.Year, FinalYear: p.Contract.Expires == end}
+		row := squadRow{SquadPlayer: p, Ends: c.Year, FinalYear: isUserClub && p.Contract.Expires == end}
 		if row.FinalYear {
 			row.Offer, _ = s.w.SuggestContract(p.Player)
 		}
@@ -322,7 +372,7 @@ type freeView struct {
 	RetireAge   int
 }
 
-func (s *server) free() (string, any, error) {
+func (s *server) free(*http.Request) (string, any, error) {
 	defs := s.w.Content()
 	counts := map[players.Position]int{}
 	squad, _ := s.w.Squad(s.club())
@@ -369,7 +419,7 @@ type lineupView struct {
 	Slots       []slotOption
 }
 
-func (s *server) lineup() (string, any, error) {
+func (s *server) lineup(*http.Request) (string, any, error) {
 	fixture, ok := s.pendingFixture()
 	if !ok {
 		return "lineup", lineupView{}, nil
@@ -383,7 +433,7 @@ func (s *server) lineup() (string, any, error) {
 		}
 		state = "The assistant's suggestion (used unless you save changes)"
 	}
-	f, r, _ := s.fixtureInfo(fixture)
+	f, r, _, _ := s.fixtureInfo(fixture)
 	v := lineupView{
 		Fixture: fixture, State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
 		Title: fmt.Sprintf("Round %d v %s, %s", r.Round, s.opponent(f), s.w.Calendar().Format(r.Kickoff)),
@@ -417,7 +467,7 @@ type tableView struct {
 	Club  ids.ClubID
 }
 
-func (s *server) table() (string, any, error) {
+func (s *server) table(*http.Request) (string, any, error) {
 	sc, ok := s.userSchedule()
 	if !ok {
 		return "", nil, errors.New("your club has no season")
@@ -427,33 +477,67 @@ func (s *server) table() (string, any, error) {
 }
 
 type fixtureRow struct {
-	Round    int
-	When     string
-	Opponent string
-	Result   string
-	Outcome  string
+	Fixture      ids.FixtureID
+	Round        int
+	When         string
+	Opponent     string
+	OpponentClub ids.ClubID
+	Played       bool
+	Result       string
+	Outcome      string
 }
 
 type fixturesView struct {
+	Club   app.TeamLabel
+	Clubs  []clubOption
 	Season string
 	Rows   []fixtureRow
 }
 
-func (s *server) fixtures() (string, any, error) {
+func (s *server) fixtures(r *http.Request) (string, any, error) {
 	sc, ok := s.userSchedule()
 	if !ok {
 		return "", nil, errors.New("your club has no season")
 	}
-	v := fixturesView{Season: fmt.Sprintf("%s season %d", sc.CompetitionName, sc.Season)}
-	for _, r := range sc.Rounds {
-		for _, f := range r.Fixtures {
-			if f.Home.Club != s.club() && f.Away.Club != s.club() {
+	viewClub := s.club()
+	if cStr := r.URL.Query().Get("club"); cStr != "" {
+		if n, err := strconv.ParseUint(cStr, 10, 64); err == nil && n != 0 {
+			if _, ok := s.w.ClubLabel(ids.ClubID(n)); ok {
+				viewClub = ids.ClubID(n)
+			}
+		}
+	}
+	clubLabel, _ := s.w.ClubLabel(viewClub)
+	v := fixturesView{
+		Club:   clubLabel,
+		Season: fmt.Sprintf("%s season %d", sc.CompetitionName, sc.Season),
+	}
+	for _, c := range s.w.Summary().ClubRows {
+		v.Clubs = append(v.Clubs, clubOption{
+			ID:        c.ID,
+			Name:      c.Name,
+			ShortName: c.ShortName,
+			Selected:  c.ID == viewClub,
+			IsUser:    c.ID == s.club(),
+		})
+	}
+	for _, rd := range sc.Rounds {
+		for _, f := range rd.Fixtures {
+			if f.Home.Club != viewClub && f.Away.Club != viewClub {
 				continue
 			}
-			row := fixtureRow{Round: int(r.Round), When: s.w.Calendar().Format(r.Kickoff), Opponent: s.opponent(f)}
+			opp, oppClub := s.clubOpponent(f, viewClub)
+			row := fixtureRow{
+				Fixture:      f.ID,
+				Round:        int(rd.Round),
+				When:         s.w.Calendar().Format(rd.Kickoff),
+				Opponent:     opp,
+				OpponentClub: oppClub,
+				Played:       f.Played,
+			}
 			if f.Played {
 				row.Result = fmt.Sprintf("%d-%d", f.Score[0], f.Score[1])
-				row.Outcome = outcome(f.Score, f.Home.Club == s.club())
+				row.Outcome = outcome(f.Score, f.Home.Club == viewClub)
 			}
 			v.Rows = append(v.Rows, row)
 		}
@@ -461,9 +545,123 @@ func (s *server) fixtures() (string, any, error) {
 	return "fixtures", v, nil
 }
 
+// --- report -----------------------------------------------------------------
+
+type goalView struct {
+	Minute     uint16
+	Team       string
+	PlayerName string
+}
+
+type reportView struct {
+	Fixture      ids.FixtureID
+	Competition  string
+	Season       competitions.Season
+	Round        competitions.Round
+	Kickoff      string
+	Played       bool
+	Home         app.TeamLabel
+	Away         app.TeamLabel
+	Score        [2]uint16
+	Outcome      string
+	HomeSelected string
+	AwaySelected string
+	Goals        []goalView
+}
+
+func selectedText(b app.SelectedBy) string {
+	if b == app.SelectedByManager {
+		return "Manager selection"
+	}
+	return "Assistant selection"
+}
+
+func (s *server) reportPage(r *http.Request) (string, any, error) {
+	var fixID ids.FixtureID
+	if v := r.URL.Query().Get("fixture"); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			fixID = ids.FixtureID(n)
+		}
+	} else if v := r.URL.Query().Get("id"); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			fixID = ids.FixtureID(n)
+		}
+	}
+	if fixID == 0 {
+		if s.report != nil && s.report.Fixture != 0 {
+			fixID = s.report.Fixture
+		} else {
+			for _, sc := range s.w.Schedules() {
+				for _, rd := range sc.Rounds {
+					for _, f := range rd.Fixtures {
+						if f.Played {
+							fixID = f.ID
+						}
+					}
+				}
+			}
+		}
+	}
+	if fixID == 0 {
+		return "report", reportView{}, nil
+	}
+
+	rep, ok := s.w.MatchReport(fixID)
+	f, rd, compName, hasF := s.fixtureInfo(fixID)
+	cal := s.w.Calendar()
+
+	v := reportView{
+		Fixture: fixID,
+	}
+
+	if hasF {
+		v.Competition = compName
+		v.Round = rd.Round
+		v.Kickoff = cal.Format(rd.Kickoff)
+		v.Home = f.Home
+		v.Away = f.Away
+		v.Played = f.Played
+		v.Score = f.Score
+	}
+
+	if ok {
+		v.Played = true
+		v.Home = rep.Home
+		v.Away = rep.Away
+		v.Score = rep.Score
+		v.Round = rep.Round.Round
+		v.Season = rep.Round.Season.Season
+		if rep.Home.Club == s.club() || rep.Away.Club == s.club() {
+			v.Outcome = outcome(rep.Score, rep.Home.Club == s.club())
+		}
+		v.HomeSelected = selectedText(rep.Selected[0])
+		v.AwaySelected = selectedText(rep.Selected[1])
+
+		for _, g := range rep.Goals {
+			team := rep.Home.ShortName
+			if g.Side == matches.Away {
+				team = rep.Away.ShortName
+			}
+			pName, _ := s.w.PlayerName(g.Scorer)
+			if pName == "" {
+				pName = s.name(g.Scorer)
+			}
+			v.Goals = append(v.Goals, goalView{Minute: g.Minute, Team: team, PlayerName: pName})
+		}
+	} else if hasF && f.Played {
+		if f.Home.Club == s.club() || f.Away.Club == s.club() {
+			v.Outcome = outcome(f.Score, f.Home.Club == s.club())
+		}
+	} else if !hasF {
+		return "", nil, errors.New("match not found")
+	}
+
+	return "report", v, nil
+}
+
 // --- inbox and money ------------------------------------------------------------
 
-func (s *server) inbox() (string, any, error) {
+func (s *server) inbox(*http.Request) (string, any, error) {
 	msgs := s.messages()
 	slices.Reverse(msgs)
 	return "inbox", msgs, nil
@@ -527,7 +725,7 @@ type financesView struct {
 	Rows       []ledgerRow // newest first
 }
 
-func (s *server) finances() (string, any, error) {
+func (s *server) finances(*http.Request) (string, any, error) {
 	fin, ok := s.w.Finances(s.club())
 	if !ok {
 		return "", nil, errors.New("your club has no account")

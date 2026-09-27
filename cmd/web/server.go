@@ -27,7 +27,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances"}
+var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report"}
 
 type config struct {
 	seed     random.Seed
@@ -91,10 +91,10 @@ func newServer(cfg config) (*server, error) {
 	s.mux.HandleFunc("GET /{$}", s.page(s.home))
 	for _, p := range []struct {
 		path string
-		view func() (string, any, error)
+		view func(*http.Request) (string, any, error)
 	}{
 		{"/squad", s.squad}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures},
-		{"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances},
+		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
 	}
@@ -113,11 +113,11 @@ func newServer(cfg config) (*server, error) {
 func (s *server) ServeHTTP(rw http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(rw, r) }
 
 // page renders a view. A view returns its page name and data.
-func (s *server) page(view func() (string, any, error)) http.HandlerFunc {
+func (s *server) page(view func(*http.Request) (string, any, error)) http.HandlerFunc {
 	return func(rw http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		name, data, err := view()
+		name, data, err := view(r)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return
@@ -132,12 +132,12 @@ func (s *server) page(view func() (string, any, error)) http.HandlerFunc {
 }
 
 // needCareer sends a page to the club chooser while there is no career.
-func (s *server) needCareer(view func() (string, any, error)) func() (string, any, error) {
-	return func() (string, any, error) {
+func (s *server) needCareer(view func(*http.Request) (string, any, error)) func(*http.Request) (string, any, error) {
+	return func(r *http.Request) (string, any, error) {
 		if s.w == nil {
-			return s.home()
+			return s.home(r)
 		}
-		return view()
+		return view(r)
 	}
 }
 
@@ -291,7 +291,7 @@ func (s *server) advance() error {
 			}
 			continue
 		}
-		f, r, _ := s.fixtureInfo(ready.UserFixtures[0])
+		f, r, _, _ := s.fixtureInfo(ready.UserFixtures[0])
 		s.say("Matchday: round %d v %s. Check your lineup, then play the match.", r.Round, s.opponent(f))
 		return nil
 	}

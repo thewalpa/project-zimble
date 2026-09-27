@@ -1,7 +1,15 @@
 {{define "content"}}
 {{$d := .Data}}{{$rev := .Rev}}
-<h1>Squad</h1>
-<p class="muted">Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness. Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire.</p>
+<h1>{{if $d.IsUserClub}}Squad{{else}}{{$d.Club.ClubName}} squad{{end}}</h1>
+<p class="muted">{{if $d.IsUserClub}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness. Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire.{{else}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness.{{end}}</p>
+{{if $d.Clubs}}
+<div class="actions" style="margin-bottom: 14px;">
+  <span class="muted" style="align-self:center; font-size:13px; font-weight:600;">Club:</span>
+  {{range $d.Clubs}}
+    <a class="button{{if .Selected}} primary{{end}}" href="/squad?club={{.ID}}">{{.ShortName}}{{if .IsUser}} (You){{end}}</a>
+  {{end}}
+</div>
+{{end}}
 <div class="panel scroll">
 <table>
   <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th>
@@ -19,7 +27,7 @@
         <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage" title="Asks for {{.Demand}}; accepts up to double">
         <button>Renew</button>
       </form>
-    {{else}}<span class="muted">asks {{.Demand}}</span>{{end}}</td>
+    {{else if $d.IsUserClub}}<span class="muted">asks {{.Demand}}</span>{{else}}<span class="muted">{{.Contract.WeeklyWage}}/wk</span>{{end}}</td>
   </tr>
   {{end}}
 </table>
