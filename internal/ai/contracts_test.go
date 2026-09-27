@@ -10,8 +10,12 @@ import (
 )
 
 func TestRenewKeepsPlayersNearTheSquadAverage(t *testing.T) {
-	if !Renew(60, 60) || !Renew(57, 60) || Renew(56, 60) || !Renew(80, 60) {
+	if !Renew(60, 60, 28) || !Renew(57, 60, 28) || Renew(56, 60, 28) || !Renew(80, 60, 35) || Renew(56, 60, PromiseAge) {
 		t.Fatal("renewal threshold is not average minus the margin")
+	}
+	// Each year short of PromiseAge buys PromisePerYear points.
+	if !Renew(55, 60, PromiseAge-1) || Renew(54, 60, PromiseAge-1) || !Renew(43, 60, 17) || Renew(42, 60, 17) {
+		t.Fatal("young players' margin is not widened by their promise")
 	}
 }
 

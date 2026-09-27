@@ -1,15 +1,19 @@
-// Package registry owns world identities: clubs, teams and players' names.
+// Package registry owns world identities: clubs, teams and players' names
+// and birth dates.
 //
-// It holds no football rules. Which club employs a player belongs to the
+// Player IDs come from one allocator and are never removed or reused: a
+// retired player keeps their identity. It holds no football rules. Which club employs a player belongs to the
 // employment module; playing ability belongs to players.
 package registry
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 )
 
 // TeamKind distinguishes a club's teams. Values are durable; never reorder.
@@ -38,43 +42,53 @@ type Team struct {
 	Kind TeamKind
 }
 
-// Player is a player's identity, not their ability or employer.
+// Player is a player's identity, not their ability or employer. Born is
+// the start of their birth day (in the career calendar).
 type Player struct {
 	ID        ids.PlayerID
 	FirstName string
 	LastName  string
+	Born      sim.GameInstant
 }
 
 func (p Player) FullName() string { return p.FirstName + " " + p.LastName }
 
-// Init is the initial registry state.
+// Init is the initial registry state. LastPlayer is the player ID
+// allocator: the highest ID ever issued, at least every player's ID.
 type Init struct {
-	Clubs   []Club
-	Teams   []Team
-	Players []Player
+	Clubs      []Club
+	Teams      []Team
+	Players    []Player
+	LastPlayer ids.PlayerID
 }
+
+// ErrStalePlan: the registry changed after the plan was made.
+var ErrStalePlan = errors.New("registry: plan is stale")
 
 // Registry is the authoritative identity store. Queries return copies.
 type Registry struct {
-	clubs   []Club // sorted by ID
-	teams   []Team // sorted by ID
-	players []Player
-	clubIdx map[ids.ClubID]int
-	teamIdx map[ids.TeamID]int
-	plIdx   map[ids.PlayerID]int
-	senior  map[ids.ClubID]ids.TeamID
+	clubs      []Club // sorted by ID
+	teams      []Team // sorted by ID
+	players    []Player
+	lastPlayer ids.PlayerID
+	clubIdx    map[ids.ClubID]int
+	teamIdx    map[ids.TeamID]int
+	plIdx      map[ids.PlayerID]int
+	senior     map[ids.ClubID]ids.TeamID
+	generation uint64 // increments on every Apply; plans are tied to one
 }
 
 // New validates init and returns a registry holding its own copy.
 func New(init Init) (*Registry, error) {
 	r := &Registry{
-		clubs:   slices.Clone(init.Clubs),
-		teams:   slices.Clone(init.Teams),
-		players: slices.Clone(init.Players),
-		clubIdx: make(map[ids.ClubID]int, len(init.Clubs)),
-		teamIdx: make(map[ids.TeamID]int, len(init.Teams)),
-		plIdx:   make(map[ids.PlayerID]int, len(init.Players)),
-		senior:  make(map[ids.ClubID]ids.TeamID, len(init.Clubs)),
+		clubs:      slices.Clone(init.Clubs),
+		teams:      slices.Clone(init.Teams),
+		players:    slices.Clone(init.Players),
+		lastPlayer: init.LastPlayer,
+		clubIdx:    make(map[ids.ClubID]int, len(init.Clubs)),
+		teamIdx:    make(map[ids.TeamID]int, len(init.Teams)),
+		plIdx:      make(map[ids.PlayerID]int, len(init.Players)),
+		senior:     make(map[ids.ClubID]ids.TeamID, len(init.Clubs)),
 	}
 	slices.SortFunc(r.clubs, func(a, b Club) int { return cmp.Compare(a.ID, b.ID) })
 	slices.SortFunc(r.teams, func(a, b Team) int { return cmp.Compare(a.ID, b.ID) })
@@ -130,24 +144,74 @@ func New(init Init) (*Registry, error) {
 	}
 
 	for i, p := range r.players {
-		if !p.ID.Valid() {
-			return nil, fmt.Errorf("registry: invalid player ID %d", p.ID)
+		if err := p.validate(r.lastPlayer); err != nil {
+			return nil, err
 		}
 		if _, dup := r.plIdx[p.ID]; dup {
 			return nil, fmt.Errorf("registry: duplicate player ID %d", p.ID)
-		}
-		if p.FirstName == "" || p.LastName == "" {
-			return nil, fmt.Errorf("registry: player %d has an empty name", p.ID)
 		}
 		r.plIdx[p.ID] = i
 	}
 	return r, nil
 }
 
+func (p Player) validate(last ids.PlayerID) error {
+	switch {
+	case !p.ID.Valid() || p.ID > last:
+		return fmt.Errorf("registry: player ID %d is invalid or above the allocator %d", p.ID, last)
+	case p.FirstName == "" || p.LastName == "":
+		return fmt.Errorf("registry: player %d has an empty name", p.ID)
+	case !p.Born.Valid():
+		return fmt.Errorf("registry: player %d birth instant %d outside the supported range", p.ID, p.Born)
+	}
+	return nil
+}
+
+// Plan is a validated set of new players, applied by Apply.
+type Plan struct {
+	generation uint64
+	players    []Player
+}
+
+// PlanPlayers validates new player identities without changing the
+// registry. Their IDs must continue the allocator in order: LastPlayer+1,
+// LastPlayer+2, and so on, so an ID is never issued twice.
+func (r *Registry) PlanPlayers(add []Player) (Plan, error) {
+	next := r.lastPlayer
+	for _, p := range add {
+		next++
+		if p.ID != next {
+			return Plan{}, fmt.Errorf("registry: new player ID %d, the allocator issues %d", p.ID, next)
+		}
+		if err := p.validate(next); err != nil {
+			return Plan{}, err
+		}
+	}
+	return Plan{generation: r.generation, players: slices.Clone(add)}, nil
+}
+
+// Apply commits a plan. It fails, changing nothing, with ErrStalePlan if the
+// registry changed after the plan was made.
+func (r *Registry) Apply(p Plan) error {
+	if p.generation != r.generation {
+		return fmt.Errorf("%w: made at generation %d, registry at %d", ErrStalePlan, p.generation, r.generation)
+	}
+	for _, pl := range p.players {
+		r.plIdx[pl.ID] = len(r.players)
+		r.players = append(r.players, pl) // IDs ascend past every existing one
+		r.lastPlayer = pl.ID
+	}
+	r.generation++
+	return nil
+}
+
+// LastPlayer returns the highest player ID ever issued.
+func (r *Registry) LastPlayer() ids.PlayerID { return r.lastPlayer }
+
 // Snapshot exports the registry's authoritative state as fresh copies.
 // New(Snapshot()) restores an equivalent registry.
 func (r *Registry) Snapshot() Init {
-	return Init{Clubs: r.Clubs(), Teams: r.Teams(), Players: r.Players()}
+	return Init{Clubs: r.Clubs(), Teams: r.Teams(), Players: r.Players(), LastPlayer: r.lastPlayer}
 }
 
 // Clubs returns all clubs in ascending ID order.

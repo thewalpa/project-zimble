@@ -245,7 +245,7 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.
-	if a.Summary().Fingerprint != "27d691ea5342a21734ae41fb706472279b2414d3b633071ad03486ac77647355" {
+	if a.Summary().Fingerprint != "5682a824c61455c1042ab93fbda2f81eea50e990f2744ede9dad01fcf5792bae" {
 		t.Fatal("world fingerprint changed")
 	}
 	if !reflect.DeepEqual(a.competitions.Fixtures(competitions.SeasonRef{Competition: 1, Season: 1}), fixturesBefore) {

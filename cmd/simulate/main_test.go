@@ -76,7 +76,7 @@ func TestRunOutputIsDeterministic(t *testing.T) {
 	}
 
 	lines := strings.Split(strings.TrimSpace(a), "\n")
-	if !strings.HasPrefix(lines[0], "world seed=42 ") || lines[2] != "clubs=8 teams=8 players=160 free agents=0" {
+	if !strings.HasPrefix(lines[0], "world seed=42 ") || lines[2] != "clubs=8 teams=8 players=160 free agents=0 retired=0" {
 		t.Fatalf("unexpected header:\n%s", a)
 	}
 	rows := lines[5:13]

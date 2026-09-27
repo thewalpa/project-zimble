@@ -131,3 +131,37 @@ func (c Calendar) Format(i GameInstant) string {
 	}
 	return civil.utc().Weekday().String()[:3] + " " + civil.String()
 }
+
+// WholeYears returns the number of whole calendar years from from to to,
+// as a person's age is counted: a year is complete on the same month, day
+// and time of day (a 29 February anniversary completes on 1 March in other
+// years). It is negative when to is before from.
+func (c Calendar) WholeYears(from, to GameInstant) (int, error) {
+	if to < from {
+		n, err := c.WholeYears(to, from)
+		return -n, err
+	}
+	a, err := c.Civil(from)
+	if err != nil {
+		return 0, err
+	}
+	b, err := c.Civil(to)
+	if err != nil {
+		return 0, err
+	}
+	n := b.Year - a.Year
+	if laterInYear(a, b) {
+		n-- // the anniversary is still to come
+	}
+	return n, nil
+}
+
+// laterInYear reports whether b's month, day and time of day come after a's.
+func laterInYear(b, a CivilTime) bool {
+	for _, p := range [][2]int{{b.Month, a.Month}, {b.Day, a.Day}, {b.Hour, a.Hour}, {b.Minute, a.Minute}} {
+		if p[0] != p[1] {
+			return p[0] > p[1]
+		}
+	}
+	return false
+}

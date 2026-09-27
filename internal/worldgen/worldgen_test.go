@@ -7,14 +7,16 @@ import (
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
 
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v2 and content v3 (contract terms and economy).
-const goldenSeed42 = "27d691ea5342a21734ae41fb706472279b2414d3b633071ad03486ac77647355"
+// Last changed by worldgen v3 and content v4 (birth dates; names, attributes
+// and contracts are unchanged since v2).
+const goldenSeed42 = "5682a824c61455c1042ab93fbda2f81eea50e990f2744ede9dad01fcf5792bae"
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -106,5 +108,76 @@ func TestContractTermsFollowTheEconomy(t *testing.T) {
 	}
 	if len(years) != econ.ContractYears[1]-econ.ContractYears[0]+1 {
 		t.Fatalf("contract lengths %v do not cover the range", years)
+	}
+}
+
+// Every generated player is defs.Ages old at the career start, whatever the
+// epoch, and the whole range occurs.
+func TestGeneratedAges(t *testing.T) {
+	defs := content.Default()
+	for _, epoch := range []sim.CivilTime{{Year: 2025, Month: 7, Day: 1}, {Year: 2028, Month: 2, Day: 29}, {Year: 1999, Month: 12, Day: 31, Hour: 23, Minute: 59}} {
+		cal, err := sim.NewCalendar(epoch)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[int]bool{}
+		for _, seed := range []uint64{1, 42, 99} {
+			for _, p := range generate(t, seed).Players {
+				age, err := cal.WholeYears(p.Born, 0)
+				if err != nil || age < defs.Ages[0] || age > defs.Ages[1] {
+					t.Fatalf("epoch %s seed %d: player %d is %d (%v), want %v", epoch, seed, p.ID, age, err, defs.Ages)
+				}
+				seen[age] = true
+			}
+		}
+		if len(seen) != defs.Ages[1]-defs.Ages[0]+1 {
+			t.Fatalf("epoch %s: ages %v do not cover %v", epoch, seen, defs.Ages)
+		}
+	}
+}
+
+func TestYouth(t *testing.T) {
+	defs := content.Default()
+	cal, err := sim.NewCalendar(sim.CivilTime{Year: 2025, Month: 7, Day: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, _ := cal.Instant(sim.CivilTime{Year: 2031, Month: 6, Day: 30})
+	a, pa, err := Youth(defs, 42, 500, players.Defender, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, pb, _ := Youth(defs, 42, 500, players.Defender, at)
+	if a != b || pa != pb {
+		t.Fatal("youth generation is not repeatable")
+	}
+	if c, _, _ := Youth(defs, 42, 501, players.Defender, at); c.FirstName+c.LastName == a.FirstName+a.LastName && c.Born == a.Born {
+		t.Fatal("another ID produced the same youth")
+	}
+	for id := ids.PlayerID(161); id <= 400; id++ {
+		for _, pos := range players.Positions() {
+			p, prof, err := Youth(defs, 7, id, pos, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.ID != id || prof.Player != id || prof.Position != pos || prof.Retired || p.FirstName == "" || p.LastName == "" {
+				t.Fatalf("youth %d: %+v %+v", id, p, prof)
+			}
+			if age, _ := cal.WholeYears(p.Born, at); age < defs.Youth.Ages[0] || age > defs.Youth.Ages[1] {
+				t.Fatalf("youth %d is %d, want %v", id, age, defs.Youth.Ages)
+			}
+			base, _ := defs.Profile(pos)
+			for a, r := range prof.Attributes {
+				if rg := defs.Youth.Range(base.Ranges[a]); r < rg.Min || r > rg.Max {
+					t.Fatalf("youth %d %s=%d outside %v", id, players.Attribute(a), r, rg)
+				}
+			}
+		}
+	}
+	if _, _, err := Youth(defs, 42, 500, 0, at); err == nil {
+		t.Fatal("youth at no position accepted")
+	}
+	if _, _, err := Youth(defs, 42, 0, players.Forward, at); err == nil {
+		t.Fatal("youth with ID 0 accepted")
 	}
 }

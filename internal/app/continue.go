@@ -79,7 +79,8 @@ func (w *World) Calendar() sim.Calendar { return w.calendar }
 //     order. A recovery cohort (daily, Preparation phase) restores every
 //     player's condition and does not interrupt; nor do a season-end
 //     cohort, which creates each ending league's next season, a weekly wage
-//     cohort or the yearly contract cohort (renewals, expiries and
+//     cohort, the yearly player cohort (development, retirement and youth;
+//     see playerYear) or the yearly contract cohort (renewals, expiries and
 //     signings; see contractYear). A kickoff
 //     cohort (every round kickoff task sharing an instant and
 //     phase) is dispatched atomically: its rounds become awaiting results, the
@@ -166,6 +167,8 @@ func (w *World) handleCohort(at sim.GameInstant, cohort []sim.Task) (bool, error
 		return false, w.payWages(at, cohort)
 	case taskContractYear:
 		return false, w.contractYear(at, cohort)
+	case taskPlayerYear:
+		return false, w.playerYear(at, cohort)
 	}
 	return false, fmt.Errorf("app: task %d has unknown kind %d", cohort[0].ID, kind)
 }
@@ -285,8 +288,8 @@ func (w *World) validateSchedule() []error {
 	payloadUses := map[sim.PayloadID]int{}
 	recoveries := 0
 	for _, t := range w.scheduler.Pending() {
-		if t.Kind == taskSeasonEnd || t.Kind == taskWages || t.Kind == taskContractYear {
-			continue // validateSeasons, validateFinance, validateContracts
+		if t.Kind == taskSeasonEnd || t.Kind == taskWages || t.Kind == taskContractYear || t.Kind == taskPlayerYear {
+			continue // validateSeasons, validateFinance, validateContracts, validateLifecycle
 		}
 		if t.Kind == taskRecovery {
 			recoveries++

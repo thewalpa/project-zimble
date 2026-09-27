@@ -35,8 +35,9 @@ type Summary struct {
 	Fingerprint      string
 	Clubs            int
 	Teams            int
-	Players          int
-	FreeAgents       int           // players without a club
+	Players          int           // active players
+	FreeAgents       int           // active players without a club
+	Retired          int           // retired players
 	ClubRows         []ClubSummary // ascending club ID
 }
 
@@ -51,7 +52,8 @@ func (w *World) Summary() Summary {
 		Fingerprint:      w.fingerprint,
 		Clubs:            len(clubs),
 		Teams:            len(w.registry.Teams()),
-		Players:          len(w.registry.Players()),
+		Players:          len(w.activePlayers()),
+		Retired:          len(w.registry.Players()) - len(w.activePlayers()),
 		FreeAgents:       len(w.freeAgentPool()),
 		ClubRows:         make([]ClubSummary, 0, len(clubs)),
 	}
@@ -84,12 +86,14 @@ func (w *World) Summary() Summary {
 }
 
 // SquadPlayer is a derived view of one player, composed from the registry
-// (name), players (position, attributes and overall, 1..100), medical
-// (condition, 0..100) and employment (contract; zero for a free agent).
-// Demand is the weekly wage the player asks for in a new contract.
+// (name; age in whole years now, from the birth date), players (position,
+// attributes and overall, 1..100), medical (condition, 0..100) and
+// employment (contract; zero for a free agent). Demand is the weekly wage
+// the player asks for in a new contract.
 type SquadPlayer struct {
 	Player     ids.PlayerID
 	Name       string
+	Age        int
 	Position   players.Position
 	Attributes players.Attributes
 	Overall    int
@@ -116,6 +120,7 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	row := SquadPlayer{Player: id}
 	if p, ok := w.registry.Player(id); ok {
 		row.Name = p.FullName()
+		row.Age, _ = w.calendar.WholeYears(p.Born, w.Now())
 	}
 	if p, ok := w.players.Profile(id); ok {
 		row.Position, row.Attributes, row.Overall = p.Position, p.Attributes, p.Overall()

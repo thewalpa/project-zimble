@@ -1,11 +1,15 @@
-// Package players owns playing profiles: positions and attributes.
+// Package players owns playing profiles: positions, attributes and whether
+// the player has retired, with the rules that develop attributes and retire
+// players over the years (see development.go).
 //
-// Identity (names) belongs to the registry and employment to the employment
-// module. This package holds only football capability data.
+// Identity (names, birth dates) belongs to the registry and employment to
+// the employment module. This package holds only football capability data;
+// rules take a player's age as detached input.
 package players
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -87,11 +91,13 @@ var keyAttributes = map[Position][]Attribute{
 	Forward:    {Finishing, Pace, Passing},
 }
 
-// Profile is a player's playing profile.
+// Profile is a player's playing profile. A retired player's profile is
+// kept as it was when they retired; it never changes again.
 type Profile struct {
 	Player     ids.PlayerID
 	Position   Position
 	Attributes Attributes
+	Retired    bool
 }
 
 // Overall returns the mean of the position's key attributes on the 1..100
@@ -126,27 +132,118 @@ func (p Profile) Validate() error {
 }
 
 // Store is the authoritative profile store. It is not safe for concurrent
-// mutation; it currently has no mutating methods.
+// mutation. Changes are two-step: Plan validates a set of changes against
+// the current state and Apply commits it.
 type Store struct {
-	rows  []Profile // sorted by Player
-	index map[ids.PlayerID]int
+	rows       []Profile // sorted by Player
+	index      map[ids.PlayerID]int
+	generation uint64 // increments on every Apply; plans are tied to one
 }
 
 // New validates the profiles and returns a store holding its own copy.
 func New(profiles []Profile) (*Store, error) {
+	rows, index, err := build(profiles)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{rows: rows, index: index}, nil
+}
+
+func build(profiles []Profile) ([]Profile, map[ids.PlayerID]int, error) {
 	rows := slices.Clone(profiles)
 	slices.SortFunc(rows, func(a, b Profile) int { return cmp.Compare(a.Player, b.Player) })
 	index := make(map[ids.PlayerID]int, len(rows))
 	for i, p := range rows {
 		if err := p.Validate(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if _, dup := index[p.Player]; dup {
-			return nil, fmt.Errorf("players: duplicate player ID %d", p.Player)
+			return nil, nil, fmt.Errorf("players: duplicate player ID %d", p.Player)
 		}
 		index[p.Player] = i
 	}
-	return &Store{rows: rows, index: index}, nil
+	return rows, index, nil
+}
+
+// ErrStalePlan: the store changed after the plan was made.
+var ErrStalePlan = errors.New("players: plan is stale")
+
+// Development replaces an active player's attributes.
+type Development struct {
+	Player     ids.PlayerID
+	Attributes Attributes
+}
+
+// Changes is a set of profile changes made together: new attributes for
+// active players, retirements of active players and new (active) profiles.
+// A player appears at most once across Developments and Retirements.
+type Changes struct {
+	Developments []Development
+	Retirements  []ids.PlayerID
+	Additions    []Profile
+}
+
+// Plan is a validated set of changes, applied by Apply.
+type Plan struct {
+	generation uint64
+	rows       []Profile
+}
+
+// Plan validates changes against the current store and returns the
+// resulting state without changing the store.
+func (s *Store) Plan(c Changes) (Plan, error) {
+	rows := slices.Clone(s.rows)
+	touched := map[ids.PlayerID]bool{}
+	active := func(id ids.PlayerID) (int, error) {
+		i, ok := s.index[id]
+		if !ok || rows[i].Retired || touched[id] {
+			return 0, fmt.Errorf("players: player %d is unknown, retired or changed twice", id)
+		}
+		touched[id] = true
+		return i, nil
+	}
+	for _, d := range c.Developments {
+		i, err := active(d.Player)
+		if err != nil {
+			return Plan{}, err
+		}
+		rows[i].Attributes = d.Attributes
+		if err := rows[i].Validate(); err != nil {
+			return Plan{}, err
+		}
+	}
+	for _, id := range c.Retirements {
+		i, err := active(id)
+		if err != nil {
+			return Plan{}, err
+		}
+		rows[i].Retired = true
+	}
+	for _, p := range c.Additions {
+		if p.Retired {
+			return Plan{}, fmt.Errorf("players: new player %d is retired", p.Player)
+		}
+		rows = append(rows, p) // build rejects invalid and duplicate IDs
+	}
+	if _, _, err := build(rows); err != nil {
+		return Plan{}, err
+	}
+	return Plan{generation: s.generation, rows: rows}, nil
+}
+
+// Apply commits a plan. It fails, changing nothing, with ErrStalePlan if the
+// store changed after the plan was made.
+func (s *Store) Apply(p Plan) error {
+	if p.generation != s.generation {
+		return fmt.Errorf("%w: made at generation %d, store at %d", ErrStalePlan, p.generation, s.generation)
+	}
+	rows, index, err := build(p.rows)
+	if err != nil {
+		return err // unreachable: Plan validated every row
+	}
+	s.rows, s.index = rows, index
+	s.generation++
+	return nil
 }
 
 // Profile returns a copy of the player's profile.

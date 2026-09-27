@@ -14,10 +14,11 @@ import (
 
 // journalRetention is how many of the most recent events the journal keeps.
 // Older events are dropped only after every consumer (the inbox) has
-// consumed them; the inbox keeps its own bounded message history. About 200
+// consumed them; the inbox keeps its own bounded message history. About 240
 // events are emitted per year with a managed club in an 8-team league (86
-// match and season events, 52 weekly wage postings, 14 gate postings and
-// about 50 contract events), so this keeps roughly the last five years.
+// match and season events, 52 weekly wage postings, 14 gate postings, about
+// 50 contract events and about 35 retirements, youth arrivals and one
+// development), so this keeps roughly the last four years.
 var journalRetention = 1000
 
 // emit stages an event produced by a change that has already been applied
@@ -191,6 +192,8 @@ func (w *World) checkEventFacts(e events.Event) error {
 	case events.KindPlayerSigned:
 		p := e.PlayerSigned
 		return w.checkPlayerEvent(p.Player, p.Club, p.Team)
+	case events.KindPlayerRetired, events.KindYouthJoined, events.KindPlayersDeveloped:
+		return w.checkLifecycleEvent(e)
 	case events.KindSeasonStarted:
 		p := e.SeasonStarted
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}
@@ -208,7 +211,7 @@ type InboxItem struct {
 	CompetitionName string
 	OpponentLabel   TeamLabel // matchday, result
 	ChampionLabel   TeamLabel // season ended
-	PlayerName      string    // renewed, left, joined
+	PlayerName      string    // renewed, left, joined, retired, youth
 }
 
 // Inbox returns the manager's messages, oldest first. Read-only.

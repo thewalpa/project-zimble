@@ -11,6 +11,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/players"
 )
 
 // --- contracts and free agents -------------------------------------------
@@ -36,14 +37,14 @@ func (s *session) contracts() {
 	slices.SortStableFunc(squad, func(a, b app.SquadPlayer) int { return cmp.Compare(a.Contract.Expires, b.Contract.Expires) })
 	cal := s.w.Calendar()
 	end := s.w.ContractYearEnd()
-	s.printf("\n%4s  %-3s %-24s %5s %12s %8s %12s\n", "ID", "POS", "NAME", "OVR", "WAGE/WEEK", "ENDS", "ASKS FOR")
+	s.printf("\n%4s  %-3s %-24s %3s %5s %12s %8s %12s\n", "ID", "POS", "NAME", "AGE", "OVR", "WAGE/WEEK", "ENDS", "ASKS FOR")
 	for _, p := range squad {
 		ends, _ := cal.Civil(p.Contract.Expires)
 		mark := ""
 		if p.Contract.Expires == end {
 			mark = "  <- final year"
 		}
-		s.printf("%4d  %-3s %-24s %5d %12s %8d %12s%s\n", p.Player, p.Position, p.Name, p.Overall, p.Contract.WeeklyWage, ends.Year, p.Demand, mark)
+		s.printf("%4d  %-3s %-24s %3d %5d %12s %8d %12s%s\n", p.Player, p.Position, p.Name, p.Age, p.Overall, p.Contract.WeeklyWage, ends.Year, p.Demand, mark)
 	}
 	s.printf("Contracts in their final year end on %s. Players accept from their asking wage up to double it.\n", cal.Format(end))
 	s.printf("renew ID [YEARS [WAGE]] offers a new contract; without YEARS and WAGE it offers the usual terms.\n")
@@ -58,10 +59,11 @@ func (s *session) freeAgents() {
 		return
 	}
 	slices.SortStableFunc(agents, func(a, b app.SquadPlayer) int { return cmp.Compare(b.Overall, a.Overall) })
-	s.printf("\n%4s  %-3s %-24s %5s %5s %12s\n", "ID", "POS", "NAME", "OVR", "COND", "ASKS FOR")
+	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "ASKS FOR")
 	for _, p := range agents {
-		s.printf("%4d  %-3s %-24s %5d %5s %12s\n", p.Player, p.Position, p.Name, p.Overall, condition(p.Condition), p.Demand)
+		s.printf("%4d  %-3s %-24s %3d %5d %5s %12s\n", p.Player, p.Position, p.Name, p.Age, p.Overall, condition(p.Condition), p.Demand)
 	}
+	s.printf("Free agents retire on the eve of %s once they are %d.\n", monthDay(s.w.Calendar().Epoch()), players.FreeAgentRetirementAge)
 	s.printf("sign ID [YEARS [WAGE]] signs a player; without YEARS and WAGE it offers the usual terms.\n")
 }
 

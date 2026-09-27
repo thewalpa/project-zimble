@@ -12,17 +12,27 @@ import (
 
 // ContractsVersion identifies the renewal and signing heuristics. Bump it
 // whenever the same squads and free agents would produce different
-// decisions or contract lengths.
-const ContractsVersion = 1
+// decisions or contract lengths. Version 2 made renewals allow for youth.
+const ContractsVersion = 2
 
-// RenewalMargin is how far below its squad's average overall a player may
-// be and still be offered a new contract.
-const RenewalMargin = 3
+const (
+	// RenewalMargin is how far below its squad's average overall a player
+	// may be and still be offered a new contract.
+	RenewalMargin = 3
+	// A player younger than PromiseAge is expected to improve: each year
+	// short of it widens their margin by PromisePerYear points.
+	PromiseAge     = 24
+	PromisePerYear = 2
+)
 
 // Renew reports whether an AI club offers a player whose contract is ending
 // a new one: it keeps players whose overall is at least the squad's average
-// overall minus RenewalMargin.
-func Renew(overall, squadAverage int) bool { return overall >= squadAverage-RenewalMargin }
+// overall minus RenewalMargin, and young players by a wider margin (see
+// PromiseAge). Age is in whole years.
+func Renew(overall, squadAverage, age int) bool {
+	margin := RenewalMargin + PromisePerYear*max(PromiseAge-age, 0)
+	return overall >= squadAverage-margin
+}
 
 // ContractLength is the number of contract years an AI club offers: a
 // uniform draw in [minYears, maxYears] from a stream keyed by the player and

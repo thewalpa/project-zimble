@@ -20,10 +20,12 @@ var allowedImports = map[string][]string{
 	"internal/core/ids":    {},
 	"internal/core/random": {},
 	"internal/core/sim":    {},
-	"internal/players":     {"internal/core/ids"},
-	"internal/registry":    {"internal/core/ids"},
-	"internal/core/money":  {},
-	"internal/employment":  {"internal/core/ids", "internal/core/money", "internal/core/sim"},
+	// Development and retirement draw from seeded streams.
+	"internal/players": {"internal/core/ids", "internal/core/random"},
+	// Birth dates are game instants.
+	"internal/registry":   {"internal/core/ids", "internal/core/sim"},
+	"internal/core/money": {},
+	"internal/employment": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// Finance owns club ledgers; balances are derived from its entries.
 	"internal/finance": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	"internal/medical": {"internal/core/ids"},
@@ -43,7 +45,7 @@ var allowedImports = map[string][]string{
 	"internal/selection": {"internal/core/ids", "internal/matches"},
 	"internal/content":   {"internal/core/ids", "internal/core/money", "internal/core/sim", "internal/players"},
 	"internal/worldgen": {
-		"internal/content", "internal/core/ids", "internal/core/money", "internal/core/random",
+		"internal/content", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/employment", "internal/players", "internal/registry",
 	},
 	"internal/app": {

@@ -15,8 +15,9 @@ import (
 )
 
 // Version identifies the content returned by Default. Version 2 moved
-// attribute ranges to the 1..100 scale; version 3 added the economy.
-const Version = 3
+// attribute ranges to the 1..100 scale; version 3 added the economy;
+// version 4 added player ages and youth intake.
+const Version = 4
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
@@ -94,6 +95,24 @@ func (e Economy) validate() error {
 	return nil
 }
 
+// Youth defines the players who join clubs from their youth ranks: their
+// age in whole years on joining (Ages[0]..Ages[1]), their attribute ranges
+// (each position's ranges lowered by RatingGap points, never below 1) and
+// the length of their first contract in contract years.
+type Youth struct {
+	Ages          [2]int
+	RatingGap     int
+	ContractYears int
+}
+
+// Range returns a youth attribute range for a position's range.
+func (y Youth) Range(r Range) Range {
+	lower := func(v players.Rating) players.Rating {
+		return players.Rating(max(int(v)-y.RatingGap, int(players.MinRating)))
+	}
+	return Range{Min: lower(r.Min), Max: lower(r.Max)}
+}
+
 type Definitions struct {
 	Version      int
 	ClubCount    int
@@ -104,6 +123,10 @@ type Definitions struct {
 	Roster       []Quota // in generation order
 	Profiles     []PositionProfile
 	Economy      Economy
+	// Ages bounds generated players' ages at the career start, in whole
+	// years.
+	Ages  [2]int
+	Youth Youth
 }
 
 // Clone returns a deep copy that shares no slices with d.
@@ -182,6 +205,15 @@ func (d Definitions) Validate() error {
 	if err := d.Economy.validate(); err != nil {
 		errs = append(errs, err)
 	}
+	// Active players are younger than players.RetirementAge.
+	if d.Ages[0] < 15 || d.Ages[0] > d.Ages[1] || d.Ages[1] >= players.RetirementAge {
+		errs = append(errs, fmt.Errorf("content: invalid generated ages %v", d.Ages))
+	}
+	if y := d.Youth; y.Ages[0] < 15 || y.Ages[0] > y.Ages[1] || y.Ages[1] >= players.FreeAgentRetirementAge ||
+		y.RatingGap < 0 || y.RatingGap >= int(players.MaxRating) ||
+		y.ContractYears < d.Economy.ContractYears[0] || y.ContractYears > d.Economy.ContractYears[1] {
+		errs = append(errs, fmt.Errorf("content: invalid youth %+v", y))
+	}
 	for _, pp := range d.Profiles {
 		for a, r := range pp.Ranges {
 			if !r.Min.Valid() || !r.Max.Valid() || r.Min > r.Max {
@@ -237,6 +269,12 @@ func Default() Definitions {
 			WageVariationPct: 20,
 			ContractYears:    [2]int{1, 4},
 			OfferCeilingPct:  200,
+		},
+		Ages: [2]int{17, 34},
+		Youth: Youth{
+			Ages:          [2]int{16, 17},
+			RatingGap:     13, // keeps the long-run average overall at the generated one (about 59)
+			ContractYears: 3,
 		},
 	}
 }

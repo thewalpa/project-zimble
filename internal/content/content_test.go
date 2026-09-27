@@ -27,21 +27,28 @@ func TestDefaultReturnsIndependentCopies(t *testing.T) {
 
 func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 	cases := map[string]func(*Definitions){
-		"too few towns":   func(d *Definitions) { d.Towns = d.Towns[:3] },
-		"duplicate short": func(d *Definitions) { d.Towns[1].Short = d.Towns[0].Short },
-		"empty names":     func(d *Definitions) { d.FirstNames = nil },
-		"bad quota":       func(d *Definitions) { d.Roster[0].Count = 0 },
-		"min above count": func(d *Definitions) { d.Roster[0].Min = d.Roster[0].Count + 1 },
-		"zero min":        func(d *Definitions) { d.Roster[1].Min = 0 },
-		"offer ceiling":   func(d *Definitions) { d.Economy.OfferCeilingPct = 99 },
-		"missing profile": func(d *Definitions) { d.Profiles = d.Profiles[1:] },
-		"range above max": func(d *Definitions) { d.Profiles[0].Ranges[players.Pace].Max = 101 },
-		"inverted range":  func(d *Definitions) { d.Profiles[0].Ranges[players.Pace] = Range{9, 3} },
-		"no wage":         func(d *Definitions) { d.Economy.WageReference = 0 },
-		"negative gate":   func(d *Definitions) { d.Economy.GatePerHomeMatch = -1 },
-		"zero years":      func(d *Definitions) { d.Economy.ContractYears = [2]int{0, 2} },
-		"inverted years":  func(d *Definitions) { d.Economy.ContractYears = [2]int{3, 2} },
-		"variation 100%":  func(d *Definitions) { d.Economy.WageVariationPct = 100 },
+		"too few towns":    func(d *Definitions) { d.Towns = d.Towns[:3] },
+		"duplicate short":  func(d *Definitions) { d.Towns[1].Short = d.Towns[0].Short },
+		"empty names":      func(d *Definitions) { d.FirstNames = nil },
+		"bad quota":        func(d *Definitions) { d.Roster[0].Count = 0 },
+		"min above count":  func(d *Definitions) { d.Roster[0].Min = d.Roster[0].Count + 1 },
+		"zero min":         func(d *Definitions) { d.Roster[1].Min = 0 },
+		"offer ceiling":    func(d *Definitions) { d.Economy.OfferCeilingPct = 99 },
+		"missing profile":  func(d *Definitions) { d.Profiles = d.Profiles[1:] },
+		"range above max":  func(d *Definitions) { d.Profiles[0].Ranges[players.Pace].Max = 101 },
+		"inverted range":   func(d *Definitions) { d.Profiles[0].Ranges[players.Pace] = Range{9, 3} },
+		"no wage":          func(d *Definitions) { d.Economy.WageReference = 0 },
+		"negative gate":    func(d *Definitions) { d.Economy.GatePerHomeMatch = -1 },
+		"zero years":       func(d *Definitions) { d.Economy.ContractYears = [2]int{0, 2} },
+		"inverted years":   func(d *Definitions) { d.Economy.ContractYears = [2]int{3, 2} },
+		"variation 100%":   func(d *Definitions) { d.Economy.WageVariationPct = 100 },
+		"too young":        func(d *Definitions) { d.Ages[0] = 14 },
+		"inverted ages":    func(d *Definitions) { d.Ages = [2]int{30, 20} },
+		"retired at start": func(d *Definitions) { d.Ages[1] = players.RetirementAge },
+		"youth too old":    func(d *Definitions) { d.Youth.Ages[1] = players.FreeAgentRetirementAge },
+		"youth inverted":   func(d *Definitions) { d.Youth.Ages = [2]int{18, 16} },
+		"negative gap":     func(d *Definitions) { d.Youth.RatingGap = -1 },
+		"youth contract":   func(d *Definitions) { d.Youth.ContractYears = d.Economy.ContractYears[1] + 1 },
 	}
 	for name, mutate := range cases {
 		d := Default()
@@ -93,6 +100,19 @@ func TestWageFormula(t *testing.T) {
 	} {
 		if got := e.Wage(c.overall, c.variation); got != c.want {
 			t.Errorf("Wage(%d, %d) = %s, want %s", c.overall, c.variation, got, c.want)
+		}
+	}
+}
+
+func TestYouthRange(t *testing.T) {
+	y := Youth{RatingGap: 20}
+	for _, c := range []struct{ in, want Range }{
+		{Range{43, 90}, Range{23, 70}},
+		{Range{11, 37}, Range{1, 17}},
+		{Range{1, 11}, Range{1, 1}},
+	} {
+		if got := y.Range(c.in); got != c.want {
+			t.Errorf("Range(%v) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }

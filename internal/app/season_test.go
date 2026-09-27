@@ -94,12 +94,17 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 		t.Fatal("Table of a season that does not exist")
 	}
 
-	// Identities and generated content are untouched; only the contract
-	// year (between the seasons) changed employment.
+	// Identities are untouched: the player year between the seasons only
+	// adds youth players after them. Profiles develop but keep positions.
 	final := w.Snapshot()
-	if final.WorldFingerprint != initial.WorldFingerprint || !reflect.DeepEqual(final.Registry, initial.Registry) ||
-		!reflect.DeepEqual(final.Players, initial.Players) {
-		t.Fatal("a season transition changed identities or profiles")
+	if final.WorldFingerprint != initial.WorldFingerprint || !reflect.DeepEqual(final.Registry.Clubs, initial.Registry.Clubs) ||
+		!reflect.DeepEqual(final.Registry.Players[:len(initial.Registry.Players)], initial.Registry.Players) {
+		t.Fatal("a season transition changed identities")
+	}
+	for i, p := range initial.Players {
+		if final.Players[i].Player != p.Player || final.Players[i].Position != p.Position {
+			t.Fatalf("player %d's profile became %+v", p.Player, final.Players[i])
+		}
 	}
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)

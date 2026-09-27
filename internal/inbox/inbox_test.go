@@ -115,6 +115,63 @@ func TestPlayerMessages(t *testing.T) {
 	}
 }
 
+// Retirements and youth arrivals become messages for the managed team's
+// players; a development becomes one summary for the team.
+func TestLifecycleMessages(t *testing.T) {
+	j := journal()
+	add := func(k events.Kind, set func(*events.Event)) {
+		e := env(events.ID(len(j)+1), k)
+		set(&e)
+		j = append(j, e)
+	}
+	add(events.KindPlayerRetired, func(e *events.Event) {
+		e.PlayerRetired = &events.PlayerRetired{Player: 7, Club: 3, Team: 3, Age: 36}
+	})
+	add(events.KindPlayerRetired, func(e *events.Event) { e.PlayerRetired = &events.PlayerRetired{Player: 8, Age: 31} })
+	add(events.KindYouthJoined, func(e *events.Event) {
+		e.YouthJoined = &events.YouthJoined{Player: 161, Club: 3, Team: 3, Expires: 900, WeeklyWage: 40}
+	})
+	add(events.KindYouthJoined, func(e *events.Event) {
+		e.YouthJoined = &events.YouthJoined{Player: 162, Club: 4, Team: 4, Expires: 900, WeeklyWage: 40}
+	})
+	add(events.KindPlayersDeveloped, func(e *events.Event) {
+		e.PlayersDeveloped = &events.PlayersDeveloped{Players: []events.Development{
+			{Player: 1, Team: 3, Before: 50, After: 53}, {Player: 2, Team: 3, Before: 60, After: 59},
+			{Player: 3, Team: 3, Before: 60, After: 60}, {Player: 4, Team: 3, Before: 40, After: 44},
+			{Player: 5, Team: 4, Before: 40, After: 30}, {Player: 6, Before: 40, After: 30},
+		}}
+	})
+	add(events.KindPlayersDeveloped, func(e *events.Event) {
+		e.PlayersDeveloped = &events.PlayersDeveloped{Players: []events.Development{{Player: 5, Team: 4, Before: 40, After: 30}}}
+	})
+	b := mustNew(t, 3)
+	if _, err := b.Apply(j); err != nil {
+		t.Fatal(err)
+	}
+	got := b.Messages()[4:]
+	want := []Message{
+		{Event: 7, At: 70, Kind: KindRetired, Player: 7, Age: 36},
+		{Event: 9, At: 90, Kind: KindYouthJoined, Player: 161, Expires: 900, WeeklyWage: 40},
+		{Event: 11, At: 110, Kind: KindDeveloped, Improved: 2, Declined: 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("lifecycle messages %+v", got)
+	}
+	if _, err := New(3, b.Snapshot()); err != nil {
+		t.Fatalf("snapshot rejected: %v", err)
+	}
+	snap := b.Snapshot()
+	snap.Messages[6].Player = 1
+	if _, err := New(3, snap); err == nil {
+		t.Fatal("development message naming a player accepted")
+	}
+	none := mustNew(t, 0)
+	none.Apply(j)
+	if len(none.Messages()) != 2 {
+		t.Fatal("an unmanaged inbox kept lifecycle messages")
+	}
+}
+
 // Duplicates are skipped, chunking does not matter, gaps and invalid events
 // are rejected without change.
 func TestApplyIsIdempotentAndRejectsGaps(t *testing.T) {
@@ -174,7 +231,7 @@ func TestNewValidatesAndCopies(t *testing.T) {
 	for name, mutate := range map[string]func(*Snapshot){
 		"after offset": func(s *Snapshot) { s.Offset = 4 },
 		"out of order": func(s *Snapshot) { s.Messages[1].Event = 1 },
-		"invalid kind": func(s *Snapshot) { s.Messages[0].Kind = 9 },
+		"invalid kind": func(s *Snapshot) { s.Messages[0].Kind = 99 },
 		"no fixture":   func(s *Snapshot) { s.Messages[0].Fixture = 0 },
 		"no season":    func(s *Snapshot) { s.Messages[2].Season = 0 },
 		"too many":     func(s *Snapshot) { s.Messages = make([]Message, MaxMessages+1) },

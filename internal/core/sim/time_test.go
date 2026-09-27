@@ -118,3 +118,37 @@ func TestInstantAddChecksRange(t *testing.T) {
 		}
 	}
 }
+
+func TestWholeYears(t *testing.T) {
+	c := calendar(t)
+	at := func(y, m, d, h int) GameInstant {
+		i, err := c.Instant(CivilTime{y, m, d, h, 0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return i
+	}
+	cases := []struct {
+		from, to GameInstant
+		want     int
+	}{
+		{at(2000, 7, 1, 0), at(2025, 7, 1, 0), 25},
+		{at(2000, 7, 1, 0), at(2025, 6, 30, 23), 24},
+		{at(2000, 7, 1, 12), at(2025, 7, 1, 11), 24},
+		{at(2000, 7, 1, 12), at(2025, 7, 1, 12), 25},
+		{at(2000, 2, 29, 0), at(2025, 2, 28, 0), 24},
+		{at(2000, 2, 29, 0), at(2025, 3, 1, 0), 25},
+		{at(2000, 2, 29, 0), at(2028, 2, 29, 0), 28},
+		{at(2025, 7, 1, 0), at(2025, 7, 1, 0), 0},
+		{at(2025, 7, 1, 0), at(2024, 7, 2, 0), 0},
+		{at(2025, 7, 1, 0), at(2024, 7, 1, 0), -1},
+	}
+	for _, tc := range cases {
+		if got, err := c.WholeYears(tc.from, tc.to); err != nil || got != tc.want {
+			t.Errorf("WholeYears(%s, %s) = %d, %v; want %d", c.Format(tc.from), c.Format(tc.to), got, err, tc.want)
+		}
+	}
+	if _, err := c.WholeYears(0, MaxInstant+1); err == nil {
+		t.Error("an out-of-range instant was accepted")
+	}
+}

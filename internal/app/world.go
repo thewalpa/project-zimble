@@ -49,21 +49,23 @@ func DefaultConfig(seed random.Seed) Config { return Config{Seed: seed, Epoch: D
 
 // World holds the authoritative module state of one career.
 type World struct {
-	seed             random.Seed
-	generatorVersion int
-	randomVersion    int
-	contentVersion   int
-	leagueVersion    int
-	scheduleVersion  int
-	selectionVersion int
-	medicalVersion   int
-	contractsVersion int
-	fingerprint      string
-	defs             content.Definitions
-	leagues          []leagueEntry // ascending competition ID
-	calendar         sim.Calendar
-	engine           matches.Engine
-	userClub         ids.ClubID // zero: no user club
+	seed               random.Seed
+	generatorVersion   int
+	randomVersion      int
+	contentVersion     int
+	leagueVersion      int
+	scheduleVersion    int
+	selectionVersion   int
+	medicalVersion     int
+	contractsVersion   int
+	developmentVersion int
+	youthVersion       int
+	fingerprint        string
+	defs               content.Definitions
+	leagues            []leagueEntry // ascending competition ID
+	calendar           sim.Calendar
+	engine             matches.Engine
+	userClub           ids.ClubID // zero: no user club
 
 	// revision increments on every committed change; commands record their
 	// results by ID so a retried command is answered, not re-applied.
@@ -169,7 +171,11 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 	if err != nil {
 		return nil, err
 	}
-	reg, err := registry.New(registry.Init{Clubs: snap.Clubs, Teams: snap.Teams, Players: snap.Players})
+	var lastPlayer ids.PlayerID
+	if n := len(snap.Players); n > 0 {
+		lastPlayer = snap.Players[n-1].ID // ascending
+	}
+	reg, err := registry.New(registry.Init{Clubs: snap.Clubs, Teams: snap.Teams, Players: snap.Players, LastPlayer: lastPlayer})
 	if err != nil {
 		return nil, err
 	}
@@ -207,30 +213,32 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		return nil, err
 	}
 	w := &World{
-		seed:             snap.Seed,
-		generatorVersion: snap.GeneratorVersion,
-		randomVersion:    snap.RandomVersion,
-		contentVersion:   snap.ContentVersion,
-		leagueVersion:    content.LeagueVersion,
-		scheduleVersion:  competitions.ScheduleVersion,
-		selectionVersion: ai.SelectionVersion,
-		medicalVersion:   medical.Version,
-		contractsVersion: ai.ContractsVersion,
-		fingerprint:      snap.Fingerprint(),
-		defs:             defs,
-		registry:         reg,
-		players:          pl,
-		employment:       emp,
-		medical:          med,
-		finance:          fin,
-		competitions:     competitions.New(),
-		selections:       mustEmptySelections(),
-		calendar:         calendar,
-		engine:           engine,
-		scheduler:        scheduler,
-		payloads:         map[sim.PayloadID]competitions.RoundRef{},
-		seasonEnds:       map[sim.PayloadID]competitions.SeasonRef{},
-		commands:         map[CommandID]commandRecord{},
+		seed:               snap.Seed,
+		generatorVersion:   snap.GeneratorVersion,
+		randomVersion:      snap.RandomVersion,
+		contentVersion:     snap.ContentVersion,
+		leagueVersion:      content.LeagueVersion,
+		scheduleVersion:    competitions.ScheduleVersion,
+		selectionVersion:   ai.SelectionVersion,
+		medicalVersion:     medical.Version,
+		contractsVersion:   ai.ContractsVersion,
+		developmentVersion: players.DevelopmentVersion,
+		youthVersion:       worldgen.YouthVersion,
+		fingerprint:        snap.Fingerprint(),
+		defs:               defs,
+		registry:           reg,
+		players:            pl,
+		employment:         emp,
+		medical:            med,
+		finance:            fin,
+		competitions:       competitions.New(),
+		selections:         mustEmptySelections(),
+		calendar:           calendar,
+		engine:             engine,
+		scheduler:          scheduler,
+		payloads:           map[sim.PayloadID]competitions.RoundRef{},
+		seasonEnds:         map[sim.PayloadID]competitions.SeasonRef{},
+		commands:           map[CommandID]commandRecord{},
 	}
 	// World creation is initial state, not a change: it emits no events.
 	if w.inbox, err = w.newInbox(); err != nil {
@@ -247,6 +255,13 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		return nil, err
 	}
 	if err := w.scheduleContractYear(yearEnd); err != nil {
+		return nil, err
+	}
+	playerYear, err := w.playerYearAfter(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.schedulePlayerYear(playerYear); err != nil {
 		return nil, err
 	}
 	next := 0
@@ -329,7 +344,8 @@ func (w *World) Validate() error {
 		}
 	}
 
-	// Players without an assignment are free agents.
+	// Players without an assignment are free agents or retired
+	// (validateLifecycle).
 	for _, a := range w.employment.Assignments() {
 		if _, ok := w.registry.Player(a.Player); !ok {
 			fail("assignment for unknown player %d", a.Player)
@@ -342,15 +358,14 @@ func (w *World) Validate() error {
 			fail("player %d employed by club %d but assigned to team %d of club %d", a.Player, a.Club, a.Team, team.Club)
 		}
 	}
-	if conditions := w.medical.Records(); len(conditions) != len(identities) {
-		fail("%d player identities but %d condition records", len(identities), len(conditions))
-	}
 	for _, p := range identities {
 		if _, ok := w.players.Profile(p.ID); !ok {
 			fail("player %d has no profile", p.ID)
 		}
-		if _, ok := w.medical.Condition(p.ID); !ok {
-			fail("player %d has no condition record", p.ID)
+	}
+	for _, r := range w.medical.Records() {
+		if _, ok := w.registry.Player(r.Player); !ok {
+			fail("condition record for unknown player %d", r.Player)
 		}
 	}
 
@@ -362,6 +377,7 @@ func (w *World) Validate() error {
 	errs = append(errs, w.validateLive()...)
 	errs = append(errs, w.validateFinance()...)
 	errs = append(errs, w.validateContracts()...)
+	errs = append(errs, w.validateLifecycle()...)
 	return errors.Join(errs...)
 }
 

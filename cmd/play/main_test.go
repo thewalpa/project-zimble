@@ -211,31 +211,50 @@ func TestMoneyViews(t *testing.T) {
 	}
 }
 
-// Before the contract year: renew one player, reject bad offers; after it:
-// the others have left, the inbox says so, and a free agent can be signed.
+// Before the contract year (after the player year): renew one player,
+// reject bad offers; after it: the others have left, the inbox says so, and
+// a free agent can be signed.
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
-		"continue", "free", "sign 44", "sign 105 1", "squad", "inbox 12", "continue", "sign 105 1", "sign 145 1", "q", "q")
+		"continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 129 1", "q", "q")
 	contains(t, out,
 		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
-		"  56  MF  Callum Ibsen                77     2,660.00     2026     2,640.00  <- final year",
-		"Callum Ibsen signed a new contract until 1 July 2029 at 2,640.00 a week.",
+		"  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year",
+		"Callum Ibsen signed a new contract until 1 July 2028 at 2,570.00 a week.",
 		"! app: contract offer rejected: 9 years, allowed 1..4",
-		"! app: contract offer rejected: weekly wage 1.00, player accepts 1,880.00..3,760.00",
+		"! app: contract offer rejected: weekly wage 1.00, player accepts 2,120.00..4,240.00",
 		"! app: the contract is not in its final year: player 44",
 		"! player 999 is not in your squad",
 		"! player 45 is not a free agent; type free for the list",
-		"contract: Callum Ibsen renewed until 1 July 2029 at 2,640.00 a week",
+		"development: 8 of your players improved and 11 declined over the year (type squad)",
+		"contract: Callum Ibsen renewed until 1 July 2028 at 2,570.00 a week",
 		"contract: Oscar Bellamy left the club as a free agent",
-		"signing: Oscar Pereira joined until 1 July 2027 at 1,500.00 a week",
-		" 105  DF  Tomas Costa                 51  100%     1,160.00",
+		"signing: Pavel Engel joined until 1 July 2028 at 1,300.00 a week",
+		"  72  MF  Elias Adeyemi             24    51  100%     1,160.00",
+		"Free agents retire on the eve of 1 July once they are 31.",
 		"! player 44 is not a free agent; type free for the list",
 		"! app: squads cannot change while rounds await results",
-		"Tomas Costa joined until 1 July 2027 at 1,160.00 a week.",
-		"Kofi Rossi joined until 1 July 2027 at 1,160.00 a week.",
+		"  56  MF  Callum Ibsen              27    76  100%     2,570.00  to 2028",
+		"Elias Adeyemi joined until 1 July 2027 at 1,160.00 a week.",
+		"Nils Abbott joined until 1 July 2027 at 1,160.00 a week.",
 	)
-	if strings.Count(out, "Tomas Costa joined") != 1 {
+	if strings.Count(out, "Elias Adeyemi joined") != 1 {
 		t.Fatal("signed a player on a matchday, or twice")
+	}
+}
+
+// The yearly player step reaches the manager: a development summary, a
+// retirement and the youth player who replaces him.
+func TestPlayerYearMessages(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "season", "continue", "squad", "q", "q")
+	contains(t, out,
+		"Wed 2027-06-30 00:00 UTC  development: 4 of your players improved and 7 declined over the year (type squad)",
+		"Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36",
+		"Wed 2027-06-30 00:00 UTC  youth: Yannick Okafor joined from the youth ranks until 1 July 2030 at 430.00 a week",
+		"Every year on the eve of that date, young players improve, older ones decline, and some retire.",
+	)
+	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Hugo Kowal") {
+		t.Fatal("the retired goalkeeper is still in the squad")
 	}
 }

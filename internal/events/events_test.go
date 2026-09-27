@@ -30,7 +30,13 @@ func valid() []Event {
 	h.ContractExpired = &ContractExpired{Player: 6, Club: 1, Team: 1}
 	i := env(9, KindPlayerSigned)
 	i.PlayerSigned = &PlayerSigned{Player: 6, Club: 2, Team: 2, Expires: 500, WeeklyWage: 100}
-	return []Event{a, b, c, d, e, f, g, h, i}
+	j := env(10, KindPlayerRetired)
+	j.PlayerRetired = &PlayerRetired{Player: 7, Club: 1, Team: 1, Age: 35}
+	k := env(11, KindYouthJoined)
+	k.YouthJoined = &YouthJoined{Player: 161, Club: 1, Team: 1, Expires: 500, WeeklyWage: 100}
+	l := env(12, KindPlayersDeveloped)
+	l.PlayersDeveloped = &PlayersDeveloped{Players: []Development{{Player: 1, Team: 1, Before: 60, After: 62}, {Player: 2, Before: 50, After: 49}}}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l}
 }
 
 func TestValidate(t *testing.T) {
@@ -63,6 +69,14 @@ func TestValidate(t *testing.T) {
 		"renewal unpaid":    func(v []Event) Event { v[6].ContractRenewed.WeeklyWage = 0; return v[6] },
 		"expiry zero team":  func(v []Event) Event { v[7].ContractExpired.Team = 0; return v[7] },
 		"signing no player": func(v []Event) Event { v[8].PlayerSigned.Player = 0; return v[8] },
+		"retired club only": func(v []Event) Event { v[9].PlayerRetired.Team = 0; return v[9] },
+		"retired no player": func(v []Event) Event { v[9].PlayerRetired.Player = 0; return v[9] },
+		"youth no team":     func(v []Event) Event { v[10].YouthJoined.Team = 0; return v[10] },
+		"youth unpaid":      func(v []Event) Event { v[10].YouthJoined.WeeklyWage = 0; return v[10] },
+		"nobody developed":  func(v []Event) Event { v[11].PlayersDeveloped.Players = nil; return v[11] },
+		"developed twice":   func(v []Event) Event { v[11].PlayersDeveloped.Players[1].Player = 1; return v[11] },
+		"overall zero":      func(v []Event) Event { v[11].PlayersDeveloped.Players[0].After = 0; return v[11] },
+		"overall above 100": func(v []Event) Event { v[11].PlayersDeveloped.Players[0].Before = 101; return v[11] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -84,6 +98,9 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[6].ContractRenewed.Expires = 9
 	c[7].ContractExpired.Club = 9
 	c[8].PlayerSigned.Team = 9
+	c[9].PlayerRetired.Age = 9
+	c[10].YouthJoined.Expires = 9
+	c[11].PlayersDeveloped.Players[0].After = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

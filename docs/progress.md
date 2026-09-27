@@ -1272,27 +1272,156 @@ Tomas Costa joined until 1 July 2027 at 1,160.00 a week.
 
 ### Limitations
 
-- **Players never change:** no ages, development or retirement. The same 160 players circulate forever, and a player a club lets go stays equally good.
+- **Players never change:** no ages, development or retirement. The same 160 players circulate forever, and a player a club lets go stays equally good. (Resolved in Milestone 14.)
 - **No transfers between clubs**, no fees and no loans. Players move only as free agents at the contract-year end, or when the manager signs one.
 - **AI clubs ignore money** when renewing and signing, and wages don't depend on the club's finances or the player's form.
 - **The manager can't release a player**, renew outside the final year or negotiate; the player accepts any offer within the rules.
 - **AI clubs' squads are always full after the contract year,** so a free agent at rest is always one that the manager's club let go and the others didn't need.
 
-## Next task: player ages, development and retirement
+## Milestone 14: player ages, development and retirement (done)
 
-Give players a lifecycle, so squads change in quality over time and contracts become real decisions.
-- **Ages.** Birth dates generated with each player (a worldgen change: bump `worldgen.Version` and update the goldens deliberately). Ages are shown in the squad and free-agent views.
-- **Development.** A yearly development step, deterministic per (seed, player, year): young players tend to improve and older ones to decline, within the 1–100 scale. It is owned by `players` and driven by an `app` task.
-- **Retirement and youth intake.** Old free agents and some old players retire (they leave employment; their identities stay in the registry). Each club receives youth players with new, never-reused IDs, so the world's player count stays balanced and squads stay within the roster limits.
+Players now have birth dates and a career. Every year, on the eve of the contract-year end (30 June), young players improve, players in their late twenties hold level and older ones decline. Some older players retire, and every club replaces each of its own retirees with a youth player at the same position. Clubs and the manager then make contract decisions on the new abilities.
+
+```text
+  Tue 2026-06-30 00:00 UTC  development: 8 of your players improved and 11 declined over the year (type squad)
+  Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36
+  Wed 2027-06-30 00:00 UTC  youth: Yannick Okafor joined from the youth ranks until 1 July 2030 at 430.00 a week
+  ID  POS NAME                     AGE   OVR    WAGE/WEEK     ENDS     ASKS FOR
+  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/core/sim` | `Calendar.WholeYears(from, to)`: whole years as ages are counted (a 29 February anniversary completes on 1 March) | – |
+| `internal/registry` | `Player.Born` (a `GameInstant`, the start of the birth day); `Init.LastPlayer`, the player ID allocator; `PlanPlayers` → `Apply` adds identities with IDs continuing the allocator in order | – |
+| `internal/players` | `Profile.Retired`; `Changes{Developments, Retirements, Additions}` → `Plan` → `Apply`. `development.go`: `Growth`, `Develop`, `RetirementPermille`, `Retires` | `players.DevelopmentVersion` 1 (new) |
+| `internal/medical` | `PlanRoster(admit, discharge)`: youth players join fully fit; retired players' records go | – |
+| `internal/content` | `Ages` (generated players 17–34 at the career start); `Youth{Ages 16–17, RatingGap 13, ContractYears 3}`, `Youth.Range` | `content.Version` 4 |
+| `internal/worldgen` | Birth dates, drawn last in each player's stream; `Youth(defs, seed, id, pos, at)` | `worldgen.Version` 3; `worldgen.YouthVersion` 1 (new) |
+| `internal/ai` | `Renew(overall, average, age)`: a player under 24 gets 2 points more margin for each year short of it | `ai.ContractsVersion` 2 |
+| `internal/events` | `PlayerRetired` (10), `YouthJoined` (11), `PlayersDeveloped` (12) | – |
+| `internal/inbox` | `KindRetired`, `KindYouthJoined`, `KindDeveloped` (one summary: `Improved`, `Declined`) for the managed team | – |
+| `internal/app` | Task kind `taskPlayerYear` (6) and `playerYear` (`lifecycle.go`); `validateLifecycle`; retired players are neither employed nor free agents; `SquadPlayer.Age`; `Summary.Players` counts active players, `Summary.Retired`; `Versions.Development`, `Versions.Youth` | save `SchemaVersion` 10 |
+| `cmd/play` | An AGE column in `squad`, `contracts` and `free`; inbox lines for the new messages | – |
+| `cmd/simulate` | AGE in the squad, `retired=N` in the summary; inbox lines for every player message (contract messages printed an empty line before) | – |
+
+**Goldens.** The world fingerprint changed deliberately (`5682a824…`): the snapshot now has birth dates, and the version header changed. Names, attributes and contracts did not. The club and player streams are now keyed by `streamVersion` (2), the generator version that last changed their existing draws, and the birth date is appended to each player's stream. So seed 42 is the same world as before, and the season-1 golden (`7e0c0217…`) is unchanged. Season 2 onward changes, covered by the new versions.
+
+### Decisions
+
+- **Birth dates belong to the registry** (per the architecture's ownership table), as a `GameInstant`. Generation doesn't know the calendar, so worldgen draws a number of days before the career start. The day range `[366·min, 365·(max+1) − 1]` guarantees the age range whatever the epoch and its leap days.
+- **Retirement belongs to `players`,** as a flag on the profile. A retired player keeps their identity and final profile forever. Their contract ends, their condition record goes, and they never become a free agent, play, recover or sign again.
+- **The player ID allocator is explicit** (`registry.Init.LastPlayer`), not derived from the highest ID. New IDs must continue it in order, and it is saved and restored, so an ID is never issued twice even if players were ever removed.
+- **The player year is its own yearly task,** one day before the contract-year end, in the Expiries phase. Kind 6, no payload; it reschedules itself.
+  - It runs at a separate instant, so each yearly task stays independent and all-or-nothing, and no validation has to handle a state between two cohorts at one instant.
+  - Clubs and the manager decide contracts on the new abilities. The CLI's existing contract stop (the day before the contract-year end) now falls right after the player year, so the manager sees the development summary, retirements and new asking wages before renewing.
+- **One all-or-nothing change.** Each active player, in ID order, retires or develops. Then youth players are generated. Then registry, players, employment and medical each plan their part and next year's task is queued. Only then is everything applied. Events follow: one `PlayersDeveloped`, then one `PlayerRetired` per retiree, then one `YouthJoined` per youth.
+- **Development** (`players.Develop`, keyed by seed, player and calendar year):
+  - each attribute changes by `Growth(age)`: +4 to 18, +3 to 20, +2 to 22, +1 to 24, 0 to 28, −1 to 30, −2 to 32, −3 after that. Pace and stamina lose a further point a year from 29;
+  - plus a form for the year of −2..2, shared by all of the player's attributes;
+  - plus −1..1 per attribute;
+  - clamped to 1..100.
+  - Free agents develop too. A retiring player doesn't develop in their last year.
+- **Retirement** (`players.Retires`, keyed the same way):
+  - every player retires at 37;
+  - a free agent retires from 31;
+  - an employed player retires with 10%, 25%, 45% or 70% chance at 33–36.
+  - So no active player is ever older than 37, which validation checks.
+- **Youth replace retirees one for one.** Each club gets one youth player per retiree of its own, at the same position. Squads therefore keep their exact shape, and the contract year's guarantee (the pool can always fill every club's needs) still holds by the same argument as in Milestone 13. Retired free agents aren't replaced: they were surplus.
+  - Youth players are 16–17. Their attributes come from the position ranges lowered by `RatingGap` (never below 1).
+  - Their contract runs 3 contract years from the coming contract-year end, at their demand.
+  - IDs are allocated club by club, retirees in ID order.
+- **Calibration.** A youth `RatingGap` of 13 keeps the long-run average overall at the generated world's level. Over 30 simulated years for seeds 42 and 7:
+  - the employed average stays 57–60, against 58–59 at the start;
+  - about 10 players retire a year; the average age stays near 25;
+  - wage bills stay in the same band.
+  - A gap of 20 let the average sink to about 51 and cut wage bills by a quarter.
+  - The generated world's attributes don't depend on age, so the first decade has some young stars who grow into the 90s. Later generations are shaped by the lifecycle.
+- **AI renewals allow for youth** (`ai.ContractsVersion` 2). Without this, almost every youth player was released after their first contract, because they were still below the squad average.
+- **Restored contract commands** are no longer compared with the player's current demand, because development changes it. Recorded offers are checked for an allowed length and a positive wage, and the contract must still match the offer.
+- **Validation** (`validateLifecycle`, on `Validate` and load):
+  - every player was born before now;
+  - active players are at most 37 and have a condition record;
+  - retired players have neither a condition record nor a club;
+  - condition records exist exactly for active players;
+  - exactly one player-year task is queued, due at the next eve.
+  - Events: a retirement names a retired player (and the employer's senior team); a youth arrival names a senior team; developed players are registered.
+
+### Verification
+
+- **`sim`:** whole years at the boundaries: the same minute, one minute before, 29 February, negative spans, out of range.
+- **`registry`:** new IDs must continue the allocator (reused, skipped, out-of-order, repeated IDs are rejected); stale plans; a restored registry never reissues an ID; birth instants out of range; players above the allocator.
+- **`players`:**
+  - plans develop, retire and add together, and survive a snapshot;
+  - 11 invalid change sets are rejected without change, including developing a retired player and adding a retired one;
+  - development is repeatable, depends on the year and seed, and stays within 1..100 for extremes over a century;
+  - on average 17-year-olds gain about 4 points, 26-year-olds hold and 34-year-olds lose about 3, with pace falling faster than passing at 30;
+  - retirement is certain at 37 and for free agents from 31, never below 33 with a club, and the 33–36 rates match within tolerance.
+- **`medical`:** roster plans admit fully fit, discharge, and reject 5 invalid cases and stale plans.
+- **`worldgen`:**
+  - every generated player is 17–34 at the career start, for three epochs including 29 February and a minute before midnight, and the whole range occurs;
+  - youth players are repeatable, keyed by ID, within their ages and ranges.
+- **`events`, `inbox`:** payload validation (8 new cases) and clones; lifecycle messages only for the managed team, with the development summary counting only the team's players.
+- **App (`lifecycle_test.go`):**
+  - **The first player year applies the rules exactly:** every player retires exactly when `players.Retires` says so, unchanged; the others develop exactly by `players.Develop`. Each retiree is replaced at the same position, club by club, with the next IDs, a 3-year contract at demand, full condition and a youth age. Squads keep their shape, events match, and the next task is due on the next eve.
+  - **Chunking and saves:** three years continued in one call, in uneven chunks, and with saves right before and after each player year give identical registries, profiles, employment and conditions.
+  - **Retired players never return:** over three managed years (the manager renews no one, so free agents build up), retired players are never employed, free, recovering or scoring. No free agent of 31 or more survives a player year, and free agents do retire. Signing or suggesting terms for a retired player is `ErrNotFreeAgent`.
+  - **Fifteen years,** AI-only and with a manager who never renews:
+    - the world validates every year (squad limits included);
+    - AI squads are always full, and the active population stays 150–160 plus free agents;
+    - the average overall stays within 6 points of the start, and the average age stays 22–28.
+  - **A failed player year** (no youth can be generated) changes nothing, keeps its task and, retried, equals a world where it never failed.
+  - **The manager** sees ages in the squad, one development summary, and a retirement and youth message per retiree of their own.
+  - **Invalid saves:** 10 lifecycle states are rejected, and a different development or youth version is `ErrIncompatibleSave`.
+- **Existing tests adjusted to the lifecycle:**
+  - contract-year tests take their "before" state after the player year;
+  - the registry may only grow, with earlier identities unchanged;
+  - profiles keep their positions;
+  - there is one more queued task.
+- **Deliberate-bug checks,** each caught:
+  - youth at the wrong position;
+  - retirees keeping condition records;
+  - retired players counted as free agents;
+  - free agents never forced to retire (caught after adding the free-agent check above);
+  - youth contracts one year short;
+  - `validateLifecycle` removed;
+  - lifecycle event checks removed.
+- **CLI:**
+  - the contract flow with the new ages, abilities and demands;
+  - the development summary, a retirement and its youth replacement in `cmd/play`;
+  - the retired count in `cmd/simulate`.
+
+### Limitations
+
+- **No potential.** Every player follows the same age curve plus noise. Youth quality depends only on the intake draw, and there are no late bloomers beyond their yearly form.
+- **The generated world ignores age,** so early seasons have unusually strong youngsters and old players who decline from a high level.
+- **Development is yearly and ignores playing time,** training and condition. The architecture's monthly rule and exposure-driven growth are later work.
+- **Youth intake only replaces retirees.** A club never gets extra youth, and there are no youth or reserve teams: youth players join the senior squad at once.
+- **Retired players stay in the registry forever** (about 10 a year), with their profiles, which grows the save slowly.
+- **AI signings still take the best overall regardless of age.**
+
+## Next task: transfers between clubs with fees
+
+Let players move between clubs during the contract year, for a fee, as the architecture's boundary example describes. Now that abilities change, a club may want another club's player.
+- **Transfers module.** Offers, responses and agreements as durable workflow state. Start with fixed-price bids that are accepted or rejected, with completion on acceptance.
+- **Completion as one unit of work.**
+  - employment ends the old contract and starts the new one;
+  - finance posts the fee to both ledgers (a new entry kind);
+  - `TransferCompleted` is emitted;
+  - all or nothing, revalidated at completion.
+- **Manager commands.** Bid for another club's player; respond to AI bids for your players. The AI bids for weak positions within its balance and accepts offers above a valuation based on overall, age and contract length.
+- **Windows.** Transfers only within a window (half-open intervals), for example around the contract-year end.
 - **Proofs.**
-  - Development is deterministic and chunking-independent.
-  - New IDs continue the allocator and survive save/load.
-  - Retired players never play or sign again.
-  - Squads stay legal every year.
+  - Money is conserved across both ledgers.
+  - A player is never at two clubs.
+  - Squads stay within the roster limits.
+  - Retries and saves never complete a transfer twice.
 
 Other open candidates:
 - AI in-match decisions (the opponent reacting at half time);
 - auto-resolving batches without user fixtures;
 - inbox read state;
-- transfers between clubs with fees;
-- the AI using money.
+- the AI using money for renewals and signings;
+- player potential and exposure-driven development.

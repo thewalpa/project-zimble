@@ -47,6 +47,8 @@ type Versions struct {
 	Selection     int    // ai.SelectionVersion (future lineups)
 	Medical       int    // medical.Version (condition loss and recovery)
 	Contracts     int    // ai.ContractsVersion (renewals and signings)
+	Development   int    // players.DevelopmentVersion (development and retirement)
+	Youth         int    // worldgen.YouthVersion (youth players joining clubs)
 	EngineID      string // match engine built by the composition root
 	EngineVersion uint32
 }
@@ -120,7 +122,8 @@ func currentVersions(engine matches.Engine) Versions {
 	return Versions{
 		Generator: worldgen.Version, Content: content.Version, League: content.LeagueVersion,
 		Random: random.Version, Schedule: competitions.ScheduleVersion, Selection: ai.SelectionVersion,
-		Medical: medical.Version, Contracts: ai.ContractsVersion, EngineID: engine.ID(), EngineVersion: engine.Version(),
+		Medical: medical.Version, Contracts: ai.ContractsVersion, Development: players.DevelopmentVersion,
+		Youth: worldgen.YouthVersion, EngineID: engine.ID(), EngineVersion: engine.Version(),
 	}
 }
 
@@ -155,7 +158,8 @@ func (w *World) Snapshot() WorldSnapshot {
 		Versions: Versions{
 			Generator: w.generatorVersion, Content: w.contentVersion, League: w.leagueVersion,
 			Random: w.randomVersion, Schedule: w.scheduleVersion, Selection: w.selectionVersion,
-			Medical: w.medicalVersion, Contracts: w.contractsVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
+			Medical: w.medicalVersion, Contracts: w.contractsVersion, Development: w.developmentVersion,
+			Youth: w.youthVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
 		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs()),
@@ -272,35 +276,37 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	}
 
 	w := &World{
-		seed:             snap.Seed,
-		generatorVersion: snap.Versions.Generator,
-		randomVersion:    snap.Versions.Random,
-		contentVersion:   snap.Versions.Content,
-		leagueVersion:    snap.Versions.League,
-		scheduleVersion:  snap.Versions.Schedule,
-		selectionVersion: snap.Versions.Selection,
-		medicalVersion:   snap.Versions.Medical,
-		contractsVersion: snap.Versions.Contracts,
-		fingerprint:      snap.WorldFingerprint,
-		defs:             defs,
-		calendar:         calendar,
-		engine:           engine,
-		userClub:         snap.UserClub,
-		revision:         snap.Revision,
-		journal:          events.CloneAll(snap.Events),
-		lastEvent:        snap.LastEvent,
-		commands:         map[CommandID]commandRecord{},
-		scheduler:        scheduler,
-		payloads:         map[sim.PayloadID]competitions.RoundRef{},
-		seasonEnds:       map[sim.PayloadID]competitions.SeasonRef{},
-		lastPayload:      snap.LastPayload,
-		registry:         reg,
-		players:          pl,
-		employment:       emp,
-		medical:          med,
-		finance:          fin,
-		competitions:     comps,
-		selections:       selections,
+		seed:               snap.Seed,
+		generatorVersion:   snap.Versions.Generator,
+		randomVersion:      snap.Versions.Random,
+		contentVersion:     snap.Versions.Content,
+		leagueVersion:      snap.Versions.League,
+		scheduleVersion:    snap.Versions.Schedule,
+		selectionVersion:   snap.Versions.Selection,
+		medicalVersion:     snap.Versions.Medical,
+		contractsVersion:   snap.Versions.Contracts,
+		developmentVersion: snap.Versions.Development,
+		youthVersion:       snap.Versions.Youth,
+		fingerprint:        snap.WorldFingerprint,
+		defs:               defs,
+		calendar:           calendar,
+		engine:             engine,
+		userClub:           snap.UserClub,
+		revision:           snap.Revision,
+		journal:            events.CloneAll(snap.Events),
+		lastEvent:          snap.LastEvent,
+		commands:           map[CommandID]commandRecord{},
+		scheduler:          scheduler,
+		payloads:           map[sim.PayloadID]competitions.RoundRef{},
+		seasonEnds:         map[sim.PayloadID]competitions.SeasonRef{},
+		lastPayload:        snap.LastPayload,
+		registry:           reg,
+		players:            pl,
+		employment:         emp,
+		medical:            med,
+		finance:            fin,
+		competitions:       comps,
+		selections:         selections,
 	}
 
 	for i, l := range snap.Leagues {
@@ -418,6 +424,8 @@ func checkVersions(saved, current Versions) error {
 		{"AI selection", saved.Selection, current.Selection},
 		{"medical", saved.Medical, current.Medical},
 		{"AI contracts", saved.Contracts, current.Contracts},
+		{"development", saved.Development, current.Development},
+		{"youth", saved.Youth, current.Youth},
 		{"match engine", saved.EngineID, current.EngineID},
 		{"match engine version", saved.EngineVersion, current.EngineVersion},
 	} {

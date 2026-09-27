@@ -137,8 +137,8 @@ func (w *World) squadCounts(team ids.TeamID) map[players.Position]int {
 // contractYear handles the contract-year end at `at`:
 //
 //  1. Every contract ending at `at` is decided. An AI club renews the
-//     player when ai.Renew accepts them against the squad's average overall,
-//     on aiOffer terms; otherwise, and for every user-club player the manager
+//     player when ai.Renew accepts them, by their age at `at`, against the
+//     squad's average overall, on aiOffer terms; otherwise, and for every user-club player the manager
 //     did not renew, the contract expires and the player becomes a free
 //     agent.
 //  2. Clubs sign free agents (everyone unemployed, including those who just
@@ -177,7 +177,11 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 			a, _ := w.employment.Assignment(id)
 			p, _ := w.players.Profile(id)
 			if a.Contract.Expires == at {
-				if c.ID == w.userClub || !ai.Renew(p.Overall(), average) {
+				age, err := w.age(id, at)
+				if err != nil {
+					return err
+				}
+				if c.ID == w.userClub || !ai.Renew(p.Overall(), average, age) {
 					changes.Departures = append(changes.Departures, id)
 					pool = append(pool, ai.FreeAgent{Player: id, Role: roleOf(p.Position), Overall: p.Overall(), ReleasedBy: c.ID})
 					continue
@@ -276,17 +280,27 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 	return nil
 }
 
-// freeAgentPool lists every registered player without an employer.
+// freeAgentPool lists every active player without an employer.
 func (w *World) freeAgentPool() []ai.FreeAgent {
 	var out []ai.FreeAgent
-	for _, p := range w.registry.Players() {
-		if _, employed := w.employment.Assignment(p.ID); employed {
+	for _, id := range w.activePlayers() {
+		if _, employed := w.employment.Assignment(id); employed {
 			continue
 		}
-		profile, _ := w.players.Profile(p.ID)
-		out = append(out, ai.FreeAgent{Player: p.ID, Role: roleOf(profile.Position), Overall: profile.Overall()})
+		profile, _ := w.players.Profile(id)
+		out = append(out, ai.FreeAgent{Player: id, Role: roleOf(profile.Position), Overall: profile.Overall()})
 	}
 	return out
+}
+
+// checkFreeAgent reports whether a player is an active player without a
+// club.
+func (w *World) checkFreeAgent(player ids.PlayerID) error {
+	p, ok := w.players.Profile(player)
+	if _, employed := w.employment.Assignment(player); !ok || p.Retired || employed {
+		return fmt.Errorf("%w: player %d is unknown, retired or employed", ErrNotFreeAgent, player)
+	}
+	return nil
 }
 
 // RenewContract offers one of the user club's players, whose contract ends
@@ -419,11 +433,8 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 	if _, pending := w.pendingRounds(); pending {
 		return PlayerSigned{}, ErrSquadsLocked
 	}
-	if _, ok := w.registry.Player(cmd.Player); !ok {
-		return PlayerSigned{}, fmt.Errorf("%w: player %d is unknown", ErrNotFreeAgent, cmd.Player)
-	}
-	if _, employed := w.employment.Assignment(cmd.Player); employed {
-		return PlayerSigned{}, fmt.Errorf("%w: player %d", ErrNotFreeAgent, cmd.Player)
+	if err := w.checkFreeAgent(cmd.Player); err != nil {
+		return PlayerSigned{}, err
 	}
 	team, _ := w.userTeam()
 	p, _ := w.players.Profile(cmd.Player)
@@ -478,8 +489,8 @@ func (w *World) SuggestContract(player ids.PlayerID) (ContractOffer, error) {
 	a, employed := w.employment.Assignment(player)
 	switch {
 	case !employed:
-		if _, ok := w.registry.Player(player); !ok {
-			return ContractOffer{}, fmt.Errorf("%w: player %d is unknown", ErrNotFreeAgent, player)
+		if err := w.checkFreeAgent(player); err != nil {
+			return ContractOffer{}, err
 		}
 		return w.aiOffer(player, year-1) // the contract year under way
 	case a.Club != w.userClub:
@@ -490,8 +501,8 @@ func (w *World) SuggestContract(player ids.PlayerID) (ContractOffer, error) {
 	return w.aiOffer(player, year)
 }
 
-// FreeAgents returns every unemployed player in ascending ID order, with a
-// zero contract. Read-only.
+// FreeAgents returns every active player without a club in ascending ID
+// order, with a zero contract. Read-only.
 func (w *World) FreeAgents() []SquadPlayer {
 	var out []SquadPlayer
 	for _, a := range w.freeAgentPool() {
@@ -591,9 +602,11 @@ func (w *World) checkPlayerEvent(player ids.PlayerID, club ids.ClubID, team ids.
 
 // restoreContractCommand validates a recorded RenewContract or SignPlayer:
 // a fresh ID, a result within the revision range for the same player, an
-// offer within the rules and a contract matching it that ends at a
-// contract-year end. Later changes may have replaced the contract, so it is
-// not compared with the current one.
+// offer of an allowed length with a positive wage, and a contract matching
+// it that ends at a contract-year end. Later changes may have replaced the
+// contract, so it is not compared with the current one; and development may
+// have changed the player's demand since, so the wage is not compared with
+// it.
 func (w *World) restoreContractCommand(id CommandID, expected Revision, player ids.PlayerID, offer ContractOffer, resID CommandID, resRevision Revision, resPlayer ids.PlayerID, contract employment.Contract, revision Revision) error {
 	if err := w.checkRecordID(id, resID); err != nil {
 		return err
@@ -604,8 +617,11 @@ func (w *World) restoreContractCommand(id CommandID, expected Revision, player i
 	if w.userClub == 0 || resPlayer != player {
 		return fmt.Errorf("result for player %d, request for %d, user club %d", resPlayer, player, w.userClub)
 	}
-	if err := w.checkOffer(player, offer); err != nil {
-		return err
+	if e := w.defs.Economy; offer.Years < e.ContractYears[0] || offer.Years > e.ContractYears[1] || offer.WeeklyWage <= 0 {
+		return fmt.Errorf("offer %+v is outside the contract rules", offer)
+	}
+	if _, ok := w.registry.Player(player); !ok {
+		return fmt.Errorf("unknown player %d", player)
 	}
 	if contract.WeeklyWage != offer.WeeklyWage || !w.isContractYearEnd(contract.Expires) {
 		return fmt.Errorf("contract %+v does not match offer %+v", contract, offer)

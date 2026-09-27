@@ -264,6 +264,20 @@ func printInbox(out io.Writer, w *app.World, n int) error {
 			fmt.Fprintln(out)
 		case inbox.KindSeasonStarted:
 			fmt.Fprintf(out, "%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
+		case inbox.KindRenewed:
+			fmt.Fprintf(out, "renewed: player %d %s until %s at %s a week\n", m.Player, m.PlayerName, cal.Format(m.Expires), m.WeeklyWage)
+		case inbox.KindPlayerLeft:
+			fmt.Fprintf(out, "left: player %d %s, contract expired\n", m.Player, m.PlayerName)
+		case inbox.KindPlayerJoined:
+			fmt.Fprintf(out, "signed: player %d %s until %s at %s a week\n", m.Player, m.PlayerName, cal.Format(m.Expires), m.WeeklyWage)
+		case inbox.KindRetired:
+			fmt.Fprintf(out, "retired: player %d %s at %d\n", m.Player, m.PlayerName, m.Age)
+		case inbox.KindYouthJoined:
+			fmt.Fprintf(out, "youth: player %d %s until %s at %s a week\n", m.Player, m.PlayerName, cal.Format(m.Expires), m.WeeklyWage)
+		case inbox.KindDeveloped:
+			fmt.Fprintf(out, "development: %d improved, %d declined\n", m.Improved, m.Declined)
+		default:
+			fmt.Fprintf(out, "message kind %d\n", m.Kind)
 		}
 	}
 	return nil
@@ -277,9 +291,9 @@ func printSquad(out io.Writer, w *app.World) error {
 	}
 	squad, _ := w.Squad(club)
 	fmt.Fprintf(out, "\nSquad (condition: 100%% is fully fit)\n")
-	fmt.Fprintf(out, "%4s  %-3s %-24s %5s %6s\n", "ID", "POS", "NAME", "OVR", "COND")
+	fmt.Fprintf(out, "%4s  %-3s %-24s %3s %5s %6s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND")
 	for _, p := range squad {
-		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %5d %5d%%\n", p.Player, p.Position, p.Name,
+		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %3d %5d %5d%%\n", p.Player, p.Position, p.Name, p.Age,
 			p.Overall, p.Condition)
 		if err != nil {
 			return err
@@ -292,7 +306,7 @@ func printSummary(out io.Writer, s app.Summary) error {
 	fmt.Fprintf(out, "world seed=%d generator=v%d random=v%d content=v%d\n",
 		s.Seed, s.GeneratorVersion, s.RandomVersion, s.ContentVersion)
 	fmt.Fprintf(out, "fingerprint %s\n", s.Fingerprint)
-	fmt.Fprintf(out, "clubs=%d teams=%d players=%d free agents=%d\n\n", s.Clubs, s.Teams, s.Players, s.FreeAgents)
+	fmt.Fprintf(out, "clubs=%d teams=%d players=%d free agents=%d retired=%d\n\n", s.Clubs, s.Teams, s.Players, s.FreeAgents, s.Retired)
 
 	fmt.Fprintf(out, "%2s  %-3s  %-22s %4s %7s", "ID", "ABB", "CLUB", "TEAM", "PLAYERS")
 	for _, p := range players.Positions() {

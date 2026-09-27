@@ -22,20 +22,26 @@ const MaxMessages = 200
 type Kind uint8
 
 const (
-	KindMatchday      Kind = 1 // the team's round kicked off; a lineup may be submitted
-	KindResult        Kind = 2 // the team's match result
-	KindSeasonEnded   Kind = 3 // a league season finished, with its champion
-	KindSeasonStarted Kind = 4 // a league season was scheduled
-	KindRenewed       Kind = 5 // one of the team's players signed a new contract
-	KindPlayerLeft    Kind = 6 // one of the team's players left as a free agent
-	KindPlayerJoined  Kind = 7 // the team signed a free agent
+	KindMatchday      Kind = 1  // the team's round kicked off; a lineup may be submitted
+	KindResult        Kind = 2  // the team's match result
+	KindSeasonEnded   Kind = 3  // a league season finished, with its champion
+	KindSeasonStarted Kind = 4  // a league season was scheduled
+	KindRenewed       Kind = 5  // one of the team's players signed a new contract
+	KindPlayerLeft    Kind = 6  // one of the team's players left as a free agent
+	KindPlayerJoined  Kind = 7  // the team signed a free agent
+	KindRetired       Kind = 8  // one of the team's players retired
+	KindYouthJoined   Kind = 9  // a youth player joined the team
+	KindDeveloped     Kind = 10 // the yearly development of the team's players
 )
 
-func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindPlayerJoined }
+func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindDeveloped }
 
 // competition reports whether messages of this kind belong to a league
 // season; the others are about the team's players.
 func (k Kind) competition() bool { return k <= KindSeasonStarted }
+
+// aboutPlayer reports whether messages of this kind name one player.
+func (k Kind) aboutPlayer() bool { return !k.competition() && k != KindDeveloped }
 
 // Message is one inbox entry, derived from exactly one event, which is its
 // identity. Fields not used by a Kind are zero.
@@ -56,6 +62,9 @@ type Message struct {
 	Player      ids.PlayerID    // renewed, left, joined
 	Expires     sim.GameInstant // renewed, joined: the contract's end
 	WeeklyWage  money.Money     // renewed, joined
+	Age         uint8           // retired
+	Improved    int             // developed: players whose overall rose
+	Declined    int             // developed: players whose overall fell
 }
 
 // Snapshot is the inbox's persisted state.
@@ -85,8 +94,8 @@ func New(team ids.TeamID, snap Snapshot) (*Inbox, error) {
 			return nil, fmt.Errorf("inbox: message for event %d out of order or after offset %d", m.Event, snap.Offset)
 		case !m.Kind.Valid() || (m.Kind.competition() && (!m.Competition.Valid() || m.Season == 0)):
 			return nil, fmt.Errorf("inbox: message %+v is invalid", m)
-		case !m.Kind.competition() && (team == 0 || !m.Player.Valid()):
-			return nil, fmt.Errorf("inbox: player message %+v without a team or player", m)
+		case !m.Kind.competition() && (team == 0 || m.Kind.aboutPlayer() != m.Player.Valid()):
+			return nil, fmt.Errorf("inbox: player message %+v without a team, or with the wrong player", m)
 		case (m.Kind == KindMatchday || m.Kind == KindResult) && (team == 0 || !m.Fixture.Valid() || !m.Opponent.Valid()):
 			return nil, fmt.Errorf("inbox: match message %+v without a team, fixture or opponent", m)
 		}
@@ -183,6 +192,32 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 			m.Kind, m.Player, m.Expires, m.WeeklyWage = KindPlayerJoined, p.Player, p.Expires, p.WeeklyWage
 			return m, true
 		}
+	case events.KindPlayerRetired:
+		if p := e.PlayerRetired; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Age = KindRetired, p.Player, p.Age
+			return m, true
+		}
+	case events.KindYouthJoined:
+		if p := e.YouthJoined; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Expires, m.WeeklyWage = KindYouthJoined, p.Player, p.Expires, p.WeeklyWage
+			return m, true
+		}
+	case events.KindPlayersDeveloped:
+		m.Kind = KindDeveloped
+		found := false
+		for _, d := range e.PlayersDeveloped.Players {
+			if b.team == 0 || d.Team != b.team {
+				continue
+			}
+			found = true
+			switch {
+			case d.After > d.Before:
+				m.Improved++
+			case d.After < d.Before:
+				m.Declined++
+			}
+		}
+		return m, found
 	}
 	return Message{}, false
 }

@@ -62,16 +62,22 @@ func squadAverage(w *World, club ids.ClubID) int {
 	return (2*total + len(squad)) / (2 * len(squad))
 }
 
-// assertEveryPlayerOnce checks that the registry is unchanged and every
-// player is either employed or a free agent, exactly once.
+// assertEveryPlayerOnce checks that the registry kept every earlier player
+// and only added new IDs after them, and that every active player is either
+// employed or a free agent, exactly once, and no retired player is either.
 func assertEveryPlayerOnce(t *testing.T, w *World, registry []ids.PlayerID) {
 	t.Helper()
 	var current []ids.PlayerID
 	for _, p := range w.registry.Players() {
 		current = append(current, p.ID)
 	}
-	if !slices.Equal(current, registry) {
-		t.Fatal("the registry changed: players were added, removed or renumbered")
+	if len(current) < len(registry) || !slices.Equal(current[:len(registry)], registry) {
+		t.Fatal("the registry removed or renumbered players")
+	}
+	for i, id := range current {
+		if id != ids.PlayerID(i+1) {
+			t.Fatalf("player IDs are not allocated in sequence: %d at %d", id, i)
+		}
 	}
 	seen := map[ids.PlayerID]int{}
 	for _, a := range w.employment.Assignments() {
@@ -80,13 +86,11 @@ func assertEveryPlayerOnce(t *testing.T, w *World, registry []ids.PlayerID) {
 	for _, p := range w.FreeAgents() {
 		seen[p.Player]++
 	}
-	for _, id := range registry {
-		if seen[id] != 1 {
-			t.Fatalf("player %d is employed or free %d times", id, seen[id])
+	for _, id := range current {
+		p, _ := w.players.Profile(id)
+		if want := map[bool]int{true: 0, false: 1}[p.Retired]; seen[id] != want {
+			t.Fatalf("player %d (retired %t) is employed or free %d times", id, p.Retired, seen[id])
 		}
-	}
-	if len(seen) != len(registry) {
-		t.Fatal("an unregistered player is employed or free")
 	}
 }
 
@@ -97,6 +101,7 @@ func TestContractYearRenewsReleasesAndSigns(t *testing.T) {
 	w := newWorld(t, 42)
 	playSeason(t, w)
 	end := w.ContractYearEnd()
+	mustContinue(t, w, end-day) // the player year
 	year, _ := w.yearOf(end)
 	var registry []ids.PlayerID
 	for _, p := range w.registry.Players() {
@@ -128,7 +133,8 @@ func TestContractYearRenewsReleasesAndSigns(t *testing.T) {
 			continue
 		}
 		p, _ := w.players.Profile(id)
-		if ai.Renew(p.Overall(), averages[old.Club]) {
+		age, _ := w.age(id, end)
+		if ai.Renew(p.Overall(), averages[old.Club], age) {
 			renewed++
 			offer, _ := w.aiOffer(id, year)
 			want, _ := w.addYears(end, offer.Years)
@@ -229,6 +235,7 @@ func TestContractYearsOverSeveralSeasons(t *testing.T) {
 func TestUserContractDecisions(t *testing.T) {
 	w := userWorld(t, 42, userClub)
 	playSeason(t, w)
+	mustContinue(t, w, w.ContractYearEnd()-day) // after the player year, as the CLI stops
 	final := finalYear(t, w, userClub)
 	if len(final) < 3 {
 		t.Fatalf("only %d final-year players", len(final))
@@ -263,7 +270,7 @@ func TestUserContractDecisions(t *testing.T) {
 	}
 	msgs := map[inbox.Kind][]ids.PlayerID{}
 	for _, m := range w.Inbox() {
-		if m.Kind >= inbox.KindRenewed {
+		if m.Kind >= inbox.KindRenewed && m.Kind <= inbox.KindPlayerJoined && m.At >= end-day {
 			msgs[m.Kind] = append(msgs[m.Kind], m.Player)
 			if m.PlayerName == "" {
 				t.Fatalf("message %+v has no player name", m)
@@ -316,12 +323,14 @@ func TestRenewedContractIsPaidFromTheNextWeek(t *testing.T) {
 }
 
 // The manager's defaults are the AI's decisions: a club-3 player the AI
-// renews in a world without a user club gets exactly the suggested terms.
+// renews in a world without a user club gets exactly the suggested terms,
+// asked for after the player year (the eve of the contract-year end).
 func TestSuggestedTermsAreTheAIDecision(t *testing.T) {
 	plain, managed := newWorld(t, 42), userWorld(t, 42, userClub)
 	playSeason(t, plain)
 	playSeason(t, managed)
 	end := managed.ContractYearEnd()
+	mustContinue(t, managed, end-sim.GameInstant(sim.Day))
 	average := squadAverage(managed, userClub)
 	suggested := map[ids.PlayerID]ContractOffer{}
 	for _, p := range finalYear(t, managed, userClub) {
@@ -331,7 +340,8 @@ func TestSuggestedTermsAreTheAIDecision(t *testing.T) {
 	checked := 0
 	for id, offer := range suggested {
 		p, _ := plain.players.Profile(id)
-		if !ai.Renew(p.Overall(), average) {
+		age, _ := plain.age(id, end)
+		if !ai.Renew(p.Overall(), average, age) {
 			continue
 		}
 		a, _ := plain.employment.Assignment(id)

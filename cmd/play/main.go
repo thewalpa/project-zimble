@@ -415,14 +415,15 @@ func (s *session) squad() {
 		}
 	}
 	cal := s.w.Calendar()
-	s.printf("\n%4s  %-3s %-24s %5s %5s %12s %8s  %s\n", "ID", "POS", "NAME", "OVR", "COND", "WAGE/WEEK", "CONTRACT", "PICK")
+	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s %8s  %s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "WAGE/WEEK", "CONTRACT", "PICK")
 	for _, p := range players {
 		ends, _ := cal.Civil(p.Contract.Expires)
-		s.printf("%4d  %-3s %-24s %5d %5s %12s %8s  %s\n", p.Player, p.Position, p.Name,
+		s.printf("%4d  %-3s %-24s %3d %5d %5s %12s %8s  %s\n", p.Player, p.Position, p.Name, p.Age,
 			p.Overall, condition(p.Condition), p.Contract.WeeklyWage, fmt.Sprintf("to %d", ends.Year), marks[p.Player])
 	}
 	s.printf("Ratings are 1-100. COND is fitness (100%% = fully fit). Contracts end on %s of the year shown.\n",
 		monthDay(cal.Epoch()))
+	s.printf("Every year on the eve of that date, young players improve, older ones decline, and some retire.\n")
 	s.printf("Lineup shows each player's attributes.\n")
 }
 
@@ -527,6 +528,12 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("contract: %s left the club as a free agent\n", m.PlayerName)
 	case inbox.KindPlayerJoined:
 		s.printf("signing: %s joined until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
+	case inbox.KindRetired:
+		s.printf("retirement: %s retired at %d\n", m.PlayerName, m.Age)
+	case inbox.KindYouthJoined:
+		s.printf("youth: %s joined from the youth ranks until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
+	case inbox.KindDeveloped:
+		s.printf("development: %d of your players improved and %d declined over the year (type squad)\n", m.Improved, m.Declined)
 	}
 }
 

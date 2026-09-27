@@ -106,7 +106,8 @@ type Rest struct {
 // Plan is a validated set of new conditions. It is applied with Apply.
 type Plan struct {
 	generation uint64
-	rows       []Record // ascending player; only changed players
+	rows       []Record // ascending player; only changed players, or every player if replace
+	replace    bool     // rows is the complete new record set (PlanRoster)
 }
 
 // Changes returns the planned conditions, ascending by player.
@@ -206,12 +207,49 @@ func (s *Store) PlanRecovery(rest []Rest) (Plan, error) {
 	return plan, nil
 }
 
+// PlanRoster adds records for new players, fully fit, and removes the
+// records of players who leave the game (retire). New players must be
+// unknown, departing ones known; each appears once.
+func (s *Store) PlanRoster(admit, discharge []ids.PlayerID) (Plan, error) {
+	gone := map[ids.PlayerID]bool{}
+	for _, id := range discharge {
+		if _, ok := s.index(id); !ok || gone[id] {
+			return Plan{}, fmt.Errorf("medical: cannot discharge player %d: unknown or listed twice", id)
+		}
+		gone[id] = true
+	}
+	var rows []Record
+	for _, r := range s.rows {
+		if !gone[r.Player] {
+			rows = append(rows, r)
+		}
+	}
+	for _, id := range admit {
+		if _, known := s.index(id); known || !id.Valid() {
+			return Plan{}, fmt.Errorf("medical: cannot admit player %d: invalid or already known", id)
+		}
+		rows = append(rows, Record{Player: id, Condition: MaxCondition})
+	}
+	slices.SortFunc(rows, func(a, b Record) int { return cmp.Compare(a.Player, b.Player) })
+	for i := 1; i < len(rows); i++ {
+		if rows[i].Player == rows[i-1].Player {
+			return Plan{}, fmt.Errorf("medical: player %d admitted twice", rows[i].Player)
+		}
+	}
+	return Plan{generation: s.generation, rows: rows, replace: true}, nil
+}
+
 // Apply commits a plan made from the store's current state. It fails only
 // with ErrStalePlan, if the store changed after the plan was made; then
 // nothing changes.
 func (s *Store) Apply(p Plan) error {
 	if p.generation != s.generation {
 		return fmt.Errorf("%w: made at generation %d, store at %d", ErrStalePlan, p.generation, s.generation)
+	}
+	if p.replace {
+		s.rows = slices.Clone(p.rows)
+		s.generation++
+		return nil
 	}
 	for _, r := range p.rows {
 		i, _ := s.index(r.Player) // plans only hold known players

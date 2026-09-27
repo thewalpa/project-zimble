@@ -189,3 +189,42 @@ func TestRoundingOfWholePoints(t *testing.T) {
 		}
 	}
 }
+
+// New players join fully fit; departing players' records go; the rest keep
+// their condition.
+func TestRosterAdmitsAndDischarges(t *testing.T) {
+	s := store(t, 60, 70, 80)
+	plan, err := s.PlanRoster([]ids.PlayerID{5, 4}, []ids.PlayerID{2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Records()) != 3 {
+		t.Fatal("planning changed the store")
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	want := []Record{{1, 60}, {3, 80}, {4, MaxCondition}, {5, MaxCondition}}
+	if got := s.Records(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("records %v, want %v", got, want)
+	}
+	for name, c := range map[string][2][]ids.PlayerID{
+		"admit known":       {{1}, nil},
+		"admit zero":        {{0}, nil},
+		"admit twice":       {{6, 6}, nil},
+		"discharge unknown": {nil, {2}},
+		"discharge twice":   {nil, {1, 1}},
+	} {
+		if _, err := s.PlanRoster(c[0], c[1]); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	stale, _ := s.PlanRoster(nil, []ids.PlayerID{1})
+	next, _ := s.PlanRoster([]ids.PlayerID{6}, nil)
+	if err := s.Apply(next); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(stale); !errors.Is(err, ErrStalePlan) {
+		t.Fatalf("stale roster plan: %v", err)
+	}
+}

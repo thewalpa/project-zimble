@@ -27,15 +27,18 @@ type ID uint64
 type Kind uint16
 
 const (
-	KindRoundStarted    Kind = 1
-	KindMatchCompleted  Kind = 2
-	KindLineupSubmitted Kind = 3
-	KindSeasonEnded     Kind = 4
-	KindSeasonStarted   Kind = 5
-	KindLedgerPosted    Kind = 6
-	KindContractRenewed Kind = 7
-	KindContractExpired Kind = 8
-	KindPlayerSigned    Kind = 9
+	KindRoundStarted     Kind = 1
+	KindMatchCompleted   Kind = 2
+	KindLineupSubmitted  Kind = 3
+	KindSeasonEnded      Kind = 4
+	KindSeasonStarted    Kind = 5
+	KindLedgerPosted     Kind = 6
+	KindContractRenewed  Kind = 7
+	KindContractExpired  Kind = 8
+	KindPlayerSigned     Kind = 9
+	KindPlayerRetired    Kind = 10
+	KindYouthJoined      Kind = 11
+	KindPlayersDeveloped Kind = 12
 )
 
 func (k Kind) String() string {
@@ -58,6 +61,12 @@ func (k Kind) String() string {
 		return "contract expired"
 	case KindPlayerSigned:
 		return "player signed"
+	case KindPlayerRetired:
+		return "player retired"
+	case KindYouthJoined:
+		return "youth joined"
+	case KindPlayersDeveloped:
+		return "players developed"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -168,6 +177,40 @@ type PlayerSigned struct {
 	WeeklyWage money.Money
 }
 
+// PlayerRetired: a player retired at Age (whole years). Club and Team are
+// the employer they left; both zero for a free agent.
+type PlayerRetired struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+	Age    uint8
+}
+
+// YouthJoined: a new player joined a club's Team from its youth ranks, on a
+// contract ending at Expires (exclusive).
+type YouthJoined struct {
+	Player     ids.PlayerID
+	Club       ids.ClubID
+	Team       ids.TeamID
+	Expires    sim.GameInstant
+	WeeklyWage money.Money
+}
+
+// Development is one player's overall (1..100) before and after a yearly
+// development. Team is their team then, zero for a free agent.
+type Development struct {
+	Player ids.PlayerID
+	Team   ids.TeamID
+	Before uint8
+	After  uint8
+}
+
+// PlayersDeveloped: the yearly development changed every active player's
+// attributes. Players is ascending by player.
+type PlayersDeveloped struct {
+	Players []Development
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -180,15 +223,18 @@ type Event struct {
 	Kind          Kind
 	SchemaVersion uint16
 
-	RoundStarted    *RoundStarted    `json:",omitempty"`
-	MatchCompleted  *MatchCompleted  `json:",omitempty"`
-	LineupSubmitted *LineupSubmitted `json:",omitempty"`
-	SeasonEnded     *SeasonEnded     `json:",omitempty"`
-	SeasonStarted   *SeasonStarted   `json:",omitempty"`
-	LedgerPosted    *LedgerPosted    `json:",omitempty"`
-	ContractRenewed *ContractRenewed `json:",omitempty"`
-	ContractExpired *ContractExpired `json:",omitempty"`
-	PlayerSigned    *PlayerSigned    `json:",omitempty"`
+	RoundStarted     *RoundStarted     `json:",omitempty"`
+	MatchCompleted   *MatchCompleted   `json:",omitempty"`
+	LineupSubmitted  *LineupSubmitted  `json:",omitempty"`
+	SeasonEnded      *SeasonEnded      `json:",omitempty"`
+	SeasonStarted    *SeasonStarted    `json:",omitempty"`
+	LedgerPosted     *LedgerPosted     `json:",omitempty"`
+	ContractRenewed  *ContractRenewed  `json:",omitempty"`
+	ContractExpired  *ContractExpired  `json:",omitempty"`
+	PlayerSigned     *PlayerSigned     `json:",omitempty"`
+	PlayerRetired    *PlayerRetired    `json:",omitempty"`
+	YouthJoined      *YouthJoined      `json:",omitempty"`
+	PlayersDeveloped *PlayersDeveloped `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -207,6 +253,9 @@ func (e Event) payloads() (set int, match bool) {
 		{KindContractRenewed, e.ContractRenewed != nil},
 		{KindContractExpired, e.ContractExpired != nil},
 		{KindPlayerSigned, e.PlayerSigned != nil},
+		{KindPlayerRetired, e.PlayerRetired != nil},
+		{KindYouthJoined, e.YouthJoined != nil},
+		{KindPlayersDeveloped, e.PlayersDeveloped != nil},
 	} {
 		if p.set {
 			set++
@@ -281,6 +330,24 @@ func (e Event) Validate() error {
 		if p := e.PlayerSigned; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Expires <= e.OccurredAt || p.WeeklyWage <= 0 {
 			return fail("invalid payload %+v", p)
 		}
+	case KindPlayerRetired:
+		if p := e.PlayerRetired; !p.Player.Valid() || p.Club.Valid() != p.Team.Valid() {
+			return fail("invalid payload %+v", p)
+		}
+	case KindYouthJoined:
+		if p := e.YouthJoined; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Expires <= e.OccurredAt || p.WeeklyWage <= 0 {
+			return fail("invalid payload %+v", p)
+		}
+	case KindPlayersDeveloped:
+		p := e.PlayersDeveloped
+		if len(p.Players) == 0 {
+			return fail("no developed players")
+		}
+		for i, d := range p.Players {
+			if !d.Player.Valid() || d.Before < 1 || d.Before > 100 || d.After < 1 || d.After > 100 || (i > 0 && d.Player <= p.Players[i-1].Player) {
+				return fail("invalid development %+v", d)
+			}
+		}
 	}
 	return nil
 }
@@ -326,6 +393,19 @@ func (e Event) Clone() Event {
 	if p := e.PlayerSigned; p != nil {
 		c := *p
 		e.PlayerSigned = &c
+	}
+	if p := e.PlayerRetired; p != nil {
+		c := *p
+		e.PlayerRetired = &c
+	}
+	if p := e.YouthJoined; p != nil {
+		c := *p
+		e.YouthJoined = &c
+	}
+	if p := e.PlayersDeveloped; p != nil {
+		c := *p
+		c.Players = slices.Clone(p.Players)
+		e.PlayersDeveloped = &c
 	}
 	return e
 }
