@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 )
@@ -25,9 +26,16 @@ const (
 	KindResult        Kind = 2 // the team's match result
 	KindSeasonEnded   Kind = 3 // a league season finished, with its champion
 	KindSeasonStarted Kind = 4 // a league season was scheduled
+	KindRenewed       Kind = 5 // one of the team's players signed a new contract
+	KindPlayerLeft    Kind = 6 // one of the team's players left as a free agent
+	KindPlayerJoined  Kind = 7 // the team signed a free agent
 )
 
-func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindSeasonStarted }
+func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindPlayerJoined }
+
+// competition reports whether messages of this kind belong to a league
+// season; the others are about the team's players.
+func (k Kind) competition() bool { return k <= KindSeasonStarted }
 
 // Message is one inbox entry, derived from exactly one event, which is its
 // identity. Fields not used by a Kind are zero.
@@ -45,6 +53,9 @@ type Message struct {
 	Champion    ids.TeamID      // season ended
 	Position    int             // season ended: the team's final position, 0 if it did not take part
 	Kickoff     sim.GameInstant // season started: first kickoff
+	Player      ids.PlayerID    // renewed, left, joined
+	Expires     sim.GameInstant // renewed, joined: the contract's end
+	WeeklyWage  money.Money     // renewed, joined
 }
 
 // Snapshot is the inbox's persisted state.
@@ -72,8 +83,10 @@ func New(team ids.TeamID, snap Snapshot) (*Inbox, error) {
 		switch {
 		case m.Event == 0 || m.Event > snap.Offset || (i > 0 && m.Event <= snap.Messages[i-1].Event):
 			return nil, fmt.Errorf("inbox: message for event %d out of order or after offset %d", m.Event, snap.Offset)
-		case !m.Kind.Valid() || !m.Competition.Valid() || m.Season == 0:
+		case !m.Kind.Valid() || (m.Kind.competition() && (!m.Competition.Valid() || m.Season == 0)):
 			return nil, fmt.Errorf("inbox: message %+v is invalid", m)
+		case !m.Kind.competition() && (team == 0 || !m.Player.Valid()):
+			return nil, fmt.Errorf("inbox: player message %+v without a team or player", m)
 		case (m.Kind == KindMatchday || m.Kind == KindResult) && (team == 0 || !m.Fixture.Valid() || !m.Opponent.Valid()):
 			return nil, fmt.Errorf("inbox: match message %+v without a team, fixture or opponent", m)
 		}
@@ -155,6 +168,21 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 		p := e.SeasonStarted
 		m.Kind, m.Competition, m.Season, m.Kickoff = KindSeasonStarted, p.Competition, p.Season, p.FirstKickoff
 		return m, true
+	case events.KindContractRenewed:
+		if p := e.ContractRenewed; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Expires, m.WeeklyWage = KindRenewed, p.Player, p.Expires, p.WeeklyWage
+			return m, true
+		}
+	case events.KindContractExpired:
+		if p := e.ContractExpired; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player = KindPlayerLeft, p.Player
+			return m, true
+		}
+	case events.KindPlayerSigned:
+		if p := e.PlayerSigned; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Expires, m.WeeklyWage = KindPlayerJoined, p.Player, p.Expires, p.WeeklyWage
+			return m, true
+		}
 	}
 	return Message{}, false
 }

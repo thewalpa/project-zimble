@@ -292,7 +292,7 @@ func printSummary(out io.Writer, s app.Summary) error {
 	fmt.Fprintf(out, "world seed=%d generator=v%d random=v%d content=v%d\n",
 		s.Seed, s.GeneratorVersion, s.RandomVersion, s.ContentVersion)
 	fmt.Fprintf(out, "fingerprint %s\n", s.Fingerprint)
-	fmt.Fprintf(out, "clubs=%d teams=%d players=%d\n\n", s.Clubs, s.Teams, s.Players)
+	fmt.Fprintf(out, "clubs=%d teams=%d players=%d free agents=%d\n\n", s.Clubs, s.Teams, s.Players, s.FreeAgents)
 
 	fmt.Fprintf(out, "%2s  %-3s  %-22s %4s %7s", "ID", "ABB", "CLUB", "TEAM", "PLAYERS")
 	for _, p := range players.Positions() {

@@ -88,6 +88,8 @@ type commandRecord struct {
 	lineup   *LineupRecord
 	play     *PlayMatchRecord
 	decision *DecisionRecord
+	renew    *RenewRecord
+	sign     *SignRecord
 }
 
 // plannedMatch is a fixture with its detached, validated match input.

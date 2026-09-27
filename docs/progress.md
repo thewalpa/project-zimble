@@ -1170,25 +1170,129 @@ Sat 2025-11-08 15:00 UTC   gate receipts F54     250,000.00     3,157,980.00
 
 ### Limitations
 
-- **Contracts never expire:** expiry is only shown, and a player past it stays and is still paid. There are no renewals and no free agents.
+- **Contracts never expire:** expiry is only shown, and a player past it stays and is still paid. There are no renewals and no free agents. (Resolved in Milestone 13.)
 - **Income is only gate receipts**, a flat amount per home match. There's no prize money, TV money, sponsorship or attendance model.
 - **Nothing reacts to money:** no board, no budget and no debt consequences. The AI ignores finances.
 - **No inbox messages for money.** The ledger grows by about 60 entries per club per year, and there's no compaction.
 
-## Next task: contract expiry, renewals and free agents
+## Milestone 13: contract expiry, renewals and free agents (done)
 
-Make contracts matter.
-- **Expiry.** An expiry task (Expiries phase, at each contract's end) ends the employment. The player leaves the club and becomes a free agent, which is a new state: `employment` must represent "unemployed". The squad shrinks, AI selection must still produce legal lineups, and `app.Validate` must stop requiring every player to be employed.
-- **Renewals.** Add a `RenewContract` command for the user club (new years and wage, validated against simple rules), and a deterministic AI renewal policy for other clubs and for the user's defaults. Emit events and inbox messages for expiries and renewals.
+Contracts now end. Every 1 July (the contract-year end), each contract ending then is renewed or expires. AI clubs keep their better players and let the weaker ones go, then refill their squads from the free agents. The manager renews players in their final year, signs free agents, and gets a safety net that keeps the squad legal.
+
+```text
+Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).
+> renew 56
+Callum Ibsen signed a new contract until 1 July 2029 at 2,640.00 a week.
+  Wed 2026-07-01 00:00 UTC  contract: Oscar Bellamy left the club as a free agent
+  Wed 2026-07-01 00:00 UTC  signing: Oscar Pereira joined until 1 July 2027 at 1,500.00 a week
+> sign 105 1
+Tomas Costa joined until 1 July 2027 at 1,160.00 a week.
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/content` | `Quota.Min` (GK 2, DF 5, MF 5, FW 3; `Count` is now also the maximum); `Economy.OfferCeilingPct` 200; `Economy.Demand`, `Economy.OfferCeiling`; `Definitions.Quota` | – (generated output unchanged) |
+| `internal/employment` | A player without an assignment is a free agent. `Changes{Renewals, Departures, Signings}` → `Plan` → `Apply` (all-or-nothing, stale plans rejected) | – |
+| `internal/ai` | `contracts.go`: `Renew` (keep if overall ≥ squad average − 3), `ContractLength` (seeded 1–4 years), `Signings` (round-robin allocation of free agents to needs) | `ai.ContractsVersion` 1 (new) |
+| `internal/events` | `ContractRenewed` (7), `ContractExpired` (8), `PlayerSigned` (9) | – |
+| `internal/inbox` | Messages `KindRenewed`, `KindPlayerLeft`, `KindPlayerJoined` for the managed team's players | – |
+| `internal/app` | Task kind `taskContractYear` (5); `RenewContract`, `SignPlayer`, `SuggestContract`, `FreeAgents`, `ContractYearEnd`; `SquadPlayer.Demand`; `Summary.FreeAgents`; `validateContracts`; `Versions.Contracts`; `RenewCommands`, `SignCommands` in saves | save `SchemaVersion` 9 |
+| `cmd/play` | `contracts`, `renew ID [YEARS [WAGE]]`, `free`, `sign ID [YEARS [WAGE]]`; the expiring count in `status`; `continue` stops the day before the contract-year end while players would leave; inbox lines for the new messages | – |
+| `cmd/simulate` | The summary line shows the number of free agents | – |
+
+**Goldens are unchanged.** The first contract year (2026-07-01) comes after the season-1 golden, and the world fingerprint doesn't depend on contracts after creation. Season 2 onward changes, which the new `ai.ContractsVersion` covers.
+
+### Decisions
+
+- **Contract years.** Every contract ends at a contract-year end: 00:00 UTC on the first day of the epoch's month (1 July).
+  - A contract of N years signed during a contract year ends at the Nth contract-year end from then.
+  - A renewal of N years moves the current end N years on.
+  - Generated contracts already followed this rule.
+- **Free agency is the absence of an assignment**, not a new record. The registry keeps every player: player IDs are never removed, reused or added in this milestone. Free agents keep their condition record and recover daily. They are paid nothing.
+- **One yearly task, not one per contract** (kind 5, Expiries phase, no payload). It runs before anything else due at that instant and reschedules itself a year later. Because every contract ends at a contract-year end, one task sees them all, and a renewal never needs to cancel a task.
+  - Invariant: exactly one task is queued, due at the next contract-year end.
+- **The contract-year task is one all-or-nothing change.** It decides every ending contract, then runs the signings, then checks every squad against the minimums. Only then does it plan the whole employment change, queue next year's task and apply. It emits one event per change: renewals, then departures, then signings.
+- **AI renewals:** keep a player whose overall is at least the squad average minus 3 (`ai.RenewalMargin`), measured before anyone leaves.
+  - Terms: `ai.ContractLength` years, drawn from a stream keyed by (seed, player, the calendar year the contract starts), at the player's demand.
+  - Being a pure function of those keys lets `SuggestContract` show the manager exactly what the AI would offer.
+- **Signings** (`ai.Signings`), after departures:
+  - The pool is every free agent. AI clubs want the full roster count per position; the user club only the roster minimum, as a safety net, and the manager signs the rest.
+  - Picks go in rounds, weakest squad first (ties: club ID). Each pick is the best free agent (overall, then ID) for the club's largest need that can still be filled.
+  - A club prefers players it did not just release. Without this, about a quarter of departures were re-signed by the same club ("left" then "joined"). It takes its own back only when nothing else fits, so a need is never left open while the pool can fill it.
+- **Why the minimums always hold.** Each position has 8 × Count players in the world, and no club may hold more than Count. So the pool can always fill every club's needs, and a failure means broken state. `contractYear` still checks and fails cleanly (tested by forcing an impossible minimum).
+- **Manager commands.** Both check the command ID and revision the usual way, need a user club, and apply two rules to the offer:
+  - the length is within `ContractYears` (1–4);
+  - the wage is from the player's demand (the no-variation wage for their overall) up to 200% of it. The ceiling keeps absurd wages, and wage-bill overflow, out.
+  - **`RenewContract`:** only for your own players in their final year. It takes effect at once, so the next weekly run pays the new wage.
+  - **`SignPlayer`:** only for free agents, only while the position is below its roster count, and not while rounds await results. Squads are frozen then, so pending selections and live replays can't change.
+- **Validation** (`validateContracts`):
+  - the minimums allow a legal lineup (at least one goalkeeper, and 11 players);
+  - every senior squad is within [Min, Count] for each position;
+  - players are employed only by their club's senior team;
+  - every contract ends at a contract-year end in [next, next + 4 years];
+  - the contract-year task is queued as described.
+  - Squads matching the roster exactly and every player being employed are now checked only for a generated world (`checkGeneratedSquads`).
+- **Restore** checks renewal and signing records against the rules (fresh ID, revision range, same player, a valid offer, a contract matching it that ends at a contract-year end, and a signing into the user team). It doesn't compare them with the current contract, because later changes may have replaced it.
+- **The CLI** stops `continue` once, the day before the contract-year end, while players in their final year would leave. Nothing slips away unnoticed.
+
+### Verification
+
+- **`employment`:** a combined renewal, departure and signing batch (including re-signing a departed player) applies together and restores; 9 invalid change sets are rejected without change; a stale plan is rejected.
+- **`ai`:**
+  - the renewal threshold;
+  - contract lengths are deterministic, cover 1–4 and depend on the start year;
+  - signings: weakest club first, largest need, role order, best player, the preference for other clubs' releases, an exhausted pool, independence from input order, and 6 invalid inputs.
+- **`events`, `inbox`:** new payload validation and clone cases. Player messages are kept only for the managed team, restore validates them, and an unmanaged inbox keeps none.
+- **App:**
+  - **The contract year:** every ending contract is renewed exactly when `ai.Renew` says so, on `aiOffer` terms. Every other contract is untouched. Events match the changes, AI clubs refill to 20, no free agents remain without a user club, and every player is employed or free exactly once.
+  - **Several contract years**, with a save before the first: identical to never saving. The registry never changes (IDs never reused), and every season plays with legal lineups, including the user's 15-player squad.
+  - **Manager decisions:** renewed players stay, unrenewed ones leave, and the safety net fills exactly to the minimum. The inbox reports each renewal, departure and signing.
+  - **Paid from the next week:** a renewal at the ceiling changes the wage bill at once, and the next weekly run pays it.
+  - **Suggested terms are the AI's decision:** in a world without a user club, club 3's renewals equal the suggestions exactly.
+  - **Retries and saves:** retries (also after a round trip) return the recorded result and change nothing. A reused ID is rejected, and a player can't be signed twice.
+  - **Rejections:** 9 renewal rejections and 3 signing rejections (employed player, full position, rounds pending), none of which change the world.
+  - **A failed contract year** (impossible minimum) changes nothing, keeps the task queued and succeeds when retried.
+  - **Invalid saves:** 11 contract states are rejected on load, and a different `ai.ContractsVersion` is `ErrIncompatibleSave`.
+- **Deliberate-bug checks,** 7, each caught:
+  - renewal years counted from the current year end;
+  - the user filled to the full roster;
+  - a renewal not applied;
+  - retries not recognized;
+  - the task's due time unchecked;
+  - the AI renewing everyone;
+  - the offer ceiling ignored.
+- **CLI:**
+  - the season-to-season flow with the new stop;
+  - `contracts`, and `renew` with default terms;
+  - 5 bad offers or IDs;
+  - the inbox lines after the contract year;
+  - `free`, and signing refused on a matchday then accepted after it.
+
+### Limitations
+
+- **Players never change:** no ages, development or retirement. The same 160 players circulate forever, and a player a club lets go stays equally good.
+- **No transfers between clubs**, no fees and no loans. Players move only as free agents at the contract-year end, or when the manager signs one.
+- **AI clubs ignore money** when renewing and signing, and wages don't depend on the club's finances or the player's form.
+- **The manager can't release a player**, renew outside the final year or negotiate; the player accepts any offer within the rules.
+- **AI clubs' squads are always full after the contract year,** so a free agent at rest is always one that the manager's club let go and the others didn't need.
+
+## Next task: player ages, development and retirement
+
+Give players a lifecycle, so squads change in quality over time and contracts become real decisions.
+- **Ages.** Birth dates generated with each player (a worldgen change: bump `worldgen.Version` and update the goldens deliberately). Ages are shown in the squad and free-agent views.
+- **Development.** A yearly development step, deterministic per (seed, player, year): young players tend to improve and older ones to decline, within the 1–100 scale. It is owned by `players` and driven by an `app` task.
+- **Retirement and youth intake.** Old free agents and some old players retire (they leave employment; their identities stay in the registry). Each club receives youth players with new, never-reused IDs, so the world's player count stays balanced and squads stay within the roster limits.
 - **Proofs.**
-  - Player IDs are never reused.
-  - A renewed contract is paid at its new wage from the next week.
-  - Retries and save/load never renew twice.
-  - A squad that falls below a legal lineup is handled explicitly: minimum squad rules and AI re-signing of free agents.
+  - Development is deterministic and chunking-independent.
+  - New IDs continue the allocator and survive save/load.
+  - Retired players never play or sign again.
+  - Squads stay legal every year.
 
 Other open candidates:
 - AI in-match decisions (the opponent reacting at half time);
 - auto-resolving batches without user fixtures;
 - inbox read state;
-- development and aging;
-- youth intake.
+- transfers between clubs with fees;
+- the AI using money.

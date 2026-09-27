@@ -30,14 +30,14 @@ var allowedImports = map[string][]string{
 	// Events are a contract: typed facts other packages consume.
 	"internal/events": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// The inbox is a read model built only from events.
-	"internal/inbox":        {"internal/core/ids", "internal/core/sim", "internal/events"},
+	"internal/inbox":        {"internal/core/ids", "internal/core/money", "internal/core/sim", "internal/events"},
 	"internal/competitions": {"internal/core/ids", "internal/core/random", "internal/core/sim"},
 	// Match engines depend only on the contract and core; never on app,
 	// the scheduler or module stores.
 	"internal/matches":        {"internal/core/ids", "internal/core/random"},
 	"internal/matches/simple": {"internal/core/ids", "internal/core/random", "internal/matches"},
 	// AI decides from detached match-contract data; it reads no module state.
-	"internal/ai": {"internal/core/ids", "internal/matches"},
+	"internal/ai": {"internal/core/ids", "internal/core/random", "internal/matches"},
 	// Selection stores lineups in the match contract's vocabulary (roles,
 	// tactics) so they reach an engine untranslated; it reads no module.
 	"internal/selection": {"internal/core/ids", "internal/matches"},

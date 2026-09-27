@@ -24,7 +24,13 @@ func valid() []Event {
 	e.SeasonStarted = &SeasonStarted{Competition: 1, Season: 2, FirstKickoff: 100, Entrants: []ids.TeamID{1, 2}}
 	f := env(6, KindLedgerPosted)
 	f.LedgerPosted = &LedgerPosted{Entries: []LedgerEntry{{Entry: 9, Club: 1, Kind: 2, Amount: -500, Balance: 100}, {Entry: 10, Club: 2, Kind: 2, Amount: -700, Balance: -50}}}
-	return []Event{a, b, c, d, e, f}
+	g := env(7, KindContractRenewed)
+	g.ContractRenewed = &ContractRenewed{Player: 5, Club: 1, Team: 1, Expires: 500, WeeklyWage: 100}
+	h := env(8, KindContractExpired)
+	h.ContractExpired = &ContractExpired{Player: 6, Club: 1, Team: 1}
+	i := env(9, KindPlayerSigned)
+	i.PlayerSigned = &PlayerSigned{Player: 6, Club: 2, Team: 2, Expires: 500, WeeklyWage: 100}
+	return []Event{a, b, c, d, e, f, g, h, i}
 }
 
 func TestValidate(t *testing.T) {
@@ -53,6 +59,10 @@ func TestValidate(t *testing.T) {
 		"no ledger entries": func(v []Event) Event { v[5].LedgerPosted.Entries = nil; return v[5] },
 		"entries unordered": func(v []Event) Event { v[5].LedgerPosted.Entries[1].Entry = 9; return v[5] },
 		"entry kind zero":   func(v []Event) Event { v[5].LedgerPosted.Entries[0].Kind = 0; return v[5] },
+		"renewal ended":     func(v []Event) Event { v[6].OccurredAt = 500; return v[6] },
+		"renewal unpaid":    func(v []Event) Event { v[6].ContractRenewed.WeeklyWage = 0; return v[6] },
+		"expiry zero team":  func(v []Event) Event { v[7].ContractExpired.Team = 0; return v[7] },
+		"signing no player": func(v []Event) Event { v[8].PlayerSigned.Player = 0; return v[8] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -71,6 +81,9 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[3].SeasonEnded.Ranking[0] = 9
 	c[4].SeasonStarted.Entrants[0] = 9
 	c[5].LedgerPosted.Entries[0].Amount = 9
+	c[6].ContractRenewed.Expires = 9
+	c[7].ContractExpired.Club = 9
+	c[8].PlayerSigned.Team = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

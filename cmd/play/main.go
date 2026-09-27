@@ -120,6 +120,7 @@ type session struct {
 	lastSeen      events.ID
 	liveShown     int // live match events already printed
 	quitWarned    bool
+	warnedYearEnd sim.GameInstant // contract-year end already warned about
 }
 
 // draft is the lineup being prepared for a pending user fixture. It becomes
@@ -216,6 +217,14 @@ func (s *session) loop() {
 			s.fixtures()
 		case "finances", "money":
 			err = s.finances(args)
+		case "contracts":
+			s.contracts()
+		case "renew":
+			err = s.renew(args)
+		case "free", "agents":
+			s.freeAgents()
+		case "sign":
+			err = s.sign(args)
 		case "inbox", "i":
 			err = s.inbox(args)
 		case "lineup", "l":
@@ -275,6 +284,10 @@ func (s *session) help() {
   fixtures (f)          your club's fixtures and results this season
   inbox (i) [N]         the latest N inbox messages (default 10)
   finances [N]          your balance, weekly wage bill and latest N ledger entries
+  contracts             your players' contracts, soonest end first, and what they ask for
+  renew ID [YEARS [WAGE]]  offer a new contract to a player in the final year (default: usual terms)
+  free                  free agents: players without a club
+  sign ID [YEARS [WAGE]]   sign a free agent (default: usual terms; not on a matchday)
   lineup (l)            your lineup for the match waiting to be played
   swap A B              swap two players (IDs) between XI, bench and squad
   role P GK|DF|MF|FW    play starter P in another role
@@ -365,6 +378,9 @@ func (s *session) status() {
 	s.printf(" | %s season %d, %d of %d rounds played\n", sc.CompetitionName, sc.Season, played, len(sc.Rounds))
 	if fin, ok := s.w.Finances(s.club()); ok {
 		s.printf("Balance %s | weekly wages %s\n", fin.Balance, fin.WeeklyWage)
+	}
+	if n := len(s.expiring()); n > 0 {
+		s.printf("Contracts: %d end on %s unless renewed (type contracts).\n", n, cal.Format(s.w.ContractYearEnd()))
 	}
 	if l, live := s.w.LiveMatch(); live {
 		s.printf("LIVE %d'  %s %d-%d %s. watch to play on, sub/mentality to change, continue to finish.\n",
@@ -505,6 +521,12 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("\n")
 	case inbox.KindSeasonStarted:
 		s.printf("%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
+	case inbox.KindRenewed:
+		s.printf("contract: %s renewed until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
+	case inbox.KindPlayerLeft:
+		s.printf("contract: %s left the club as a free agent\n", m.PlayerName)
+	case inbox.KindPlayerJoined:
+		s.printf("signing: %s joined until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
 	}
 }
 
@@ -795,12 +817,19 @@ func (s *session) next() error {
 // advance continues until the club's next matchday.
 func (s *session) advance() error {
 	for {
-		target := s.w.Now() + 400*sim.GameInstant(sim.Day)
+		target, warn := s.warnBeforeContractYear(s.w.Now() + 400*sim.GameInstant(sim.Day))
 		res, err := s.w.Continue(target)
 		if err != nil {
 			return err
 		}
 		ready, ok := res.(app.FixtureRoundReady)
+		if !ok && warn {
+			s.newMessages()
+			s.warnedYearEnd = s.w.ContractYearEnd()
+			s.printf("\n%s: %d of your players' contracts end tomorrow. Type contracts to review them;\n", s.w.Calendar().Format(s.w.Now()), len(s.expiring()))
+			s.printf("players you do not renew leave as free agents. Type continue to go on.\n")
+			return nil
+		}
 		if !ok {
 			s.newMessages()
 			s.printf("Nothing is scheduled before %s.\n", s.w.Calendar().Format(target))

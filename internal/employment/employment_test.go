@@ -66,3 +66,77 @@ func TestWageBillOverflow(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func twoClubs(t *testing.T) *Store {
+	t.Helper()
+	s, err := New([]Assignment{
+		{Player: 1, Club: 1, Team: 1, Contract: terms},
+		{Player: 2, Club: 1, Team: 1, Contract: terms},
+		{Player: 3, Club: 2, Team: 2, Contract: terms},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// A plan applies renewals, then departures, then signings, as one change.
+func TestChangesApplyTogether(t *testing.T) {
+	s := twoClubs(t)
+	longer := Contract{Expires: 2000, WeeklyWage: 60_000}
+	plan, err := s.Plan(Changes{
+		Renewals:   []Renewal{{Player: 1, Contract: longer}},
+		Departures: []ids.PlayerID{2, 3},
+		Signings:   []Assignment{{Player: 3, Club: 1, Team: 1, Contract: longer}, {Player: 4, Club: 2, Team: 2, Contract: terms}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Squad(1)) != 2 {
+		t.Fatal("planning changed the store")
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	want := []Assignment{
+		{Player: 1, Club: 1, Team: 1, Contract: longer},
+		{Player: 3, Club: 1, Team: 1, Contract: longer},
+		{Player: 4, Club: 2, Team: 2, Contract: terms},
+	}
+	if !slices.Equal(s.Assignments(), want) {
+		t.Fatalf("assignments %+v", s.Assignments())
+	}
+	if _, ok := s.Assignment(2); ok {
+		t.Fatal("departed player still employed")
+	}
+	if err := s.Apply(plan); !errors.Is(err, ErrStalePlan) {
+		t.Fatalf("reapplying: %v", err)
+	}
+	r, err := New(s.Snapshot())
+	if err != nil || !slices.Equal(r.Assignments(), want) {
+		t.Fatalf("restore: %v", err)
+	}
+}
+
+func TestPlanRejectsInvalidChanges(t *testing.T) {
+	s := twoClubs(t)
+	before := s.Assignments()
+	for name, c := range map[string]Changes{
+		"renew free agent":   {Renewals: []Renewal{{Player: 9, Contract: terms}}},
+		"renew twice":        {Renewals: []Renewal{{Player: 1, Contract: terms}, {Player: 1, Contract: terms}}},
+		"renew and depart":   {Renewals: []Renewal{{Player: 1, Contract: terms}}, Departures: []ids.PlayerID{1}},
+		"invalid renewal":    {Renewals: []Renewal{{Player: 1}}},
+		"free agent departs": {Departures: []ids.PlayerID{9}},
+		"sign employed":      {Signings: []Assignment{{Player: 1, Club: 2, Team: 2, Contract: terms}}},
+		"sign renewed":       {Renewals: []Renewal{{Player: 1, Contract: terms}}, Signings: []Assignment{{Player: 1, Club: 2, Team: 2, Contract: terms}}},
+		"sign twice":         {Signings: []Assignment{{Player: 9, Club: 2, Team: 2, Contract: terms}, {Player: 9, Club: 1, Team: 1, Contract: terms}}},
+		"sign without terms": {Signings: []Assignment{{Player: 9, Club: 2, Team: 2}}},
+	} {
+		if _, err := s.Plan(c); err == nil {
+			t.Errorf("%s: planned", name)
+		}
+	}
+	if !slices.Equal(s.Assignments(), before) {
+		t.Fatal("rejected plans changed the store")
+	}
+}

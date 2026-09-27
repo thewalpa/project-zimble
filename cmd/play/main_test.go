@@ -114,8 +114,9 @@ func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 
 // season plays the rest of the season; continue then crosses into the next.
 func TestSeasonAndNextSeason(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "status", "q", "q")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "status", "q", "q")
 	contains(t, out, "Founders League season 1 (14/14 rounds)", "Season finished. Type continue for the next season.",
+		"Tue 2026-06-30 00:00 UTC: 7 of your players' contracts end tomorrow.",
 		"Founders League season 1 ended: champion ", "; you finished ",
 		"Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC",
 		"MATCHDAY Sat 2026-08-08 15:00 UTC: round 1 v ", "Founders League season 2, 0 of 14 rounds played")
@@ -207,5 +208,34 @@ func TestMoneyViews(t *testing.T) {
 		"| 1 ledger entries", "opening balance", "gate receipts F54", "wages ", "! usage: finances [N]")
 	if strings.Count(out, "  to 20") != 20 {
 		t.Fatal("squad does not show 20 contract ends")
+	}
+}
+
+// Before the contract year: renew one player, reject bad offers; after it:
+// the others have left, the inbox says so, and a free agent can be signed.
+func TestContracts(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"season", "continue", "contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
+		"continue", "free", "sign 44", "sign 105 1", "squad", "inbox 12", "continue", "sign 105 1", "sign 145 1", "q", "q")
+	contains(t, out,
+		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
+		"  56  MF  Callum Ibsen                77     2,660.00     2026     2,640.00  <- final year",
+		"Callum Ibsen signed a new contract until 1 July 2029 at 2,640.00 a week.",
+		"! app: contract offer rejected: 9 years, allowed 1..4",
+		"! app: contract offer rejected: weekly wage 1.00, player accepts 1,880.00..3,760.00",
+		"! app: the contract is not in its final year: player 44",
+		"! player 999 is not in your squad",
+		"! player 45 is not a free agent; type free for the list",
+		"contract: Callum Ibsen renewed until 1 July 2029 at 2,640.00 a week",
+		"contract: Oscar Bellamy left the club as a free agent",
+		"signing: Oscar Pereira joined until 1 July 2027 at 1,500.00 a week",
+		" 105  DF  Tomas Costa                 51  100%     1,160.00",
+		"! player 44 is not a free agent; type free for the list",
+		"! app: squads cannot change while rounds await results",
+		"Tomas Costa joined until 1 July 2027 at 1,160.00 a week.",
+		"Kofi Rossi joined until 1 July 2027 at 1,160.00 a week.",
+	)
+	if strings.Count(out, "Tomas Costa joined") != 1 {
+		t.Fatal("signed a player on a matchday, or twice")
 	}
 }

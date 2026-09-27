@@ -24,10 +24,14 @@ type Town struct {
 	Short string
 }
 
-// Quota is how many players of a position a generated squad contains.
+// Quota is how many players of a position a senior squad holds. Count is
+// what a generated squad contains and the most a squad may hold; Min is the
+// fewest (1..Count). The minimums must allow a legal lineup, which the
+// application checks against the match rules.
 type Quota struct {
 	Position players.Position
 	Count    int
+	Min      int
 }
 
 // Range is an inclusive rating range.
@@ -46,7 +50,10 @@ type PositionProfile struct {
 // A player's weekly wage is WageReference * (overall / ReferenceOverall)^2,
 // varied uniformly by up to WageVariationPct percent and rounded to the
 // nearest 10 units (never below 10). Contracts run for ContractYears[0] to
-// ContractYears[1] whole years from the career start.
+// ContractYears[1] whole contract years.
+//
+// A player's demand is the wage without variation. A contract offer must pay
+// at least the demand and at most OfferCeilingPct percent of it.
 type Economy struct {
 	OpeningBalance   money.Money
 	GatePerHomeMatch money.Money // paid to the home club for each league match
@@ -54,6 +61,7 @@ type Economy struct {
 	ReferenceOverall int
 	WageVariationPct int
 	ContractYears    [2]int
+	OfferCeilingPct  int
 }
 
 // Wage returns the weekly wage for an overall rating and a variation in
@@ -68,10 +76,19 @@ func (e Economy) Wage(overall, variationPct int) money.Money {
 	return money.Money(max(w, step))
 }
 
+// Demand is the weekly wage a player of this overall asks for.
+func (e Economy) Demand(overall int) money.Money { return e.Wage(overall, 0) }
+
+// OfferCeiling is the most a club may offer a player of this overall.
+func (e Economy) OfferCeiling(overall int) money.Money {
+	return e.Demand(overall) * money.Money(e.OfferCeilingPct) / 100
+}
+
 func (e Economy) validate() error {
 	if e.OpeningBalance < 0 || e.GatePerHomeMatch < 0 || e.WageReference <= 0 || e.WageReference > money.Units(1_000_000) ||
 		e.ReferenceOverall <= 0 || e.WageVariationPct < 0 || e.WageVariationPct > 90 ||
-		e.ContractYears[0] < 1 || e.ContractYears[0] > e.ContractYears[1] || e.ContractYears[1] > 10 {
+		e.ContractYears[0] < 1 || e.ContractYears[0] > e.ContractYears[1] || e.ContractYears[1] > 10 ||
+		e.OfferCeilingPct < 100 || e.OfferCeilingPct > 1000 {
 		return fmt.Errorf("content: invalid economy %+v", e)
 	}
 	return nil
@@ -109,6 +126,17 @@ func (d Definitions) SquadSize() int {
 	return n
 }
 
+// Quota returns a position's roster quota; the zero Quota (no player
+// allowed) for a position without one.
+func (d Definitions) Quota(p players.Position) Quota {
+	for _, q := range d.Roster {
+		if q.Position == p {
+			return q
+		}
+	}
+	return Quota{Position: p}
+}
+
 // Profile returns the baseline profile for a position.
 func (d Definitions) Profile(p players.Position) (PositionProfile, bool) {
 	for _, pp := range d.Profiles {
@@ -140,7 +168,7 @@ func (d Definitions) Validate() error {
 	}
 	seen := map[players.Position]bool{}
 	for _, q := range d.Roster {
-		if !q.Position.Valid() || q.Count <= 0 || seen[q.Position] {
+		if !q.Position.Valid() || q.Count <= 0 || q.Min < 1 || q.Min > q.Count || seen[q.Position] {
 			errs = append(errs, fmt.Errorf("content: invalid roster quota %+v", q))
 		}
 		seen[q.Position] = true
@@ -189,10 +217,10 @@ func Default() Definitions {
 			"Adeyemi", "Bellamy", "Costa", "Duarte", "Engel", "Fonseca", "Grady", "Holm",
 		},
 		Roster: []Quota{
-			{players.Goalkeeper, 3},
-			{players.Defender, 7},
-			{players.Midfielder, 6},
-			{players.Forward, 4},
+			{players.Goalkeeper, 3, 2},
+			{players.Defender, 7, 5},
+			{players.Midfielder, 6, 5},
+			{players.Forward, 4, 3},
 		},
 		// Ranges (1..100) are ordered: goalkeeping, defending, passing, finishing, pace, stamina.
 		Profiles: []PositionProfile{
@@ -208,6 +236,7 @@ func Default() Definitions {
 			ReferenceOverall: 60,
 			WageVariationPct: 20,
 			ContractYears:    [2]int{1, 4},
+			OfferCeilingPct:  200,
 		},
 	}
 }

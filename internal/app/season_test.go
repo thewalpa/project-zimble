@@ -94,10 +94,11 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 		t.Fatal("Table of a season that does not exist")
 	}
 
-	// Identities and generated content are untouched.
+	// Identities and generated content are untouched; only the contract
+	// year (between the seasons) changed employment.
 	final := w.Snapshot()
 	if final.WorldFingerprint != initial.WorldFingerprint || !reflect.DeepEqual(final.Registry, initial.Registry) ||
-		!reflect.DeepEqual(final.Players, initial.Players) || !reflect.DeepEqual(final.Employment, initial.Employment) {
+		!reflect.DeepEqual(final.Players, initial.Players) {
 		t.Fatal("a season transition changed identities or profiles")
 	}
 	if err := w.Validate(); err != nil {

@@ -57,6 +57,7 @@ type World struct {
 	scheduleVersion  int
 	selectionVersion int
 	medicalVersion   int
+	contractsVersion int
 	fingerprint      string
 	defs             content.Definitions
 	leagues          []leagueEntry // ascending competition ID
@@ -214,6 +215,7 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		scheduleVersion:  competitions.ScheduleVersion,
 		selectionVersion: ai.SelectionVersion,
 		medicalVersion:   medical.Version,
+		contractsVersion: ai.ContractsVersion,
 		fingerprint:      snap.Fingerprint(),
 		defs:             defs,
 		registry:         reg,
@@ -238,6 +240,13 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 		return nil, err
 	}
 	if err := w.scheduleWages(sim.GameInstant(sim.Week)); err != nil {
+		return nil, err
+	}
+	yearEnd, err := w.contractYearEnd(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.scheduleContractYear(yearEnd); err != nil {
 		return nil, err
 	}
 	next := 0
@@ -273,7 +282,29 @@ func load(defs content.Definitions, leagueDefs []content.League, epoch sim.Civil
 	if err := w.Validate(); err != nil {
 		return nil, err
 	}
+	if err := w.checkGeneratedSquads(); err != nil {
+		return nil, err
+	}
 	return w, nil
+}
+
+// checkGeneratedSquads checks what only a new world guarantees: every
+// player is employed and every senior squad holds exactly the roster. Later,
+// contracts expire and squads vary within the roster limits.
+func (w *World) checkGeneratedSquads() error {
+	if n, m := len(w.employment.Assignments()), len(w.registry.Players()); n != m {
+		return fmt.Errorf("app: %d of %d generated players are employed", n, m)
+	}
+	for _, c := range w.registry.Clubs() {
+		team, _ := w.registry.SeniorTeam(c.ID)
+		counts := w.squadCounts(team)
+		for _, q := range w.defs.Roster {
+			if counts[q.Position] != q.Count {
+				return fmt.Errorf("app: club %d senior squad has %d %s, want %d", c.ID, counts[q.Position], q.Position, q.Count)
+			}
+		}
+	}
+	return nil
 }
 
 // Validate checks invariants that span modules. Each module has already
@@ -298,11 +329,8 @@ func (w *World) Validate() error {
 		}
 	}
 
-	assignments := w.employment.Assignments()
-	if len(assignments) != len(identities) {
-		fail("%d player identities but %d employment assignments", len(identities), len(assignments))
-	}
-	for _, a := range assignments {
+	// Players without an assignment are free agents.
+	for _, a := range w.employment.Assignments() {
 		if _, ok := w.registry.Player(a.Player); !ok {
 			fail("assignment for unknown player %d", a.Player)
 		}
@@ -324,28 +352,6 @@ func (w *World) Validate() error {
 		if _, ok := w.medical.Condition(p.ID); !ok {
 			fail("player %d has no condition record", p.ID)
 		}
-		if _, ok := w.employment.Assignment(p.ID); !ok {
-			fail("player %d has no employment assignment", p.ID)
-		}
-	}
-
-	for _, c := range clubs {
-		team, _ := w.registry.SeniorTeam(c.ID) // registry guarantees one
-		squad := w.employment.Squad(team)
-		if len(squad) != w.defs.SquadSize() {
-			fail("club %d senior squad has %d players, want %d", c.ID, len(squad), w.defs.SquadSize())
-		}
-		counts := map[players.Position]int{}
-		for _, id := range squad {
-			if p, ok := w.players.Profile(id); ok {
-				counts[p.Position]++
-			}
-		}
-		for _, q := range w.defs.Roster {
-			if counts[q.Position] != q.Count {
-				fail("club %d senior squad has %d %s, want %d", c.ID, counts[q.Position], q.Position, q.Count)
-			}
-		}
 	}
 
 	errs = append(errs, w.validateCompetitions()...)
@@ -355,6 +361,7 @@ func (w *World) Validate() error {
 	errs = append(errs, w.validateJournal()...)
 	errs = append(errs, w.validateLive()...)
 	errs = append(errs, w.validateFinance()...)
+	errs = append(errs, w.validateContracts()...)
 	return errors.Join(errs...)
 }
 

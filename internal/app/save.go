@@ -46,6 +46,7 @@ type Versions struct {
 	Schedule      int    // competitions.ScheduleVersion (future seasons)
 	Selection     int    // ai.SelectionVersion (future lineups)
 	Medical       int    // medical.Version (condition loss and recovery)
+	Contracts     int    // ai.ContractsVersion (renewals and signings)
 	EngineID      string // match engine built by the composition root
 	EngineVersion uint32
 }
@@ -101,6 +102,8 @@ type WorldSnapshot struct {
 	LineupCommands   []LineupRecord
 	PlayCommands     []PlayMatchRecord
 	DecisionCommands []DecisionRecord
+	RenewCommands    []RenewRecord
+	SignCommands     []SignRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -117,7 +120,7 @@ func currentVersions(engine matches.Engine) Versions {
 	return Versions{
 		Generator: worldgen.Version, Content: content.Version, League: content.LeagueVersion,
 		Random: random.Version, Schedule: competitions.ScheduleVersion, Selection: ai.SelectionVersion,
-		Medical: medical.Version, EngineID: engine.ID(), EngineVersion: engine.Version(),
+		Medical: medical.Version, Contracts: ai.ContractsVersion, EngineID: engine.ID(), EngineVersion: engine.Version(),
 	}
 }
 
@@ -152,7 +155,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Versions: Versions{
 			Generator: w.generatorVersion, Content: w.contentVersion, League: w.leagueVersion,
 			Random: w.randomVersion, Schedule: w.scheduleVersion, Selection: w.selectionVersion,
-			Medical: w.medicalVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
+			Medical: w.medicalVersion, Contracts: w.contractsVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
 		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs()),
@@ -190,6 +193,10 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.PlayCommands = append(snap.PlayCommands, rec.play.clone())
 		case rec.decision != nil:
 			snap.DecisionCommands = append(snap.DecisionCommands, rec.decision.clone())
+		case rec.renew != nil:
+			snap.RenewCommands = append(snap.RenewCommands, *rec.renew)
+		case rec.sign != nil:
+			snap.SignCommands = append(snap.SignCommands, *rec.sign)
 		}
 	}
 	if w.live != nil {
@@ -273,6 +280,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		scheduleVersion:  snap.Versions.Schedule,
 		selectionVersion: snap.Versions.Selection,
 		medicalVersion:   snap.Versions.Medical,
+		contractsVersion: snap.Versions.Contracts,
 		fingerprint:      snap.WorldFingerprint,
 		defs:             defs,
 		calendar:         calendar,
@@ -368,6 +376,25 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		rec := c.clone()
 		w.commands[c.Request.ID] = commandRecord{decision: &rec}
 	}
+	for _, c := range snap.RenewCommands {
+		q, r := c.Request, c.Result
+		if err := w.restoreContractCommand(q.ID, q.ExpectedRevision, q.Player, q.Offer, r.Command, r.Revision, r.Player, r.Contract, snap.Revision); err != nil {
+			return invalid("command %d: %v", q.ID, err)
+		}
+		rec := c
+		w.commands[q.ID] = commandRecord{renew: &rec}
+	}
+	for _, c := range snap.SignCommands {
+		q, r := c.Request, c.Result
+		if err := w.restoreContractCommand(q.ID, q.ExpectedRevision, q.Player, q.Offer, r.Command, r.Revision, r.Player, r.Contract, snap.Revision); err != nil {
+			return invalid("command %d: %v", q.ID, err)
+		}
+		if team, _ := w.userTeam(); r.Team != team {
+			return invalid("command %d signed player %d to team %d, not the user team", q.ID, q.Player, r.Team)
+		}
+		rec := c
+		w.commands[q.ID] = commandRecord{sign: &rec}
+	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}
 	}
@@ -390,6 +417,7 @@ func checkVersions(saved, current Versions) error {
 		{"schedule", saved.Schedule, current.Schedule},
 		{"AI selection", saved.Selection, current.Selection},
 		{"medical", saved.Medical, current.Medical},
+		{"AI contracts", saved.Contracts, current.Contracts},
 		{"match engine", saved.EngineID, current.EngineID},
 		{"match engine version", saved.EngineVersion, current.EngineVersion},
 	} {

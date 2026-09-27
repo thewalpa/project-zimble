@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/players"
@@ -35,6 +36,7 @@ type Summary struct {
 	Clubs            int
 	Teams            int
 	Players          int
+	FreeAgents       int           // players without a club
 	ClubRows         []ClubSummary // ascending club ID
 }
 
@@ -50,6 +52,7 @@ func (w *World) Summary() Summary {
 		Clubs:            len(clubs),
 		Teams:            len(w.registry.Teams()),
 		Players:          len(w.registry.Players()),
+		FreeAgents:       len(w.freeAgentPool()),
 		ClubRows:         make([]ClubSummary, 0, len(clubs)),
 	}
 	for _, c := range clubs {
@@ -80,9 +83,10 @@ func (w *World) Summary() Summary {
 	return s
 }
 
-// SquadPlayer is a derived view of one senior-squad player, composed from
-// the registry (name), players (position, attributes and overall, 1..100)
-// and medical (condition, 0..100).
+// SquadPlayer is a derived view of one player, composed from the registry
+// (name), players (position, attributes and overall, 1..100), medical
+// (condition, 0..100) and employment (contract; zero for a free agent).
+// Demand is the weekly wage the player asks for in a new contract.
 type SquadPlayer struct {
 	Player     ids.PlayerID
 	Name       string
@@ -91,6 +95,7 @@ type SquadPlayer struct {
 	Overall    int
 	Condition  uint8
 	Contract   employment.Contract
+	Demand     money.Money
 }
 
 // Squad returns a club's senior squad in ascending player ID order, or false
@@ -102,18 +107,23 @@ func (w *World) Squad(club ids.ClubID) ([]SquadPlayer, bool) {
 	}
 	var out []SquadPlayer
 	for _, id := range w.employment.Squad(team) {
-		row := SquadPlayer{Player: id}
-		if p, ok := w.registry.Player(id); ok {
-			row.Name = p.FullName()
-		}
-		if p, ok := w.players.Profile(id); ok {
-			row.Position, row.Attributes, row.Overall = p.Position, p.Attributes, p.Overall()
-		}
-		row.Condition, _ = w.medical.Condition(id)
-		if a, ok := w.employment.Assignment(id); ok {
-			row.Contract = a.Contract
-		}
-		out = append(out, row)
+		out = append(out, w.squadPlayer(id))
 	}
 	return out, true
+}
+
+func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
+	row := SquadPlayer{Player: id}
+	if p, ok := w.registry.Player(id); ok {
+		row.Name = p.FullName()
+	}
+	if p, ok := w.players.Profile(id); ok {
+		row.Position, row.Attributes, row.Overall = p.Position, p.Attributes, p.Overall()
+		row.Demand = w.defs.Economy.Demand(row.Overall)
+	}
+	row.Condition, _ = w.medical.Condition(id)
+	if a, ok := w.employment.Assignment(id); ok {
+		row.Contract = a.Contract
+	}
+	return row
 }

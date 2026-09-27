@@ -64,6 +64,57 @@ func TestMessagesForTheManagedTeam(t *testing.T) {
 	}
 }
 
+// Contract events become messages only for the managed team's players.
+func TestPlayerMessages(t *testing.T) {
+	j := journal()
+	add := func(k events.Kind, set func(*events.Event)) {
+		e := env(events.ID(len(j)+1), k)
+		set(&e)
+		j = append(j, e)
+	}
+	add(events.KindContractRenewed, func(e *events.Event) {
+		e.ContractRenewed = &events.ContractRenewed{Player: 7, Club: 3, Team: 3, Expires: 900, WeeklyWage: 50}
+	})
+	add(events.KindContractRenewed, func(e *events.Event) {
+		e.ContractRenewed = &events.ContractRenewed{Player: 8, Club: 4, Team: 4, Expires: 900, WeeklyWage: 50}
+	})
+	add(events.KindContractExpired, func(e *events.Event) {
+		e.ContractExpired = &events.ContractExpired{Player: 9, Club: 3, Team: 3}
+	})
+	add(events.KindPlayerSigned, func(e *events.Event) {
+		e.PlayerSigned = &events.PlayerSigned{Player: 9, Club: 4, Team: 4, Expires: 900, WeeklyWage: 60}
+	})
+	add(events.KindPlayerSigned, func(e *events.Event) {
+		e.PlayerSigned = &events.PlayerSigned{Player: 10, Club: 3, Team: 3, Expires: 800, WeeklyWage: 70}
+	})
+	b := mustNew(t, 3)
+	if _, err := b.Apply(j); err != nil {
+		t.Fatal(err)
+	}
+	got := b.Messages()[4:]
+	want := []Message{
+		{Event: 7, At: 70, Kind: KindRenewed, Player: 7, Expires: 900, WeeklyWage: 50},
+		{Event: 9, At: 90, Kind: KindPlayerLeft, Player: 9},
+		{Event: 11, At: 110, Kind: KindPlayerJoined, Player: 10, Expires: 800, WeeklyWage: 70},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("player messages %+v", got)
+	}
+	if _, err := New(3, b.Snapshot()); err != nil {
+		t.Fatalf("snapshot with player messages rejected: %v", err)
+	}
+	snap := b.Snapshot()
+	snap.Messages[4].Player = 0
+	if _, err := New(3, snap); err == nil {
+		t.Fatal("player message without a player accepted")
+	}
+	none := mustNew(t, 0)
+	none.Apply(j)
+	if len(none.Messages()) != 2 {
+		t.Fatal("an unmanaged inbox kept player messages")
+	}
+}
+
 // Duplicates are skipped, chunking does not matter, gaps and invalid events
 // are rejected without change.
 func TestApplyIsIdempotentAndRejectsGaps(t *testing.T) {

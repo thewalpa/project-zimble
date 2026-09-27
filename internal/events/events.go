@@ -33,6 +33,9 @@ const (
 	KindSeasonEnded     Kind = 4
 	KindSeasonStarted   Kind = 5
 	KindLedgerPosted    Kind = 6
+	KindContractRenewed Kind = 7
+	KindContractExpired Kind = 8
+	KindPlayerSigned    Kind = 9
 )
 
 func (k Kind) String() string {
@@ -49,6 +52,12 @@ func (k Kind) String() string {
 		return "season started"
 	case KindLedgerPosted:
 		return "ledger posted"
+	case KindContractRenewed:
+		return "contract renewed"
+	case KindContractExpired:
+		return "contract expired"
+	case KindPlayerSigned:
+		return "player signed"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -131,6 +140,34 @@ type LedgerPosted struct {
 	Entries []LedgerEntry
 }
 
+// ContractRenewed: a player's contract with their club was replaced by a
+// new one, which ends at Expires (exclusive).
+type ContractRenewed struct {
+	Player     ids.PlayerID
+	Club       ids.ClubID
+	Team       ids.TeamID
+	Expires    sim.GameInstant
+	WeeklyWage money.Money
+}
+
+// ContractExpired: a player's contract ended without renewal; they left the
+// club (and Team) and became a free agent.
+type ContractExpired struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+}
+
+// PlayerSigned: a club signed a free agent to its Team on a contract ending
+// at Expires (exclusive).
+type PlayerSigned struct {
+	Player     ids.PlayerID
+	Club       ids.ClubID
+	Team       ids.TeamID
+	Expires    sim.GameInstant
+	WeeklyWage money.Money
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -149,6 +186,9 @@ type Event struct {
 	SeasonEnded     *SeasonEnded     `json:",omitempty"`
 	SeasonStarted   *SeasonStarted   `json:",omitempty"`
 	LedgerPosted    *LedgerPosted    `json:",omitempty"`
+	ContractRenewed *ContractRenewed `json:",omitempty"`
+	ContractExpired *ContractExpired `json:",omitempty"`
+	PlayerSigned    *PlayerSigned    `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -164,6 +204,9 @@ func (e Event) payloads() (set int, match bool) {
 		{KindSeasonEnded, e.SeasonEnded != nil},
 		{KindSeasonStarted, e.SeasonStarted != nil},
 		{KindLedgerPosted, e.LedgerPosted != nil},
+		{KindContractRenewed, e.ContractRenewed != nil},
+		{KindContractExpired, e.ContractExpired != nil},
+		{KindPlayerSigned, e.PlayerSigned != nil},
 	} {
 		if p.set {
 			set++
@@ -226,6 +269,18 @@ func (e Event) Validate() error {
 				return fail("invalid ledger entry %+v", le)
 			}
 		}
+	case KindContractRenewed:
+		if p := e.ContractRenewed; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Expires <= e.OccurredAt || p.WeeklyWage <= 0 {
+			return fail("invalid payload %+v", p)
+		}
+	case KindContractExpired:
+		if p := e.ContractExpired; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() {
+			return fail("invalid payload %+v", p)
+		}
+	case KindPlayerSigned:
+		if p := e.PlayerSigned; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Expires <= e.OccurredAt || p.WeeklyWage <= 0 {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -259,6 +314,18 @@ func (e Event) Clone() Event {
 		c := *p
 		c.Entries = slices.Clone(p.Entries)
 		e.LedgerPosted = &c
+	}
+	if p := e.ContractRenewed; p != nil {
+		c := *p
+		e.ContractRenewed = &c
+	}
+	if p := e.ContractExpired; p != nil {
+		c := *p
+		e.ContractExpired = &c
+	}
+	if p := e.PlayerSigned; p != nil {
+		c := *p
+		e.PlayerSigned = &c
 	}
 	return e
 }
