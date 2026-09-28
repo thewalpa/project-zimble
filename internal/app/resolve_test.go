@@ -23,16 +23,17 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by the transfer list and AI upgrades
-// (ai.TransfersVersion 2: AI clubs now trade in the first window).
+// this value. Last changed by sellers keeping their stars
+// (ai.TransfersVersion 4: selling prices, settling players and stars'
+// choice of club change the first window's trades).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "85ac575a19dbf2b6f13d59a34159f1eef34138391c10ac5a4544ded34889626a"
-	goldenSecondLeagueSeed42 = "22aaff27118fa160f6b1571236cd3aafba729854aa0cac42733ca7a65abbbab2"
-	goldenCupSeed42          = "dc9b8ebb171a932548eb695fbcec4e8512a8790e3218b7dac2cf6bbc7f58d7ce"
+	goldenSeasonSeed42       = "1f8629fbd4f7a3e5f6500d5e8349113e8bc47d0c4f5767b0b40e3dba724e87ba"
+	goldenSecondLeagueSeed42 = "5eb745975cbf186becac730ccad449b1da3fd97c6ff539e8e846f1a7d3cf9663"
+	goldenCupSeed42          = "57b765e77cdb236ab01cc83319d887ef57afce1cb17de1f756d7b2c6c1e4d791"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

@@ -2261,11 +2261,47 @@ An AI club no longer sells a player it needs when the answer comes too late for 
 
 ### Handoffs
 
-[ui](handoffs/ui--needed-players-late.md): say when AI clubs stop selling needed players.
+[ui](handoffs/ui--ai-seller-rules.md): say when AI clubs stop selling needed players (with the rules of the next section).
 
 ### Limitations
 
 - A replacement bid for a manager's listed player can wait up to `ResponseDays` for the answer; if the manager lets it expire at the close, the AI club may still end short when the pool is empty. The long tests have not hit it.
+
+## squad: sellers keep their stars (done)
+
+The best players no longer change clubs every summer. Before, an AI club sold any player at its valuation, so the league's best player was every club's largest upgrade and moved in every window, often to a weaker club. Now a seller has preferences of its own. Closes `balance`'s `squad--star-churn` note.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/ai` | `SellingPrice`: an AI club asks its valuation plus `KeyPermillePerPoint` (60 permille, 6%) for each point a player rates above its squad average. `Joins`: a player `StarMargin` (10) or more above his club's average joins only a club at least as strong. `AcceptBid` takes a `Sale` (fee, price, spare, replaceable, listed, settling, overall, both averages). `TransfersVersion` 4 |
+| `internal/app` | The market prices unlisted AI players with `SellingPrice` against squad averages taken before the run, knows which players joined their club by transfer in the previous window (`settling`), and passes both to `AcceptBid`; `candidates` leaves out the players a seller would refuse. `SquadPlayer.Value` is the selling price (`sellingPrice`), so the price the manager sees is the one the AI club answers against. `World.BidRefusal` tells a client which rule would refuse the manager's bid (`RefusalStar`, `RefusalSettling`, `RefusalNeeded`). `squadAverage` |
+| tests | Seed-42 goldens re-pinned. `cmd/play`, `cmd/web` and `cmd/simulate` seed-42 scripts updated: the manager's club now reaches the cup final in season 1, and the old bid targets are stars of stronger clubs |
+
+### Decisions
+
+- **Three rules, each for a different failure.** The price premium makes a club's best player cost two to three times a typical upgrade. Settling in stops a player being sold on the year after he arrives, which caps a kept player's streak at one window. Stars choosing their club stops stars moving down. Price alone was not enough: with it and settling in, 7 of the 16 best players still moved per window, rising as balances grew, and 42% of moves went to weaker clubs.
+- **Only stars choose.** With every above-average player refusing weaker clubs, the strength gap grew from 8 to 14 points: weak clubs lost all their good players upward. Limiting it to players 10 points above their club's average keeps the gap at 11.
+- **Listed players are exempt.** A club that lists a player wants him gone, so neither settling in nor the premium applies; the listing discount still does.
+- **The manager is not an AI seller.** His players show their valuation and he answers bids himself. The star rule does apply to his bids: a star of a stronger club refuses him. That is a gameplay change the UI should explain ([note](handoffs/ui--ai-seller-rules.md)).
+- **Squad averages are taken at the start of a run** (before its staged changes), so every decision in a run sees the same prices; a bid answered at the next run meets that run's prices.
+
+### Verification
+
+- `TestAStarRefusesAWeakerClub`, `TestANewSigningIsNotSoldOn`: the manager's bid at the shown price for a star of a stronger club, or for a player bought in the previous window, is rejected, and no AI bid breaks either rule; both fail without the rules. `ai` tests cover `SellingPrice`, `Joins` and each `AcceptBid` condition.
+- The balance sweep (10 seeds, 30 years): 4 of the 16 best players move per window (was 15); no player who was ever among the 16 best moved in two consecutive windows; 31% of moves go to a weaker club (was 42%); the squad-average gap is 11 (was 8-9); every league still has 10-15 champions in 30 seasons. Details in the [balance note](handoffs/balance--star-churn-delivered.md).
+- The full suite passes, the 30-year AI market and the long career tests included.
+
+### Handoffs
+
+[balance](handoffs/balance--star-churn-delivered.md): rerun the sweep. [ui](handoffs/ui--ai-seller-rules.md): explain the refusals (replaces the note filed for late sales).
+
+### Limitations
+
+- Stars move more as AI balances grow (5-6 of 16 per window by year 30): late in a career rich clubs meet any price. The fix belongs to `AI money` (a money sink, budgets).
+- A few listed journeymen still move in four to seven consecutive windows.
+- Selling price and the star rule use a squad's mean overall, so a club's quality in one position doesn't count.
 
 ## Next tasks
 

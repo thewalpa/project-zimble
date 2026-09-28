@@ -101,7 +101,7 @@ type SquadPlayer struct {
 	Condition  uint8
 	Contract   employment.Contract
 	Demand     money.Money
-	Value      money.Money // employed players: the fee his club sells for, his asking price if listed, else its valuation
+	Value      money.Money // employed players: the fee his club sells for (see sellingPrice)
 	Payoff     money.Money // employed players: what releasing him costs now, the rest of his contract
 	Listed     bool        // on the transfer list
 }
@@ -133,11 +133,9 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	row.Condition, _ = w.medical.Condition(id)
 	if a, ok := w.employment.Assignment(id); ok {
 		row.Contract = a.Contract
-		row.Value, _ = w.valuation(id, w.Now())
+		row.Value, _ = w.sellingPrice(id, w.Now())
 		row.Payoff, _ = releaseCost(a.Contract, w.Now())
-		if l, ok := w.transfers.Listing(id); ok {
-			row.Value, row.Listed = l.Asking, true
-		}
+		_, row.Listed = w.transfers.Listing(id)
 	}
 	return row
 }

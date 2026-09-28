@@ -27,15 +27,15 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-**Star churn** ([squad--star-churn.md](../handoffs/squad--star-churn.md)): sellers keep their key players unless really outbid. Then the **free-agent pool** ([squad--free-agent-pool.md](../handoffs/squad--free-agent-pool.md)), designed with it.
+**The free-agent pool** ([squad--free-agent-pool.md](../handoffs/squad--free-agent-pool.md)): some free agents should reach the pool and stay long enough for the manager to act.
 
-Done: sellers keep needed players late in the window (`ai.TransfersVersion` 3; see progress.md). Answered: the five new attributes (`squad--match-attributes.md`, accepted with growth rules; data delivers).
+Done: sellers keep their stars and needed players (`ai.TransfersVersion` 4; see progress.md, "squad: sellers keep needed players late in the window" and "squad: sellers keep their stars"). `balance` reruns the sweep ([note](../handoffs/balance--star-churn-delivered.md)). Answered: the five new attributes (`squad--match-attributes.md`, accepted with growth rules; data delivers).
 
 ## Backlog
 
 - **Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility.
 - **Overall with the new attributes:** once data lands the five match attributes, decide with `balance` whether they enter `keyAttributes` (it moves wages, valuations and selection).
-- **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year.
+- **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year, and money has no sink: late in a career rich clubs meet any selling price, so stars move more (5-6 of the 16 best per window by year 30).
 - **Player potential** and development driven by minutes played. `MatchOutcome.Participants` already supplies minutes; agree with `match` and `data` how seasonal usage is retained and consumed without counting a retried result twice.
 - **Board feedback** and a transfer budget (club governance).
 - **Negotiation:** counter-offers, players refusing terms, and bids below a listed player's asking price.

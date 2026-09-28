@@ -14,7 +14,7 @@ import (
 // the answer to a bid, the choice of a bid's target, and which players a
 // club lists and at what price. Bump it whenever the same squads, balances
 // and offers would produce different decisions.
-const TransfersVersion = 3
+const TransfersVersion = 4
 
 const (
 	// ValueAt60Units is a 60-overall player's value, in currency units, in
@@ -38,6 +38,13 @@ const (
 	// listed, in permille of its valuation: it sells a player it does not
 	// need at a discount.
 	ListingPermille = 800
+	// KeyPermillePerPoint is how much more an AI club asks for a player it
+	// has not listed, in permille of its valuation, for each point he rates
+	// above its squad average.
+	KeyPermillePerPoint = 60
+	// StarMargin is how far above his club's squad average a player rates
+	// to be one of its stars, who joins only a club at least as strong.
+	StarMargin = 10
 )
 
 // agePermille is a player's value by age, in permille: young players carry a
@@ -73,8 +80,9 @@ func contractPermille(years int) int64 {
 
 // Valuation is what a club values a player at: ValueAt60Units scaled by
 // (overall / 60)³, by age and by the contract years left, rounded to the
-// nearest ValueStepUnits and at least one step. It is also the fee at which
-// an AI club sells and the fee it bids. Integer arithmetic only.
+// nearest ValueStepUnits and at least one step. An AI club's price for a
+// player it has not listed starts from it (SellingPrice). Integer
+// arithmetic only.
 func Valuation(overall, age, contractYears int) money.Money {
 	o := int64(max(overall, 1))
 	v := int64(money.Units(ValueAt60Units)) * o * o * o / (60 * 60 * 60)
@@ -93,13 +101,46 @@ func ListingPrice(valuation money.Money) money.Money {
 	return money.Money(max((v+step/2)/step*step, step))
 }
 
-// AcceptBid reports whether an AI club accepts a bid: a fixed fee at or
-// above its price for the player (the asking price of a listed player and
-// its valuation of any other), for a player it can spare (the sale leaves it
-// at or above its roster count at his position) or still has time to
-// replace (replaceable).
-func AcceptBid(fee, price money.Money, spare, replaceable bool) bool {
-	return fee >= price && (spare || replaceable)
+// Sale is a bid an AI club answers, with what it knows about the player.
+type Sale struct {
+	Fee   money.Money // the bid
+	Price money.Money // its price for the player (SellingPrice, or his asking price if listed)
+	// Spare: the sale leaves the club at or above its roster count at his
+	// position. Replaceable: it still has time to replace him in the window.
+	Spare, Replaceable bool
+	// Listed: the club has listed him. Settling: he joined it by transfer in
+	// the previous window.
+	Listed, Settling bool
+	// Overall is the player's; SellerAverage and BuyerAverage are the two
+	// clubs' squad averages.
+	Overall, SellerAverage, BuyerAverage int
+}
+
+// AcceptBid reports whether an AI club accepts a bid: a fee at or above its
+// price, for a player it can spare or still has time to replace, who, unless
+// it listed him, is not still settling in (a club does not sell on a player
+// it bought in the previous window), and who agrees to join the buyer
+// (Joins).
+func AcceptBid(s Sale) bool {
+	return s.Fee >= s.Price && (s.Spare || s.Replaceable) && (s.Listed || !s.Settling) && Joins(s.Overall, s.SellerAverage, s.BuyerAverage)
+}
+
+// Joins reports whether a player agrees to move between clubs with these
+// squad averages: a star (rated at least StarMargin above his club's
+// average) joins only a club at least as strong.
+func Joins(overall, sellerAverage, buyerAverage int) bool {
+	return overall < sellerAverage+StarMargin || buyerAverage >= sellerAverage
+}
+
+// SellingPrice is what an AI club asks for a player it has not listed, whom
+// it values at valuation: KeyPermillePerPoint more for each point his
+// overall is above its squad average (a club's best players cost it the
+// most to lose), rounded to the nearest ValueStepUnits and at least one step.
+func SellingPrice(valuation money.Money, overall, squadAverage int) money.Money {
+	permille := int64(1000 + KeyPermillePerPoint*max(overall-squadAverage, 0))
+	step := int64(money.Units(ValueStepUnits))
+	v := int64(max(valuation, 0)) / 1000 * permille
+	return money.Money(max((v+step/2)/step*step, step))
 }
 
 // Member is one of a club's players at a position.

@@ -270,6 +270,9 @@ func TestStaleFormsAndCrossSiteRequests(t *testing.T) {
 func TestContractsInTheBrowser(t *testing.T) {
 	c := career(t)
 	contains(t, c.post("/season", nil), "Founders League season 1 is finished", "final table")
+	for range 6 { // the cup run: quarter-final, semi-final and final, each a matchday and a match
+		c.post("/continue", nil)
+	}
 	page := c.post("/continue", nil)
 	contains(t, page, "7 of your players&#39; contracts end tomorrow", "Tue 2026-06-30 00:00 UTC")
 	page = c.get("/squad")
@@ -497,16 +500,16 @@ func TestCupInTheBrowser(t *testing.T) {
 	contains(t, c.get("/fixtures"), "Continental Cup quarter-final")
 	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
 	c.post("/continue", nil) // the rest of the cup, without the club
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Larkspur Rovers; you went out in the quarter-final.", "(3-4 on penalties) v Larkspur Rovers (home), Continental Cup quarter-final")
-	contains(t, c.get("/cup"), "Won by <b>Larkspur Rovers</b>")
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final.", "(3-4 on penalties) v Larkspur Rovers (home), Continental Cup quarter-final")
+	contains(t, c.get("/cup"), "Won by <b>Saltmere Athletic</b>")
 
-	// Veldmouth United (club 6 of seed 2) wins it.
-	c = newClient(t, config{seed: 2, club: 6, savePath: filepath.Join(t.TempDir(), "career.json")})
+	// Foxmere Rovers (club 15 of seed 2) wins it.
+	c = newClient(t, config{seed: 2, club: 15, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
 	for range 7 { // the quarter-final, semi-final and final, each a matchday and a match; then the cup ends
 		c.post("/continue", nil)
 	}
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Veldmouth United: your club won it!")
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Foxmere Rovers: your club won it!")
 }
 
 // In the window the manager bids from the market, the answer arrives with
@@ -515,11 +518,13 @@ func TestCupInTheBrowser(t *testing.T) {
 func TestTransfersInTheBrowser(t *testing.T) {
 	c := career(t)
 	c.post("/season", nil)
-	c.post("/continue", nil)
+	for range 7 { // the cup run to the final, then the contract year
+		c.post("/continue", nil)
+	}
 	page := c.post("/continue", nil)
 	contains(t, page, "The transfer window has opened", `href="/transfers"`)
 	page = c.get("/transfers?pos=FW")
-	contains(t, page, "Jonas Gallo", "240,000.00", `action="/bid"`)
+	contains(t, page, "Aaron Farrow", "400,000.00", `action="/bid"`)
 	if strings.Contains(page, "Your squad is full") {
 		t.Fatal("the manager has room at FW after the contract year")
 	}
@@ -531,28 +536,28 @@ func TestTransfersInTheBrowser(t *testing.T) {
 		return c.post("/bid", url.Values{"player": {player}, "fee": {fee}, "years": {strconv.Itoa(o.Years)},
 			"wage": {strconv.FormatInt(int64(o.WeeklyWage)/100, 10)}, "back": {"/transfers"}})
 	}
-	for _, p := range []string{"282", "244", "315"} {
+	for _, p := range []string{"344", "547"} {
 		bid(p, strconv.FormatInt(int64(valueOf(t, c, p))/100, 10))
 	}
-	contains(t, bid("37", "240,000"), "You bid 240,000.00 for Jonas Gallo", "Your bids awaiting an answer")
+	contains(t, bid("617", "400,000"), "You bid 400,000.00 for Aaron Farrow", "Your bids awaiting an answer")
 	contains(t, bid("238", "500000"), "You bid 500,000.00")
 	contains(t, bid("238", "700000"), "your club has already bid for the player in this window")
-	contains(t, bid("37", "abc"), "the fee must be a positive whole amount")
+	contains(t, bid("617", "abc"), "the fee must be a positive whole amount")
 
 	page = c.post("/continue", nil)
-	contains(t, page, "Transfer news", "Jonas Gallo joined from Dalefield Athletic for 240,000.00",
+	contains(t, page, "Transfer news", "Aaron Farrow joined from Northwick Albion for 400,000.00",
 		"Your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected")
 	// AI clubs bid for the manager's players only when he lists them.
 	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
 		"Elias Gallo is on the transfer list")
 	page = c.post("/continue", nil)
-	contains(t, page, "Drakeford City bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
+	contains(t, page, "Dunmarrow Albion bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"96"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
-	contains(t, c.get("/inbox"), "Elias Gallo left for Drakeford City for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 96")
+	contains(t, c.post("/answer", url.Values{"offer": {"93"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.get("/inbox"), "Elias Gallo left for Dunmarrow Albion for 1,200,000.00")
+	contains(t, c.get("/finances"), "transfer fee, offer 93")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
@@ -935,7 +940,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 		c.post("/continue", nil)
 	}
 	page := c.get("/history")
-	contains(t, page, "Founders League", "Continental Cup", "Dunmarrow Albion", "/history?competition=")
+	contains(t, page, "Founders League", "Continental Cup", "Brightwater Albion", "/history?competition=")
 	m := regexp.MustCompile(`href="(/history\?competition=[^"]+)"`).FindAllStringSubmatch(page, -1)
 	if len(m) == 0 {
 		t.Fatal("no season links")
@@ -944,7 +949,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "Quarter-finals", "Won by <b>Dunmarrow Albion</b>", "← All seasons")
+	contains(t, all, "final table", "Quarter-finals", "Won by <b>Brightwater Albion</b>", "← All seasons")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
 	if err != nil {
 		t.Fatal(err)

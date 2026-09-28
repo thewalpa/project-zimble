@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"maps"
 	"reflect"
 	"slices"
 	"testing"
@@ -46,19 +47,22 @@ func release(t *testing.T, w *World, club ids.ClubID, pos players.Position) ids.
 }
 
 // bestAt returns the best player at a position (ties: lowest ID) of a club
-// other than except whose squad is above its minimum there, whom no club
-// has an open bid for (the earlier bid would be answered first).
-func bestAt(t *testing.T, w *World, pos players.Position, except ids.ClubID) SquadPlayer {
+// other than buyer whose squad is above its minimum there, whom no club has
+// an open bid for (the earlier bid would be answered first), who would join
+// buyer (ai.Joins) and whose price buyer can afford.
+func bestAt(t *testing.T, w *World, pos players.Position, buyer ids.ClubID) SquadPlayer {
 	t.Helper()
 	var best []SquadPlayer
+	funds, _ := w.finance.Balance(buyer)
 	for _, c := range w.registry.Clubs() {
 		team, _ := w.registry.SeniorTeam(c.ID)
-		if c.ID == except || w.squadCounts(team)[pos] <= w.defs.Quota(pos).Min {
+		if c.ID == buyer || w.squadCounts(team)[pos] <= w.defs.Quota(pos).Min {
 			continue
 		}
 		squad, _ := w.Squad(c.ID)
 		for _, p := range squad {
-			if p.Position == pos && !slices.ContainsFunc(w.transfers.Open(), func(o transfers.Offer) bool { return o.Player == p.Player }) {
+			if p.Position == pos && p.Value <= funds && ai.Joins(p.Overall, w.squadAverage(c.ID), w.squadAverage(buyer)) &&
+				!slices.ContainsFunc(w.transfers.Open(), func(o transfers.Offer) bool { return o.Player == p.Player }) {
 				best = append(best, p)
 			}
 		}
@@ -202,8 +206,11 @@ func TestManagerBuysAPlayer(t *testing.T) {
 	release(t, w, userClub3, players.Forward)
 	target := bestAt(t, w, players.Forward, userClub3)
 	seller := clubOf(w, target.Player)
-	if want, _ := w.valuation(target.Player, 0); target.Value != want || target.Value <= 0 {
-		t.Fatalf("asking price %s, valuation %s", target.Value, want)
+	if want, _ := w.sellingPrice(target.Player, 0); target.Value != want || target.Value <= 0 {
+		t.Fatalf("asking price %s, selling price %s", target.Value, want)
+	}
+	if r := w.BidRefusal(target.Player); r != RefusalNone {
+		t.Fatalf("BidRefusal = %d", r)
 	}
 	terms := suggest(t, w, target.Player)
 	buyerBefore, sellerBefore, total := balance(t, w, userClub3), balance(t, w, seller), totalBalance(w)
@@ -335,6 +342,9 @@ func TestLateBidForANeededPlayerIsRejected(t *testing.T) {
 		t.Fatal("no forward to bid for")
 	}
 	seller := clubOf(w, target.Player)
+	if r := w.BidRefusal(target.Player); r != RefusalNeeded {
+		t.Fatalf("BidRefusal = %d", r)
+	}
 	res := bidFor(t, w, target.Player, target.Value)
 	mustContinue(t, w, late+day)
 	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRejected || clubOf(w, target.Player) != seller {
@@ -349,6 +359,104 @@ func TestLateBidForANeededPlayerIsRejected(t *testing.T) {
 	}
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A star (ai.StarMargin above his club's squad average) joins only a club
+// at least as strong: the manager's bid at his price from a weaker club is
+// rejected, and no weaker AI club bids for a star.
+func TestAStarRefusesAWeakerClub(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	averages := map[ids.ClubID]int{}
+	for _, c := range w.registry.Clubs() {
+		averages[c.ID] = w.squadAverage(c.ID)
+	}
+	funds := balance(t, w, userClub3)
+	var star SquadPlayer
+	for _, c := range w.registry.Clubs() {
+		if averages[c.ID] <= averages[userClub3] {
+			continue
+		}
+		squad, _ := w.Squad(c.ID)
+		for _, p := range squad {
+			if star.Player == 0 && p.Overall >= averages[c.ID]+ai.StarMargin && p.Value <= funds &&
+				w.squadCounts(w.competitionsTeam(c.ID))[p.Position] > w.defs.Quota(p.Position).Min {
+				star = p
+			}
+		}
+	}
+	if star.Player == 0 {
+		t.Fatal("no affordable star at a stronger club")
+	}
+	seller := clubOf(w, star.Player)
+	if r := w.BidRefusal(star.Player); r != RefusalStar {
+		t.Fatalf("BidRefusal = %d", r)
+	}
+	res := bidFor(t, w, star.Player, star.Value)
+	mustContinue(t, w, day)
+	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRejected || clubOf(w, star.Player) != seller {
+		t.Fatalf("offer %+v, star at club %d", o, clubOf(w, star.Player))
+	}
+	// The AI bids of the first run were chosen against the squads as they
+	// were before it.
+	bids := 0
+	for _, o := range w.transfers.Offers() {
+		if o.Buyer == userClub3 || o.MadeAt != day {
+			continue
+		}
+		bids++
+		p, _ := w.players.Profile(o.Player)
+		if !ai.Joins(p.Overall(), averages[o.Seller], averages[o.Buyer]) {
+			t.Fatalf("club %d (average %d) bid for player %d (%d) of club %d (average %d)",
+				o.Buyer, averages[o.Buyer], o.Player, p.Overall(), o.Seller, averages[o.Seller])
+		}
+	}
+	if bids == 0 {
+		t.Fatal("no AI bids at the first run")
+	}
+}
+
+// A club keeps an unlisted player it bought in the previous window: the
+// manager's bid at his price is rejected, and no AI club bids for him.
+func TestANewSigningIsNotSoldOn(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
+	playSeason(t, w)
+	for end := w.ContractYearEnd(); w.Now() < end; {
+		mustContinue(t, w, end)
+	}
+	open := w.Now()
+	settling := map[ids.PlayerID]bool{}
+	for _, o := range w.transfers.Offers() {
+		if o.Status == transfers.StatusCompleted && o.Buyer != userClub3 && clubOf(w, o.Player) == o.Buyer {
+			settling[o.Player] = true
+		}
+	}
+	funds, mine := balance(t, w, userClub3), w.squadAverage(userClub3)
+	var target SquadPlayer
+	for _, id := range slices.Sorted(maps.Keys(settling)) {
+		p, seller := w.squadPlayer(id), clubOf(w, id)
+		if target.Player == 0 && !p.Listed && p.Value <= funds && ai.Joins(p.Overall, w.squadAverage(seller), mine) &&
+			w.squadCounts(w.competitionsTeam(seller))[p.Position] > w.defs.Quota(p.Position).Min {
+			target = p
+		}
+	}
+	if target.Player == 0 {
+		t.Fatal("no affordable player bought in the first window")
+	}
+	seller := clubOf(w, target.Player)
+	if r := w.BidRefusal(target.Player); r != RefusalSettling {
+		t.Fatalf("BidRefusal = %d", r)
+	}
+	res := bidFor(t, w, target.Player, target.Value)
+	mustContinue(t, w, open+day)
+	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRejected || clubOf(w, target.Player) != seller {
+		t.Fatalf("offer %+v, player at club %d", o, clubOf(w, target.Player))
+	}
+	for _, o := range w.transfers.Offers() {
+		if _, listed := w.transfers.Listing(o.Player); o.MadeAt == open+day && o.Buyer != userClub3 && settling[o.Player] && !listed {
+			t.Fatalf("club %d bid for player %d, bought by club %d in the previous window", o.Buyer, o.Player, o.Seller)
+		}
 	}
 }
 
@@ -799,17 +907,35 @@ func TestFailedTransferRunChangesNothing(t *testing.T) {
 	}
 }
 
-// The asking price is the club's valuation; the suggested terms are an AI
-// club's for the contract year under way.
+// An AI club's asking price is its valuation, with a premium for a player
+// above its squad average; the manager's players are shown at their
+// valuation. The suggested terms are an AI club's for the contract year
+// under way.
 func TestAskingPriceAndSuggestedTerms(t *testing.T) {
 	w := userWorld(t, 42, userClub3)
+	premium := 0
+	for _, club := range []ids.ClubID{1, userClub3} {
+		squad, _ := w.Squad(club)
+		for _, p := range squad {
+			age, _ := w.age(p.Player, 0)
+			years, _ := w.contractYearsLeft(p.Contract.Expires, 0)
+			want := ai.Valuation(p.Overall, age, years)
+			if club != userClub3 {
+				want = ai.SellingPrice(want, p.Overall, w.squadAverage(club))
+			}
+			if p.Value != want {
+				t.Fatalf("club %d player %d asks %s, want %s", club, p.Player, p.Value, want)
+			}
+			if club != userClub3 && p.Value > ai.Valuation(p.Overall, age, years) {
+				premium++
+			}
+		}
+	}
+	if premium == 0 {
+		t.Fatal("no player of club 1 is priced above his valuation")
+	}
 	squad, _ := w.Squad(1)
 	for _, p := range squad {
-		age, _ := w.age(p.Player, 0)
-		years, _ := w.contractYearsLeft(p.Contract.Expires, 0)
-		if p.Value != ai.Valuation(p.Overall, age, years) {
-			t.Fatalf("player %d asks %s", p.Player, p.Value)
-		}
 		if o := suggest(t, w, p.Player); o != mustAIOffer(t, w, p.Player, 2025) {
 			t.Fatalf("player %d suggested %+v", p.Player, o)
 		}

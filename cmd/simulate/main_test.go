@@ -325,8 +325,9 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if !strings.Contains(managed, "\nmanaging club 3: ") || strings.Contains(plain, "managing club") {
 		t.Fatal("manager line missing, or printed without -club")
 	}
-	if strings.Count(managed, "  <- AI lineup") != 14 || strings.Contains(managed, "your lineup") {
-		t.Fatal("want 14 managed fixtures marked as AI lineups")
+	// 14 league rounds and a cup run to the final.
+	if strings.Count(managed, "  <- AI lineup") != 17 || strings.Contains(managed, "your lineup") {
+		t.Fatal("want 17 managed fixtures marked as AI lineups")
 	}
 	// The AI's lineup is the suggested one. (The season differs from the
 	// unmanaged one: AI clubs trade among themselves in the first window,
@@ -335,7 +336,15 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(matchLines(t, managed), matchLines(t, suggested)) || section(t, managed, "Final table") != section(t, suggested, "Final table") {
+	// The cup results after the final table carry the lineup markers too.
+	unmarked := func(out string) string {
+		lines := strings.Split(section(t, out, "Final table"), "\n")
+		for i, line := range lines {
+			lines[i], _, _ = strings.Cut(line, "  <- ")
+		}
+		return strings.Join(lines, "\n")
+	}
+	if !slices.Equal(matchLines(t, managed), matchLines(t, suggested)) || unmarked(managed) != unmarked(suggested) {
 		t.Fatal("managing a club without lineups changed results")
 	}
 }

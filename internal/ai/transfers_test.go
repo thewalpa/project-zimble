@@ -40,16 +40,56 @@ func TestValuationRisesWithOverallAndFallsWithAgeAndContract(t *testing.T) {
 	}
 }
 
-func TestAcceptBidAtOrAboveValuation(t *testing.T) {
-	if !AcceptBid(100, 100, true, true) || !AcceptBid(101, 100, true, true) || AcceptBid(99, 100, true, true) {
-		t.Fatal("bids are not judged against the valuation")
+func TestAcceptBidAtOrAboveThePrice(t *testing.T) {
+	sale := func(fee money.Money) Sale { return Sale{Fee: fee, Price: 100, Spare: true, Replaceable: true} }
+	if !AcceptBid(sale(100)) || !AcceptBid(sale(101)) || AcceptBid(sale(99)) {
+		t.Fatal("bids are not judged against the price")
 	}
 }
 
 // A club sells a player it needs only while it can replace him.
 func TestAcceptBidKeepsANeededPlayerLate(t *testing.T) {
-	if !AcceptBid(100, 100, false, true) || !AcceptBid(100, 100, true, false) || AcceptBid(100, 100, false, false) {
+	s := Sale{Fee: 100, Price: 100}
+	if AcceptBid(s) {
 		t.Fatal("a needed player is sold with no time to replace him")
+	}
+	s.Spare = true
+	if !AcceptBid(s) {
+		t.Fatal("a spare player is kept")
+	}
+	s.Spare, s.Replaceable = false, true
+	if !AcceptBid(s) {
+		t.Fatal("a replaceable player is kept")
+	}
+}
+
+// A player bought in the previous window is not sold on, unless listed.
+func TestAcceptBidKeepsAPlayerSettlingIn(t *testing.T) {
+	s := Sale{Fee: 100, Price: 100, Spare: true, Replaceable: true, Settling: true}
+	if AcceptBid(s) {
+		t.Fatal("a player bought last window is sold on")
+	}
+	if s.Listed = true; !AcceptBid(s) {
+		t.Fatal("a listed player is kept")
+	}
+}
+
+// A club asks more for its better players, never less than its valuation.
+func TestSellingPriceRisesWithImportance(t *testing.T) {
+	v := Valuation(70, 25, 3)
+	if SellingPrice(v, 60, 62) != v || SellingPrice(v, 62, 62) != v {
+		t.Fatal("a player at or below the squad average costs more than his valuation")
+	}
+	prev := v
+	for overall := 63; overall <= 100; overall++ {
+		p := SellingPrice(v, overall, 62)
+		if p <= prev || p%money.Units(ValueStepUnits) != 0 {
+			t.Fatalf("price %s at %d after %s", p, overall, prev)
+		}
+		prev = p
+	}
+	if SellingPrice(v, 82, 62) < 2*v {
+		t.Fatal("a star 20 points above the average costs less than twice his valuation")
 	}
 }
 
@@ -195,5 +235,22 @@ func TestListedPlayersComeFirst(t *testing.T) {
 	}
 	if c, _ := ChooseTarget(1, cands, 66, budget); c.Player != 5 {
 		t.Fatalf("vacancy chose %+v, want 5", c)
+	}
+}
+
+// A star joins only a club at least as strong as his own; other players go
+// anywhere.
+func TestJoins(t *testing.T) {
+	if !Joins(60+StarMargin-1, 60, 50) {
+		t.Fatal("a player below the star margin refuses a weaker club")
+	}
+	if Joins(60+StarMargin, 60, 59) {
+		t.Fatal("a star joins a weaker club")
+	}
+	if !Joins(60+StarMargin, 60, 60) || !Joins(90, 60, 65) {
+		t.Fatal("a star refuses a club as strong as his own")
+	}
+	if AcceptBid(Sale{Fee: 100, Price: 100, Spare: true, Overall: 80, SellerAverage: 60, BuyerAverage: 55}) {
+		t.Fatal("a club sells a star to a weaker club")
 	}
 }
