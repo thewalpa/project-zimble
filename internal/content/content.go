@@ -17,8 +17,9 @@ import (
 // Version identifies the content returned by Default. Version 2 moved
 // attribute ranges to the 1..100 scale; version 3 added the economy;
 // version 4 added player ages and youth intake; version 5 added a second
-// nation; version 6 added a second division to each nation.
-const Version = 6
+// nation; version 6 added a second division to each nation; version 7 added
+// ranges for the five match attributes.
+const Version = 7
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
@@ -354,12 +355,17 @@ func Default() Definitions {
 			{players.Forward, 4, 3},
 		},
 		SquadLimit: 25,
-		// Ranges (1..100) are ordered: goalkeeping, defending, passing, finishing, pace, stamina.
+		// Ranges (1..100) are ordered: goalkeeping, defending, passing, finishing, pace, stamina,
+		// then dribbling, heading, strength, acceleration, positioning.
 		Profiles: []PositionProfile{
-			{players.Goalkeeper, [players.NumAttributes]Range{{48, 90}, {11, 37}, {22, 58}, {1, 17}, {11, 48}, {27, 69}}},
-			{players.Defender, [players.NumAttributes]Range{{1, 11}, {43, 90}, {22, 64}, {6, 37}, {27, 74}, {37, 84}}},
-			{players.Midfielder, [players.NumAttributes]Range{{1, 11}, {22, 64}, {43, 90}, {22, 64}, {32, 74}, {43, 90}}},
-			{players.Forward, [players.NumAttributes]Range{{1, 11}, {6, 37}, {27, 69}, {43, 90}, {43, 90}, {32, 74}}},
+			{players.Goalkeeper, [players.NumAttributes]Range{{48, 90}, {11, 37}, {22, 58}, {1, 17}, {11, 48}, {27, 69},
+				{1, 17}, {6, 37}, {27, 69}, {11, 48}, {22, 58}}},
+			{players.Defender, [players.NumAttributes]Range{{1, 11}, {43, 90}, {22, 64}, {6, 37}, {27, 74}, {37, 84},
+				{11, 48}, {43, 84}, {37, 84}, {27, 74}, {43, 90}}},
+			{players.Midfielder, [players.NumAttributes]Range{{1, 11}, {22, 64}, {43, 90}, {22, 64}, {32, 74}, {43, 90},
+				{27, 74}, {17, 58}, {22, 69}, {32, 74}, {32, 74}}},
+			{players.Forward, [players.NumAttributes]Range{{1, 11}, {6, 37}, {27, 69}, {43, 90}, {43, 90}, {32, 74},
+				{37, 84}, {27, 74}, {27, 74}, {43, 90}, {37, 84}}},
 		},
 		Economy: Economy{
 			OpeningBalance:   money.Units(2_000_000),

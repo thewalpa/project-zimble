@@ -7,7 +7,7 @@ import (
 )
 
 func validProfile(id ids.PlayerID) Profile {
-	return Profile{Player: id, Position: Midfielder, Attributes: Attributes{25, 50, 75, 40, 60, 100}}
+	return Profile{Player: id, Position: Midfielder, Attributes: Attributes{25, 50, 75, 40, 60, 100, 45, 55, 65, 70, 35}}
 }
 
 func TestNewRejectsInvalidProfiles(t *testing.T) {
@@ -53,7 +53,7 @@ func TestStoreIsIsolatedFromCallers(t *testing.T) {
 }
 
 func TestOverallUsesPositionKeyAttributes(t *testing.T) {
-	p := Profile{Player: 1, Position: Forward, Attributes: Attributes{1, 1, 50, 75, 62, 1}}
+	p := Profile{Player: 1, Position: Forward, Attributes: Attributes{1, 1, 50, 75, 62, 1, 1, 1, 1, 1, 1}}
 	// (75 + 62 + 50) / 3 = 62.33 -> 62; one more point of pace rounds up.
 	if got := p.Overall(); got != 62 {
 		t.Fatalf("Overall = %d, want 62", got)
@@ -61,5 +61,23 @@ func TestOverallUsesPositionKeyAttributes(t *testing.T) {
 	p.Attributes[Pace]++
 	if got := p.Overall(); got != 63 { // 62.67
 		t.Fatalf("Overall = %d, want 63", got)
+	}
+}
+
+func TestAttributeValuesAndNamesAreDurable(t *testing.T) {
+	want := []string{
+		"goalkeeping", "defending", "passing", "finishing", "pace", "stamina",
+		"dribbling", "heading", "strength", "acceleration", "positioning",
+	}
+	if NumAttributes != len(want) {
+		t.Fatalf("NumAttributes = %d, want %d", NumAttributes, len(want))
+	}
+	for a, name := range want {
+		if got := Attribute(a).String(); got != name {
+			t.Errorf("Attribute(%d) = %q, want %q", a, got, name)
+		}
+	}
+	if Positioning != 10 || Stamina != 5 {
+		t.Fatal("attribute values moved")
 	}
 }

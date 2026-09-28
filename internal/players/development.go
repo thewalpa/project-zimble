@@ -25,7 +25,9 @@ const (
 
 // Growth returns the mean yearly change of an attribute at an age: young
 // players improve, players in their late twenties hold level and older ones
-// decline, pace and stamina a point a year faster.
+// decline, pace, stamina and acceleration a point a year faster. Strength
+// and positioning decline a point a year more slowly from 29 through 32,
+// then like the rest.
 func Growth(age int, a Attribute) int {
 	var g int
 	switch {
@@ -46,8 +48,11 @@ func Growth(age int, a Attribute) int {
 	default:
 		g = -3
 	}
-	if age >= 29 && (a == Pace || a == Stamina) {
+	switch {
+	case age >= 29 && (a == Pace || a == Stamina || a == Acceleration):
 		g--
+	case age >= 29 && age <= 32 && (a == Strength || a == Positioning):
+		g++
 	}
 	return g
 }

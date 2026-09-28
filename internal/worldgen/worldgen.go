@@ -25,22 +25,40 @@ import (
 // Version identifies the generation algorithm. Bump it whenever the same
 // seed and content would produce a different snapshot. Version 2 added
 // contract terms; version 3 added birth dates; version 4 generates clubs
-// nation by nation; version 5 adds each nation's lower divisions.
-const Version = 5
+// nation by nation; version 5 adds each nation's lower divisions; version 6
+// adds the five match attributes (see matchAttributes).
+const Version = 6
 
 // streamVersion keys the club and player streams: the generator version
 // that last changed their existing draws. Version 3 only appended a draw to
 // each player's stream, which leaves the earlier draws (names, attributes,
 // contracts) as they were; version 4 keeps the first nation's club stream
 // and adds one per further nation, and version 5 adds one per lower division
-// after every top division. Set it to Version when a change alters an
-// existing draw.
+// after every top division. Version 6 appended the match attributes to each
+// player's stream. Set it to Version when a change alters an existing draw.
 const streamVersion = 2
 
 // YouthVersion identifies youth generation (Youth). Bump it whenever the
 // same definitions, seed, ID, position and instant would produce a
-// different player.
-const YouthVersion = 1
+// different player. Version 2 added the match attributes.
+const YouthVersion = 2
+
+// youthStreamVersion keys the youth streams: the youth version that last
+// changed an existing draw. Version 2 only appended draws.
+const youthStreamVersion = 1
+
+// matchAttributes is the first of the attributes added in generator
+// version 6 (Dribbling..Positioning). They are drawn last in each player's
+// and each youth player's stream, after the birth date, so every earlier
+// draw is unchanged; the attributes before it are drawn first, in order.
+const matchAttributes = players.Dribbling
+
+// drawAttributes draws the attributes from..to-1, each from its range.
+func drawAttributes(rng *random.Stream, attrs *players.Attributes, ranges [players.NumAttributes]content.Range, from, to players.Attribute) {
+	for a := from; a < to; a++ {
+		attrs[a] = players.Rating(rng.IntRange(int(ranges[a].Min), int(ranges[a].Max)))
+	}
+}
 
 // birthDays returns the range of days before an instant on which a person
 // is ages[0]..ages[1] whole years old: ages[0] years never exceed 366 days
@@ -126,7 +144,7 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 				s.Teams = append(s.Teams, registry.Team{ID: teamID, Club: clubID, Kind: registry.TeamSenior})
 
 				for _, q := range defs.Roster {
-					profile, _ := defs.Profile(q.Position) // presence checked by Validate
+					pp, _ := defs.Profile(q.Position) // presence checked by Validate
 					for range q.Count {
 						nextPlayer++
 						rng := random.Derive(seed, "worldgen/player", streamVersion, uint64(nextPlayer))
@@ -136,11 +154,8 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 							LastName:  defs.LastNames[rng.IntN(len(defs.LastNames))],
 						}
 						var attrs players.Attributes
-						for a, r := range profile.Ranges {
-							attrs[a] = players.Rating(rng.IntRange(int(r.Min), int(r.Max)))
-						}
+						drawAttributes(rng, &attrs, pp.Ranges, 0, matchAttributes)
 						profile := players.Profile{Player: nextPlayer, Position: q.Position, Attributes: attrs}
-						s.Profiles = append(s.Profiles, profile)
 						s.Assignments = append(s.Assignments, employment.Assignment{Player: nextPlayer, Club: clubID, Team: teamID})
 						// Drawn after the attributes, from the same player stream.
 						econ := defs.Economy
@@ -149,9 +164,12 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 						s.Contracts = append(s.Contracts, ContractTerms{
 							Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
 						})
-						// Version 3: drawn last, so the draws above are unchanged.
+						// Version 3: drawn after the contract, so the draws above are unchanged.
 						player.Born = -sim.GameInstant(rng.IntRange(birthDays(defs.Ages))) * sim.GameInstant(sim.Day)
 						s.Players = append(s.Players, player)
+						// Version 6: drawn last, for the same reason.
+						drawAttributes(rng, &profile.Attributes, pp.Ranges, matchAttributes, players.NumAttributes)
+						s.Profiles = append(s.Profiles, profile)
 					}
 				}
 			}
@@ -203,21 +221,24 @@ func Youth(defs content.Definitions, seed random.Seed, id ids.PlayerID, pos play
 	if !ok || !id.Valid() {
 		return registry.Player{}, players.Profile{}, fmt.Errorf("worldgen: no youth player %d at position %s", id, pos)
 	}
-	rng := random.Derive(seed, "worldgen/youth", YouthVersion, uint64(id))
+	rng := random.Derive(seed, "worldgen/youth", youthStreamVersion, uint64(id))
 	p := registry.Player{
 		ID:        id,
 		FirstName: defs.FirstNames[rng.IntN(len(defs.FirstNames))],
 		LastName:  defs.LastNames[rng.IntN(len(defs.LastNames))],
 	}
-	var attrs players.Attributes
-	for a, r := range profile.Ranges {
-		r = defs.Youth.Range(r)
-		attrs[a] = players.Rating(rng.IntRange(int(r.Min), int(r.Max)))
+	ranges := profile.Ranges
+	for a, r := range ranges {
+		ranges[a] = defs.Youth.Range(r)
 	}
+	var attrs players.Attributes
+	drawAttributes(rng, &attrs, ranges, 0, matchAttributes)
 	born, err := at.Add(-sim.Duration(rng.IntRange(birthDays(defs.Youth.Ages))) * sim.Day)
 	if err != nil {
 		return registry.Player{}, players.Profile{}, fmt.Errorf("worldgen: youth player %d: %w", id, err)
 	}
 	p.Born = born
+	// Version 2: drawn last, so the draws above are unchanged.
+	drawAttributes(rng, &attrs, ranges, matchAttributes, players.NumAttributes)
 	return p, players.Profile{Player: id, Position: pos, Attributes: attrs}, nil
 }

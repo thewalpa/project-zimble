@@ -2303,6 +2303,43 @@ The best players no longer change clubs every summer. Before, an AI club sold an
 - A few listed journeymen still move in four to seven consecutive windows.
 - Selling price and the star rule use a squad's mean overall, so a club's quality in one position doesn't count.
 
+## data: five match attributes (done)
+
+Players now carry Dribbling, Heading, Strength, Acceleration and Positioning on the 1–100 scale, for the `tick` engine's next phase. Delivers `match`'s request (`data--match-attributes`) with `squad`'s rules for `players` (`squad--match-attributes`).
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/players` | `Dribbling` 6, `Heading` 7, `Strength` 8, `Acceleration` 9, `Positioning` 10; every `Attribute` constant has an explicit value and `NumAttributes` is 11. `Growth`: acceleration declines with pace (a point a year faster from 29); strength and positioning a point a year more slowly from 29 through 32 (0, 0, −1, −1), then like the rest; dribbling and heading follow the base curve. `DevelopmentVersion` stays 1 |
+| `internal/content` | A range per position for each new attribute (GK / DF / MF / FW, from the note; youth ranges are lowered by `RatingGap` as before). `Version` 7 |
+| `internal/worldgen` | The five are drawn last in each player's stream (after the birth date) and in each youth stream. `Version` 6, `YouthVersion` 2; `streamVersion` stays 2 and the new `youthStreamVersion` keeps the youth streams at 1 |
+| `internal/storage` | `SchemaVersion` 18: `Attributes` has eleven values. Schema 17 saves are refused with `ErrUnsupportedSave` |
+| `cmd/web` | The squad, lineup and player tables show the six ratings they have headers for (`ratings` template function); they ranged over every attribute. How to show the new five is `ui`'s design |
+
+### Decisions
+
+- **Appended draws, not a reshuffle.** Names, the first six attributes, contracts and birth dates are unchanged for every seed, and so are youth players' names, birth dates and first six attributes. Only the world fingerprint moves.
+- **`Overall` is unchanged** (`keyAttributes`, squad's call), so wages, valuations and AI selection don't move, and `simple` ignores the new attributes. Seeded careers play out exactly as before.
+- **`DevelopmentVersion` stays 1.** It keys the development and retirement streams. `Develop` draws the five after the first six, which develop exactly as before, and the schema bump already refuses older saves.
+- **Old saves are refused, not migrated.** A schema 17 save has no values for the five, and restore must not generate them from the seed.
+
+### Verification
+
+- `TestMatchAttributesKeepEarlierDraws`: the seed-42 world, with the five dropped and encoded as worldgen v5 did, hashes to the old golden. `TestYouth` pins four youth players' v1 names, birth dates and first six attributes.
+- `TestDevelopKeepsTheFirstSixDraws` pins `Develop`'s output from before the change. `TestGrowthOfTheMatchAttributes` covers each new growth rule.
+- The seed-42 season, second-league and cup goldens are unchanged. Three seasons of `cmd/simulate -seed 42` (save and load between seasons) print the same output as the previous build, apart from the version line and the fingerprint. The final saves are equal field by field, all 665 players included, once the five values are dropped.
+- Restore rejects a profile with a zero Positioning. `TestTableRowsMatchTheirHeaders` (cmd/web) failed before the template fix: 21 cells under 16 columns.
+
+### Handoffs
+
+[match](handoffs/match--match-attributes-delivered.md): the `matches.Ratings` fields and `World.candidate`. [ui](handoffs/ui--match-attributes.md): show the five. [balance](handoffs/balance--match-attribute-spreads.md): check the ranges. `squad` already has "Overall with the new attributes" in its backlog.
+
+### Limitations
+
+- Nothing uses the five yet: `matches.Ratings` doesn't carry them until `match` adds the fields.
+- The ranges are the note's first proposal and haven't been measured.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

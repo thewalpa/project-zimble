@@ -6,7 +6,7 @@
 <div class="panel scroll">
 <table>
   <tr><th class="n">OVR</th><th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th>{{if not $d.Retired}}<th class="n">Cond</th>{{end}}</tr>
-  <tr><td class="n"><b>{{$d.Overall}}</b></td>{{range $d.Attributes}}<td class="n">{{.}}</td>{{end}}{{if not $d.Retired}}<td class="n">{{$d.Condition}}%</td>{{end}}</tr>
+  <tr><td class="n"><b>{{$d.Overall}}</b></td>{{range ratings $d.Attributes}}<td class="n">{{.}}</td>{{end}}{{if not $d.Retired}}<td class="n">{{$d.Condition}}%</td>{{end}}</tr>
 </table>
 </div>
 {{if not $d.Retired}}

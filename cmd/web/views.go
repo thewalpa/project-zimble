@@ -32,6 +32,8 @@ var funcs = template.FuncMap{
 	"sortHeader": func(s SortState, col, label, defaultDir string) template.HTML {
 		return s.Header(col, label, defaultDir)
 	},
+	// ratings returns the attributes the tables show: goalkeeping to stamina.
+	"ratings": func(a players.Attributes) []players.Rating { return a[:players.Dribbling] },
 }
 
 // layout is what every page gets: the career header, notes and the page's

@@ -33,7 +33,7 @@
     <tr>
       <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>
       <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
-      {{range .Attributes}}<td class="n">{{.}}</td>{{end}}
+      {{range ratings .Attributes}}<td class="n">{{.}}</td>{{end}}
     </tr>
     {{end}}
   </table>

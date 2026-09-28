@@ -8,6 +8,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/players"
 )
 
 // roundTrip saves and loads w through JSON (the storage encoding without its
@@ -315,6 +316,7 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 			s.ContentFingerprint = contentFingerprint(s.Content, nil, s.Cups)
 		},
 		"player without profile":     func(s *WorldSnapshot) { s.Players = s.Players[1:] },
+		"match attribute missing":    func(s *WorldSnapshot) { s.Players[0].Attributes[players.Positioning] = 0 },
 		"assignment to unknown team": func(s *WorldSnapshot) { s.Employment[0].Team = 99 },
 		"fixture allocator too low":  func(s *WorldSnapshot) { s.Competitions.LastFixture = 10 },
 		"task allocator too low":     func(s *WorldSnapshot) { s.Scheduler.LastTaskID = 5 },

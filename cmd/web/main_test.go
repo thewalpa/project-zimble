@@ -1009,3 +1009,33 @@ func TestInboxReadState(t *testing.T) {
 		t.Fatal("the inbox still offers to mark all read")
 	}
 }
+
+// Every row of the squad, player and lineup tables has as many cells as
+// its header has columns.
+func TestTableRowsMatchTheirHeaders(t *testing.T) {
+	c := career(t)
+	check := func(path, page string) {
+		tables := strings.Split(page, "<table")[1:]
+		if len(tables) == 0 {
+			t.Fatalf("%s: no table", path)
+		}
+		for _, table := range tables {
+			table = table[:strings.Index(table, "</table>")]
+			rows := strings.Split(table, "<tr")[1:]
+			if len(rows) == 0 || !strings.Contains(rows[0], "<th") {
+				continue
+			}
+			header := strings.Count(rows[0], "<th")
+			for i, row := range rows[1:] {
+				if n := strings.Count(row, "<td"); n != header {
+					t.Fatalf("%s: row %d has %d cells under %d columns", path, i+1, n, header)
+				}
+			}
+		}
+	}
+	for _, path := range []string{"/squad", "/player?id=56"} {
+		check(path, c.get(path))
+	}
+	contains(t, c.post("/continue", nil), "Pick lineup")
+	check("/lineup", c.get("/lineup"))
+}

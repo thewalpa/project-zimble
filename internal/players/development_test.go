@@ -13,7 +13,7 @@ func TestPlanDevelopsRetiresAndAdds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grown := Attributes{30, 55, 80, 45, 65, 100}
+	grown := Attributes{30, 55, 80, 45, 65, 100, 50, 60, 70, 75, 40}
 	plan, err := s.Plan(Changes{
 		Developments: []Development{{Player: 1, Attributes: grown}},
 		Retirements:  []ids.PlayerID{2},
@@ -62,7 +62,7 @@ func TestPlanRejectsInvalidChanges(t *testing.T) {
 	cases := map[string]Changes{
 		"develop unknown":      {Developments: []Development{{Player: 9, Attributes: validProfile(1).Attributes}}},
 		"develop retired":      {Developments: []Development{{Player: 3, Attributes: validProfile(1).Attributes}}},
-		"develop out of range": {Developments: []Development{{Player: 1, Attributes: Attributes{0, 1, 1, 1, 1, 1}}}},
+		"develop out of range": {Developments: []Development{{Player: 1, Attributes: Attributes{0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}}}},
 		"develop twice":        {Developments: []Development{{Player: 1, Attributes: validProfile(1).Attributes}, {Player: 1, Attributes: validProfile(1).Attributes}}},
 		"retire retired":       {Retirements: []ids.PlayerID{3}},
 		"retire unknown":       {Retirements: []ids.PlayerID{9}},
@@ -103,7 +103,7 @@ func TestDevelopIsDeterministicAndBounded(t *testing.T) {
 	if differ < 9 {
 		t.Fatalf("years and seeds barely change development (%d of 11 differ)", differ)
 	}
-	extremes := Profile{Player: 8, Position: Forward, Attributes: Attributes{1, 1, 100, 100, 1, 100}}
+	extremes := Profile{Player: 8, Position: Forward, Attributes: Attributes{1, 1, 100, 100, 1, 100, 1, 100, 1, 100, 1}}
 	for year := 2026; year < 2126; year++ {
 		for _, age := range []int{16, 40} {
 			for _, r := range Develop(1, extremes, age, year) {
@@ -122,7 +122,11 @@ func TestDevelopmentFollowsAge(t *testing.T) {
 		total := 0
 		const n = 2000
 		for id := range n {
-			p := Profile{Player: ids.PlayerID(id + 1), Position: Midfielder, Attributes: Attributes{50, 50, 50, 50, 50, 50}}
+			var attrs Attributes
+			for i := range attrs {
+				attrs[i] = 50
+			}
+			p := Profile{Player: ids.PlayerID(id + 1), Position: Midfielder, Attributes: attrs}
 			total += int(Develop(random.Seed(9), p, age, 2030)[a]) - 50
 		}
 		return float64(total) / n
@@ -137,6 +141,68 @@ func TestDevelopmentFollowsAge(t *testing.T) {
 	}
 	if p, s := mean(30, Passing), mean(30, Pace); s >= p-0.5 {
 		t.Errorf("at 30 pace changes by %.2f, passing by %.2f; pace should decline faster", s, p)
+	}
+	if p, s := mean(30, Passing), mean(30, Strength); s <= p+0.5 {
+		t.Errorf("at 30 strength changes by %.2f, passing by %.2f; strength should decline more slowly", s, p)
+	}
+}
+
+// Dribbling and heading follow the base curve, acceleration declines with
+// pace, and strength and positioning decline a point more slowly from 29
+// through 32 and like the base curve after that.
+func TestGrowthOfTheMatchAttributes(t *testing.T) {
+	for age := 14; age <= 40; age++ {
+		base := Growth(age, Passing)
+		if Growth(age, Dribbling) != base || Growth(age, Heading) != base {
+			t.Errorf("age %d: dribbling or heading leaves the base curve", age)
+		}
+		if Growth(age, Acceleration) != Growth(age, Pace) {
+			t.Errorf("age %d: acceleration %d, pace %d", age, Growth(age, Acceleration), Growth(age, Pace))
+		}
+		slower := base
+		if age >= 29 && age <= 32 {
+			slower++
+		}
+		for _, a := range []Attribute{Strength, Positioning} {
+			if got := Growth(age, a); got != slower {
+				t.Errorf("age %d: %s growth %d, want %d", age, a, got, slower)
+			}
+		}
+	}
+	for age := 29; age <= 32; age++ {
+		if g := Growth(age, Strength); g > 0 {
+			t.Errorf("age %d: strength grows by %d; it should only decline more slowly", age, g)
+		}
+	}
+}
+
+// The five match attributes draw after the first six, so the first six
+// develop exactly as they did before the five existed. The table is the
+// output of Develop from before they were added.
+func TestDevelopKeepsTheFirstSixDraws(t *testing.T) {
+	for _, c := range []struct {
+		age, year int
+		want      [6]Rating
+	}{
+		{17, 2026, [6]Rating{31, 56, 81, 45, 64, 100}},
+		{17, 2031, [6]Rating{30, 54, 80, 46, 65, 100}},
+		{26, 2026, [6]Rating{27, 52, 77, 41, 60, 100}},
+		{26, 2031, [6]Rating{26, 50, 76, 42, 61, 100}},
+		{30, 2026, [6]Rating{26, 51, 76, 40, 58, 99}},
+		{30, 2031, [6]Rating{25, 49, 75, 41, 59, 98}},
+		{34, 2026, [6]Rating{24, 49, 74, 38, 56, 97}},
+		{34, 2031, [6]Rating{23, 47, 73, 39, 57, 96}},
+	} {
+		p := validProfile(7)
+		got := Develop(42, p, c.age, c.year)
+		if [6]Rating(got[:6]) != c.want {
+			t.Errorf("age %d year %d: first six %v, want %v", c.age, c.year, got[:6], c.want)
+		}
+		// The new draws must not depend on the old values either way.
+		p.Attributes[Dribbling] = 90
+		if again := Develop(42, p, c.age, c.year); [6]Rating(again[:6]) != c.want {
+			t.Errorf("age %d year %d: the new attributes moved the first six", c.age, c.year)
+		}
 	}
 }
 

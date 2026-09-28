@@ -132,6 +132,7 @@ func TestDecodeRejectsCorruptOrUnsupportedFiles(t *testing.T) {
 		"other format":                    {withPayload(t, "other/save", SchemaVersion, payload), ErrUnsupportedSave},
 		"future schema":                   {withPayload(t, Format, SchemaVersion+1, payload), ErrUnsupportedSave},
 		"old schema":                      {withPayload(t, Format, 0, payload), ErrUnsupportedSave},
+		"six attributes (schema 17)":      {withPayload(t, Format, 17, payload), ErrUnsupportedSave},
 	}
 	for name, c := range cases {
 		if _, err := Decode(c.data); !errors.Is(err, c.want) {

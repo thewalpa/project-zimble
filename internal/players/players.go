@@ -62,16 +62,25 @@ func (r Rating) Valid() bool { return r >= MinRating && r <= MaxRating }
 type Attribute uint8
 
 const (
-	Goalkeeping Attribute = iota
-	Defending
-	Passing
-	Finishing
-	Pace
-	Stamina
-	NumAttributes = iota
+	Goalkeeping  Attribute = 0
+	Defending    Attribute = 1
+	Passing      Attribute = 2
+	Finishing    Attribute = 3
+	Pace         Attribute = 4
+	Stamina      Attribute = 5
+	Dribbling    Attribute = 6 // keeping the ball in a duel, first touch
+	Heading      Attribute = 7
+	Strength     Attribute = 8
+	Acceleration Attribute = 9  // the first steps of a sprint; Pace is top speed
+	Positioning  Attribute = 10 // off-ball runs for attackers, marking for defenders
+	// NumAttributes counts the attributes; keep it last.
+	NumAttributes = 11
 )
 
-var attributeNames = [NumAttributes]string{"goalkeeping", "defending", "passing", "finishing", "pace", "stamina"}
+var attributeNames = [NumAttributes]string{
+	"goalkeeping", "defending", "passing", "finishing", "pace", "stamina",
+	"dribbling", "heading", "strength", "acceleration", "positioning",
+}
 
 func (a Attribute) String() string {
 	if int(a) < len(attributeNames) {

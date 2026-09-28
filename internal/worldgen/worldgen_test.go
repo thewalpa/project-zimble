@@ -1,8 +1,12 @@
 package worldgen
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/content"
@@ -15,9 +19,13 @@ import (
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v5 and content v6 (a second division per nation;
-// the top divisions' clubs and players are unchanged since v3).
-const goldenSeed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
+// Last changed by worldgen v6 and content v7 (the five match attributes,
+// drawn after every earlier draw; see TestMatchAttributesKeepEarlierDraws).
+const goldenSeed42 = "97707b41d757f481c66c2e4f5161d9886ce31f7f3051b1add1d69b34779568bc"
+
+// goldenV5Seed42 was goldenSeed42 before the match attributes: worldgen v5,
+// content v6, six attributes per player.
+const goldenV5Seed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -42,6 +50,29 @@ func TestGenerateMatchesGoldenFingerprint(t *testing.T) {
 	if got := generate(t, 42).Fingerprint(); got != goldenSeed42 {
 		t.Fatalf("seed 42 fingerprint = %s, want %s\n"+
 			"generated content changed: fix the regression or bump a version and update goldenSeed42", got, goldenSeed42)
+	}
+}
+
+// The match attributes are drawn last in each player's stream, so every
+// earlier draw is unchanged: the snapshot without them, encoded as worldgen
+// v5 did, is exactly the v5 world.
+func TestMatchAttributesKeepEarlierDraws(t *testing.T) {
+	s := generate(t, 42)
+	s.GeneratorVersion, s.ContentVersion = 5, 6
+	h := sha256.New()
+	var body bytes.Buffer
+	s.writeCanonical(&body)
+	for line := range strings.Lines(body.String()) {
+		if strings.HasPrefix(line, "profile ") {
+			// "profile 1 pos=1 attrs=[a b c d e f g h i j k]": keep six.
+			head, attrs, _ := strings.Cut(line, "attrs=[")
+			fields := strings.Fields(strings.TrimSuffix(strings.TrimSpace(attrs), "]"))
+			line = head + "attrs=[" + strings.Join(fields[:matchAttributes], " ") + "]\n"
+		}
+		h.Write([]byte(line))
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != goldenV5Seed42 {
+		t.Fatalf("seed 42 without the match attributes = %s, want the v5 world %s", got, goldenV5Seed42)
 	}
 }
 
@@ -173,6 +204,25 @@ func TestYouth(t *testing.T) {
 					t.Fatalf("youth %d %s=%d outside %v", id, players.Attribute(a), r, rg)
 				}
 			}
+		}
+	}
+	// Youth v2 appended the match attributes: names, birth dates and the
+	// first six attributes are those youth v1 generated.
+	for _, v1 := range []struct {
+		id          ids.PlayerID
+		pos         players.Position
+		first, last string
+		born        sim.GameInstant
+		attrs       [6]players.Rating
+	}{
+		{641, players.Goalkeeper, "Yannick", "Tanaka", -5573760, [6]players.Rating{61, 5, 42, 2, 12, 40}},
+		{678, players.Defender, "Hugo", "Varga", -5612640, [6]players.Rating{1, 61, 33, 12, 25, 25}},
+		{715, players.Midfielder, "Jonas", "Moreau", -6128160, [6]players.Rating{1, 38, 60, 17, 28, 73}},
+		{752, players.Forward, "Viktor", "Moreau", -6125280, [6]players.Rating{1, 13, 19, 47, 51, 20}},
+	} {
+		p, prof, err := Youth(defs, 42, v1.id, v1.pos, 3_000_000)
+		if err != nil || p.FirstName != v1.first || p.LastName != v1.last || p.Born != v1.born || [6]players.Rating(prof.Attributes[:6]) != v1.attrs {
+			t.Errorf("youth %d changed its v1 draws: %+v %v (%v)", v1.id, p, prof.Attributes, err)
 		}
 	}
 	if _, _, err := Youth(defs, 42, 500, 0, at); err == nil {
