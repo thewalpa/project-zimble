@@ -84,20 +84,6 @@ func (r ResolveRecord) clone() ResolveRecord {
 	return r
 }
 
-// commandRecord is one successful command; exactly one field is set.
-type commandRecord struct {
-	resolve  *ResolveRecord
-	lineup   *LineupRecord
-	play     *PlayMatchRecord
-	decision *DecisionRecord
-	renew    *RenewRecord
-	sign     *SignRecord
-	offer    *OfferRecord
-	respond  *ResponseRecord
-	release  *ReleaseRecord
-	listing  *ListingRecord
-}
-
 // plannedMatch is a fixture with its detached, validated match input.
 type plannedMatch struct {
 	fixture  competitions.Fixture

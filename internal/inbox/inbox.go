@@ -53,8 +53,10 @@ func (k Kind) competition() bool { return k <= KindSeasonStarted }
 func (k Kind) aboutPlayer() bool { return !k.competition() && k != KindDeveloped }
 
 // Message is one inbox entry, derived from exactly one event, which is its
-// identity. Fields not used by a Kind are zero.
+// identity. Read is derived from subsequent InboxRead events. Fields not
+// used by a Kind are zero.
 type Message struct {
+	Read        bool `json:",omitempty"`
 	Event       events.ID
 	At          sim.GameInstant
 	Kind        Kind
@@ -134,6 +136,17 @@ func (b *Inbox) Offset() events.ID { return b.offset }
 // Messages returns every message, oldest first.
 func (b *Inbox) Messages() []Message { return slices.Clone(b.messages) }
 
+// UnreadCount counts unread messages in the retained inbox.
+func (b *Inbox) UnreadCount() int {
+	n := 0
+	for _, m := range b.messages {
+		if !m.Read {
+			n++
+		}
+	}
+	return n
+}
+
 // Snapshot exports the inbox's state as a fresh copy.
 func (b *Inbox) Snapshot() Snapshot { return Snapshot{Offset: b.offset, Messages: b.Messages()} }
 
@@ -143,7 +156,7 @@ func (b *Inbox) Snapshot() Snapshot { return Snapshot{Offset: b.offset, Messages
 // It returns how many events were consumed.
 func (b *Inbox) Apply(evs []events.Event) (int, error) {
 	offset := b.offset
-	var add []Message
+	messages := slices.Clone(b.messages)
 	for _, e := range evs {
 		if e.ID <= offset {
 			continue
@@ -154,16 +167,22 @@ func (b *Inbox) Apply(evs []events.Event) (int, error) {
 		if err := e.Validate(); err != nil {
 			return 0, err
 		}
-		if m, ok := b.message(e); ok {
-			add = append(add, m)
+		if e.Kind == events.KindInboxRead {
+			i := slices.IndexFunc(messages, func(m Message) bool { return m.Event == e.InboxRead.Message })
+			if i < 0 {
+				return 0, fmt.Errorf("inbox: read event %d names missing message %d", e.ID, e.InboxRead.Message)
+			}
+			messages[i].Read = true
+		} else if m, ok := b.message(e); ok {
+			messages = append(messages, m)
+			if n := len(messages) - MaxMessages; n > 0 {
+				messages = slices.Delete(messages, 0, n)
+			}
 		}
 		offset = e.ID
 	}
 	consumed := int(offset - b.offset)
-	b.messages = append(b.messages, add...)
-	if n := len(b.messages) - MaxMessages; n > 0 {
-		b.messages = slices.Delete(b.messages, 0, n)
-	}
+	b.messages = messages
 	b.offset = offset
 	return consumed, nil
 }

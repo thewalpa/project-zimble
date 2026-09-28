@@ -42,7 +42,7 @@ Some files are shared by every feature. The project rules require a change to ad
 
 | File | What lanes add |
 | --- | --- |
-| `internal/app/world.go` | a module store on `World`, loading, a `validateX` call in `Validate` |
+| `internal/app/world.go` | a module store on `World`, loading, a `validateX` call in `Validate`, a shared `commandRecord` variant |
 | `internal/app/save.go` | snapshot fields, restore and version checks |
 | `internal/app/journal.go` | event fact checks |
 | `internal/app/continue.go` | a task kind in the cohort dispatch |

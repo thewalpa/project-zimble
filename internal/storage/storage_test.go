@@ -322,3 +322,42 @@ func TestPendingLineupSurvivesSaveFile(t *testing.T) {
 		t.Fatal("loaded career resolved differently")
 	}
 }
+
+// Read acknowledgements and retry records survive the actual save codec.
+func TestInboxReadSaveRoundTrip(t *testing.T) {
+	cfg := app.DefaultConfig(42)
+	cfg.UserClub = 3
+	w, err := app.NewWorld(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advance(t, w, 2)
+	cmd := app.MarkInboxRead{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Message: w.Inbox()[0].Event}
+	result, err := w.MarkInboxRead(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := encoded(t, w)
+	snap, err := Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := app.Restore(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(w.Inbox(), loaded.Inbox()) || w.UnreadInboxCount() != loaded.UnreadInboxCount() {
+		t.Fatal("codec lost read flags")
+	}
+	retry, err := loaded.MarkInboxRead(cmd)
+	if err != nil || retry != result || !bytes.Equal(data, encoded(t, loaded)) {
+		t.Fatal("loaded retry changed save")
+	}
+	var env envelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(withPayload(t, Format, 14, env.Payload)); !errors.Is(err, ErrUnsupportedSave) {
+		t.Fatalf("schema 14 was not explicitly refused: %v", err)
+	}
+}

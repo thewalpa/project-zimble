@@ -104,16 +104,17 @@ type WorldSnapshot struct {
 
 	// The command log, one list per command kind, each in ascending command
 	// ID order. Command IDs are unique across all lists.
-	ResolveCommands  []ResolveRecord
-	LineupCommands   []LineupRecord
-	PlayCommands     []PlayMatchRecord
-	DecisionCommands []DecisionRecord
-	RenewCommands    []RenewRecord
-	SignCommands     []SignRecord
-	OfferCommands    []OfferRecord
-	ResponseCommands []ResponseRecord
-	ReleaseCommands  []ReleaseRecord
-	ListingCommands  []ListingRecord
+	ResolveCommands   []ResolveRecord
+	LineupCommands    []LineupRecord
+	PlayCommands      []PlayMatchRecord
+	DecisionCommands  []DecisionRecord
+	RenewCommands     []RenewRecord
+	SignCommands      []SignRecord
+	OfferCommands     []OfferRecord
+	ResponseCommands  []ResponseRecord
+	ReleaseCommands   []ReleaseRecord
+	ListingCommands   []ListingRecord
+	InboxReadCommands []InboxReadRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -221,6 +222,8 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.ResponseCommands = append(snap.ResponseCommands, *rec.respond)
 		case rec.release != nil:
 			snap.ReleaseCommands = append(snap.ReleaseCommands, *rec.release)
+		case rec.inboxRead != nil:
+			snap.InboxReadCommands = append(snap.InboxReadCommands, *rec.inboxRead)
 		case rec.listing != nil:
 			snap.ListingCommands = append(snap.ListingCommands, *rec.listing)
 		}
@@ -464,6 +467,13 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		}
 		rec := c
 		w.commands[c.Request.ID] = commandRecord{listing: &rec}
+	}
+	for _, c := range snap.InboxReadCommands {
+		if err := w.restoreInboxRead(c); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c
+		w.commands[c.Request.ID] = commandRecord{inboxRead: &rec}
 	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}

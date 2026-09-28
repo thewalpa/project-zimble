@@ -138,12 +138,19 @@ func (w *World) validateJournal() []error {
 			fail("inbox differs from a rebuild from the journal (%v)", err)
 		}
 	}
+	errs = append(errs, w.validateInboxReads()...)
 	return errs
 }
 
 // checkEventFacts compares an event's payload with the owning modules.
 func (w *World) checkEventFacts(e events.Event) error {
 	switch e.Kind {
+	case events.KindInboxRead:
+		rec := w.commands[CommandID(e.Cause.ID)].inboxRead
+		if rec == nil || rec.Result.Message != e.InboxRead.Message ||
+			uint64(rec.Result.Revision) != e.Revision || rec.Result.At != e.OccurredAt {
+			return errors.New("differs from the recorded inbox read")
+		}
 	case events.KindRoundStarted:
 		p := e.RoundStarted
 		info, ok := w.competitions.Round(competitions.RoundRef{

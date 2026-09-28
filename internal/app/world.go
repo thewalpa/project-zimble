@@ -48,6 +48,21 @@ func DefaultEpoch() sim.CivilTime { return sim.CivilTime{Year: 2025, Month: 7, D
 // DefaultConfig returns a config with the given seed and DefaultEpoch.
 func DefaultConfig(seed random.Seed) Config { return Config{Seed: seed, Epoch: DefaultEpoch()} }
 
+// commandRecord is one successful command; exactly one field is set.
+type commandRecord struct {
+	resolve   *ResolveRecord
+	lineup    *LineupRecord
+	play      *PlayMatchRecord
+	decision  *DecisionRecord
+	renew     *RenewRecord
+	sign      *SignRecord
+	offer     *OfferRecord
+	respond   *ResponseRecord
+	release   *ReleaseRecord
+	listing   *ListingRecord
+	inboxRead *InboxReadRecord
+}
+
 // World holds the authoritative module state of one career.
 type World struct {
 	seed               random.Seed

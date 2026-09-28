@@ -51,7 +51,10 @@ func valid() []Event {
 	ul := env(18, KindPlayerUnlisted)
 	ul.Cause.Kind = CauseCommand
 	ul.PlayerUnlisted = &PlayerUnlisted{Player: 9, Club: 1, Team: 1}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul}
+	rd := env(19, KindInboxRead)
+	rd.Cause.Kind = CauseCommand
+	rd.InboxRead = &InboxRead{Message: 2}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd}
 }
 
 func TestValidate(t *testing.T) {
@@ -61,6 +64,10 @@ func TestValidate(t *testing.T) {
 		}
 	}
 	cases := map[string]func([]Event) Event{
+		"read zero message": func(v []Event) Event { v[18].InboxRead.Message = 0; return v[18] },
+		"read itself":       func(v []Event) Event { v[18].InboxRead.Message = v[18].ID; return v[18] },
+		"read future":       func(v []Event) Event { v[18].InboxRead.Message = v[18].ID + 1; return v[18] },
+		"read from task":    func(v []Event) Event { v[18].Cause.Kind = CauseTask; return v[18] },
 		"zero ID":           func(v []Event) Event { v[0].ID = 0; return v[0] },
 		"zero revision":     func(v []Event) Event { v[0].Revision = 0; return v[0] },
 		"zero sequence":     func(v []Event) Event { v[0].Sequence = 0; return v[0] },
@@ -141,6 +148,7 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[15].PlayerReleased.Compensation = 9
 	c[16].PlayerListed.Asking = 9
 	c[17].PlayerUnlisted.Club = 9
+	c[18].InboxRead.Message = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

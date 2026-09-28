@@ -2118,6 +2118,26 @@ Any player, at any club, free or retired, has a profile page in both clients.
 - **No new state:** the profile shows what `SquadPlayer` already holds. Career history (past clubs, goals, transfers) needs stored data and waits for a note to `data`.
 - **Unknown IDs are a message, not an error page,** so the web page always renders with status 200.
 
+## data: persisted inbox read state (done)
+
+`World.MarkInboxRead` acknowledges one retained inbox message by its source event ID. `World.Inbox()` exposes `InboxItem.Read`, and `World.UnreadInboxCount()` counts unread retained messages. Queries remain read-only; new arrivals start unread. The command also supports league-wide messages in careers without a managed club.
+
+### Changes
+
+- Added durable event kind `KindInboxRead = 19` and the command's saved request/result records. Acknowledgements update the existing message rather than creating another message. Retries return the original result without changing the revision or journal, including after the message is evicted.
+- Inbox application stages all changes before committing, including read flags, and trims in event order so batch and single-event replay agree. Command records validate retained read flags after the journal has been trimmed.
+- Save schema **15** persists read flags and retry records. Schema 14 and earlier are explicitly rejected by the codec with `ErrUnsupportedSave`.
+- Moved the shared `commandRecord` declaration from `resolve.go` into the `world.go` hub; existing command variants and match behavior are unchanged. Future command additions can use the hub rule.
+- Clarified the events version policy: new kinds and optional fields preserving existing meaning need a storage schema bump; changing or removing existing fields needs a new events version. `events.SchemaVersion` stays 1.
+
+### Verification
+
+Tests cover command retries and ID collisions, rejected-command atomicity, independent read flags and new arrivals, deterministic save continuation, codec round trips, explicit old-schema rejection, tampered records/events/read flags, journal retention, inbox eviction, batch replay equivalence and rollback on an invalid event after a staged read.
+
+### Handoffs
+
+UI receives the command/query contract and display work in `ui--inbox-read-state.md`. Match and squad receive the shared command declaration's new location. The accepted five-attribute request still waits for squad's answer.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

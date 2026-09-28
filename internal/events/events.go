@@ -16,8 +16,10 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 )
 
-// SchemaVersion is the payload schema of every kind below. Changing a
-// payload's meaning or shape needs a new version (and a save migration).
+// SchemaVersion versions existing payloads' meaning and required shape.
+// Changing or removing an existing field requires a new version. New kinds
+// and optional fields preserving existing meaning require only a storage
+// schema bump; older saves are migrated or explicitly rejected there.
 const SchemaVersion = 1
 
 // ID identifies an event. IDs are allocated sequentially from 1 and never
@@ -45,6 +47,7 @@ const (
 	KindPlayerReleased    Kind = 16
 	KindPlayerListed      Kind = 17
 	KindPlayerUnlisted    Kind = 18
+	KindInboxRead         Kind = 19
 )
 
 func (k Kind) String() string {
@@ -85,6 +88,8 @@ func (k Kind) String() string {
 		return "player listed"
 	case KindPlayerUnlisted:
 		return "player unlisted"
+	case KindInboxRead:
+		return "inbox read"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -303,6 +308,12 @@ type PlayerUnlisted struct {
 	Team   ids.TeamID
 }
 
+// InboxRead: the manager marked the inbox message identified by its source
+// event as read. It does not create another inbox message.
+type InboxRead struct {
+	Message ID
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -333,6 +344,7 @@ type Event struct {
 	PlayerReleased    *PlayerReleased    `json:",omitempty"`
 	PlayerListed      *PlayerListed      `json:",omitempty"`
 	PlayerUnlisted    *PlayerUnlisted    `json:",omitempty"`
+	InboxRead         *InboxRead         `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -360,6 +372,7 @@ func (e Event) payloads() (set int, match bool) {
 		{KindPlayerReleased, e.PlayerReleased != nil},
 		{KindPlayerListed, e.PlayerListed != nil},
 		{KindPlayerUnlisted, e.PlayerUnlisted != nil},
+		{KindInboxRead, e.InboxRead != nil},
 	} {
 		if p.set {
 			set++
@@ -385,6 +398,10 @@ func (e Event) Validate() error {
 		return fail("kind %s with %d payloads (matching: %v)", e.Kind, set, match)
 	}
 	switch e.Kind {
+	case KindInboxRead:
+		if p := e.InboxRead; p.Message == 0 || p.Message >= e.ID || e.Cause.Kind != CauseCommand {
+			return fail("invalid payload %+v or non-command cause", p)
+		}
 	case KindRoundStarted:
 		p := e.RoundStarted
 		if !p.Competition.Valid() || p.Season == 0 || p.Round == 0 || len(p.Fixtures) == 0 {
@@ -482,6 +499,10 @@ func (e Event) Validate() error {
 
 // Clone returns a copy that shares no memory with e.
 func (e Event) Clone() Event {
+	if p := e.InboxRead; p != nil {
+		c := *p
+		e.InboxRead = &c
+	}
 	if p := e.RoundStarted; p != nil {
 		c := *p
 		c.Fixtures = slices.Clone(p.Fixtures)
