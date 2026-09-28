@@ -2167,6 +2167,12 @@ Unread and read messages in both clients, using `InboxItem.Read`, `UnreadInboxCo
 - **Viewing does not acknowledge:** the web pages and `inbox` only list. `cmd/play` still acknowledges what it prints as "New in your inbox" and what its own commands caused, replacing the client-local `lastSeen` marker with the stored flag, so a saved career keeps its read state.
 - Mark all issues one command per unread message, each at the revision after the previous one; a failure stops there and reports the error.
 
+## data: lane backlog review (done)
+
+Reviewed all six lane documents and added scoped proposals for player comparisons and a decision overview, editable team plans and lineup explanations, season review and scheduling/discipline rules, contract and finance planning, durable player history and save recovery, and policy comparisons and career endurance measurements. Dependencies are named in each item; these are backlog proposals, not implemented features or changes to the lanes' current priorities.
+
+Corrected references to closed inbox/transfer-list/balance handoffs and noted that match outcomes already contain participant minutes. Existing UI requests for season-end stopping and lineup editing outside matchday remain the basis for the corresponding domain proposals.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

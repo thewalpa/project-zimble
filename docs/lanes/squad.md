@@ -29,12 +29,15 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 **Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility. Not started.
 
-Done: the transfer list and AI transfers. Clubs list players at an asking price; AI clubs buy upgrades, list the players these replace, and fill vacancies from the list first; the manager lists with `ListPlayer` and gets AI bids only for listed players (see progress.md, "squad: the transfer list and AI transfers"). Open notes: `ui--transfer-list.md`, `balance--ai-transfer-market.md`, `match--managed-season-baselines.md` and `data--listing-events-and-journal-test.md`.
+Done: the transfer list and AI transfers. Clubs list players at an asking price; AI clubs buy upgrades, list the players these replace, and fill vacancies from the list first; the manager lists with `ListPlayer` and gets AI bids only for listed players (see progress.md, "squad: the transfer list and AI transfers"). Those delivery notes are closed. Current incoming requests are in `squad--match-attributes.md`, `squad--free-agent-pool.md`, `squad--star-churn.md` and `squad--command-record-hub.md`; answer them under the normal handoff rhythm.
 
 ## Backlog
 
 - **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year.
-- **Player potential** and development driven by minutes played. Ask `match` for minutes in the outcome.
+- **Player potential** and development driven by minutes played. `MatchOutcome.Participants` already supplies minutes; agree with `match` and `data` how seasonal usage is retained and consumed without counting a retried result twice.
 - **Board feedback** and a transfer budget (club governance).
 - **Negotiation:** counter-offers, players refusing terms, and bids below a listed player's asking price.
 - **Listings across windows:** let the manager keep a player listed from one window to the next.
+
+- **Contract planning view:** expose each squad player's expiry, renewal eligibility and current demand, with the squad positions at risk if contracts lapse. Dates and costs come from app/domain queries; `ui` can use them in the decision overview and season review. The view must distinguish a forecast from a guaranteed agreement and remain read-only.
+- **Committed finance forecast:** show the next contract period's scheduled wage obligations and confirmed income separately from uncertain receipts, with a breakdown by player or source. Use overflow-checked money and known calendar dates; do not count speculative transfers as funds. Coordinate with `competitions` on prize commitments and `ui` on presentation; verify forecasts against ledger postings in an unchanged scenario.

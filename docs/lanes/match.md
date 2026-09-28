@@ -53,7 +53,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** new player attributes for phase 4 (dribbling or first touch, heading, strength, acceleration, positioning): note `data--match-attributes`. Phases 1–3 use the six existing ratings.
-- **`balance`:** a statistical review of `tick` against `simple`: note `balance--tick-engine-profile`.
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple). Answer the open mentality, goals-by-level and shootout notes; the career-season comparison follows phase 2.
 - **`ui`:** a pitch view once frames are reachable through `app` (phase 2; the note follows that work).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.
@@ -66,3 +66,6 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.
 - **Formations and roles** beyond GK/DF/MF/FW, when selection needs them (roadmap phase 4 for `tick`).
+
+- **A saved team plan outside matchday:** let the manager edit preferred starters, bench and mentality without a ready fixture. Keep the plan separate from fixture submissions; use it to prepare the next lineup, then revalidate employment and availability at kickoff and report dropped players. Coordinate with `ui`'s always-available lineup editor and `squad`'s injuries. Save/load must preserve the plan, and editing it must not rewrite past lineups or a live match.
+- **Explain lineup readiness:** expose structured reasons a player or lineup cannot be selected, such as an unavailable player, duplicate selection or missing role. Reuse command validation so the preview and submission agree; `ui` renders the explanation, while `squad` and `competitions` supply availability and eligibility facts. Include a test that availability changing after preview causes a clear rejection at submission.

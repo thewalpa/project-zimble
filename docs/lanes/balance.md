@@ -42,3 +42,6 @@ Then add always-on bounds for the most important of these, and file notes for an
 - Once `app` can run a career on `tick` (`match` roadmap phase 2), compare the two engines over league seasons: goals, home and draw rates, upsets, final-table spread.
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.
+
+- **Compare manager decisions on matched seeds:** test concrete policies such as rotating tired players versus keeping the strongest XI, and renewing early versus replacing expiring players. Report points, availability and net spending across the same starting worlds, including spread across seeds. File dominant or pointless choices with the owning lane; add injury and training policies only after those systems exist.
+- **Career endurance with realistic saves:** run managed careers across repeated save/load, season reviews, transfer deadlines and, when available, promotion and injury recovery. Check that no decisions become unreachable and report save size, command-log growth and restore time at 1, 10 and 30 seasons. This complements simulation-speed measurements and gives `data` evidence for any future compaction policy.

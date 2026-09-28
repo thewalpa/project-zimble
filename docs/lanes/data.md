@@ -26,7 +26,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
-**Inbox read state delivered:** `World.MarkInboxRead`, `InboxItem.Read` and `World.UnreadInboxCount` are backed by command-driven events and survive saves and retention. UI integration is in [ui--inbox-read-state.md](../handoffs/ui--inbox-read-state.md).
+**Inbox read state delivered:** `World.MarkInboxRead`, `InboxItem.Read` and `World.UnreadInboxCount` are backed by command-driven events and survive saves and retention. Both clients now expose it; the UI handoff is closed (see [progress](../progress.md#ui-inbox-read-state-done)).
 
 **Next:** the five match attributes, once squad answers its blocking note. While that answer is pending, take nationalities and richer identities.
 
@@ -37,3 +37,6 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **A second division's content:** clubs and a league definition, for `competitions`' promotion and relegation. Expect its `data--second-division-content.md` note. The change moves the world fingerprint, so warn every lane with goldens.
 - **Save compatibility:** a fixture save per schema version in `testdata/`, and a policy test that each one either loads or is refused explicitly.
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
+
+- **Durable player career history:** provide the archive/read model needed by `ui`'s profile history. Capture the starting club and subsequent signings, transfers, releases and retirement from their owning workflows, with stable player/club IDs and dates. Agree the facts with `squad`; history must survive journal trimming and save/load without becoming a second owner of current employment. Start with club spells and transfer fees; agree appearances and goals with `match` before expanding it.
+- **Recover the previous valid save:** retain one verified previous save alongside atomic replacement and expose recovery explicitly to clients. A corrupt or incompatible load must not overwrite either file, and recovery must never silently replace the chosen career. Coordinate naming and the recovery action with `ui`; test interrupted writes and a damaged newest save.
