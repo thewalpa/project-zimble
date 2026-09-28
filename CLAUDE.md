@@ -1,6 +1,8 @@
 # project-zimble
 
-Football manager simulation core in Go. Design: [docs/architecture.md](docs/architecture.md). Status and next task: [docs/progress.md](docs/progress.md).
+Football manager simulation core in Go. Design: [docs/architecture.md](docs/architecture.md). Status: [docs/progress.md](docs/progress.md).
+
+Several agents work on this repository in parallel lanes (ui, match, competitions, squad, data, balance). Read [AGENTS.md](AGENTS.md) for lane ownership, handoff notes to other lanes and the git workflow. Your lane's current task is in `docs/lanes/<lane>.md`.
 
 ## Commands
 
@@ -42,4 +44,4 @@ Run all three checks before reporting work as done.
 
 ## Keep docs current
 
-After finishing a task, update `docs/progress.md` (completed work, decisions, next task).
+After finishing a task, update `docs/progress.md` (completed work, decisions) and your lane's `docs/lanes/<lane>.md` (now, backlog). File a handoff note in `docs/handoffs/` for anything another lane must do, including the UI for any new player-facing feature.

@@ -1708,18 +1708,8 @@ Accepted: the transfer is complete.
 - **AI valuations ignore form and the club's needs,** and AI clubs don't sell to raise money or refuse to sell their best player.
 - **The window's free-agent signings** don't prefer players the club did not release, unlike the contract year.
 
-## Next task: releasing players and AI squad upgrades
+## Next tasks
 
-Let clubs make room, so the market also moves when the manager doesn't.
-- **A release command:** the manager releases a player, paying off the rest of the contract (a new ledger entry kind), and he becomes a free agent. It is refused below the roster minimum and while rounds are pending.
-- **AI upgrades in the window:** an AI club with a full position may bid for a clearly better player and release its weakest there on completion, all in the same unit of work.
-- **Keep the population balanced.** Released older free agents retire without replacement, so decide how squads stay fillable: for example, youth intake also fills vacancies at the player year, or no release of players who would retire as free agents. Prove it over 30 simulated years, as in milestone 14.
-- **Proofs:** payouts conserve money, releases never break the roster minimum, and AI-only worlds keep full, legal squads for decades.
+Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
 
-Other open candidates:
-- injuries (the architecture's first sustainable career);
-- AI in-match decisions (the opponent reacting at half time);
-- auto-resolving batches without user fixtures;
-- inbox read state;
-- the AI using money for renewals and signings;
-- player potential and exposure-driven development.
+From now on, a lane records completed work in a section titled `## <lane>: <feature> (done)`, placed just above this one, with the same subsections as the milestones above. Milestone numbers end at 16 because parallel lanes would claim the same number. If two lanes append at the same time, keep both sections in merge order.
