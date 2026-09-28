@@ -20,7 +20,7 @@ created: 2026-09-28
 - **Club choice** (`cmd/play` prompt, `cmd/web` picker): 32 clubs in one list is long. Group or label them by league.
 - **History table** (`cmd/play`): "Founders Second Division" is wider than the NAME column (20), so the rows lose alignment. Size the column from the names.
 - **Tables and fixtures pages:** check they read well with four leagues (the managed club's league first, the others as a list?).
-- When `competitions` delivers promotion and relegation it will file its own note for tables by division.
+- Promotion and relegation are delivered: see `ui--promotion-relegation.md`.
 
 ## Done when
 Choosing a club, the tables, the history and the fixtures read cleanly with 32 clubs. No new `app` API is needed for this.

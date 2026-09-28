@@ -25,16 +25,12 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-**Promotion and relegation.** Each nation gets a second division, and clubs move between divisions at the season end on their final ranking.
-
-1. ~~Design the rule~~ Done: direct swap of two places per link (see `docs/progress.md`).
-2. ~~File `data--second-division-content.md`~~ Filed; waiting for `data`.
-3. ~~Competitions side~~ `competitions.NextEntrants` is built. Still to do once `data` answers: derive a league season's entrants from the previous rankings in `endSeasons` (all linked leagues end in one cohort, one `CreateSeasons` call), replace the equal-entrants check in `validateSeasons` with a replay, bump `storage.SchemaVersion` for the pinned links.
-4. Once `data` delivers, wire it together, prove it over several seasons (every club in exactly one league each season, histories intact), and file a `ui` note for tables by division and promotion markers.
-
-If `data` is slow, next take the top backlog item.
+Nothing queued. Promotion and relegation is delivered (see `docs/progress.md`); take the top backlog item.
 
 ## Backlog
+
+- **Calendar drift:** `SeasonInterval` is 52 weeks, so a season starts a day earlier each year and after about 28 years the first round falls inside the transfer window. Anchor a season to the civil calendar (or content) and agree with `data` on whether it needs a content version.
+- **Play-offs** between divisions, as a different rule over the same links.
 
 - **Auto-resolving batches:** `Continue` resolves rounds with no user fixture without stopping. Agree with `match`, which owns `resolve.go`.
 - **Cup prize money:** the rule is here, and the ledger entries go through a note to `squad`.

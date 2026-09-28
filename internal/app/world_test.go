@@ -109,7 +109,7 @@ func TestLoadRejectsInconsistentWorlds(t *testing.T) {
 			t.Fatal(err)
 		}
 		corrupt(&defs, &snap)
-		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), DefaultEpoch(), snap); err == nil {
+		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), DefaultEpoch(), snap); err == nil {
 			t.Errorf("%s: load succeeded, want error", name)
 		}
 	}
@@ -165,7 +165,7 @@ func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), DefaultEpoch(), snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), DefaultEpoch(), snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestLoadRejectsInvalidLeagueDefinition(t *testing.T) {
 		"zero ID":        {ID: 0, Name: "L", Entrants: 8},
 		"wrong entrants": {ID: 1, Name: "L", Entrants: 6},
 	} {
-		if _, err := load(defs, []content.League{league, content.DefaultLeagues()[1]}, nil, DefaultEpoch(), snap); err == nil {
+		if _, err := load(defs, []content.League{league, content.DefaultLeagues()[1]}, nil, nil, DefaultEpoch(), snap); err == nil {
 			t.Errorf("%s: load succeeded, want error", name)
 		}
 	}
@@ -243,7 +243,7 @@ func TestLoadRejectsInvalidLeagueDefinition(t *testing.T) {
 	} {
 		cup := content.DefaultCups()[0]
 		mutate(&cup)
-		if _, err := load(defs, content.DefaultLeagues(), []content.Cup{cup}, DefaultEpoch(), snap); err == nil {
+		if _, err := load(defs, content.DefaultLeagues(), []content.Cup{cup}, content.DefaultPromotions(), DefaultEpoch(), snap); err == nil {
 			t.Errorf("%s: load succeeded, want error", name)
 		}
 	}

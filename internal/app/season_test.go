@@ -33,10 +33,18 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if civil, _ := w.Calendar().Civil(first2); first2-first1 != 364*day || civil != (sim.CivilTime{Year: 2026, Month: 8, Day: 8, Hour: 15}) {
 		t.Fatalf("season 2 starts %v (%d after season 1)", civil, first2-first1)
 	}
+	// Two places move between each nation's divisions on the final tables;
+	// every team is in exactly one league each season.
 	e1, _ := w.competitions.Entrants(s1)
 	e2, _ := w.competitions.Entrants(s2)
-	if !slices.Equal(e1, e2) {
-		t.Fatal("entrants changed between seasons")
+	down := w.competitions.Ranking(s1)[6:]
+	if len(e2) != len(e1) || slices.Equal(e1, e2) {
+		t.Fatalf("season 2 entrants %v after %v, relegated %v", e2, e1, down)
+	}
+	for _, team := range down {
+		if slices.Contains(e2, team) {
+			t.Fatalf("relegated team %d is still in the first division", team)
+		}
 	}
 	pairings := func(ref competitions.SeasonRef) (out [][3]uint64) {
 		for _, f := range w.competitions.Fixtures(ref) {

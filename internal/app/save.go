@@ -83,8 +83,9 @@ type WorldSnapshot struct {
 	WorldFingerprint   string // generated-world provenance, shown by Summary
 	ContentFingerprint string // SHA-256 of Content and the league definitions
 	Content            content.Definitions
-	Leagues            []LeagueSnapshot // ascending competition ID
-	Cups               []content.Cup    // effective rules, pinned by the save; ascending competition ID
+	Leagues            []LeagueSnapshot    // ascending competition ID
+	Cups               []content.Cup       // effective rules, pinned by the save; ascending competition ID
+	Promotions         []content.Promotion // links between divisions, pinned by the save
 	Revision           Revision
 
 	Registry     registry.Init
@@ -192,6 +193,7 @@ func (w *World) Snapshot() WorldSnapshot {
 	for _, l := range w.leagues {
 		snap.Leagues = append(snap.Leagues, LeagueSnapshot{Definition: l.def, Season: l.season})
 	}
+	snap.Promotions = slices.Clone(w.promotions)
 	for _, c := range w.cups {
 		c.Qualifiers = slices.Clone(c.Qualifiers)
 		snap.Cups = append(snap.Cups, c)
@@ -360,6 +362,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		return invalid("cups not in ascending competition ID order")
 	}
 	w.cups = cups
+	if err := checkPromotions(leagueDefs, snap.Promotions); err != nil {
+		return invalid("%v", err)
+	}
+	w.promotions = slices.Clone(snap.Promotions)
 
 	usedPayload := map[sim.PayloadID]bool{}
 	checkPayloadID := func(id sim.PayloadID) error {

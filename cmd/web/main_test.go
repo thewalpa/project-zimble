@@ -295,7 +295,7 @@ func TestContractsInTheBrowser(t *testing.T) {
 	contains(t, c.get("/squad"), "Tomas Grady")
 	contains(t, c.post("/sign", sign), "the player is not a free agent")
 	page = c.post("/continue", nil) // no transfer news: the first matchday of season 2
-	contains(t, page, "Matchday: Round 1 v Greyfen United (away)")
+	contains(t, page, "Matchday: Round 1 v Brackenmoor Town (home)")
 	page = c.get("/free") // AI clubs signed the others in the transfer window
 	contains(t, page, "Signings wait until the matchday has been played")
 	contains(t, c.post("/sign", url.Values{"player": {"379"}, "years": {"1"}, "wage": {"940"}}), "squads cannot change while rounds await results")

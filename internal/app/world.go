@@ -79,8 +79,9 @@ type World struct {
 	transfersVersion   int
 	fingerprint        string
 	defs               content.Definitions
-	leagues            []leagueEntry // ascending competition ID
-	cups               []content.Cup // ascending competition ID; editions live in competitions
+	leagues            []leagueEntry       // ascending competition ID
+	cups               []content.Cup       // ascending competition ID; editions live in competitions
+	promotions         []content.Promotion // links between divisions, pinned by the save
 	calendar           sim.Calendar
 	engine             matches.Engine
 	userClub           ids.ClubID // zero: no user club
@@ -137,7 +138,7 @@ func NewWorld(cfg Config) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
-	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), cfg.Epoch, snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), cfg.Epoch, snap)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +164,7 @@ func NewWorld(cfg Config) (*World, error) {
 // league.Entrants clubs in club ID order, so every club enters exactly one
 // league. Cups have no season until their qualifying league seasons end
 // (see endSeasons).
-func load(defs content.Definitions, leagueDefs []content.League, cupDefs []content.Cup, epoch sim.CivilTime, snap worldgen.Snapshot) (*World, error) {
+func load(defs content.Definitions, leagueDefs []content.League, cupDefs []content.Cup, promotions []content.Promotion, epoch sim.CivilTime, snap worldgen.Snapshot) (*World, error) {
 	leagueDefs = slices.Clone(leagueDefs)
 	slices.SortFunc(leagueDefs, func(a, b content.League) int { return cmp.Compare(a.ID, b.ID) })
 	if len(leagueDefs) == 0 {
@@ -181,6 +182,9 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	}
 	cupDefs, err := checkCups(leagueDefs, cupDefs)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkPromotions(leagueDefs, promotions); err != nil {
 		return nil, err
 	}
 	calendar, err := sim.NewCalendar(epoch)
@@ -256,6 +260,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		fingerprint:        snap.Fingerprint(),
 		defs:               defs,
 		cups:               cupDefs,
+		promotions:         slices.Clone(promotions),
 		registry:           reg,
 		players:            pl,
 		employment:         emp,

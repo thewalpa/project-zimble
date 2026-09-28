@@ -2173,13 +2173,14 @@ Reviewed all six lane documents and added scoped proposals for player comparison
 
 Corrected references to closed inbox/transfer-list/balance handoffs and noted that match outcomes already contain participant minutes. Existing UI requests for season-end stopping and lineup editing outside matchday remain the basis for the corresponding domain proposals.
 
-## competitions: promotion and relegation, rule and movement function (partly done)
+## competitions: promotion and relegation, rule and movement function (done)
 
-The rule is decided and the competitions-side function is built and tested. Wiring it into `app` waits for `data`'s second-division content ([handoff](handoffs/data--second-division-content.md)).
+The rule is decided, built and wired: at every season end the bottom two of each first division swap leagues with the top two of its second division, and a career over any number of seasons keeps every club in exactly one league.
 
 | Package | Change |
 | --- | --- |
 | `internal/competitions` | `Link{Upper, Lower, Places}` and `NextEntrants(rankings, links)`: next season's entrants of every league from all final rankings |
+| `internal/app` | `endSeasons` derives each league's next entrants with `NextEntrants` from the cohort's final rankings; `validateSeasons` replays it for every earlier season; `World.promotions` (from `content.DefaultPromotions`) is pinned in `WorldSnapshot.Promotions`, validated by `checkPromotions` (content rules, plus linked leagues share one calendar so they end in one cohort); `World.Promotions()` query. `storage.SchemaVersion` 17 |
 
 ### Decisions
 
@@ -2191,11 +2192,15 @@ The rule is decided and the competitions-side function is built and tested. Wiri
 
 ### Verification
 
-- Swaps keep sizes and move exactly the linked places across a three-league chain; no links leaves teams unchanged and does not modify its input; 6 invalid configurations are rejected (missing or identical leagues, zero or too many places, a reused league end, a team in two leagues).
+- Swaps keep sizes and move exactly the linked places across a three-league chain; no links leaves teams unchanged; 6 invalid configurations are rejected.
+- `TestPromotionKeepsEveryTeamInOneLeague`: over five seasons every team is in one league, sizes hold, and each season's entrants equal `NextEntrants` of the previous rankings. `TestPromotionSaveRejections`: bad links, differing calendars, and links removed or edited after teams moved are rejected on restore.
+- The seed-42 season 2 draw changed (the entrants moved), so `TestContractsInTheBrowser` expects a different first opponent.
 
 ### Limitations
 
-- Not yet wired: leagues still keep their entrants each season, and validation still requires it.
+- A failing test outside this lane: `TestAIMarketKeepsSquadsFullForDecades` (seed 7) now fails in year 12, when second-division club 31 sells a defender near the window close and ends short ([squad note](handoffs/squad--seller-left-short.md)).
+- The calendar still drifts a day earlier each year (`SeasonInterval` is 52 weeks); left as it is, in the backlog.
+- A link needs its two leagues to share a calendar; content that differs is rejected.
 
 ## data: second divisions (done)
 

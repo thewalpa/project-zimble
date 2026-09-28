@@ -314,7 +314,7 @@ func twoLeagueWorld(t *testing.T) *World {
 	}
 	leagues := content.DefaultLeagues()[:2]
 	slices.Reverse(leagues)
-	w, err := load(defs, leagues, content.DefaultCups(), DefaultEpoch(), snap)
+	w, err := load(defs, leagues, content.DefaultCups(), nil, DefaultEpoch(), snap)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 		"not a real date":         {Year: 2025, Month: 2, Day: 30},
 		"after the first kickoff": {Year: 2025, Month: 8, Day: 9, Hour: 15, Minute: 1},
 	} {
-		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), epoch, snap); err == nil {
+		if _, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), epoch, snap); err == nil {
 			t.Errorf("%s: load succeeded", name)
 		}
 	}
@@ -396,7 +396,7 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 		t.Error("NewWorld accepted a config without an epoch")
 	}
 	// Epoch exactly at the first kickoff is allowed: round 1 is due at once.
-	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
+	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -58,8 +58,10 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 // league's next season, and creates the next edition of every cup whose
 // qualifying league seasons are now all over (see cupEditionDue):
 //
-//   - A league's next season has the same entrants and starts
-//     SeasonInterval after the ending season's first kickoff.
+//   - A league's next season starts SeasonInterval after the ending season's
+//     first kickoff. Its entrants are the ending season's, moved along the
+//     promotion links by every linked league's final ranking
+//     (competitions.NextEntrants); linked leagues end in one cohort.
 //   - A cup edition's bracket seeds the qualifying seasons' final rankings
 //     (content.Cup.Seeding); its first round kicks off FirstRoundDelay after
 //     the latest of their last kickoffs.
@@ -82,6 +84,7 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	}
 	var ends []ending
 	var specs []competitions.NewSeason
+	rankings := map[ids.CompetitionID][]ids.TeamID{}
 	advanced := map[ids.CompetitionID]competitions.Season{} // leagues' current seasons once this cohort commits
 	for _, l := range w.leagues {
 		advanced[l.def.ID] = l.season.Season
@@ -108,14 +111,27 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		if !first.Valid() || first <= at {
 			return fmt.Errorf("app: %s next first kickoff %d is invalid or not after %d", ref, first, at)
 		}
-		entrants, _ := w.competitions.Entrants(ref)
+		rankings[ref.Competition] = w.competitions.Ranking(ref)
 		next := competitions.SeasonRef{Competition: ref.Competition, Season: ref.Season + 1}
-		specs = append(specs, competitions.NewSeason{
-			Ref: next, Format: competitions.FormatLeague, Entrants: entrants,
-			Timing: competitions.Timing{FirstKickoff: first, RoundInterval: def.RoundInterval},
-		})
 		advanced[ref.Competition] = next.Season
 		ends = append(ends, ending{league: li, task: t.ID, payload: t.PayloadID, ref: ref, next: next})
+	}
+	if len(rankings) > 0 {
+		entrants, err := competitions.NextEntrants(rankings, w.movementLinks())
+		if err != nil {
+			return fmt.Errorf("app: season end at %d: %w", at, err)
+		}
+		for _, e := range ends {
+			if e.league < 0 {
+				continue
+			}
+			def := w.leagues[e.league].def
+			first := w.competitions.Rounds(e.ref)[0].Kickoff + sim.GameInstant(def.SeasonInterval)
+			specs = append(specs, competitions.NewSeason{
+				Ref: e.next, Format: competitions.FormatLeague, Entrants: entrants[e.ref.Competition],
+				Timing: competitions.Timing{FirstKickoff: first, RoundInterval: def.RoundInterval},
+			})
+		}
 	}
 	var editions []competitions.SeasonRef
 	for _, c := range w.cups {
@@ -171,6 +187,41 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	for _, ref := range editions {
 		schedule(ref)
 		w.emit(at, taskCause(cohort[len(cohort)-1].ID), events.Event{Kind: events.KindSeasonStarted, SeasonStarted: started(ref)})
+	}
+	return nil
+}
+
+// Promotions returns the links between divisions: at a season's end the
+// bottom Places teams of Upper's final table swap leagues with the top
+// Places of Lower's. A table's promotion and relegation places follow from
+// them. Read-only.
+func (w *World) Promotions() []content.Promotion { return slices.Clone(w.promotions) }
+
+// movementLinks returns the promotion links as competitions' rule.
+func (w *World) movementLinks() []competitions.Link {
+	links := make([]competitions.Link, len(w.promotions))
+	for i, p := range w.promotions {
+		links[i] = competitions.Link{Upper: p.Upper, Lower: p.Lower, Places: p.Places}
+	}
+	return links
+}
+
+// checkPromotions validates links against the league definitions: the
+// content rules, and that linked leagues share one calendar, so their
+// seasons end in one cohort and movement can be decided from all rankings.
+func checkPromotions(leagues []content.League, links []content.Promotion) error {
+	if err := content.ValidatePromotions(leagues, links); err != nil {
+		return err
+	}
+	byID := map[ids.CompetitionID]content.League{}
+	for _, l := range leagues {
+		byID[l.ID] = l
+	}
+	for _, p := range links {
+		u, l := byID[p.Upper], byID[p.Lower]
+		if u.FirstKickoff != l.FirstKickoff || u.RoundInterval != l.RoundInterval || u.SeasonInterval != l.SeasonInterval {
+			return fmt.Errorf("app: linked leagues %d and %d must share their calendar", p.Upper, p.Lower)
+		}
 	}
 	return nil
 }
@@ -237,9 +288,9 @@ func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competit
 //
 //   - every competition season belongs to a league or a cup, in its format;
 //   - a league's seasons in the store are exactly 1..current; every earlier
-//     season is complete and has the current season's entrants (entrants do
-//     not change between seasons yet); each season starts SeasonInterval
-//     after the previous one;
+//     season is complete and is followed by the entrants NextEntrants
+//     derives from every league's final ranking of it; each season starts
+//     SeasonInterval after the previous one;
 //   - a cup's editions are exactly 1..N, where edition n exists exactly when
 //     every qualifying league has moved past season n; each edition is the
 //     one cupEdition builds (bracket and timing);
@@ -265,6 +316,7 @@ func (w *World) validateSeasons() []error {
 		}
 	}
 	current := map[ids.CompetitionID]competitions.Season{}
+	moved := map[competitions.Season]map[ids.CompetitionID][]ids.TeamID{} // NextEntrants after each season number
 	for _, l := range w.leagues {
 		current[l.def.ID] = l.season.Season
 		seasons := perCompetition[l.def.ID]
@@ -273,13 +325,28 @@ func (w *World) validateSeasons() []error {
 			fail("league %d has seasons %v, want 1..%d", l.def.ID, seasons, l.season.Season)
 			continue
 		}
-		entrants, _ := w.competitions.Entrants(l.season)
 		for i, ref := range seasons[:len(seasons)-1] {
 			if !w.competitions.SeasonCompleted(ref) {
 				fail("%s is not complete but %s has begun", ref, l.season)
-			}
-			if earlier, _ := w.competitions.Entrants(ref); !slices.Equal(earlier, entrants) {
-				fail("%s entrants differ from %s", ref, l.season)
+			} else {
+				want, ok := moved[ref.Season]
+				if !ok {
+					rankings := map[ids.CompetitionID][]ids.TeamID{}
+					for _, other := range w.leagues {
+						o := competitions.SeasonRef{Competition: other.def.ID, Season: ref.Season}
+						if w.competitions.SeasonCompleted(o) {
+							rankings[other.def.ID] = w.competitions.Ranking(o)
+						}
+					}
+					var err error
+					if want, err = competitions.NextEntrants(rankings, w.movementLinks()); err != nil {
+						fail("movement after season %d: %v", ref.Season, err)
+					}
+					moved[ref.Season] = want
+				}
+				if got, _ := w.competitions.Entrants(seasons[i+1]); !slices.Equal(got, want[l.def.ID]) {
+					fail("%s entrants %v, want %v after %s", seasons[i+1], got, want[l.def.ID], ref)
+				}
 			}
 			prev, next := w.competitions.Rounds(ref), w.competitions.Rounds(seasons[i+1])
 			if len(prev) > 0 && len(next) > 0 && next[0].Kickoff != prev[0].Kickoff+sim.GameInstant(l.def.SeasonInterval) {
