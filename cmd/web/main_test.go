@@ -719,3 +719,12 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 	squadPayoff := c.get("/squad?sort=payoff&dir=desc")
 	contains(t, squadPayoff, "data-col=\"payoff\"")
 }
+
+func TestFullWidthLayout(t *testing.T) {
+	c := career(t)
+	page := c.get("/")
+	if strings.Contains(page, "max-width: 1100px") || strings.Contains(page, "margin: 0 auto") {
+		t.Fatal("layout still contains centered max-width constraint")
+	}
+	contains(t, page, ".bar { padding: 12px 16px;", "nav { padding: 0 16px;", "main { padding: 20px 16px 48px;")
+}

@@ -1820,6 +1820,25 @@ The web client (`cmd/web`) now supports releasing players and respects the whole
   - Squad list is sortable by payoff.
 - All three checks (`gofmt -l .`, `go vet ./...`, `go test ./...`) pass.
 
+## ui: full-width left-aligned layout in web client (done)
+
+The web client (`cmd/web`) now utilizes the full available screenspace and aligns content to the left instead of clamping to a centered 1,100px container.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | Removed `max-width: 1100px; margin: 0 auto;` on `.bar`, `nav`, and `main` in `layout.html`; added `TestFullWidthLayout` |
+
+### Decisions
+
+- **Full width and left alignment:** By removing the centered 1,100px maximum width constraint on `.bar`, `nav`, and `main`, content starts at the left padding edge and tables and grids expand across the full screenspace on desktop and wide screens while preserving responsive padding and phone usability.
+
+### Verification
+
+- `TestFullWidthLayout` confirms that the rendered HTML contains no `max-width: 1100px` or `margin: 0 auto` centering rules on `.bar`, `nav`, or `main`.
+- All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
