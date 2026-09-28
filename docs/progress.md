@@ -1971,6 +1971,31 @@ Both the terminal (`cmd/play`) and web (`cmd/web`) clients now support lineup ca
 - `cmd/web/main_test.go`: `TestLineupCarriesOverInTheBrowser` verifies the Home screen matchday note, `/lineup` screen with carryover state, dropped starter notice, "Ask the assistant" toggle, and "Your lineup" on the game report.
 - All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
 
+## balance: sweep of the AI transfer market (done)
+
+Answers `squad`'s note `balance--ai-transfer-market`. Two sweeps run 30-year careers with the AI market at `ai.TransfersVersion` 2: 10 seeds AI-only, and 4 seeds with a passive manager at club 3. They measure every window, season and contract year, and log a report. The numbers and the command that reproduces them are in [docs/balance.md](balance.md#ai-transfer-market).
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/app` | `balance_test.go`: `TestBalanceAIMarketSweep`, `TestBalanceAIMarketWithPassiveManager`, and the `sweepMarket` and `reportMarket` helpers. They skip unless `ZIMBLE_BALANCE=1` (about 20 s) | – (tests only) |
+| `docs` | `balance.md` created, with the market numbers | – |
+
+### Findings
+
+- **Volume:** about 27 transfers and 12 AI listings per window, and 0–3% of listings go unsold. Of 8,358 bids, none was rejected or expired. Squads stay full and the population stays at 315–321.
+- **Churn:** the best players move every year. 12 of the 16 best players move in each window, one player moved in 16 consecutive windows, and 44% of transfers go to a weaker club. Filed as `squad--star-churn`.
+- **Strength doesn't concentrate:** the top-to-bottom squad-average gap stays at 6–8 points, and each 8-club league has 7–8 different champions in 30 seasons.
+- **Money:** no club goes below zero. The median balance grows from 2.2M to 8.5M in 30 years, and the spread between clubs grows from 2.8M to 13.2M, mostly from net transfer spend. No tuning requested yet.
+- **Free agents:** the pool is empty at every window open and close in AI-only careers, and a manager finds nobody worth signing. Filed as `squad--free-agent-pool`.
+- **Incoming offers:** AI clubs never bid for a manager's unlisted players (0 bids in 120 passive windows). That is the rule as designed.
+
+### Decisions
+
+- **Gated, not always on.** No always-on bound was added. `TestAIMarketKeepsSquadsFullForDecades` already guards squad sizes and the population, and a churn bound would fail today on the finding itself. The bound belongs with `squad`'s fix.
+- **Events by ID.** The sweep reads listings from the journal by event ID, and fails if the journal (1,000 events retained) dropped any before they were read.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

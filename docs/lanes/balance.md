@@ -23,7 +23,9 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
-**A baseline.** Measure the current game over a fixed seed set and record it in `docs/balance.md`:
+**A baseline.** The market part is done: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market) and its sweep in `internal/app/balance_test.go`. Matches, money over 10 seasons and the population remain.
+
+Measure the current game over a fixed seed set and record it in `docs/balance.md`:
 
 - **Matches:** home, draw and away rates, goals per match, win rate by overall gap, the effect of mentality, and how often cup ties go to penalties.
 - **Money:** club balances over 10 seasons, wages against gate receipts, and how many clubs trend towards insolvency.
@@ -34,6 +36,7 @@ Then add always-on bounds for the most important of these, and file notes for an
 
 ## Backlog
 
+- Rerun the market sweep when `squad` answers `squad--star-churn` or `squad--free-agent-pool`, then add an always-on churn bound (a few seeds, loose limits).
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work, and after promotion and relegation lands.
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.
