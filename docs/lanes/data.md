@@ -34,3 +34,4 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **A second division's content:** clubs and a league definition, for `competitions`' promotion and relegation. Expect its `data--second-division-content.md` note. The change moves the world fingerprint, so warn every lane with goldens.
 - **Save compatibility:** a fixture save per schema version in `testdata/`, and a policy test that each one either loads or is refused explicitly.
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
+- **`events.SchemaVersion` rule:** its comment says any change to a payload's shape needs a new version, yet `LedgerEntry.Player` (squad limit and releases) was added without one. Decide the rule and fix the comment: new kinds and optional (`omitempty`) fields that leave existing payloads' meaning unchanged need only `storage.SchemaVersion`; a changed or removed field needs a new events version.
