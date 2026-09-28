@@ -20,7 +20,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
-	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/selection"
 	"github.com/thewalpa/project-zimble/internal/storage"
@@ -602,14 +601,14 @@ func (s *server) readInbox(form url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
-	ack := func(id events.ID) error {
-		_, err := s.w.MarkInboxRead(app.MarkInboxRead{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Message: id})
+	ack := func(m app.InboxItem) error {
+		_, err := s.w.MarkInboxRead(app.MarkInboxRead{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Message: m.Event})
 		return err
 	}
 	if form.Get("all") != "" {
 		for _, m := range s.w.Inbox() {
 			if !m.Read {
-				if err := ack(m.Event); err != nil {
+				if err := ack(m); err != nil {
 					return "", err
 				}
 			}
@@ -620,8 +619,13 @@ func (s *server) readInbox(form url.Values) (string, error) {
 	if err != nil || n == 0 {
 		return "", errors.New("unknown message")
 	}
-	if err := ack(events.ID(n)); err != nil {
-		return "", err
+	for _, m := range s.w.Inbox() {
+		if uint64(m.Event) == n {
+			if err := ack(m); err != nil {
+				return "", err
+			}
+			return "/inbox", nil
+		}
 	}
-	return "/inbox", nil
+	return "", errors.New("unknown message")
 }

@@ -21,7 +21,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
-	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
@@ -969,14 +968,14 @@ func TestInboxReadState(t *testing.T) {
 	page := c.get("/inbox")
 	contains(t, page, fmt.Sprintf("%d unread.", n), "Mark all read", "Inbox ("+strconv.Itoa(n)+")", `class="unread"`)
 
-	var first events.ID
+	var first uint64
 	for _, m := range c.s.w.Inbox() {
 		if !m.Read {
-			first = m.Event
+			first = uint64(m.Event)
 			break
 		}
 	}
-	c.post("/inbox/read", url.Values{"message": {strconv.FormatUint(uint64(first), 10)}})
+	c.post("/inbox/read", url.Values{"message": {strconv.FormatUint(first, 10)}})
 	if got := c.s.w.UnreadInboxCount(); got != n-1 {
 		t.Fatalf("unread %d after marking one, want %d", got, n-1)
 	}
