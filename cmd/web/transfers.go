@@ -36,7 +36,8 @@ type transfersView struct {
 	Window       string
 	Open         bool
 	CanBid       bool // the window takes bids and no matchday is waiting
-	Room         bool // the squad has room at the market's position
+	Room         bool // the squad has room for more players
+	SquadLimit   int
 	Position     string
 	Positions    []string
 	Received     []offerRow
@@ -81,13 +82,15 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 	if !ok {
 		pos, position = "FW", players.Forward
 	}
-	counts := map[players.Position]int{}
 	squad, _ := s.w.Squad(s.club())
-	for _, p := range squad {
-		counts[p.Position]++
+	v := transfersView{
+		Window:     s.windowText(),
+		Open:       win.Open,
+		CanBid:     win.Open && s.w.Now() < win.BidsClose && !locked,
+		Room:       len(squad) < defs.SquadLimit,
+		SquadLimit: defs.SquadLimit,
+		Position:   pos,
 	}
-	v := transfersView{Window: s.windowText(), Open: win.Open, CanBid: win.Open && s.w.Now() < win.BidsClose && !locked,
-		Room: counts[position] < defs.Quota(position).Count, Position: pos}
 	for _, p := range players.Positions() {
 		v.Positions = append(v.Positions, p.String())
 	}
@@ -219,7 +222,7 @@ func (s *server) transferText(m app.InboxItem) string {
 // event.
 func (s *server) transferNews(after uint64) bool {
 	for _, m := range s.w.Inbox() {
-		if uint64(m.Event) > after && m.Kind >= inbox.KindBidReceived {
+		if uint64(m.Event) > after && m.Kind >= inbox.KindBidReceived && m.Kind <= inbox.KindOfferClosed {
 			return true
 		}
 	}

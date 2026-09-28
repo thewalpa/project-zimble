@@ -103,7 +103,7 @@ func newServer(cfg config) (*server, error) {
 		act  func(url.Values) (string, error)
 	}{
 		{"/new", s.chooseClub}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
-		{"/renew", s.renew}, {"/sign", s.sign}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
+		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
 	}
@@ -482,5 +482,27 @@ func (s *server) sign(form url.Values) (string, error) {
 		return "", err
 	}
 	s.say("%s joined until %s at %s a week.", name, s.endDate(res.Contract.Expires), res.Contract.WeeklyWage)
+	return "/squad", nil
+}
+
+func (s *server) release(form url.Values) (string, error) {
+	if s.w == nil {
+		return "", errors.New("choose a club first")
+	}
+	playerID, err := strconv.ParseUint(form.Get("player"), 10, 64)
+	if err != nil || playerID == 0 {
+		return "", errors.New("unknown player")
+	}
+	player := ids.PlayerID(playerID)
+	name := s.name(player)
+	res, err := s.w.ReleasePlayer(app.ReleasePlayer{
+		ID:               s.w.NextCommandID(),
+		ExpectedRevision: s.w.Revision(),
+		Player:           player,
+	})
+	if err != nil {
+		return "", err
+	}
+	s.say("%s was released and is now a free agent. You paid %s.", name, res.Compensation)
 	return "/squad", nil
 }

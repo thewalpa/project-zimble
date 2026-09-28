@@ -24,7 +24,7 @@
         <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage">
         <button {{if $d.Locked}}disabled{{end}}>Sign</button>
       </form>
-    {{else}}<span class="muted">no room at {{.Position}}</span>{{end}}</td>
+    {{else}}<span class="muted">squad full</span>{{end}}</td>
   </tr>
   {{end}}
 </table>

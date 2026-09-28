@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}{{$rev := .Rev}}
 <h1>{{if $d.IsUserClub}}Squad{{else}}{{$d.Club.ClubName}} squad{{end}}</h1>
-<p class="muted">{{if $d.IsUserClub}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness. Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire.{{else}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness.{{end}}</p>
+<p class="muted">{{if $d.IsUserClub}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness. Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire. {{$d.SquadText}}{{else}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness.{{end}}</p>
 {{if $d.Clubs}}
 <div class="actions" style="margin-bottom: 14px;">
   <span class="muted" style="align-self:center; font-size:13px; font-weight:600;">Club:</span>
@@ -27,6 +27,7 @@
     <th class="n">{{sortHeader $d.Sort "wage" "Wage/week" "desc"}}</th>
     <th class="n">{{sortHeader $d.Sort "until" "Until" "asc"}}</th>
     <th>{{sortHeader $d.Sort "contract" "Contract" "desc"}}</th>
+    {{if $d.IsUserClub}}<th>{{sortHeader $d.Sort "payoff" "Release" "desc"}}</th>{{end}}
   </tr>
   {{range $d.Rows}}
   <tr {{if .FinalYear}}class="final"{{end}}>
@@ -41,6 +42,14 @@
         <button>Renew</button>
       </form>
     {{else if $d.IsUserClub}}<span class="muted">asks {{.Demand}}</span>{{else}}<span class="muted">asking price {{.Value}}</span>{{end}}</td>
+    {{if $d.IsUserClub}}
+    <td>
+      <form class="inline" method="post" action="/release" onsubmit="return confirm('Release {{.Name}} for {{.Payoff}}?');">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/squad"><input type="hidden" name="player" value="{{.Player}}">
+        <button title="Releasing {{.Name}} costs {{.Payoff}}">Release ({{.Payoff}})</button>
+      </form>
+    </td>
+    {{end}}
   </tr>
   {{end}}
 </table>

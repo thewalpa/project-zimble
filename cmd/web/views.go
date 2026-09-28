@@ -367,6 +367,7 @@ type squadView struct {
 	Clubs       []clubOption
 	Rows        []squadRow
 	ContractEnd string
+	SquadText   string
 	YearOptions []int
 	Sort        SortState
 }
@@ -384,12 +385,19 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	clubLabel, _ := s.w.ClubLabel(viewClub)
 	isUserClub := (viewClub == s.club())
 	end := s.w.ContractYearEnd()
-	e := s.w.Content().Economy
+	defs := s.w.Content()
+	var mins []string
+	for _, q := range defs.Roster {
+		mins = append(mins, fmt.Sprintf("%d %s", q.Min, q.Position))
+	}
+	squadText := fmt.Sprintf("You have %d players; a squad holds at most %d, and at least %s.", len(squad), defs.SquadLimit, strings.Join(mins, ", "))
+	e := defs.Economy
 	sortState := newSortState(r, "pos", "asc")
 	v := squadView{
 		Club:        clubLabel,
 		IsUserClub:  isUserClub,
 		ContractEnd: s.endDate(end),
+		SquadText:   squadText,
 		Sort:        sortState,
 	}
 	for y := e.ContractYears[0]; y <= e.ContractYears[1]; y++ {
@@ -432,11 +440,8 @@ type freeView struct {
 
 func (s *server) free(r *http.Request) (string, any, error) {
 	defs := s.w.Content()
-	counts := map[players.Position]int{}
 	squad, _ := s.w.Squad(s.club())
-	for _, p := range squad {
-		counts[p.Position]++
-	}
+	hasRoom := len(squad) < defs.SquadLimit
 	_, locked := s.w.Pending()
 	sortState := newSortState(r, "ovr", "desc")
 	v := freeView{Locked: locked, RetireAge: players.FreeAgentRetirementAge, Sort: sortState}
@@ -445,7 +450,7 @@ func (s *server) free(r *http.Request) (string, any, error) {
 	}
 	for _, p := range s.w.FreeAgents() {
 		o, _ := s.w.SuggestContract(p.Player)
-		v.Rows = append(v.Rows, freeRow{SquadPlayer: p, Offer: o, Room: counts[p.Position] < defs.Quota(p.Position).Count})
+		v.Rows = append(v.Rows, freeRow{SquadPlayer: p, Offer: o, Room: hasRoom})
 	}
 	sortFreeRows(v.Rows, sortState.Col, sortState.Dir)
 	return "free", v, nil
@@ -837,6 +842,8 @@ func (s *server) messageText(m app.InboxItem) string {
 		return fmt.Sprintf("%s joined from the youth ranks until %s at %s a week", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
 	case inbox.KindDeveloped:
 		return fmt.Sprintf("Development: %d of your players improved and %d declined over the year", m.Improved, m.Declined)
+	case inbox.KindReleased:
+		return fmt.Sprintf("%s left the club as a free agent; you paid %s", m.PlayerName, m.Compensation)
 	}
 	return s.transferText(m)
 }
@@ -872,6 +879,9 @@ func (s *server) finances(r *http.Request) (string, any, error) {
 		}
 		if e.Offer != 0 {
 			what = fmt.Sprintf("%s, offer %d", what, e.Offer)
+		}
+		if e.Player != 0 {
+			what = fmt.Sprintf("%s, %s", what, s.name(e.Player))
 		}
 		v.Rows = append(v.Rows, ledgerRow{When: s.w.Calendar().Format(e.At), What: what, Amount: e.Amount, Balance: running})
 	}

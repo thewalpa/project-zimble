@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -550,4 +551,171 @@ func TestSortableLists(t *testing.T) {
 	c.post("/continue", nil) // plays match
 	inboxDate := c.get("/inbox?sort=when&dir=asc")
 	contains(t, inboxDate, "data-col=\"when\"")
+}
+
+// Releasing a player shows the payoff and confirmation in the squad table;
+// releasing pays the payoff, records it in finances and inbox, and frees the
+// player. Squad limit is checked for bidding and signing.
+func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
+	c := career(t)
+
+	// Squad page shows squad limit and payoff preview with confirmation.
+	page := c.get("/squad")
+	contains(t, page, "You have 20 players; a squad holds at most 25, and at least 2 GK, 5 DF, 5 MF, 3 FW.",
+		`action="/release"`, `confirm('Release Rafael Okafor for 179,400.00?');`, "Release (179,400.00)")
+
+	// Transfers and squad limit:
+	// Club 3 starts with 20 players and 4 forwards.
+	// Transfer window is open at instant 0.
+	squad, _ := c.s.w.Squad(c.s.club())
+	if len(squad) != 20 {
+		t.Fatalf("expected 20 players, got %d", len(squad))
+	}
+	forwards := 0
+	for _, p := range squad {
+		if p.Position.String() == "FW" {
+			forwards++
+		}
+	}
+	if forwards != 4 {
+		t.Fatalf("expected 4 forwards, got %d", forwards)
+	}
+
+	// With 20 players, club 3 can bid for a forward even though it already has 4.
+	fwPage := c.get("/transfers?pos=FW")
+	contains(t, fwPage, `action="/bid"`)
+	if strings.Contains(fwPage, "Your squad is full") {
+		t.Fatal("expected room to bid for forward with 20 players")
+	}
+	if strings.Contains(fwPage, "<button disabled>Bid</button>") {
+		t.Fatal("bid button should be enabled with 20 players")
+	}
+
+	// Bid for players from clubs above their position minimum to grow squad to 25 (the SquadLimit).
+	bidPlayer := func(p ids.PlayerID) {
+		o, err := c.s.w.SuggestContract(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := c.post("/bid", url.Values{
+			"player": {strconv.FormatUint(uint64(p), 10)},
+			"fee":    {strconv.FormatInt(int64(valueOf(t, c, strconv.FormatUint(uint64(p), 10)))/100, 10)},
+			"years":  {strconv.Itoa(o.Years)},
+			"wage":   {strconv.FormatInt(int64(o.WeeklyWage)/100, 10)},
+			"back":   {"/transfers"},
+		})
+		contains(t, res, "You bid")
+	}
+
+	cheapestTarget := func() ids.PlayerID {
+		var cands []app.SquadPlayer
+		for _, cr := range c.s.w.Summary().ClubRows {
+			if cr.ID == c.s.club() {
+				continue
+			}
+			otherSquad, _ := c.s.w.Squad(cr.ID)
+			counts := map[string]int{}
+			for _, p := range otherSquad {
+				counts[p.Position.String()]++
+			}
+			for _, p := range otherSquad {
+				if p.Position.String() == "GK" {
+					continue
+				}
+				if counts[p.Position.String()] > c.s.w.Content().Quota(p.Position).Min {
+					cands = append(cands, p)
+				}
+			}
+		}
+		if len(cands) == 0 {
+			t.Fatal("no player for sale")
+		}
+		return slices.MinFunc(cands, func(a, b app.SquadPlayer) int { return int(a.Value - b.Value) }).Player
+	}
+
+	for {
+		sq, _ := c.s.w.Squad(c.s.club())
+		if len(sq) >= 25 {
+			break
+		}
+		bidPlayer(cheapestTarget())
+		c.post("/continue", nil)
+	}
+
+	squad, _ = c.s.w.Squad(c.s.club())
+	if len(squad) != 25 {
+		t.Fatalf("expected squad at limit of 25, got %d", len(squad))
+	}
+
+	// At 25 players, the Bid buttons are disabled and squad full message is shown.
+	fullPage := c.get("/transfers?pos=FW")
+	contains(t, fullPage, "Your squad is full: a squad holds at most 25 players.")
+	if !strings.Contains(fullPage, "<button disabled>Bid</button>") {
+		t.Fatal("expected bid button to be disabled at 25 players")
+	}
+	if strings.Contains(fullPage, "<button >Bid</button>") || strings.Contains(fullPage, "<button>Bid</button>") {
+		t.Fatal("found enabled bid button when squad is full")
+	}
+
+	// Releasing player 60 (Rafael Okafor) drops squad to 24.
+	page = c.post("/release", url.Values{"player": {"60"}})
+	contains(t, page, "Rafael Okafor was released and is now a free agent. You paid 179,400.00.")
+
+	// Rafael Okafor is now on the free agents page with an active Sign button (since 24 < 25).
+	freePage := c.get("/free")
+	contains(t, freePage, "Rafael Okafor", "<button >Sign</button>")
+
+	// Finances shows the contract payoff with the player's name and amount.
+	contains(t, c.get("/finances"), "contract payoff, Rafael Okafor", "-179,400.00")
+
+	// Inbox shows the release message.
+	contains(t, c.get("/inbox"), "Rafael Okafor left the club as a free agent; you paid 179,400.00")
+
+	// Sign Rafael Okafor back to return squad to 25.
+	o, err := c.s.w.SuggestContract(ids.PlayerID(60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.post("/sign", url.Values{
+		"player": {"60"},
+		"years":  {strconv.Itoa(o.Years)},
+		"wage":   {strconv.FormatInt(int64(o.WeeklyWage)/100, 10)},
+		"back":   {"/free"},
+	})
+
+	// Release player 58 to have a free agent while bringing squad to 25 via another bid, or test free full:
+	// Now release player 58:
+	c.post("/release", url.Values{"player": {"58"}})
+	// Bid for another player from club 13 to fill back to 25:
+	sq13, _ := c.s.w.Squad(ids.ClubID(13))
+	bidPlayer(sq13[1].Player)
+	c.post("/continue", nil)
+
+	squad, _ = c.s.w.Squad(c.s.club())
+	if len(squad) != 25 {
+		t.Fatalf("expected squad at limit of 25, got %d", len(squad))
+	}
+
+	// Free agents page reflects squad full.
+	freeFull := c.get("/free")
+	contains(t, freeFull, "Wes Lindqvist", "squad full")
+	if strings.Contains(freeFull, "Sign</button>") {
+		t.Fatal("found sign button when squad is full")
+	}
+
+	// Squad minimum rejection: club 3 has GKs; releasing down to 2 GKs (minimum 2), then releasing another is refused.
+	c.post("/release", url.Values{"player": {"43"}})
+	c.post("/release", url.Values{"player": {"42"}})
+	page = c.post("/release", url.Values{"player": {"41"}})
+	contains(t, page, "the squad would fall below its minimum at that position: 2 GK, minimum 2")
+
+	// Releasing on matchday is refused.
+	c.post("/continue", nil) // moves past window to matchday
+	page = c.post("/release", url.Values{"player": {"41"}})
+	contains(t, page, "squads cannot change while rounds await results")
+	c.post("/continue", nil) // play match
+
+	// Squad sorting by payoff.
+	squadPayoff := c.get("/squad?sort=payoff&dir=desc")
+	contains(t, squadPayoff, "data-col=\"payoff\"")
 }

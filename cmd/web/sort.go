@@ -140,6 +140,8 @@ func sortSquadRows(rows []squadRow, col, dir string) {
 			if diff == 0 {
 				diff = cmp.Compare(a.Value, b.Value)
 			}
+		case "payoff", "release":
+			diff = cmp.Compare(a.Payoff, b.Payoff)
 		default:
 			diff = cmp.Compare(a.Position, b.Position)
 		}

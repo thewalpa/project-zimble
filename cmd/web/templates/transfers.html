@@ -44,7 +44,7 @@
 <div class="actions" style="margin: 0 0 12px;">
   {{range $d.Positions}}<a class="button{{if eq . $d.Position}} primary{{end}}" href="/transfers?pos={{.}}">{{.}}</a>{{end}}
 </div>
-{{if not $d.Room}}<p class="muted">Your squad is full at {{$d.Position}}: you can buy only where you have room.</p>{{end}}
+{{if not $d.Room}}<p class="muted">Your squad is full: a squad holds at most {{$d.SquadLimit}} players.</p>{{end}}
 <table>
   <tr>
     <th>{{sortHeader $d.SortMarket "club" "Club" "asc"}}</th>

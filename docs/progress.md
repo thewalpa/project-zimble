@@ -1792,6 +1792,34 @@ Rafael Okafor was released and is now a free agent. You paid 179,400.00.
 - **A payoff needs the money in hand,** so a club deep in debt cannot release anyone. There are no negotiated or mutual terminations.
 - **The manager may re-sign a released player** at once, on new terms.
 
+## ui: release players and whole-squad limit in web client (done)
+
+The web client (`cmd/web`) now supports releasing players and respects the whole-squad limit `SquadLimit` (25) instead of per-position caps.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | POST `/release` action; release buttons with payoff preview and browser confirmation dialog on Squad page; whole-squad limit `Room` check on Free agents and Transfers pages; `SquadText` in squad header; `inbox.KindReleased` inbox text; player name on `KindPayoff` ledger lines; sorting by payoff |
+
+### Decisions
+
+- **Release action in squad table:** Shown only for the managed club (`IsUserClub`), with the payoff amount displayed on the button and an `onsubmit` confirmation dialog. Releasing redirects back to `/squad` with the confirmation note, matching `cmd/play`.
+- **Whole-squad room:** Both Free agents and Market room checks use `len(squad) < defs.SquadLimit`. When full, Market shows "Your squad is full: a squad holds at most 25 players." and disables Bid buttons; Free agents shows "squad full".
+- **Finances:** Payoff entries name the player through `s.name(e.Player)` ("contract payoff, Name"), conforming to the display convention that players are named through app queries rather than ID alone.
+
+### Verification
+
+- `TestReleaseAndSquadLimitInTheBrowser`:
+  - Squad page shows squad limit and payoff preview with confirmation.
+  - Releasing a player pays the payoff, adds an inbox message, records the payoff on the finances ledger with the player's name, and moves the player to the free agents list.
+  - Position minimum rejection is enforced (releasing below 2 GK is refused).
+  - Releasing while a matchday is pending is refused.
+  - With 20 players and 4 forwards, bidding for another forward succeeds.
+  - When the squad reaches 25 players, the Bid buttons are disabled, the squad full message is shown, and the Free agents page displays "squad full".
+  - Squad list is sortable by payoff.
+- All three checks (`gofmt -l .`, `go vet ./...`, `go test ./...`) pass.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

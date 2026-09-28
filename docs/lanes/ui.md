@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Answer the open `ui--*` notes in `docs/handoffs/`.
+Idle; wait for new `ui--*` handoff notes from other lanes, or pick from the backlog.
 
 ## Backlog
 
