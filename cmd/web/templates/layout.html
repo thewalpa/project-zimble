@@ -64,6 +64,8 @@ th.n .sort-link { justify-content: flex-end; }
 .sort-icon { font-size: 11px; line-height: 1; }
 .sort-icon.asc, .sort-icon.desc { color: var(--accent); font-weight: 700; }
 .sort-link.active { color: var(--ink); font-weight: 700; }
+details.save-details > summary::-webkit-details-marker { display: none; }
+details.save-details > summary { list-style: none; }
 </style>
 </head>
 <body>
@@ -79,8 +81,20 @@ th.n .sort-link { justify-content: flex-end; }
     </form>
     <form class="inline" method="post" action="/save">
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
-      <button>Save</button>
+      <button title="Save to {{.SaveName}}">Save</button>
     </form>
+    <details class="save-details" style="display:inline-block; position:relative;">
+      <summary class="button" style="padding: 7px 10px; cursor:pointer;" title="Save a copy under a new name">Save as…</summary>
+      <div class="panel" style="position:absolute; right:0; top:100%; margin-top:6px; z-index:100; min-width:240px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);">
+        <form method="post" action="/save">
+          <input type="hidden" name="rev" value="{{.Rev}}">
+          <input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
+          <div style="font-size:12px; margin-bottom:6px;" class="muted">Save copy to <b>{{.SavesDir}}/</b>:</div>
+          <input type="text" name="name" placeholder="e.g. season-2" style="width:100%; margin-bottom:8px;" required>
+          <button class="primary" style="width:100%;">Save as</button>
+        </form>
+      </div>
+    </details>
     {{end}}
   </div>
   {{if .Career}}

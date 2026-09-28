@@ -1,5 +1,37 @@
 {{define "content"}}
 {{$d := .Data}}
+{{if $d.Saves}}
+<h1>Saved careers</h1>
+<p class="muted">Resume a previously saved career, or choose a club below to start a new one.</p>
+<div class="panel scroll">
+<table>
+  <tr>
+    <th>Save</th>
+    <th>Club</th>
+    <th>Date</th>
+    <th>Season</th>
+    <th>Last saved</th>
+    <th></th>
+  </tr>
+  {{range $d.Saves}}
+  <tr>
+    <td><b>{{.Name}}</b></td>
+    <td>{{.Club}}</td>
+    <td>{{.Date}}</td>
+    <td class="muted">{{.Season}}</td>
+    <td class="muted">{{.Modified}}</td>
+    <td>
+      <form class="inline" method="post" action="/load">
+        <input type="hidden" name="file" value="{{.Path}}">
+        <button class="primary">Load career</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+</div>
+{{end}}
+
 <h1>New career</h1>
 <p class="muted">World seed {{$d.Seed}}. Choose the club you will manage; OVR is the squad's average rating (1–100).</p>
 <div class="panel scroll">

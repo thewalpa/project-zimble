@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -19,6 +22,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/selection"
+	"github.com/thewalpa/project-zimble/internal/storage"
 )
 
 var funcs = template.FuncMap{
@@ -33,20 +37,28 @@ var funcs = template.FuncMap{
 // layout is what every page gets: the career header, notes and the page's
 // own data.
 type layout struct {
-	Page    string
-	Career  bool
-	Club    app.TeamLabel
-	Date    string
-	Balance money.Money
-	Rev     app.Revision
-	Unsaved bool
-	Pending bool // a matchday of the club is waiting
-	Notes   []note
-	Data    any
+	Page     string
+	Career   bool
+	Club     app.TeamLabel
+	Date     string
+	Balance  money.Money
+	Rev      app.Revision
+	Unsaved  bool
+	Pending  bool // a matchday of the club is waiting
+	Notes    []note
+	Data     any
+	SaveName string
+	SavesDir string
 }
 
 func (s *server) layout(page string, data any) layout {
-	l := layout{Page: page, Notes: s.notes, Data: data}
+	l := layout{
+		Page:     page,
+		Notes:    s.notes,
+		Data:     data,
+		SaveName: filepath.Base(s.savePath),
+		SavesDir: filepath.Clean(s.savesDir),
+	}
 	if s.w == nil {
 		return l
 	}
@@ -222,6 +234,16 @@ type messageView struct {
 	Text string
 }
 
+type saveInfo struct {
+	Name     string
+	Path     string
+	Club     string
+	Date     string
+	Season   string
+	Modified string
+	ModTime  time.Time
+}
+
 type homeView struct {
 	Season      string
 	Played      int
@@ -237,12 +259,15 @@ type homeView struct {
 	Next        *fixtureView
 	Report      *matchReport
 	Inbox       []messageView
+	SaveName    string
+	OtherSaves  []saveInfo
 }
 
 type chooseView struct {
 	Seed  uint64
 	Clubs []app.ClubSummary
 	Sort  SortState
+	Saves []saveInfo
 }
 
 func (s *server) home(r *http.Request) (string, any, error) {
@@ -254,7 +279,12 @@ func (s *server) home(r *http.Request) (string, any, error) {
 		sortState := newSortState(r, "name", "asc")
 		clubs := append([]app.ClubSummary(nil), preview.Summary().ClubRows...)
 		sortClubSummaryRows(clubs, sortState.Col, sortState.Dir)
-		return "choose", chooseView{Seed: uint64(s.seed), Clubs: clubs, Sort: sortState}, nil
+		return "choose", chooseView{
+			Seed:  uint64(s.seed),
+			Clubs: clubs,
+			Sort:  sortState,
+			Saves: s.listSaves(),
+		}, nil
 	}
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
@@ -322,6 +352,12 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	msgs := s.messages()
 	v.Inbox = msgs[max(len(msgs)-8, 0):]
 	slices.Reverse(v.Inbox)
+	v.SaveName = filepath.Base(s.savePath)
+	for _, sv := range s.listSaves() {
+		if filepath.Clean(sv.Path) != filepath.Clean(s.savePath) {
+			v.OtherSaves = append(v.OtherSaves, sv)
+		}
+	}
 	return "home", v, nil
 }
 
@@ -983,4 +1019,94 @@ func (s *server) cup(r *http.Request) (string, any, error) {
 		out = append(out, v)
 	}
 	return "cup", out, nil
+}
+
+// listSaves inspects available .json save files in savesDir, career.json in root,
+// and s.savePath, returning metadata sorted newest first.
+func (s *server) listSaves() []saveInfo {
+	seen := map[string]bool{}
+	var paths []string
+
+	if entries, err := os.ReadDir(s.savesDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".json") {
+				p := filepath.Join(s.savesDir, e.Name())
+				if !seen[p] {
+					seen[p] = true
+					paths = append(paths, p)
+				}
+			}
+		}
+	}
+
+	if !seen["career.json"] {
+		if fi, err := os.Stat("career.json"); err == nil && !fi.IsDir() {
+			seen["career.json"] = true
+			paths = append(paths, "career.json")
+		}
+	}
+
+	if s.savePath != "" && !seen[s.savePath] {
+		if fi, err := os.Stat(s.savePath); err == nil && !fi.IsDir() {
+			seen[s.savePath] = true
+			paths = append(paths, s.savePath)
+		}
+	}
+
+	var saves []saveInfo
+	for _, p := range paths {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		w, err := storage.Load(p)
+		if err != nil {
+			continue
+		}
+		clubID, ok := w.UserClub()
+		if !ok {
+			continue
+		}
+		clubName := fmt.Sprintf("Club %d", clubID)
+		for _, cr := range w.Summary().ClubRows {
+			if cr.ID == clubID {
+				clubName = cr.Name
+				break
+			}
+		}
+		date := w.Calendar().Format(w.Now())
+		season := "Season 1"
+		for _, sc := range w.Schedules() {
+			found := false
+			for _, r := range sc.Rounds {
+				for _, f := range r.Fixtures {
+					if f.Home.Club == clubID || f.Away.Club == clubID {
+						season = fmt.Sprintf("%s season %d", sc.CompetitionName, sc.Season)
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		saves = append(saves, saveInfo{
+			Name:     filepath.Base(p),
+			Path:     p,
+			Club:     clubName,
+			Date:     date,
+			Season:   season,
+			Modified: fi.ModTime().Format("2006-01-02 15:04"),
+			ModTime:  fi.ModTime(),
+		})
+	}
+
+	slices.SortFunc(saves, func(a, b saveInfo) int {
+		return b.ModTime.Compare(a.ModTime)
+	})
+	return saves
 }

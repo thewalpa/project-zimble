@@ -51,5 +51,42 @@
     {{if $d.Inbox}}<ul class="plain">{{range $d.Inbox}}<li><span class="when">{{.When}}</span>{{.Text}}</li>{{end}}</ul>
     <p><a href="/inbox">All messages</a></p>{{else}}<p class="muted">No messages yet.</p>{{end}}
   </div>
+  <div class="panel">
+    <h2>Saved career</h2>
+    <p class="muted">Active file: <b>{{$d.SaveName}}</b></p>
+    <div class="actions">
+      <form class="inline" method="post" action="/save">
+        <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/">
+        <button>Save now</button>
+      </form>
+    </div>
+    <div style="margin-top:14px;">
+      <p class="muted" style="margin-bottom:6px; font-size:13px;">Save a copy:</p>
+      <form class="inline" method="post" action="/save">
+        <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/">
+        <input type="text" name="name" placeholder="new save name..." style="width: 10em;" required>
+        <button class="primary">Save as</button>
+      </form>
+    </div>
+    {{if $d.OtherSaves}}
+    <div style="margin-top:16px;">
+      <p class="muted" style="margin-bottom:6px; font-size:13px;">Other saved careers:</p>
+      <ul class="plain">
+        {{range $d.OtherSaves}}
+        <li style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <div>
+            <b>{{.Name}}</b><br><span class="muted">{{.Club}} · {{.Date}}</span>
+          </div>
+          <form class="inline" method="post" action="/load">
+            <input type="hidden" name="rev" value="{{$.Rev}}">
+            <input type="hidden" name="file" value="{{.Path}}">
+            <button>Load</button>
+          </form>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
+  </div>
 </div>
 {{end}}

@@ -57,6 +57,7 @@ func run(args []string, out, errOut io.Writer, newSeed func() (uint64, error), s
 	club := fs.Uint64("club", 0, "club `ID` to manage in a new career (default: choose in the browser)")
 	load := fs.String("load", "", "continue the career saved in `FILE`")
 	save := fs.String("save", "career.json", "`FILE` the Save button writes (default: the -load file)")
+	saves := fs.String("saves", "saves", "`DIR` where multiple saves are stored")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func run(args []string, out, errOut io.Writer, newSeed func() (uint64, error), s
 	if set["load"] && (set["seed"] || set["club"]) {
 		return errors.New("-seed and -club cannot be used with -load: a saved career keeps its own")
 	}
-	cfg := config{savePath: *save, loadPath: *load}
+	cfg := config{savePath: *save, loadPath: *load, savesDir: *saves}
 	if set["load"] && !set["save"] {
 		cfg.savePath = *load
 	}

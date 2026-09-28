@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -34,6 +36,7 @@ type config struct {
 	club     ids.ClubID // zero: choose in the browser
 	loadPath string
 	savePath string
+	savesDir string
 }
 
 // server is the web client: one career and what the pages need between
@@ -48,6 +51,7 @@ type server struct {
 	w             *app.World // nil until a club is chosen
 	seed          random.Seed
 	savePath      string
+	savesDir      string
 	saved         bool         // the career exists on disk...
 	savedRevision app.Revision // ...at this revision
 	warnedYearEnd sim.GameInstant
@@ -63,7 +67,19 @@ type note struct {
 }
 
 func newServer(cfg config) (*server, error) {
-	s := &server{seed: cfg.seed, savePath: cfg.savePath, pages: map[string]*template.Template{}}
+	savesDir := cfg.savesDir
+	if savesDir == "" {
+		if cfg.savePath != "" && filepath.Dir(cfg.savePath) != "." {
+			savesDir = filepath.Dir(cfg.savePath)
+		} else {
+			savesDir = "saves"
+		}
+	}
+	savePath := cfg.savePath
+	if savePath == "" {
+		savePath = "career.json"
+	}
+	s := &server{seed: cfg.seed, savePath: savePath, savesDir: savesDir, pages: map[string]*template.Template{}}
 	for _, name := range pageNames {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
@@ -102,7 +118,7 @@ func newServer(cfg config) (*server, error) {
 		path string
 		act  func(url.Values) (string, error)
 	}{
-		{"/new", s.chooseClub}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
+		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
 		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
@@ -236,15 +252,84 @@ func (s *server) chooseClub(form url.Values) (string, error) {
 	return "/", nil
 }
 
-func (s *server) save(url.Values) (string, error) {
+func (s *server) save(form url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("there is no career to save")
 	}
-	if err := storage.Save(s.savePath, s.w); err != nil {
+	name := strings.TrimSpace(form.Get("name"))
+	targetPath := s.savePath
+	if name != "" {
+		if strings.Contains(name, "..") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+			return "", errors.New("invalid save name")
+		}
+		base := filepath.Base(name)
+		if base == "." || base == "/" || base == "" {
+			return "", errors.New("invalid save name")
+		}
+		if !strings.HasSuffix(strings.ToLower(base), ".json") {
+			base += ".json"
+		}
+		if err := os.MkdirAll(s.savesDir, 0755); err != nil {
+			return "", err
+		}
+		targetPath = filepath.Join(s.savesDir, base)
+	} else {
+		if dir := filepath.Dir(targetPath); dir != "." && dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return "", err
+			}
+		}
+	}
+	if err := storage.Save(targetPath, s.w); err != nil {
 		return "", err
 	}
+	s.savePath = targetPath
 	s.saved, s.savedRevision = true, s.w.Revision()
-	s.say("Saved to %s. Resume with: go run ./cmd/web -load %s", s.savePath, s.savePath)
+	s.say("Saved to %s.", targetPath)
+	return "/", nil
+}
+
+func (s *server) loadCareer(form url.Values) (string, error) {
+	file := strings.TrimSpace(form.Get("file"))
+	if file == "" {
+		return "/", errors.New("no save file specified")
+	}
+	clean := filepath.Clean(file)
+	if strings.Contains(clean, "..") || filepath.IsAbs(clean) {
+		return "/", errors.New("invalid save file path")
+	}
+	targetPath := clean
+	if _, err := os.Stat(targetPath); err != nil {
+		inSaves := filepath.Join(s.savesDir, filepath.Base(clean))
+		if _, err := os.Stat(inSaves); err == nil {
+			targetPath = inSaves
+		} else {
+			return "/", fmt.Errorf("save file %s not found", file)
+		}
+	}
+	w, err := storage.Load(targetPath)
+	if err != nil {
+		return "/", fmt.Errorf("load %s: %w", file, err)
+	}
+	club, ok := w.UserClub()
+	if !ok {
+		return "/", fmt.Errorf("%s has no managed club", file)
+	}
+	s.w = w
+	s.seed = w.Summary().Seed
+	s.savePath = targetPath
+	s.saved = true
+	s.savedRevision = w.Revision()
+	s.report = nil
+	s.warnedYearEnd = 0
+	clubName := fmt.Sprintf("Club %d", club)
+	for _, cr := range w.Summary().ClubRows {
+		if cr.ID == club {
+			clubName = cr.Name
+			break
+		}
+	}
+	s.say("Loaded %s (%s, %s). Welcome back!", filepath.Base(targetPath), clubName, s.w.Calendar().Format(s.w.Now()))
 	return "/", nil
 }
 

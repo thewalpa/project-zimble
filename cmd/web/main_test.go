@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -327,6 +328,64 @@ func TestSaveAndLoad(t *testing.T) {
 	if _, err := newServer(config{loadPath: plain}); err == nil || !strings.Contains(err.Error(), "no managed club") {
 		t.Fatalf("loading a career without a club: %v", err)
 	}
+}
+
+func TestSaveSelectorOnStartupAndMultipleSaves(t *testing.T) {
+	dir := t.TempDir()
+
+	// 1. Create two saves in dir
+	cfg1 := app.DefaultConfig(random.Seed(42))
+	cfg1.UserClub = ids.ClubID(3)
+	w1, err := app.NewWorld(cfg1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save1 := filepath.Join(dir, "quillford.json")
+	if err := storage.Save(save1, w1); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg2 := app.DefaultConfig(random.Seed(42))
+	cfg2.UserClub = ids.ClubID(4)
+	w2, err := app.NewWorld(cfg2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	save2 := filepath.Join(dir, "brackenmoor.json")
+	if err := storage.Save(save2, w2); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Start server without -load (s.w == nil) pointing savesDir to dir
+	c := newClient(t, config{savesDir: dir})
+	startPage := c.get("/")
+	contains(t, startPage, "Saved careers", "quillford.json", "Quillford FC", "brackenmoor.json", "Brackenmoor Town", "Load career", "New career")
+
+	// 3. Load quillford save
+	page := c.post("/load", url.Values{"file": {"quillford.json"}})
+	contains(t, page, "Loaded quillford.json (Quillford FC", "Round 1 v Brackenmoor Town (home)", "Active file: <b>quillford.json</b>", "brackenmoor.json")
+
+	// 4. Save as a new copy: "season-split"
+	page = c.post("/save", url.Values{"name": {"season-split"}})
+	contains(t, page, "Saved to "+filepath.Join(dir, "season-split.json"))
+	if _, err := os.Stat(filepath.Join(dir, "season-split.json")); err != nil {
+		t.Fatalf("expected season-split.json to exist: %v", err)
+	}
+
+	// 5. Verify the active file is now season-split.json and quillford.json is in other saves
+	page = c.get("/")
+	contains(t, page, "Active file: <b>season-split.json</b>", "quillford.json", "brackenmoor.json")
+
+	// 6. Test path traversal protection
+	errPage := c.post("/load", url.Values{"file": {"../../etc/passwd"}})
+	contains(t, errPage, "invalid save file path")
+
+	errPage = c.post("/save", url.Values{"name": {"../../evil"}})
+	contains(t, errPage, "invalid save name")
+
+	// 7. Switch career directly to brackenmoor.json
+	page = c.post("/load", url.Values{"file": {"brackenmoor.json"}})
+	contains(t, page, "Loaded brackenmoor.json (Brackenmoor Town", "Active file: <b>brackenmoor.json</b>")
 }
 
 // Every page renders at every stage of a career: a matchday, after it, the

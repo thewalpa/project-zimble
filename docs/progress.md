@@ -1995,6 +1995,27 @@ Answers `squad`'s note `balance--ai-transfer-market`. Two sweeps run 30-year car
 
 - **Gated, not always on.** No always-on bound was added. `TestAIMarketKeepsSquadsFullForDecades` already guards squad sizes and the population, and a churn bound would fail today on the finding itself. The bound belongs with `squad`'s fix.
 - **Events by ID.** The sweep reads listings from the journal by event ID, and fails if the journal (1,000 events retained) dropped any before they were read.
+## ui: multiple saves and startup save selector in the web client (done)
+
+The web client (`cmd/web`) now discovers saved careers and provides a save selector on startup so players can resume a saved career directly from the browser without needing the `-load` flag. It also supports multiple save files and "Save as" copies during gameplay.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | Added `-saves` flag (default `saves/`); `server.listSaves()` scans `saves/` and root `career.json` for valid Zimble saves; added `POST /load` action with path traversal protection; updated `POST /save` to support custom save names ("Save as"); added Saved Careers table to `choose.html` and Saved Career management panel to `home.html`; added "Save as…" popover to header in `layout.html` |
+
+### Decisions
+
+- **Startup save selector**: When running `cmd/web` with no active career (`s.w == nil`), the initial page renders a "Saved careers" table above the "New career" club picker, showing file name, club name, in-game date, season, and last saved timestamp with a one-click "Load career" action.
+- **Multiple saves and Save as**: Added "Save as" functionality in both the navigation header (via native HTML `<details>` popover) and on the Home dashboard panel, allowing players to save copies under custom names (e.g. `season-2.json`).
+- **Security & directory isolation**: Save and load actions validate against directory traversal (`..` and path separators), keeping save files confined within the designated saves directory.
+- **Backwards compatibility**: Existing root `career.json` and `-load`/`-save` flags continue to work seamlessly.
+
+### Verification
+
+- `cmd/web/main_test.go`: `TestSaveSelectorOnStartupAndMultipleSaves` verifies discovery of multiple saves, loading from the startup page, creating copies via Save As, path traversal rejection, and switching active careers.
+- All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
 
 ## Next tasks
 
