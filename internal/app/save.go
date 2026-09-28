@@ -25,6 +25,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
 	"github.com/thewalpa/project-zimble/internal/selection"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
@@ -49,6 +50,7 @@ type Versions struct {
 	Contracts     int    // ai.ContractsVersion (renewals and signings)
 	Development   int    // players.DevelopmentVersion (development and retirement)
 	Youth         int    // worldgen.YouthVersion (youth players joining clubs)
+	Transfers     int    // ai.TransfersVersion (valuations, answers and bids)
 	EngineID      string // match engine built by the composition root
 	EngineVersion uint32
 }
@@ -90,6 +92,7 @@ type WorldSnapshot struct {
 	Employment   []employment.Assignment
 	Medical      []medical.Record // ascending player
 	Finance      finance.Snapshot
+	Transfers    transfers.Snapshot
 	Competitions competitions.Snapshot
 	Lineups      []selection.Entry // by fixture, team
 	Scheduler    sim.SchedulerSnapshot
@@ -107,6 +110,8 @@ type WorldSnapshot struct {
 	DecisionCommands []DecisionRecord
 	RenewCommands    []RenewRecord
 	SignCommands     []SignRecord
+	OfferCommands    []OfferRecord
+	ResponseCommands []ResponseRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -124,7 +129,7 @@ func currentVersions(engine matches.Engine) Versions {
 		Generator: worldgen.Version, Content: content.Version, League: content.LeagueVersion,
 		Random: random.Version, Schedule: competitions.ScheduleVersion, Selection: ai.SelectionVersion,
 		Medical: medical.Version, Contracts: ai.ContractsVersion, Development: players.DevelopmentVersion,
-		Youth: worldgen.YouthVersion, EngineID: engine.ID(), EngineVersion: engine.Version(),
+		Youth: worldgen.YouthVersion, Transfers: ai.TransfersVersion, EngineID: engine.ID(), EngineVersion: engine.Version(),
 	}
 }
 
@@ -161,7 +166,7 @@ func (w *World) Snapshot() WorldSnapshot {
 			Generator: w.generatorVersion, Content: w.contentVersion, League: w.leagueVersion,
 			Random: w.randomVersion, Schedule: w.scheduleVersion, Selection: w.selectionVersion,
 			Medical: w.medicalVersion, Contracts: w.contractsVersion, Development: w.developmentVersion,
-			Youth: w.youthVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
+			Youth: w.youthVersion, Transfers: w.transfersVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
 		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs(), w.cups),
@@ -172,6 +177,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Employment:         w.employment.Snapshot(),
 		Medical:            w.medical.Snapshot(),
 		Finance:            w.finance.Snapshot(),
+		Transfers:          w.transfers.Snapshot(),
 		Competitions:       w.competitions.Snapshot(),
 		Lineups:            w.selections.Snapshot(),
 		Scheduler:          w.scheduler.Snapshot(),
@@ -207,6 +213,10 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.RenewCommands = append(snap.RenewCommands, *rec.renew)
 		case rec.sign != nil:
 			snap.SignCommands = append(snap.SignCommands, *rec.sign)
+		case rec.offer != nil:
+			snap.OfferCommands = append(snap.OfferCommands, *rec.offer)
+		case rec.respond != nil:
+			snap.ResponseCommands = append(snap.ResponseCommands, *rec.respond)
 		}
 	}
 	if w.live != nil {
@@ -268,6 +278,10 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if err != nil {
 		return invalid("%v", err)
 	}
+	offers, err := transfers.New(snap.Transfers)
+	if err != nil {
+		return invalid("%v", err)
+	}
 	comps, err := competitions.Restore(snap.Competitions)
 	if err != nil {
 		return invalid("%v", err)
@@ -293,6 +307,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		contractsVersion:   snap.Versions.Contracts,
 		developmentVersion: snap.Versions.Development,
 		youthVersion:       snap.Versions.Youth,
+		transfersVersion:   snap.Versions.Transfers,
 		fingerprint:        snap.WorldFingerprint,
 		defs:               defs,
 		calendar:           calendar,
@@ -311,6 +326,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		employment:         emp,
 		medical:            med,
 		finance:            fin,
+		transfers:          offers,
 		competitions:       comps,
 		selections:         selections,
 	}
@@ -415,6 +431,20 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		rec := c
 		w.commands[q.ID] = commandRecord{sign: &rec}
 	}
+	for _, c := range snap.OfferCommands {
+		if err := w.restoreOffer(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c
+		w.commands[c.Request.ID] = commandRecord{offer: &rec}
+	}
+	for _, c := range snap.ResponseCommands {
+		if err := w.restoreResponse(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c
+		w.commands[c.Request.ID] = commandRecord{respond: &rec}
+	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}
 	}
@@ -440,6 +470,7 @@ func checkVersions(saved, current Versions) error {
 		{"AI contracts", saved.Contracts, current.Contracts},
 		{"development", saved.Development, current.Development},
 		{"youth", saved.Youth, current.Youth},
+		{"AI transfers", saved.Transfers, current.Transfers},
 		{"match engine", saved.EngineID, current.EngineID},
 		{"match engine version", saved.EngineVersion, current.EngineVersion},
 	} {

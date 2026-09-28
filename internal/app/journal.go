@@ -17,7 +17,8 @@ import (
 // events are emitted per year with a managed club in an 8-team league (86
 // match and season events, 52 weekly wage postings, 14 gate postings, about
 // 50 contract events and about 35 retirements, youth arrivals and one
-// development), so this keeps roughly the last four years.
+// development, plus a few dozen transfer events in a summer the manager
+// trades), so this keeps roughly the last three to four years.
 var journalRetention = 1000
 
 // emit stages an event produced by a change that has already been applied
@@ -190,6 +191,8 @@ func (w *World) checkEventFacts(e events.Event) error {
 		return w.checkPlayerEvent(p.Player, p.Club, p.Team)
 	case events.KindPlayerRetired, events.KindYouthJoined, events.KindPlayersDeveloped:
 		return w.checkLifecycleEvent(e)
+	case events.KindTransferOffered, events.KindTransferCompleted, events.KindOfferClosed:
+		return w.checkTransferEvent(e)
 	case events.KindSeasonStarted:
 		p := e.SeasonStarted
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}
@@ -210,7 +213,8 @@ type InboxItem struct {
 	Stage           string    // season ended, cup: "winner", or the round the team went out in, e.g. "semi-final"
 	OpponentLabel   TeamLabel // matchday, result
 	ChampionLabel   TeamLabel // season ended
-	PlayerName      string    // renewed, left, joined, retired, youth
+	PlayerName      string    // renewed, left, joined, retired, youth, transfers
+	ClubName        string    // transfers: the other club
 }
 
 // Inbox returns the manager's messages, oldest first. Read-only.
@@ -237,6 +241,9 @@ func (w *World) Inbox() []InboxItem {
 		}
 		if p, ok := w.registry.Player(m.Player); ok {
 			item.PlayerName = p.FullName()
+		}
+		if l, ok := w.ClubLabel(m.Club); ok {
+			item.ClubName = l.ClubName
 		}
 		out = append(out, item)
 	}

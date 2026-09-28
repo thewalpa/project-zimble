@@ -77,8 +77,8 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 	sched := w.Schedules()[0]
 	want, _ := w.Calendar().Instant(sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15})
 	all := kickoffTasks(w)
-	if len(all) != 28 || len(w.payloads) != 28 || w.scheduler.Len() != 34 {
-		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 28 of 34 (two leagues, with recovery, wages, 2 season ends, contract year and player year)", len(all), w.scheduler.Len(), len(w.payloads))
+	if len(all) != 28 || len(w.payloads) != 28 || w.scheduler.Len() != 35 {
+		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 28 of 35 (two leagues, with recovery, wages, 2 season ends, contract year, player year and transfer run)", len(all), w.scheduler.Len(), len(w.payloads))
 	}
 	var tasks []sim.Task // the first league's, in queue order
 	for _, task := range all {
@@ -336,8 +336,8 @@ func TestSimultaneousKickoffsAreDeterministic(t *testing.T) {
 			t.Fatalf("ready[%d] = %+v, want competition %d round 1", i, ready.Rounds[i], comp)
 		}
 	}
-	if len(st.Tasks) != 2*14-2+1+1+2+1+1 {
-		t.Fatalf("%d tasks remain, want 26 kickoffs, a recovery, wages, 2 season ends, a contract year and a player year", len(st.Tasks))
+	if len(st.Tasks) != 2*14-2+1+1+2+1+1+1 {
+		t.Fatalf("%d tasks remain, want 26 kickoffs, a recovery, wages, 2 season ends, a contract year, a player year and a transfer run", len(st.Tasks))
 	}
 	res2, st2 := run()
 	if !reflect.DeepEqual(res, res2) || !reflect.DeepEqual(st, st2) {

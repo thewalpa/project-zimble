@@ -112,11 +112,13 @@ func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 		": AI suggestion\n")
 }
 
-// season plays the rest of the season; continue then crosses into the next.
+// season plays the rest of the season; continue then crosses into the next,
+// stopping before the contract-year end and at the transfer window.
 func TestSeasonAndNextSeason(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "status", "q", "q")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "continue", "status", "q", "q")
 	contains(t, out, "Founders League season 1 (14/14 rounds)", "Season finished. Type continue for the next season.",
 		"Tue 2026-06-30 00:00 UTC: 7 of your players' contracts end tomorrow.",
+		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC; clubs answer bids made before Tue 2026-07-28 00:00 UTC.",
 		"Founders League season 1 ended: champion ", "; you finished ",
 		"Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC",
 		"MATCHDAY Sat 2026-08-08 15:00 UTC: round 1 v ", "Founders League season 2, 0 of 14 rounds played")
@@ -217,7 +219,7 @@ func TestMoneyViews(t *testing.T) {
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
-		"continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 168 1", "q", "q")
+		"continue", "continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 168 1", "q", "q")
 	contains(t, out,
 		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
 		"  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year",
@@ -286,4 +288,38 @@ func TestManagedCupRun(t *testing.T) {
 		"result: 0-0 (3-1 on penalties) v Brackenmoor Town (home)",
 		"Continental Cup 1 won by Glenrock Town: your club won it!",
 	)
+}
+
+// In the transfer window: the manager bids (at and below the asking
+// price), the answers arrive at the next run, an AI club bids for one of
+// the manager's players, and the manager answers it before and after
+// saving.
+func TestTransfers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"season", "continue", "continue", "market fw", "market", "bid 282", "bid 244", "bid 315", "bid 37", "bid 238 500000", "bid 238",
+		"bid 44", "continue", "continue", "transfers", "status", "save "+path, "accept 99", "q", "q")
+	contains(t, out,
+		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
+		"  37  GRY Jonas Gallo               32    74     2027     240,000.00",
+		"! usage: market GK|DF|MF|FW",
+		"You bid 240,000.00 for Jonas Gallo (offer 4), offering 1 year at 2,430.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
+		"! app: your club has already bid for the player in this window: player 238",
+		"! player 44 is not at another club; type market POS for the list",
+		"transfer: Jonas Gallo joined from Greyfen United for 240,000.00, until 1 July 2027 at 2,430.00 a week",
+		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
+		"bid: Ironbridge Wanderers bid 1,200,000.00 for Elias Gallo (offer 14); answer before Tue 2026-07-07 00:00 UTC (accept/reject)",
+		"Bids for your players (accept OFFER or reject OFFER):",
+		"* Thu 2026-07-02 00:00 UTC   Jonas Gallo              Greyfen United         -> Quillford FC",
+		"1 bids for your players await your answer. (type transfers)",
+		"! app: no open offer for one of your players has that ID: offer 99")
+
+	accepted := play(t, []string{"-load", path}, "accept 14", "finances 2", "q", "q")
+	contains(t, accepted, "Accepted: the transfer is complete.",
+		"transfer: Elias Gallo left for Ironbridge Wanderers for 1,200,000.00", "transfer fee O14")
+	rejected := play(t, []string{"-load", path}, "reject 14", "continue", "q", "q")
+	contains(t, rejected, "Rejected.", "transfer: the bid of 1,200,000.00 from Ironbridge Wanderers for Elias Gallo was rejected")
+	if strings.Contains(rejected, "left for Ironbridge") {
+		t.Fatal("a rejected bid moved the player")
+	}
 }

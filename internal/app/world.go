@@ -27,6 +27,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
 	"github.com/thewalpa/project-zimble/internal/selection"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
@@ -60,6 +61,7 @@ type World struct {
 	contractsVersion   int
 	developmentVersion int
 	youthVersion       int
+	transfersVersion   int
 	fingerprint        string
 	defs               content.Definitions
 	leagues            []leagueEntry // ascending competition ID
@@ -96,6 +98,7 @@ type World struct {
 	employment   *employment.Store
 	medical      *medical.Store
 	finance      *finance.Store
+	transfers    *transfers.Store
 	competitions *competitions.Store
 	selections   *selection.Store
 }
@@ -218,6 +221,10 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	if err != nil {
 		return nil, err
 	}
+	offers, err := transfers.New(transfers.Snapshot{})
+	if err != nil {
+		return nil, err
+	}
 	w := &World{
 		seed:               snap.Seed,
 		generatorVersion:   snap.GeneratorVersion,
@@ -230,6 +237,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		contractsVersion:   ai.ContractsVersion,
 		developmentVersion: players.DevelopmentVersion,
 		youthVersion:       worldgen.YouthVersion,
+		transfersVersion:   ai.TransfersVersion,
 		fingerprint:        snap.Fingerprint(),
 		defs:               defs,
 		cups:               cupDefs,
@@ -238,6 +246,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		employment:         emp,
 		medical:            med,
 		finance:            fin,
+		transfers:          offers,
 		competitions:       competitions.New(),
 		selections:         mustEmptySelections(),
 		calendar:           calendar,
@@ -269,6 +278,15 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		return nil, err
 	}
 	if err := w.schedulePlayerYear(playerYear); err != nil {
+		return nil, err
+	}
+	// The career starts at a contract-year end by default, so the first
+	// window is open from the start.
+	transferRun, err := w.nextTransferRun(0)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.scheduleTransferRun(transferRun); err != nil {
 		return nil, err
 	}
 	next := 0
@@ -385,6 +403,7 @@ func (w *World) Validate() error {
 	errs = append(errs, w.validateFinance()...)
 	errs = append(errs, w.validateContracts()...)
 	errs = append(errs, w.validateLifecycle()...)
+	errs = append(errs, w.validateTransfers()...)
 	return errors.Join(errs...)
 }
 

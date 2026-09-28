@@ -472,8 +472,9 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 
 // SuggestContract returns the terms an AI club would offer: for a user-club
 // player in the final contract year, the renewal it would make at the
-// contract-year end; for a free agent, the signing it would make now. They
-// are the defaults a client offers. Read-only.
+// contract-year end; for a free agent, the signing it would make now; for
+// another club's player, the contract it would offer with a transfer bid
+// now. They are the defaults a client offers. Read-only.
 func (w *World) SuggestContract(player ids.PlayerID) (ContractOffer, error) {
 	if w.userClub == 0 {
 		return ContractOffer{}, ErrNoUserClub
@@ -494,7 +495,7 @@ func (w *World) SuggestContract(player ids.PlayerID) (ContractOffer, error) {
 		}
 		return w.aiOffer(player, year-1) // the contract year under way
 	case a.Club != w.userClub:
-		return ContractOffer{}, fmt.Errorf("%w: player %d", ErrNotUserPlayer, player)
+		return w.aiOffer(player, year-1) // as windowTerms
 	case a.Contract.Expires != end:
 		return ContractOffer{}, fmt.Errorf("%w: player %d", ErrNotFinalYear, player)
 	}

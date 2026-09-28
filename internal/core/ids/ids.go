@@ -21,3 +21,9 @@ type (
 
 func (id CompetitionID) Valid() bool { return id != 0 }
 func (id FixtureID) Valid() bool     { return id != 0 }
+
+// OfferID identifies a transfer offer: one club's bid for another club's
+// player.
+type OfferID uint64
+
+func (id OfferID) Valid() bool { return id != 0 }

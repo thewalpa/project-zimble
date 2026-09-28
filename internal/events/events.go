@@ -27,18 +27,21 @@ type ID uint64
 type Kind uint16
 
 const (
-	KindRoundStarted     Kind = 1
-	KindMatchCompleted   Kind = 2
-	KindLineupSubmitted  Kind = 3
-	KindSeasonEnded      Kind = 4
-	KindSeasonStarted    Kind = 5
-	KindLedgerPosted     Kind = 6
-	KindContractRenewed  Kind = 7
-	KindContractExpired  Kind = 8
-	KindPlayerSigned     Kind = 9
-	KindPlayerRetired    Kind = 10
-	KindYouthJoined      Kind = 11
-	KindPlayersDeveloped Kind = 12
+	KindRoundStarted      Kind = 1
+	KindMatchCompleted    Kind = 2
+	KindLineupSubmitted   Kind = 3
+	KindSeasonEnded       Kind = 4
+	KindSeasonStarted     Kind = 5
+	KindLedgerPosted      Kind = 6
+	KindContractRenewed   Kind = 7
+	KindContractExpired   Kind = 8
+	KindPlayerSigned      Kind = 9
+	KindPlayerRetired     Kind = 10
+	KindYouthJoined       Kind = 11
+	KindPlayersDeveloped  Kind = 12
+	KindTransferOffered   Kind = 13
+	KindTransferCompleted Kind = 14
+	KindOfferClosed       Kind = 15
 )
 
 func (k Kind) String() string {
@@ -67,6 +70,12 @@ func (k Kind) String() string {
 		return "youth joined"
 	case KindPlayersDeveloped:
 		return "players developed"
+	case KindTransferOffered:
+		return "transfer offered"
+	case KindTransferCompleted:
+		return "transfer completed"
+	case KindOfferClosed:
+		return "offer closed"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -145,10 +154,11 @@ type LedgerEntry struct {
 	Amount  money.Money
 	Balance money.Money
 	Fixture ids.FixtureID
+	Offer   ids.OfferID `json:",omitempty"`
 }
 
 // LedgerPosted: one commit posted entries to club ledgers (weekly wages,
-// gate receipts), in entry order.
+// gate receipts, transfer fees), in entry order.
 type LedgerPosted struct {
 	Entries []LedgerEntry
 }
@@ -215,6 +225,46 @@ type PlayersDeveloped struct {
 	Players []Development
 }
 
+// Deal names the parties of a transfer offer: the player, the selling club
+// and its Team, the buying club and its Team, and the fee.
+type Deal struct {
+	Offer      ids.OfferID
+	Player     ids.PlayerID
+	Seller     ids.ClubID
+	SellerTeam ids.TeamID
+	Buyer      ids.ClubID
+	BuyerTeam  ids.TeamID
+	Fee        money.Money
+}
+
+func (d Deal) valid() bool {
+	return d.Offer.Valid() && d.Player.Valid() && d.Seller.Valid() && d.SellerTeam.Valid() && d.Buyer.Valid() &&
+		d.BuyerTeam.Valid() && d.Seller != d.Buyer && d.SellerTeam != d.BuyerTeam && d.Fee > 0
+}
+
+// TransferOffered: a club bid a fixed fee for another club's player. The
+// selling club answers before Deadline (exclusive).
+type TransferOffered struct {
+	Deal
+	Deadline sim.GameInstant
+}
+
+// TransferCompleted: an accepted offer completed. The player left the seller,
+// joined the buyer on a contract ending at Expires (exclusive) at
+// WeeklyWage, and the fee moved from the buyer's ledger to the seller's.
+type TransferCompleted struct {
+	Deal
+	Expires    sim.GameInstant
+	WeeklyWage money.Money
+}
+
+// OfferClosed: an offer closed without a transfer. Outcome is the transfers
+// module's durable status: 3 rejected, 4 expired, 5 collapsed.
+type OfferClosed struct {
+	Deal
+	Outcome uint8
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -227,18 +277,21 @@ type Event struct {
 	Kind          Kind
 	SchemaVersion uint16
 
-	RoundStarted     *RoundStarted     `json:",omitempty"`
-	MatchCompleted   *MatchCompleted   `json:",omitempty"`
-	LineupSubmitted  *LineupSubmitted  `json:",omitempty"`
-	SeasonEnded      *SeasonEnded      `json:",omitempty"`
-	SeasonStarted    *SeasonStarted    `json:",omitempty"`
-	LedgerPosted     *LedgerPosted     `json:",omitempty"`
-	ContractRenewed  *ContractRenewed  `json:",omitempty"`
-	ContractExpired  *ContractExpired  `json:",omitempty"`
-	PlayerSigned     *PlayerSigned     `json:",omitempty"`
-	PlayerRetired    *PlayerRetired    `json:",omitempty"`
-	YouthJoined      *YouthJoined      `json:",omitempty"`
-	PlayersDeveloped *PlayersDeveloped `json:",omitempty"`
+	RoundStarted      *RoundStarted      `json:",omitempty"`
+	MatchCompleted    *MatchCompleted    `json:",omitempty"`
+	LineupSubmitted   *LineupSubmitted   `json:",omitempty"`
+	SeasonEnded       *SeasonEnded       `json:",omitempty"`
+	SeasonStarted     *SeasonStarted     `json:",omitempty"`
+	LedgerPosted      *LedgerPosted      `json:",omitempty"`
+	ContractRenewed   *ContractRenewed   `json:",omitempty"`
+	ContractExpired   *ContractExpired   `json:",omitempty"`
+	PlayerSigned      *PlayerSigned      `json:",omitempty"`
+	PlayerRetired     *PlayerRetired     `json:",omitempty"`
+	YouthJoined       *YouthJoined       `json:",omitempty"`
+	PlayersDeveloped  *PlayersDeveloped  `json:",omitempty"`
+	TransferOffered   *TransferOffered   `json:",omitempty"`
+	TransferCompleted *TransferCompleted `json:",omitempty"`
+	OfferClosed       *OfferClosed       `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -260,6 +313,9 @@ func (e Event) payloads() (set int, match bool) {
 		{KindPlayerRetired, e.PlayerRetired != nil},
 		{KindYouthJoined, e.YouthJoined != nil},
 		{KindPlayersDeveloped, e.PlayersDeveloped != nil},
+		{KindTransferOffered, e.TransferOffered != nil},
+		{KindTransferCompleted, e.TransferCompleted != nil},
+		{KindOfferClosed, e.OfferClosed != nil},
 	} {
 		if p.set {
 			set++
@@ -352,6 +408,18 @@ func (e Event) Validate() error {
 				return fail("invalid development %+v", d)
 			}
 		}
+	case KindTransferOffered:
+		if p := e.TransferOffered; !p.Deal.valid() || p.Deadline <= e.OccurredAt {
+			return fail("invalid payload %+v", p)
+		}
+	case KindTransferCompleted:
+		if p := e.TransferCompleted; !p.Deal.valid() || p.Expires <= e.OccurredAt || p.WeeklyWage <= 0 {
+			return fail("invalid payload %+v", p)
+		}
+	case KindOfferClosed:
+		if p := e.OfferClosed; !p.Deal.valid() || p.Outcome < 3 || p.Outcome > 5 {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -410,6 +478,18 @@ func (e Event) Clone() Event {
 		c := *p
 		c.Players = slices.Clone(p.Players)
 		e.PlayersDeveloped = &c
+	}
+	if p := e.TransferOffered; p != nil {
+		c := *p
+		e.TransferOffered = &c
+	}
+	if p := e.TransferCompleted; p != nil {
+		c := *p
+		e.TransferCompleted = &c
+	}
+	if p := e.OfferClosed; p != nil {
+		c := *p
+		e.OfferClosed = &c
 	}
 	return e
 }

@@ -29,6 +29,9 @@ var allowedImports = map[string][]string{
 	// Finance owns club ledgers; balances are derived from its entries.
 	"internal/finance": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	"internal/medical": {"internal/core/ids"},
+	// Transfers owns offers and their workflow; employment and money stay
+	// with their owners, and app completes accepted offers with them.
+	"internal/transfers": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// Events are a contract: typed facts other packages consume.
 	"internal/events": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// The inbox is a read model built only from events.
@@ -38,8 +41,9 @@ var allowedImports = map[string][]string{
 	// the scheduler or module stores.
 	"internal/matches":        {"internal/core/ids", "internal/core/random"},
 	"internal/matches/simple": {"internal/core/ids", "internal/core/random", "internal/matches"},
-	// AI decides from detached match-contract data; it reads no module state.
-	"internal/ai": {"internal/core/ids", "internal/core/random", "internal/matches"},
+	// AI decides from detached match-contract data and amounts of money; it
+	// reads no module state.
+	"internal/ai": {"internal/core/ids", "internal/core/money", "internal/core/random", "internal/matches"},
 	// Selection stores lineups in the match contract's vocabulary (roles,
 	// tactics) so they reach an engine untranslated; it reads no module.
 	"internal/selection": {"internal/core/ids", "internal/matches"},
@@ -53,6 +57,7 @@ var allowedImports = map[string][]string{
 		"internal/core/sim", "internal/employment", "internal/players", "internal/registry", "internal/worldgen",
 		"internal/ai", "internal/matches", "internal/matches/simple", "internal/selection",
 		"internal/medical", "internal/events", "internal/inbox", "internal/core/money", "internal/finance",
+		"internal/transfers",
 	},
 	// Storage is an adapter: it encodes app snapshots and never reaches
 	// into modules.
@@ -62,12 +67,13 @@ var allowedImports = map[string][]string{
 	"cmd/play": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/events", "internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
+		"internal/transfers",
 	},
 	// The web client is another presentation adapter: app queries and
 	// commands, the contract types they return, and storage for saving.
 	"cmd/web": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
-		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
+		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage", "internal/transfers",
 	},
 	"cmd/simulate": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/random", "internal/core/sim",

@@ -101,6 +101,7 @@ type SquadPlayer struct {
 	Condition  uint8
 	Contract   employment.Contract
 	Demand     money.Money
+	Value      money.Money // employed players: the club's valuation, the fee it sells for
 }
 
 // Squad returns a club's senior squad in ascending player ID order, or false
@@ -130,6 +131,7 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	row.Condition, _ = w.medical.Condition(id)
 	if a, ok := w.employment.Assignment(id); ok {
 		row.Contract = a.Contract
+		row.Value, _ = w.valuation(id, w.Now())
 	}
 	return row
 }

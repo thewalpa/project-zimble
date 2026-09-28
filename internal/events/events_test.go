@@ -36,7 +36,14 @@ func valid() []Event {
 	k.YouthJoined = &YouthJoined{Player: 161, Club: 1, Team: 1, Expires: 500, WeeklyWage: 100}
 	l := env(12, KindPlayersDeveloped)
 	l.PlayersDeveloped = &PlayersDeveloped{Players: []Development{{Player: 1, Team: 1, Before: 60, After: 62}, {Player: 2, Before: 50, After: 49}}}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l}
+	deal := Deal{Offer: 4, Player: 8, Seller: 1, SellerTeam: 1, Buyer: 2, BuyerTeam: 2, Fee: 500_000}
+	m := env(13, KindTransferOffered)
+	m.TransferOffered = &TransferOffered{Deal: deal, Deadline: 100}
+	n := env(14, KindTransferCompleted)
+	n.TransferCompleted = &TransferCompleted{Deal: deal, Expires: 500, WeeklyWage: 100}
+	o := env(15, KindOfferClosed)
+	o.OfferClosed = &OfferClosed{Deal: deal, Outcome: 3}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o}
 }
 
 func TestValidate(t *testing.T) {
@@ -77,6 +84,18 @@ func TestValidate(t *testing.T) {
 		"developed twice":   func(v []Event) Event { v[11].PlayersDeveloped.Players[1].Player = 1; return v[11] },
 		"overall zero":      func(v []Event) Event { v[11].PlayersDeveloped.Players[0].After = 0; return v[11] },
 		"overall above 100": func(v []Event) Event { v[11].PlayersDeveloped.Players[0].Before = 101; return v[11] },
+		"offer no offer":    func(v []Event) Event { v[12].TransferOffered.Offer = 0; return v[12] },
+		"offer to itself":   func(v []Event) Event { v[12].TransferOffered.Buyer = 1; return v[12] },
+		"offer same team":   func(v []Event) Event { v[12].TransferOffered.BuyerTeam = 1; return v[12] },
+		"offer for nothing": func(v []Event) Event { v[12].TransferOffered.Fee = 0; return v[12] },
+		"offer answered":    func(v []Event) Event { v[12].OccurredAt = 100; return v[12] },
+		"done no player":    func(v []Event) Event { v[13].TransferCompleted.Player = 0; return v[13] },
+		"done unpaid":       func(v []Event) Event { v[13].TransferCompleted.WeeklyWage = 0; return v[13] },
+		"done expired":      func(v []Event) Event { v[13].OccurredAt = 500; return v[13] },
+		"closed while open": func(v []Event) Event { v[14].OfferClosed.Outcome = 1; return v[14] },
+		"closed completed":  func(v []Event) Event { v[14].OfferClosed.Outcome = 2; return v[14] },
+		"closed as 6":       func(v []Event) Event { v[14].OfferClosed.Outcome = 6; return v[14] },
+		"closed no seller":  func(v []Event) Event { v[14].OfferClosed.SellerTeam = 0; return v[14] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -101,6 +120,9 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[9].PlayerRetired.Age = 9
 	c[10].YouthJoined.Expires = 9
 	c[11].PlayersDeveloped.Players[0].After = 9
+	c[12].TransferOffered.Fee = 9
+	c[13].TransferCompleted.Expires = 9
+	c[14].OfferClosed.Outcome = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

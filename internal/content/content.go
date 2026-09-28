@@ -124,6 +124,26 @@ func (y Youth) Range(r Range) Range {
 	return Range{Min: lower(r.Min), Max: lower(r.Max)}
 }
 
+// Transfers defines the transfer window and how long a club has to answer
+// a bid. The window opens at each contract-year end and lasts WindowDays
+// days (a half-open interval: at its close no transfer may complete).
+// Clubs answer bids at the first transfer run (00:00 each day of the window
+// after the opening) after the bid; a manager has ResponseDays days, never
+// beyond the close. WindowDays is at least 2 so that a bid made at the
+// opening is answered inside the window, and well under a year so that the
+// window ends before the next yearly player step.
+type Transfers struct {
+	WindowDays   int
+	ResponseDays int
+}
+
+func (t Transfers) validate() error {
+	if t.WindowDays < 2 || t.WindowDays > 180 || t.ResponseDays < 1 || t.ResponseDays > t.WindowDays {
+		return fmt.Errorf("content: invalid transfers %+v", t)
+	}
+	return nil
+}
+
 type Definitions struct {
 	Version      int
 	Nations      []Nation // in generation order
@@ -135,8 +155,9 @@ type Definitions struct {
 	Economy      Economy
 	// Ages bounds generated players' ages at the career start, in whole
 	// years.
-	Ages  [2]int
-	Youth Youth
+	Ages      [2]int
+	Youth     Youth
+	Transfers Transfers
 }
 
 // ClubCount is the number of clubs the nations generate.
@@ -231,6 +252,9 @@ func (d Definitions) Validate() error {
 	if err := d.Economy.validate(); err != nil {
 		errs = append(errs, err)
 	}
+	if err := d.Transfers.validate(); err != nil {
+		errs = append(errs, err)
+	}
 	// Active players are younger than players.RetirementAge.
 	if d.Ages[0] < 15 || d.Ages[0] > d.Ages[1] || d.Ages[1] >= players.RetirementAge {
 		errs = append(errs, fmt.Errorf("content: invalid generated ages %v", d.Ages))
@@ -308,6 +332,10 @@ func Default() Definitions {
 			Ages:          [2]int{16, 17},
 			RatingGap:     13, // keeps the long-run average overall at the generated one (about 59)
 			ContractYears: 3,
+		},
+		Transfers: Transfers{
+			WindowDays:   28, // 1 to 29 July: closed well before the first kickoff
+			ResponseDays: 3,
 		},
 	}
 }

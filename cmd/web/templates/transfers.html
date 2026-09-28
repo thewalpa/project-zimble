@@ -1,0 +1,60 @@
+{{define "content"}}
+{{$d := .Data}}{{$rev := .Rev}}
+<h1>Transfers</h1>
+<p class="muted">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. Continue takes you to the next transfer news while the window is open.</p>
+{{if $d.Received}}
+<div class="panel scroll">
+<h2>Bids for your players</h2>
+<table>
+  <tr><th>Offer</th><th>Player</th><th>From</th><th class="n">Fee</th><th>Answer before</th><th></th></tr>
+  {{range $d.Received}}
+  <tr><td>{{.ID}}</td><td>{{.PlayerName}}</td><td>{{.BuyerName}}</td><td class="n">{{.Fee}}</td><td>{{.When}}</td>
+    <td>
+      <form class="inline" method="post" action="/answer"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="offer" value="{{.ID}}"><input type="hidden" name="accept" value="yes"><button class="primary">Accept</button></form>
+      <form class="inline" method="post" action="/answer"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="offer" value="{{.ID}}"><input type="hidden" name="accept" value="no"><button>Reject</button></form>
+    </td></tr>
+  {{end}}
+</table>
+</div>
+{{end}}
+{{if $d.Mine}}
+<div class="panel scroll">
+<h2>Your bids awaiting an answer</h2>
+<table>
+  <tr><th>Offer</th><th>Player</th><th>Club</th><th class="n">Fee</th><th>Answered on</th></tr>
+  {{range $d.Mine}}<tr><td>{{.ID}}</td><td>{{.PlayerName}}</td><td>{{.SellerName}}</td><td class="n">{{.Fee}}</td><td>{{.When}}</td></tr>{{end}}
+</table>
+</div>
+{{end}}
+<div class="panel scroll">
+<h2>Market</h2>
+<div class="actions" style="margin: 0 0 12px;">
+  {{range $d.Positions}}<a class="button{{if eq . $d.Position}} primary{{end}}" href="/transfers?pos={{.}}">{{.}}</a>{{end}}
+</div>
+{{if not $d.Room}}<p class="muted">Your squad is full at {{$d.Position}}: you can buy only where you have room.</p>{{end}}
+<table>
+  <tr><th>Club</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Until</th><th class="n">Asking price</th><th>Bid</th></tr>
+  {{range $d.Market}}
+  <tr><td>{{.Club}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
+    <td>
+      <form class="inline" method="post" action="/bid">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers?pos={{$d.Position}}"><input type="hidden" name="player" value="{{.Player}}">
+        <input class="wage" name="fee" value="{{units .Value}}" aria-label="Fee">
+        <select name="years" aria-label="Years">{{$y := .Offer.Years}}{{range $d.YearOptions}}<option value="{{.}}" {{if eq . $y}}selected{{end}}>{{.}} yr</option>{{end}}</select>
+        <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage" title="Asks for {{.Demand}}; accepts up to double">
+        <button {{if or (not $d.CanBid) (not $d.Room)}}disabled{{end}}>Bid</button>
+      </form>
+    </td></tr>
+  {{end}}
+</table>
+</div>
+{{if $d.Done}}
+<div class="panel scroll">
+<h2>Transfers in this window</h2>
+<table>
+  <tr><th>Date</th><th>Player</th><th>From</th><th>To</th><th class="n">Fee</th></tr>
+  {{range $d.Done}}<tr {{if .Ours}}class="me"{{end}}><td>{{.When}}</td><td>{{.PlayerName}}</td><td>{{.SellerName}}</td><td>{{.BuyerName}}</td><td class="n">{{.Fee}}</td></tr>{{end}}
+</table>
+</div>
+{{end}}
+{{end}}

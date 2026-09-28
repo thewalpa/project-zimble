@@ -27,7 +27,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup"}
+var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "transfers"}
 
 type config struct {
 	seed     random.Seed
@@ -94,7 +94,7 @@ func newServer(cfg config) (*server, error) {
 		view func(*http.Request) (string, any, error)
 	}{
 		{"/squad", s.squad}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup},
-		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances},
+		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
 	}
@@ -103,7 +103,7 @@ func newServer(cfg config) (*server, error) {
 		act  func(url.Values) (string, error)
 	}{
 		{"/new", s.chooseClub}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
-		{"/renew", s.renew}, {"/sign", s.sign}, {"/save", s.save},
+		{"/renew", s.renew}, {"/sign", s.sign}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
 	}
@@ -264,13 +264,22 @@ func (s *server) next(url.Values) (string, error) {
 // advance continues to the club's next matchday, resolving other clubs'
 // matches on the way. Like the terminal client, it stops once the day
 // before the contract-year end while players in their final year would
-// leave.
+// leave, at the opening of a transfer window, and while a window is open
+// after the first transfer run with news for the club.
 func (s *server) advance() error {
+	seen := s.lastInboxEvent()
 	for {
 		target, warn := s.w.Now()+400*sim.GameInstant(sim.Day), false
 		end := s.w.ContractYearEnd()
 		if stop := end - sim.GameInstant(sim.Day); s.warnedYearEnd != end && target >= end && stop > s.w.Now() && len(s.expiring()) > 0 {
 			target, warn = stop, true
+		}
+		win, opening, stepping := s.w.TransferWindow(), false, false
+		switch {
+		case !win.Open && win.Opens < target:
+			target, warn, opening = win.Opens, false, true
+		case win.NextRun < target:
+			target, warn, stepping = win.NextRun, false, true
 		}
 		res, err := s.w.Continue(target)
 		if err != nil {
@@ -278,6 +287,14 @@ func (s *server) advance() error {
 		}
 		ready, ok := res.(app.FixtureRoundReady)
 		switch {
+		case !ok && opening:
+			s.say("The transfer window has opened: buy players on the Transfers page. Continue goes on to the next transfer news.")
+			return nil
+		case !ok && stepping && s.transferNews(seen):
+			s.say("Transfer news: see the Inbox and the Transfers page.")
+			return nil
+		case !ok && stepping:
+			continue
 		case !ok && warn:
 			s.warnedYearEnd = end
 			s.say("%d of your players' contracts end tomorrow. Renew the ones you want to keep on the Squad page; the others leave as free agents.", len(s.expiring()))

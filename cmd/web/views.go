@@ -223,6 +223,8 @@ type homeView struct {
 	WeeklyWage  money.Money
 	Expiring    int
 	ContractEnd string
+	Window      string // while a transfer window is open
+	Bids        int    // bids for the club's players awaiting an answer
 	Live        string
 	Matchday    *fixtureView
 	Next        *fixtureView
@@ -245,6 +247,9 @@ func (s *server) home(*http.Request) (string, any, error) {
 	}
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
+	if s.w.TransferWindow().Open {
+		v.Window, v.Bids = s.windowText(), s.openBidsForUs()
+	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		v.WeeklyWage = fin.WeeklyWage
 	}
@@ -807,7 +812,7 @@ func (s *server) messageText(m app.InboxItem) string {
 	case inbox.KindDeveloped:
 		return fmt.Sprintf("Development: %d of your players improved and %d declined over the year", m.Improved, m.Declined)
 	}
-	return fmt.Sprintf("Message kind %d", m.Kind)
+	return s.transferText(m)
 }
 
 type ledgerRow struct {
@@ -836,6 +841,9 @@ func (s *server) finances(*http.Request) (string, any, error) {
 		what := e.Kind.String()
 		if e.Fixture != 0 {
 			what = fmt.Sprintf("%s, fixture %d", what, e.Fixture)
+		}
+		if e.Offer != 0 {
+			what = fmt.Sprintf("%s, offer %d", what, e.Offer)
 		}
 		v.Rows = append(v.Rows, ledgerRow{When: s.w.Calendar().Format(e.At), What: what, Amount: e.Amount, Balance: running})
 	}

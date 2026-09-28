@@ -32,9 +32,17 @@ const (
 	KindRetired       Kind = 8  // one of the team's players retired
 	KindYouthJoined   Kind = 9  // a youth player joined the team
 	KindDeveloped     Kind = 10 // the yearly development of the team's players
+	KindBidReceived   Kind = 11 // another club bid for one of the team's players; answer before Deadline
+	KindTransferIn    Kind = 12 // the team bought a player
+	KindTransferOut   Kind = 13 // the team sold a player
+	KindOfferClosed   Kind = 14 // a bid by or for the team ended without a transfer (Outcome)
 )
 
-func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindDeveloped }
+func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindOfferClosed }
+
+// transfer reports whether messages of this kind are about a transfer
+// offer.
+func (k Kind) transfer() bool { return k >= KindBidReceived }
 
 // competition reports whether messages of this kind belong to a league
 // season; the others are about the team's players.
@@ -60,12 +68,22 @@ type Message struct {
 	Champion    ids.TeamID      // season ended
 	Position    int             // season ended: the team's final position, 0 if it did not take part
 	Kickoff     sim.GameInstant // season started: first kickoff
-	Player      ids.PlayerID    // renewed, left, joined
-	Expires     sim.GameInstant // renewed, joined: the contract's end
-	WeeklyWage  money.Money     // renewed, joined
+	Player      ids.PlayerID    // renewed, left, joined, retired, youth, transfers
+	Expires     sim.GameInstant // renewed, joined, youth, transfer in: the contract's end
+	WeeklyWage  money.Money     // renewed, joined, youth, transfer in
 	Age         uint8           // retired
 	Improved    int             // developed: players whose overall rose
 	Declined    int             // developed: players whose overall fell
+	// Transfers: the offer, the other club (the bidder, or the club the
+	// team bid to), the fee, the deadline of a bid received, how a closed
+	// offer ended (the transfers module's status) and whether the team was
+	// selling.
+	Offer    ids.OfferID     `json:",omitempty"`
+	Club     ids.ClubID      `json:",omitempty"`
+	Fee      money.Money     `json:",omitempty"`
+	Deadline sim.GameInstant `json:",omitempty"`
+	Outcome  uint8           `json:",omitempty"`
+	Selling  bool            `json:",omitempty"`
 }
 
 // Snapshot is the inbox's persisted state.
@@ -99,6 +117,8 @@ func New(team ids.TeamID, snap Snapshot) (*Inbox, error) {
 			return nil, fmt.Errorf("inbox: player message %+v without a team, or with the wrong player", m)
 		case (m.Kind == KindMatchday || m.Kind == KindResult) && (team == 0 || !m.Fixture.Valid() || !m.Opponent.Valid()):
 			return nil, fmt.Errorf("inbox: match message %+v without a team, fixture or opponent", m)
+		case m.Kind.transfer() && (!m.Offer.Valid() || !m.Club.Valid() || m.Fee <= 0):
+			return nil, fmt.Errorf("inbox: transfer message %+v without an offer, club or fee", m)
 		}
 	}
 	return &Inbox{team: team, offset: snap.Offset, messages: slices.Clone(snap.Messages)}, nil
@@ -219,8 +239,39 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 			}
 		}
 		return m, found
+	case events.KindTransferOffered:
+		// Only bids for the team's players: the team knows its own bids.
+		if p := e.TransferOffered; b.team != 0 && p.SellerTeam == b.team {
+			m.Kind, m.Deadline, m.Selling = KindBidReceived, p.Deadline, true
+			return b.deal(m, p.Deal), true
+		}
+	case events.KindTransferCompleted:
+		p := e.TransferCompleted
+		switch {
+		case b.team == 0:
+		case p.BuyerTeam == b.team:
+			m.Kind, m.Expires, m.WeeklyWage = KindTransferIn, p.Expires, p.WeeklyWage
+			return b.deal(m, p.Deal), true
+		case p.SellerTeam == b.team:
+			m.Kind, m.Selling = KindTransferOut, true
+			return b.deal(m, p.Deal), true
+		}
+	case events.KindOfferClosed:
+		if p := e.OfferClosed; b.team != 0 && (p.SellerTeam == b.team || p.BuyerTeam == b.team) {
+			m.Kind, m.Outcome, m.Selling = KindOfferClosed, p.Outcome, p.SellerTeam == b.team
+			return b.deal(m, p.Deal), true
+		}
 	}
 	return Message{}, false
+}
+
+// deal fills a transfer message's player, offer, fee and other club.
+func (b *Inbox) deal(m Message, d events.Deal) Message {
+	m.Player, m.Offer, m.Fee, m.Club = d.Player, d.Offer, d.Fee, d.Buyer
+	if d.BuyerTeam == b.team {
+		m.Club = d.Seller
+	}
+	return m
 }
 
 // side returns whether the team is at home, and its opponent.

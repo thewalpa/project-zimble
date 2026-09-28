@@ -55,6 +55,12 @@ func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 		"youth inverted":   func(d *Definitions) { d.Youth.Ages = [2]int{18, 16} },
 		"negative gap":     func(d *Definitions) { d.Youth.RatingGap = -1 },
 		"youth contract":   func(d *Definitions) { d.Youth.ContractYears = d.Economy.ContractYears[1] + 1 },
+		"one-day window":   func(d *Definitions) { d.Transfers.WindowDays = 1 },
+		"half-year window": func(d *Definitions) { d.Transfers.WindowDays = 181 },
+		"no response time": func(d *Definitions) { d.Transfers.ResponseDays = 0 },
+		"response too long": func(d *Definitions) {
+			d.Transfers.ResponseDays = d.Transfers.WindowDays + 1
+		},
 	}
 	for name, mutate := range cases {
 		d := Default()

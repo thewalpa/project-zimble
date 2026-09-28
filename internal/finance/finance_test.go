@@ -26,6 +26,33 @@ func opened(t *testing.T) *Store {
 	return s
 }
 
+// A transfer fee leaves one club and reaches another; either sign is valid
+// and the fee names its offer.
+func TestTransferFeesMoveBetweenLedgers(t *testing.T) {
+	s := opened(t)
+	plan, err := s.Plan(5, []Posting{
+		{Club: 1, Kind: KindTransfer, Amount: -1_200, Offer: 3},
+		{Club: 2, Kind: KindTransfer, Amount: 1_200, Offer: 3},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := s.Balance(1)
+	b, _ := s.Balance(2)
+	if a != -200 || b != 1_700 {
+		t.Fatalf("balances %d and %d", a, b)
+	}
+	if e, _ := s.Entry(4); e.Offer != 3 || e.Kind.String() != "transfer fee" {
+		t.Fatalf("entry %+v", e)
+	}
+	if _, err := New(s.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The balance is always the sum of the club's entries.
 func TestBalanceIsTheSumOfEntries(t *testing.T) {
 	s := opened(t)
@@ -86,16 +113,20 @@ func TestPlanRejectsInvalidPostingsWithoutChange(t *testing.T) {
 	}
 	want := s.Snapshot()
 	for name, ps := range map[string][]Posting{
-		"unknown account":  {{Club: 9, Kind: KindWages, Amount: -1}},
-		"second opening":   {{Club: 1, Kind: KindOpening, Amount: 1}},
-		"positive wages":   {{Club: 1, Kind: KindWages, Amount: 1}},
-		"zero wages":       {{Club: 1, Kind: KindWages}},
-		"gate without fix": {{Club: 1, Kind: KindGate, Amount: 1}},
-		"negative gate":    {{Club: 1, Kind: KindGate, Amount: -1, Fixture: 1}},
-		"fixture on wages": {{Club: 1, Kind: KindWages, Amount: -1, Fixture: 1}},
-		"unknown kind":     {{Club: 1, Kind: 9, Amount: -1}},
-		"overflow":         {{Club: 1, Kind: KindGate, Amount: 1, Fixture: 2}},
-		"later overflows":  {{Club: 2, Kind: KindWages, Amount: -1}, {Club: 1, Kind: KindGate, Amount: 1, Fixture: 3}},
+		"unknown account":   {{Club: 9, Kind: KindWages, Amount: -1}},
+		"second opening":    {{Club: 1, Kind: KindOpening, Amount: 1}},
+		"positive wages":    {{Club: 1, Kind: KindWages, Amount: 1}},
+		"zero wages":        {{Club: 1, Kind: KindWages}},
+		"gate without fix":  {{Club: 1, Kind: KindGate, Amount: 1}},
+		"negative gate":     {{Club: 1, Kind: KindGate, Amount: -1, Fixture: 1}},
+		"fixture on wages":  {{Club: 1, Kind: KindWages, Amount: -1, Fixture: 1}},
+		"unknown kind":      {{Club: 1, Kind: 9, Amount: -1}},
+		"zero fee":          {{Club: 1, Kind: KindTransfer, Offer: 1}},
+		"fee without offer": {{Club: 2, Kind: KindTransfer, Amount: -1}},
+		"offer on gate":     {{Club: 1, Kind: KindGate, Amount: 1, Fixture: 1, Offer: 1}},
+		"offer on wages":    {{Club: 1, Kind: KindWages, Amount: -1, Offer: 1}},
+		"overflow":          {{Club: 1, Kind: KindGate, Amount: 1, Fixture: 2}},
+		"later overflows":   {{Club: 2, Kind: KindWages, Amount: -1}, {Club: 1, Kind: KindGate, Amount: 1, Fixture: 3}},
 	} {
 		if _, err := s.Plan(2, ps); err == nil {
 			t.Errorf("%s: accepted", name)

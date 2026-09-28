@@ -227,6 +227,14 @@ func (s *session) loop() {
 			s.freeAgents()
 		case "sign":
 			err = s.sign(args)
+		case "transfers":
+			s.transfers()
+		case "market":
+			err = s.market(args)
+		case "bid":
+			err = s.bid(args)
+		case "accept", "reject":
+			err = s.answer(args, cmd == "accept")
 		case "inbox", "i":
 			err = s.inbox(args)
 		case "lineup", "l":
@@ -291,6 +299,10 @@ func (s *session) help() {
   renew ID [YEARS [WAGE]]  offer a new contract to a player in the final year (default: usual terms)
   free                  free agents: players without a club
   sign ID [YEARS [WAGE]]   sign a free agent (default: usual terms; not on a matchday)
+  transfers             the transfer window, bids for your players, your bids, this window's transfers
+  market GK|DF|MF|FW    other clubs' players at a position, best first, with asking prices
+  bid ID [FEE [YEARS [WAGE]]]  bid for another club's player (default: the asking price and usual terms)
+  accept OFFER, reject OFFER   answer a bid for one of your players
   lineup (l)            your lineup for the match waiting to be played
   swap A B              swap two players (IDs) between XI, bench and squad
   role P GK|DF|MF|FW    play starter P in another role
@@ -298,7 +310,8 @@ func (s *session) help() {
   reset                 go back to the AI's suggested lineup
   watch (w) [MIN]       play your match live to MIN (default: half time, then full time)
   sub OUT IN            during your match: substitute player OUT with IN (IDs)
-  continue (c)          play the waiting match, or go to your next matchday
+  continue (c)          play the waiting match, or go to your next matchday (while the
+                        transfer window is open: to the next transfer news)
   season                play the rest of the season (edited lineup used once)
   save [FILE]           save the career (default: %s)
   quit (q)              leave
@@ -415,6 +428,13 @@ func (s *session) status() {
 	}
 	if n := len(s.expiring()); n > 0 {
 		s.printf("Contracts: %d end on %s unless renewed (type contracts).\n", n, cal.Format(s.w.ContractYearEnd()))
+	}
+	if s.w.TransferWindow().Open {
+		s.printf("%s", s.windowLine())
+		if n := len(s.bidsReceived()); n > 0 {
+			s.printf(" %d bids for your players await your answer.", n)
+		}
+		s.printf(" (type transfers)\n")
 	}
 	if l, live := s.w.LiveMatch(); live {
 		s.printf("LIVE %d'  %s %d-%d %s. watch to play on, sub/mentality to change, continue to finish.\n",
@@ -589,6 +609,8 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("youth: %s joined from the youth ranks until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
 	case inbox.KindDeveloped:
 		s.printf("development: %d of your players improved and %d declined over the year (type squad)\n", m.Improved, m.Declined)
+	default:
+		s.printTransferMessage(m)
 	}
 }
 
@@ -612,6 +634,17 @@ func (s *session) markInboxRead() {
 	if items := s.w.Inbox(); len(items) > 0 {
 		s.lastSeen = items[len(items)-1].Event
 	}
+}
+
+// transferNews reports whether an unshown inbox message is about a
+// transfer.
+func (s *session) transferNews() bool {
+	for _, m := range s.w.Inbox() {
+		if m.Event > s.lastSeen && m.Kind >= inbox.KindBidReceived {
+			return true
+		}
+	}
+	return false
 }
 
 // newMessages prints inbox messages not shown yet.
@@ -876,15 +909,38 @@ func (s *session) next() error {
 	return s.advance()
 }
 
-// advance continues until the club's next matchday.
+// advance continues until the club's next matchday. It stops at the opening
+// of a transfer window, and while a window is open it goes one transfer run
+// at a time and stops at transfer news for the club.
 func (s *session) advance() error {
 	for {
 		target, warn := s.warnBeforeContractYear(s.w.Now() + 400*sim.GameInstant(sim.Day))
+		win, opening, stepping := s.w.TransferWindow(), false, false
+		switch {
+		case !win.Open && win.Opens < target:
+			target, warn, opening = win.Opens, false, true
+		case win.NextRun < target:
+			target, warn, stepping = win.NextRun, false, true
+		}
 		res, err := s.w.Continue(target)
 		if err != nil {
 			return err
 		}
 		ready, ok := res.(app.FixtureRoundReady)
+		if !ok && opening {
+			s.newMessages()
+			s.printf("\n%s: %s\nType transfers, market POS and bid ID to buy players; continue goes on to the next transfer news.\n",
+				s.w.Calendar().Format(s.w.Now()), s.windowLine())
+			return nil
+		}
+		if !ok && stepping {
+			if s.transferNews() {
+				s.newMessages()
+				s.printf("\n%s. Type transfers to review, or continue to go on.\n", s.w.Calendar().Format(s.w.Now()))
+				return nil
+			}
+			continue
+		}
 		if !ok && warn {
 			s.newMessages()
 			s.warnedYearEnd = s.w.ContractYearEnd()
@@ -1284,6 +1340,9 @@ func (s *session) finances(args []string) error {
 		what := e.Kind.String()
 		if e.Fixture != 0 {
 			what = fmt.Sprintf("%s F%d", what, e.Fixture)
+		}
+		if e.Offer != 0 {
+			what = fmt.Sprintf("%s O%d", what, e.Offer)
 		}
 		s.printf("%-26s %-16s %14s %16s\n", cal.Format(e.At), what, e.Amount, balances[i])
 	}

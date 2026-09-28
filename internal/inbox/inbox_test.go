@@ -172,6 +172,71 @@ func TestLifecycleMessages(t *testing.T) {
 	}
 }
 
+// Transfer events become messages when the managed team sells or buys: bids
+// received, completed transfers either way, and offers by or for the team
+// that closed without a transfer. The team's own bids and other clubs'
+// business give no message.
+func TestTransferMessages(t *testing.T) {
+	j := journal()
+	add := func(k events.Kind, set func(*events.Event)) {
+		e := env(events.ID(len(j)+1), k)
+		set(&e)
+		j = append(j, e)
+	}
+	sell := events.Deal{Offer: 1, Player: 7, Seller: 3, SellerTeam: 3, Buyer: 4, BuyerTeam: 4, Fee: 900}
+	buy := events.Deal{Offer: 2, Player: 8, Seller: 1, SellerTeam: 1, Buyer: 3, BuyerTeam: 3, Fee: 700}
+	other := events.Deal{Offer: 3, Player: 9, Seller: 1, SellerTeam: 1, Buyer: 2, BuyerTeam: 2, Fee: 500}
+	add(events.KindTransferOffered, func(e *events.Event) { e.TransferOffered = &events.TransferOffered{Deal: sell, Deadline: 200} })
+	add(events.KindTransferOffered, func(e *events.Event) { e.TransferOffered = &events.TransferOffered{Deal: buy, Deadline: 200} })
+	add(events.KindTransferOffered, func(e *events.Event) { e.TransferOffered = &events.TransferOffered{Deal: other, Deadline: 200} })
+	add(events.KindTransferCompleted, func(e *events.Event) {
+		e.TransferCompleted = &events.TransferCompleted{Deal: buy, Expires: 900, WeeklyWage: 60}
+	})
+	add(events.KindTransferCompleted, func(e *events.Event) {
+		e.TransferCompleted = &events.TransferCompleted{Deal: sell, Expires: 900, WeeklyWage: 60}
+	})
+	add(events.KindTransferCompleted, func(e *events.Event) {
+		e.TransferCompleted = &events.TransferCompleted{Deal: other, Expires: 900, WeeklyWage: 60}
+	})
+	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: buy, Outcome: 3} })
+	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: sell, Outcome: 4} })
+	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: other, Outcome: 5} })
+	b := mustNew(t, 3)
+	if _, err := b.Apply(j); err != nil {
+		t.Fatal(err)
+	}
+	got := b.Messages()[4:]
+	want := []Message{
+		{Event: 7, At: 70, Kind: KindBidReceived, Player: 7, Offer: 1, Club: 4, Fee: 900, Deadline: 200, Selling: true},
+		{Event: 10, At: 100, Kind: KindTransferIn, Player: 8, Offer: 2, Club: 1, Fee: 700, Expires: 900, WeeklyWage: 60},
+		{Event: 11, At: 110, Kind: KindTransferOut, Player: 7, Offer: 1, Club: 4, Fee: 900, Selling: true},
+		{Event: 13, At: 130, Kind: KindOfferClosed, Player: 8, Offer: 2, Club: 1, Fee: 700, Outcome: 3},
+		{Event: 14, At: 140, Kind: KindOfferClosed, Player: 7, Offer: 1, Club: 4, Fee: 900, Outcome: 4, Selling: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("transfer messages %+v", got)
+	}
+	if _, err := New(3, b.Snapshot()); err != nil {
+		t.Fatalf("snapshot rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*Message){
+		"no offer": func(m *Message) { m.Offer = 0 },
+		"no club":  func(m *Message) { m.Club = 0 },
+		"no fee":   func(m *Message) { m.Fee = 0 },
+	} {
+		snap := b.Snapshot()
+		mutate(&snap.Messages[5])
+		if _, err := New(3, snap); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	none := mustNew(t, 0)
+	none.Apply(j)
+	if len(none.Messages()) != 2 {
+		t.Fatal("an unmanaged inbox kept transfer messages")
+	}
+}
+
 // Duplicates are skipped, chunking does not matter, gaps and invalid events
 // are rejected without change.
 func TestApplyIsIdempotentAndRejectsGaps(t *testing.T) {

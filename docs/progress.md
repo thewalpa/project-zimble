@@ -1552,24 +1552,172 @@ Continental Cup 1 winner: Glenrock Town (GLE)
 - **Players move between nations freely** as free agents; nations have no other meaning yet (no registration rules, no national identity for players).
 - **A change to `Cup.Seeding`** would alter future editions of existing saves without a must-match version; it is covered only by `content.LeagueVersion`, which saves record for provenance.
 
-## Next task: transfers between clubs with fees
+## Milestone 16: transfers between clubs with fees (done)
 
-Let players move between clubs during the contract year, for a fee, as the architecture's boundary example describes. Now that abilities change, a club may want another club's player.
-- **Transfers module.** Offers, responses and agreements as durable workflow state. Start with fixed-price bids that are accepted or rejected, with completion on acceptance.
-- **Completion as one unit of work.**
-  - employment ends the old contract and starts the new one;
-  - finance posts the fee to both ledgers (a new entry kind);
-  - `TransferCompleted` is emitted;
-  - all or nothing, revalidated at completion.
-- **Manager commands.** Bid for another club's player; respond to AI bids for your players. The AI bids for weak positions within its balance and accepts offers above a valuation based on overall, age and contract length.
-- **Windows.** Transfers only within a window (half-open intervals), for example around the contract-year end.
-- **Proofs.**
-  - Money is conserved across both ledgers.
-  - A player is never at two clubs.
-  - Squads stay within the roster limits.
-  - Retries and saves never complete a transfer twice.
+Every year the transfer window opens at the contract-year end (1 July) and closes four weeks later. The manager bids a fixed fee for another club's player; the club answers the next day, and an accepted bid completes at once. A club that sold then fills its vacancy: it bids for the best player it can afford who is clearly better than the best free agent, or signs that free agent. So one sale sets off a short chain of transfers. AI clubs also bid for the manager's players, and the manager accepts or rejects within three days.
+
+```text
+Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC; clubs answer bids made before Tue 2026-07-28 00:00 UTC.
+> bid 37
+You bid 240,000.00 for Jonas Gallo (offer 4), offering 1 year at 2,430.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.
+  Thu 2026-07-02 00:00 UTC  transfer: Jonas Gallo joined from Greyfen United for 240,000.00, until 1 July 2027 at 2,430.00 a week
+  Thu 2026-07-02 00:00 UTC  transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected
+  Sat 2026-07-04 00:00 UTC  bid: Ironbridge Wanderers bid 1,200,000.00 for Elias Gallo (offer 14); answer before Tue 2026-07-07 00:00 UTC (accept/reject)
+> accept 14
+Accepted: the transfer is complete.
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/core/ids` | `OfferID` | – |
+| `internal/transfers` | New module. `Offer{ID, Player, Seller, Buyer, Fee, Terms, MadeAt, Deadline, Status, ClosedAt}`; statuses open 1, completed 2, rejected 3, expired 4, collapsed 5; `Changes{Close, Bids}` → `Plan` → `Apply`; `Snapshot{Offers, LastOffer}` | – |
+| `internal/ai` | `transfers.go`: `Valuation`, `AcceptBid`, `TransferBudget`, `LargestNeed`, `ChooseTarget` | `ai.TransfersVersion` 1 (new) |
+| `internal/finance` | `KindTransfer` (4): non-zero, names its offer (`Entry.Offer`, `Posting.Offer`) | – |
+| `internal/content` | `Transfers{WindowDays 28, ResponseDays 3}` | – (generated output unchanged) |
+| `internal/events` | `Deal`; `TransferOffered` (13), `TransferCompleted` (14), `OfferClosed` (15); `LedgerEntry.Offer` | – |
+| `internal/inbox` | `KindBidReceived`, `KindTransferIn`, `KindTransferOut`, `KindOfferClosed`; `Message.Offer`, `Club`, `Fee`, `Deadline`, `Outcome`, `Selling` | – |
+| `internal/app` | Task kind `taskTransferRun` (7) and `transferRun` (`transfers.go`); `MakeTransferOffer`, `RespondToOffer`; `TransferWindow`, `Offers`; `SquadPlayer.Value` (the asking price); `SuggestContract` for other clubs' players; `InboxItem.ClubName`; `validateTransfers`; `Versions.Transfers`; `WorldSnapshot.Transfers`, `OfferCommands`, `ResponseCommands` | save `SchemaVersion` 12 |
+| `cmd/play` | `transfers`, `market POS`, `bid ID [FEE [YEARS [WAGE]]]`, `accept OFFER`, `reject OFFER`; the window in `status`; `continue` stops when the window opens and then goes one day at a time to the next transfer news; offers in `finances` | – |
+| `cmd/web` | A Transfers page (bids to answer, your bids, a market by position with bid forms, this window's transfers); the window on Home; asking prices on other clubs' squads; `Continue` steps through the window like the terminal | – |
+
+**Goldens are unchanged.** Worlds without a manager never make an offer (see Decisions), so the world fingerprint, the season goldens and every AI-only season are as before.
+
+### Decisions
+
+- **A new module for the workflow.** `transfers` owns offers and where each stands: open, then completed, rejected, expired or collapsed. Employment still owns who employs the player, and finance owns the money. Only `app` completes an accepted offer, planning all three modules and applying them together.
+- **The window** opens at each contract-year end and lasts `WindowDays`: [open, close), half-open as the architecture asks. The career start is a contract-year end, so the first window is open from day one.
+  - **Transfer runs** happen at 00:00 on each day after the opening, up to and including the close. Each is task kind 7 in the Decisions phase, with no payload, and reschedules itself: exactly one is always queued, due at the next run.
+  - **A bid is answered at the first run after it.** So bids close one day before the window (`BidsClose`); a bid that could only be answered at the close is refused.
+  - **The manager** answers a bid within `ResponseDays` (3), never beyond the close. The explicit default is expiry: an unanswered bid expires at its deadline, so nothing blocks the game.
+  - The window ends before the next player year, so no player retires or develops while an offer is open.
+- **Fixed-price bids.** An AI club accepts a fee at or above its valuation (`ai.AcceptBid`). That valuation is the asking price clients show, and the fee AI clubs bid. Because age only rises during a window, a bid at the asking price stays acceptable.
+- **Valuation** (`ai.Valuation`): 600,000 × (overall / 60)³, then:
+  - by age: ×1.2 to 21, ×1 to 27, ×0.8 to 29, ×0.55 to 31, ×0.35 to 33, ×0.2 after;
+  - by contract years left: ×0.6 for one, ×0.85 for two, ×1 for three or more;
+  - rounded to 10,000, integer arithmetic throughout.
+
+  A 60 in his prime costs 600,000, a 75 about 1.2 million and a 90 about 2 million, against balances of about 2 million.
+- **Completion is one unit of work, revalidated.** When a bid is accepted, `complete` checks the rules again:
+  - the window is open;
+  - the seller still employs the player, and he has not moved in this window;
+  - the seller keeps at least its minimum at his position;
+  - the buyer has room there;
+  - the buyer's balance covers the fee.
+
+  If a rule fails, the offer collapses and nothing moves. Otherwise, in one commit:
+  - employment ends the old contract (a departure) and starts the new one (a signing on the offered terms: that many contract years, the current one included, like `SignPlayer`);
+  - finance posts the fee as a pair of `KindTransfer` entries, −fee to the buyer and +fee to the seller;
+  - every other open offer for the player collapses;
+  - `TransferCompleted` and one `LedgerPosted` are emitted.
+- **The manager's bids** are refused up front for:
+  - no open window, or no run left before the close;
+  - a player who is at no other club or has moved in this window;
+  - a second bid for the same player in the window;
+  - no room at his position;
+  - a selling club at its minimum there;
+  - a fee above the balance;
+  - terms outside the contract rules;
+  - squads locked by a pending matchday.
+
+  One bid per player per window means the valuation can't be found by bidding repeatedly; the asking price is shown instead.
+- **Answering a bid** (`RespondToOffer`) must come before its deadline. Accepting completes the transfer at once. Two failures are handled differently:
+  - an acceptance that would take the manager's squad below its minimum is refused, and nothing changes;
+  - if the buyer can no longer pay or make room, the offer collapses.
+- **AI clubs buy only to fill vacancies** (positions below the roster count). Each run goes in club ID order: an AI club with a vacancy and no open bid acts once for its largest need.
+  - It bids its valuation for the best player it can afford whose overall is at least `TransferMargin` (5) above the best free agent at the position. Its budget is the balance minus 26 weeks of wages (`ai.ChooseTarget`, `ai.TransferBudget`).
+  - Otherwise, or once it has bought in this window, or on the last day, it signs that free agent.
+  - At the close, AI clubs fill any vacancy left from the free agents, as at the contract year (`ai.Signings`).
+  - It bids only for players the rules let it buy, and never twice for the same player in a window. An AI club bid for the manager's player waits for the manager's answer.
+- **Why AI clubs don't bid for upgrades.** Squads hold at most the roster count per position, and AI squads are full after the contract year. So an AI club can only buy with a vacancy, and only a sale creates one; in a world without a manager, no offer is ever made. Letting AI clubs buy when full would require releasing a player. A released older free agent would retire at the next player year without a youth replacement, so the population could shrink year after year. That needs its own rule (see the next task).
+- **One purchase per AI club per window.** Without it, one sale by an AI club rippled through the league in a chain of 22 transfers, each seller replacing its loss with the next club's player. With the rule, a sale causes a chain of about 8 transfers, which ends with a free-agent signing.
+- **Offers are kept for the whole career.** Completed ones justify their ledger entries, which validation checks forever. Rejected, expired and collapsed ones cost little, perhaps a few dozen a year.
+- **Validation** (`validateTransfers`, on `Validate` and load):
+  - every offer names registered clubs and a player, and was made inside a window, before now, with a deadline no later than that window's close;
+  - an open offer:
+    - belongs to the window under way and is due after now;
+    - its seller still employs the player;
+    - its deadline is the next run for an AI seller, or `ResponseDays` later (at most the close) for the manager;
+    - a buyer has at most one open offer per player;
+  - a closed offer closed by its deadline, and an expired one exactly at it;
+  - a player completes at most one transfer per window;
+  - every transfer fee belongs to a completed offer, and every completed offer moved its fee exactly once, from the buyer to the seller when it completed;
+  - exactly one run task is queued;
+  - events match their offers, and restored commands match the offers they made or answered.
+- **Clients.** `continue` (and the web's Continue) stops when the window opens, then goes one run at a time and stops at the first transfer news for the manager. So an answer or an AI bid is never passed over.
+
+### Verification
+
+- **`transfers`:** offers open, close and survive a snapshot, and the allocator continues after a restore. 14 invalid change sets are rejected without change, stale plans are rejected, and 10 invalid snapshots are rejected.
+- **`ai`:** valuation rises with overall and falls with age and contract length, is a positive whole step, and a 90 is worth 3–4 times a 60. Also tested: the acceptance rule, the budget including overflow, the largest need, and target choice (the best, then the cheapest, independent of order, with an inclusive margin).
+- **`finance`, `content`, `events`, `inbox`:**
+  - transfer fees move between ledgers, and 4 invalid postings are rejected;
+  - 4 invalid windows are rejected;
+  - 12 invalid transfer events are rejected, and clones share nothing;
+  - bids received, transfers in and out, and closed offers become messages, the team's own bids and other clubs' business don't, and 3 invalid messages are rejected.
+- **App (`transfers_test.go`):**
+  - **The window:** it is open from the career start; runs are daily and the last is at the close; a bid on the last day and after the close is refused without change; the next window follows; a world without a manager makes no offer.
+  - **A purchase:** the bid is answered at the next run. The player joins on the offered contract, the fee moves from buyer to seller and the total of all balances is unchanged. Both squads are within limits, and the events (a command-caused offer, then a task-caused completion and ledger) and the inbox match.
+  - **A bid below the valuation** is rejected; nothing moves, and a second bid is `ErrAlreadyBid`.
+  - **15 refused bids** change nothing (compared snapshot by snapshot): zero ID, stale revision, no manager, own player, free agent, unknown player, full squad, seller at its minimum, no fee, a fee above the balance, a wage below demand, too many years, a second bid, a player who moved in this window, and a pending matchday.
+  - **AI bids for the manager's players** (a scenario found by simulation) come at the valuation with a three-day deadline:
+    - accepting completes the transfer, pays the manager and is retried safely;
+    - declining rejects it;
+    - an unanswered bid expires exactly at its deadline;
+    - answering an unknown or another club's offer, or accepting at the minimum, is refused without change.
+  - **Competing offers collapse** when the manager accepts one of two, and when two bids for one player are answered at the same run.
+  - **Saves and retries:** saving and loading before every day of a window, and retrying the bid each time, ends exactly like never saving; nothing completes twice.
+  - **A whole window with four purchases:** every day the fees sum to zero, the world validates and every player is at most at one club. Each AI club buys at most once, and every AI squad is full after the close.
+  - **A failing run** (a fee that would overflow the seller's balance) changes no offer, contract, ledger, event or inbox message, and stays queued.
+  - **Invalid saves:** 13 are rejected:
+    - an edited fee, or a completed offer without a fee;
+    - an offer open past its deadline, or one expired early;
+    - a fee for no offer, or the allocator behind;
+    - a missing or late run task;
+    - mismatched bid and answer records (3 cases);
+    - an edited event, and an invalid window.
+
+    A different `ai.TransfersVersion` is `ErrIncompatibleSave`.
+- **Deliberate-bug checks,** each caught:
+  - competing offers not collapsing;
+  - `validateTransfers` removed;
+  - the seller not paid;
+  - AI accepting any fee;
+  - retried answers re-applied;
+  - no one-purchase rule;
+  - the seller's minimum ignored;
+  - AI bidding for players who already moved.
+
+  Two real bugs were found along the way: `LedgerPosted` did not carry the offer (and validation did not compare it), and the first AI rule let one sale ripple through 22 transfers.
+- **CLI and web:**
+  - the season-to-season flow with the new stop at the window;
+  - `market` and the Transfers page;
+  - bids at and below the asking price;
+  - a second bid refused;
+  - the answers arriving with `continue`;
+  - an AI bid received, accepted after loading a save and rejected in another run;
+  - the fee in the ledger;
+  - asking prices on other clubs' squads.
+
+### Limitations
+
+- **AI clubs never start a transfer:** they buy only to fill a vacancy, so the market moves only when the manager buys (or an AI club is short after the contract year). Nobody can release a player.
+- **At the career start every squad is full,** so the first window is useful only after the manager has room; in practice, from the second summer on, once contracts end.
+- **One window a year,** fixed prices and no negotiation. There are no counter-offers, loans, installments, sell-on clauses, or player refusals (a player accepts any terms within the contract rules), and no reserved funds: affordability is checked at bid and at completion.
+- **AI valuations ignore form and the club's needs,** and AI clubs don't sell to raise money or refuse to sell their best player.
+- **The window's free-agent signings** don't prefer players the club did not release, unlike the contract year.
+
+## Next task: releasing players and AI squad upgrades
+
+Let clubs make room, so the market also moves when the manager doesn't.
+- **A release command:** the manager releases a player, paying off the rest of the contract (a new ledger entry kind), and he becomes a free agent. It is refused below the roster minimum and while rounds are pending.
+- **AI upgrades in the window:** an AI club with a full position may bid for a clearly better player and release its weakest there on completion, all in the same unit of work.
+- **Keep the population balanced.** Released older free agents retire without replacement, so decide how squads stay fillable: for example, youth intake also fills vacancies at the player year, or no release of players who would retire as free agents. Prove it over 30 simulated years, as in milestone 14.
+- **Proofs:** payouts conserve money, releases never break the roster minimum, and AI-only worlds keep full, legal squads for decades.
 
 Other open candidates:
+- injuries (the architecture's first sustainable career);
 - AI in-match decisions (the opponent reacting at half time);
 - auto-resolving batches without user fixtures;
 - inbox read state;

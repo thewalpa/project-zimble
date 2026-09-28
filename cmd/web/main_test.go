@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
@@ -280,8 +282,10 @@ func TestContractsInTheBrowser(t *testing.T) {
 	contains(t, c.post("/renew", url.Values{"player": {"45"}, "years": {"two"}, "wage": {"1"}}), "whole number of years")
 	contains(t, c.post("/renew", url.Values{"player": {"44"}, "years": {"2"}, "wage": {"3,000"}}), "the contract is not in its final year")
 
-	page = c.post("/continue", nil) // the contract year, then the first matchday of season 2
-	contains(t, page, "Matchday: Round 1 v Greyfen United (away)", "Oscar Bellamy left the club as a free agent")
+	page = c.post("/continue", nil) // the contract year opens the transfer window
+	contains(t, page, "The transfer window has opened", "Oscar Bellamy left the club as a free agent")
+	page = c.post("/continue", nil) // no transfer news: the first matchday of season 2
+	contains(t, page, "Matchday: Round 1 v Greyfen United (away)")
 	page = c.get("/free")
 	contains(t, page, "Elias Adeyemi", "Signings wait until the matchday has been played", "disabled")
 	sign := url.Values{"player": {"72"}, "years": {"1"}, "wage": {"1160"}}
@@ -436,4 +440,72 @@ func TestCupInTheBrowser(t *testing.T) {
 	c.post("/continue", nil) // the cup ends; on to the contract stop
 	contains(t, c.get("/inbox"), "Continental Cup 1 won by Glenrock Town: your club won it!", "(3-1 on penalties) v Brackenmoor Town (home), Continental Cup semi-final")
 	contains(t, c.get("/cup"), "Won by <b>Glenrock Town</b>")
+}
+
+// In the window the manager bids from the market, the answer arrives with
+// Continue, and an AI club's bid for one of the manager's players is
+// answered on the Transfers page.
+func TestTransfersInTheBrowser(t *testing.T) {
+	c := career(t)
+	c.post("/season", nil)
+	c.post("/continue", nil)
+	page := c.post("/continue", nil)
+	contains(t, page, "The transfer window has opened", `href="/transfers"`)
+	page = c.get("/transfers?pos=FW")
+	contains(t, page, "Jonas Gallo", "240,000.00", `action="/bid"`)
+	if strings.Contains(page, "Your squad is full") {
+		t.Fatal("the manager has room at FW after the contract year")
+	}
+	bid := func(player, fee string) string {
+		o, err := c.s.w.SuggestContract(ids.PlayerID(mustAtoi(t, player)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.post("/bid", url.Values{"player": {player}, "fee": {fee}, "years": {strconv.Itoa(o.Years)},
+			"wage": {strconv.FormatInt(int64(o.WeeklyWage)/100, 10)}, "back": {"/transfers"}})
+	}
+	for _, p := range []string{"282", "244", "315"} {
+		bid(p, strconv.FormatInt(int64(valueOf(t, c, p))/100, 10))
+	}
+	contains(t, bid("37", "240,000"), "You bid 240,000.00 for Jonas Gallo", "Your bids awaiting an answer")
+	contains(t, bid("238", "500000"), "You bid 500,000.00")
+	contains(t, bid("238", "700000"), "your club has already bid for the player in this window")
+	contains(t, bid("37", "abc"), "the fee must be a positive whole amount")
+
+	page = c.post("/continue", nil)
+	contains(t, page, "Transfer news", "Jonas Gallo joined from Greyfen United for 240,000.00",
+		"Your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected")
+	page = c.post("/continue", nil)
+	contains(t, page, "Ironbridge Wanderers bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
+	page = c.get("/transfers")
+	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
+	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
+	contains(t, c.post("/answer", url.Values{"offer": {"14"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.get("/inbox"), "Elias Gallo left for Ironbridge Wanderers for 1,200,000.00")
+	contains(t, c.get("/finances"), "transfer fee, offer 14")
+	contains(t, c.get("/squad?club=1"), "asking price")
+}
+
+func mustAtoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// valueOf is a player's asking price.
+func valueOf(t *testing.T, c *client, player string) money.Money {
+	t.Helper()
+	for _, row := range c.s.w.Summary().ClubRows {
+		squad, _ := c.s.w.Squad(row.ID)
+		for _, p := range squad {
+			if strconv.FormatUint(uint64(p.Player), 10) == player {
+				return p.Value
+			}
+		}
+	}
+	t.Fatalf("player %s is at no club", player)
+	return 0
 }

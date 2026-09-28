@@ -27,7 +27,7 @@
         <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage" title="Asks for {{.Demand}}; accepts up to double">
         <button>Renew</button>
       </form>
-    {{else if $d.IsUserClub}}<span class="muted">asks {{.Demand}}</span>{{else}}<span class="muted">{{.Contract.WeeklyWage}}/wk</span>{{end}}</td>
+    {{else if $d.IsUserClub}}<span class="muted">asks {{.Demand}}</span>{{else}}<span class="muted">asking price {{.Value}}</span>{{end}}</td>
   </tr>
   {{end}}
 </table>

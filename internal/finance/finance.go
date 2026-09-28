@@ -28,10 +28,13 @@ type Kind uint8
 const (
 	KindOpening Kind = 1 // opening balance; the first entry of every account
 	KindWages   Kind = 2 // weekly wage bill (negative)
-	KindGate    Kind = 3 // home league match receipts (positive); Fixture is set
+	KindGate    Kind = 3 // home match receipts (positive); Fixture is set
+	// A transfer fee: negative for the buying club, positive for the
+	// selling club; Offer names the transfer offer.
+	KindTransfer Kind = 4
 )
 
-func (k Kind) Valid() bool { return k >= KindOpening && k <= KindGate }
+func (k Kind) Valid() bool { return k >= KindOpening && k <= KindTransfer }
 
 func (k Kind) String() string {
 	switch k {
@@ -41,6 +44,8 @@ func (k Kind) String() string {
 		return "wages"
 	case KindGate:
 		return "gate receipts"
+	case KindTransfer:
+		return "transfer fee"
 	}
 	return fmt.Sprintf("Kind(%d)", uint8(k))
 }
@@ -53,6 +58,7 @@ type Entry struct {
 	Kind    Kind
 	Amount  money.Money
 	Fixture ids.FixtureID // gate receipts only
+	Offer   ids.OfferID   `json:",omitempty"` // transfer fees only
 }
 
 // Posting is a requested entry; Plan assigns its ID.
@@ -61,6 +67,7 @@ type Posting struct {
 	Kind    Kind
 	Amount  money.Money
 	Fixture ids.FixtureID
+	Offer   ids.OfferID
 }
 
 // ErrStalePlan: the store changed after the plan was made.
@@ -86,7 +93,8 @@ type Store struct {
 //   - entry IDs ascending, non-zero, at most LastEntry; times non-decreasing;
 //   - each club's first entry is its only opening entry;
 //   - valid kinds and signs (wages negative, gate positive with a fixture,
-//     opening non-negative), and no balance overflows.
+//     transfer fees non-zero with an offer, opening non-negative), and no
+//     balance overflows.
 func New(snap Snapshot) (*Store, error) {
 	s := &Store{lastEntry: snap.LastEntry, balances: map[ids.ClubID]money.Money{}}
 	for i, e := range snap.Entries {
@@ -122,6 +130,10 @@ func (s *Store) check(e Entry, balances map[ids.ClubID]money.Money) (money.Money
 		return bad("gate receipts must be positive and name a fixture")
 	case e.Kind != KindGate && e.Fixture != 0:
 		return bad("only gate receipts name a fixture")
+	case e.Kind == KindTransfer && (e.Amount == 0 || !e.Offer.Valid()):
+		return bad("transfer fees must be non-zero and name an offer")
+	case e.Kind != KindTransfer && e.Offer != 0:
+		return bad("only transfer fees name an offer")
 	}
 	return balance.Add(e.Amount)
 }
@@ -158,7 +170,7 @@ func (s *Store) Plan(at sim.GameInstant, postings []Posting) (Plan, error) {
 	next := s.lastEntry
 	for _, p := range postings {
 		next++
-		e := Entry{ID: next, Club: p.Club, At: at, Kind: p.Kind, Amount: p.Amount, Fixture: p.Fixture}
+		e := Entry{ID: next, Club: p.Club, At: at, Kind: p.Kind, Amount: p.Amount, Fixture: p.Fixture, Offer: p.Offer}
 		b, err := s.check(e, balances)
 		if err != nil {
 			return Plan{}, err
