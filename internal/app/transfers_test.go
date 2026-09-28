@@ -21,8 +21,9 @@ import (
 const userClub3 ids.ClubID = 3
 
 // release frees a club's weakest player at a position (ties: lowest ID)
-// directly in employment, to make room: the manager cannot release players.
-// The squad must stay at or above its minimum there.
+// directly in employment, without a payoff, to make a vacancy (AI clubs
+// never release players). The squad must stay at or above its minimum
+// there.
 func release(t *testing.T, w *World, club ids.ClubID, pos players.Position) ids.PlayerID {
 	t.Helper()
 	squad, _ := w.Squad(club)
@@ -318,8 +319,7 @@ func TestTransferOfferRejectionsChangeNothing(t *testing.T) {
 		{"free agent", ErrNotTransferable, func(t *testing.T, s *setup) { s.cmd.Player = s.w.FreeAgents()[0].Player }},
 		{"unknown player", ErrNotTransferable, func(_ *testing.T, s *setup) { s.cmd.Player = 99_999 }},
 		{"squad full", ErrSquadFull, func(t *testing.T, s *setup) {
-			s.cmd.Player = bestAt(t, s.w, players.Defender, userClub3).Player
-			s.cmd.Offer = suggest(t, s.w, s.cmd.Player)
+			s.w.defs.SquadLimit = len(s.w.employment.Squad(mustUserTeam(t, s.w)))
 		}},
 		{"seller at its minimum", ErrSquadMinimum, func(t *testing.T, s *setup) {
 			release(t, s.w, clubOf(s.w, s.cmd.Player), players.Forward)

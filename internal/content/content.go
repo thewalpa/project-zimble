@@ -37,8 +37,9 @@ type Nation struct {
 }
 
 // Quota is how many players of a position a senior squad holds. Count is
-// what a generated squad contains and the most a squad may hold; Min is the
-// fewest (1..Count). The minimums must allow a legal lineup, which the
+// what a generated squad contains and what AI clubs keep; Min is the fewest
+// any squad may hold (1..Count). A squad may hold more than Count up to the
+// total SquadLimit. The minimums must allow a legal lineup, which the
 // application checks against the match rules.
 type Quota struct {
 	Position players.Position
@@ -151,8 +152,11 @@ type Definitions struct {
 	FirstNames   []string
 	LastNames    []string
 	Roster       []Quota // in generation order
-	Profiles     []PositionProfile
-	Economy      Economy
+	// SquadLimit is the most players a senior squad may hold in total; at
+	// least SquadSize.
+	SquadLimit int
+	Profiles   []PositionProfile
+	Economy    Economy
 	// Ages bounds generated players' ages at the career start, in whole
 	// years.
 	Ages      [2]int
@@ -249,6 +253,9 @@ func (d Definitions) Validate() error {
 	if d.SquadSize() == 0 {
 		errs = append(errs, errors.New("content: roster template is empty"))
 	}
+	if d.SquadLimit < d.SquadSize() {
+		errs = append(errs, fmt.Errorf("content: squad limit %d below the generated squad size %d", d.SquadLimit, d.SquadSize()))
+	}
 	if err := d.Economy.validate(); err != nil {
 		errs = append(errs, err)
 	}
@@ -311,6 +318,7 @@ func Default() Definitions {
 			{players.Midfielder, 6, 5},
 			{players.Forward, 4, 3},
 		},
+		SquadLimit: 25,
 		// Ranges (1..100) are ordered: goalkeeping, defending, passing, finishing, pace, stamina.
 		Profiles: []PositionProfile{
 			{players.Goalkeeper, [players.NumAttributes]Range{{48, 90}, {11, 37}, {22, 58}, {1, 17}, {11, 48}, {27, 69}}},

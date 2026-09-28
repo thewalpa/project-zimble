@@ -43,7 +43,10 @@ func valid() []Event {
 	n.TransferCompleted = &TransferCompleted{Deal: deal, Expires: 500, WeeklyWage: 100}
 	o := env(15, KindOfferClosed)
 	o.OfferClosed = &OfferClosed{Deal: deal, Outcome: 3}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o}
+	r := env(16, KindPlayerReleased)
+	r.Cause.Kind = CauseCommand
+	r.PlayerReleased = &PlayerReleased{Player: 9, Club: 1, Team: 1, Compensation: 12_000}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r}
 }
 
 func TestValidate(t *testing.T) {
@@ -96,6 +99,9 @@ func TestValidate(t *testing.T) {
 		"closed completed":  func(v []Event) Event { v[14].OfferClosed.Outcome = 2; return v[14] },
 		"closed as 6":       func(v []Event) Event { v[14].OfferClosed.Outcome = 6; return v[14] },
 		"closed no seller":  func(v []Event) Event { v[14].OfferClosed.SellerTeam = 0; return v[14] },
+		"released nobody":   func(v []Event) Event { v[15].PlayerReleased.Player = 0; return v[15] },
+		"released no team":  func(v []Event) Event { v[15].PlayerReleased.Team = 0; return v[15] },
+		"released refunded": func(v []Event) Event { v[15].PlayerReleased.Compensation = -1; return v[15] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -123,6 +129,7 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[12].TransferOffered.Fee = 9
 	c[13].TransferCompleted.Expires = 9
 	c[14].OfferClosed.Outcome = 9
+	c[15].PlayerReleased.Compensation = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

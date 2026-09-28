@@ -112,6 +112,7 @@ type WorldSnapshot struct {
 	SignCommands     []SignRecord
 	OfferCommands    []OfferRecord
 	ResponseCommands []ResponseRecord
+	ReleaseCommands  []ReleaseRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -217,6 +218,8 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.OfferCommands = append(snap.OfferCommands, *rec.offer)
 		case rec.respond != nil:
 			snap.ResponseCommands = append(snap.ResponseCommands, *rec.respond)
+		case rec.release != nil:
+			snap.ReleaseCommands = append(snap.ReleaseCommands, *rec.release)
 		}
 	}
 	if w.live != nil {
@@ -444,6 +447,13 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		}
 		rec := c
 		w.commands[c.Request.ID] = commandRecord{respond: &rec}
+	}
+	for _, c := range snap.ReleaseCommands {
+		if err := w.restoreRelease(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c
+		w.commands[c.Request.ID] = commandRecord{release: &rec}
 	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}

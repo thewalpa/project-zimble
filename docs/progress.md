@@ -1728,6 +1728,70 @@ All lists and tables in the application are now sortable by column in both the w
 - **Stable sorting:** Slices are sorted with `slices.SortStableFunc` and deterministic tie-breakers (e.g., ID or round) to maintain consistent order across repeated sorts.
 - **Strict backward compatibility:** In `cmd/play`, omitting sort arguments retains previous default ordering and output verbatim, and existing command syntax is preserved without regressions.
 
+## squad: squad sizes, free transfers and releases (done)
+
+Squads are no longer fixed at 20. The manager can hold up to 25 players, at any positions, as long as each position keeps its minimum. So the manager can sign or buy anyone while the squad has room, not only to fill a vacancy. The manager can also release a player: the club pays the rest of his contract, and he becomes a free agent.
+
+```text
+> release 60
+Releasing Rafael Okafor costs 179,400.00: his wages until his contract ends on 1 July 2028. He becomes a free agent.
+Type release 60 yes to release him.
+> release 60 yes
+Rafael Okafor was released and is now a free agent. You paid 179,400.00.
+> release 42 yes
+! app: the squad would fall below its minimum at that position: 2 GK, minimum 2
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/content` | `Definitions.SquadLimit` (25, at least `SquadSize`). `Quota.Count` is the generated size and what AI clubs keep, no longer a maximum | – (generated output unchanged) |
+| `internal/finance` | `KindPayoff` (5): negative, names `Entry.Player` / `Posting.Player` | – |
+| `internal/events` | `PlayerReleased` (16); `LedgerEntry.Player` | – |
+| `internal/inbox` | `KindReleased` (15); `Message.Compensation` | – |
+| `internal/app` | `ReleasePlayer` command, `PlayerReleased` result, `ReleaseRecord`; `SquadPlayer.Payoff`; `hasRoom`; the squad limit in `SignPlayer`, `MakeTransferOffer` and completions; the player year fills AI vacancies with youth; `validateReleases`; `WorldSnapshot.ReleaseCommands` | save `SchemaVersion` 13 |
+| `cmd/play` | `release ID [yes]`; the squad limit and minimums under `squad`; the release inbox line; `P<player>` on payoff ledger lines | – |
+
+**Goldens are unchanged**, including the world fingerprint and every season golden: no existing seeded run reaches a state the new rules treat differently (see Decisions).
+
+### Decisions
+
+- **One limit for the whole squad, minimums per position.** Per-position maximums made squads exactly 20 and blocked any purchase without a vacancy. Now the user club may take a player at any position while its squad is below `SquadLimit`. The minimums stay, because they guarantee a legal lineup. 25 is the usual size of a registered squad.
+- **AI clubs keep their shape.** An AI club still signs and buys only to fill a vacancy (a position below its roster count) (`hasRoom`), so AI behaviour and every AI-only world are unchanged.
+- **Releasing** (`ReleasePlayer`):
+  - **The payoff** is the rest of the contract: the weekly wage for every wage run after now and before the expiry. The contract year runs before the wages at the expiry instant, so a run at the expiry would not have paid him. A contract with no run left costs nothing and posts no entry.
+  - **Refused** for a player of another club (or none), below the position's minimum, a payoff above the balance (as with transfer fees), and while a matchday is pending (squads are locked).
+  - **One unit of work, through the market commit:** employment (a departure), finance (one `KindPayoff` entry naming the player), and transfers (every open bid for him collapses). Events: `PlayerReleased`, then the closed offers, then `LedgerPosted`.
+  - **The money leaves the game.** Players have no ledger, so a payoff is not a pair of entries. It is justified by its release record. `validateReleases` matches every payoff entry to exactly one recorded release (same player and amount, the user club) and every paying release to exactly one entry. The command log is kept forever, unlike the journal.
+- **Keeping squads fillable.** Milestone 13 proved the contract year can always refill every club because no club held more than its roster count. With the manager able to hold extra players, sellers may be left with vacancies that the free agents can't fill, and the contract year could then fail.
+  - The rule chosen is that the player year also gives every AI club a youth player for each vacancy, after replacing its retirees, in roster order. Each AI club is then full before the contract year. The contract year's demand at each position is at most that year's departures (the user club only refills to its minimum), and every departure joins the pool, so every need can be met again.
+  - The alternatives were worse. Not refilling lets AI squads shrink year after year. Topping up at the contract year would put youth generation in a second task.
+  - Under the old rules a vacancy could not survive to the player year, so no existing seeded run changes. No version was bumped for it, and saves from before are rejected by the schema version anyway.
+- **The user club gets no vacancy youth.** Its size is the manager's choice, and the contract year's safety net still refills it to the minimum.
+
+### Verification
+
+- **`content`, `finance`, `events`, `inbox`:** a missing or too-small squad limit is rejected; payoffs post, restore and name their player, and 3 invalid payoff postings are rejected; 3 invalid release events are rejected, and clones share nothing; release messages only for the managed team, and 2 invalid messages are rejected.
+- **App (`release_test.go`):**
+  - **A release** pays exactly wage × runs left (checked against a week-by-week count), makes the player a free agent, posts one payoff and moves the total of all balances by exactly that amount. `PlayerReleased`, `LedgerPosted` and the inbox match. The retry returns the recorded result, before and after a save. The next wage run no longer pays him.
+  - **The payoff formula** at 12 expiry instants around week boundaries, and overflow.
+  - **9 refused releases** change nothing (compared snapshot by snapshot): zero ID, stale revision, no manager, another club's player, an unknown player, a free agent, the position's minimum, a payoff above the balance, and a pending matchday.
+  - **Open bids collapse:** an AI bid for the released player closes as collapsed in the same commit.
+  - **Growing to the limit:** from 20 players the manager buys past the roster count to 25, and the 26th bid is `ErrSquadFull`. The sellers are left short (there are no free agents in the first window) and get youth at the player year. Every AI squad is full after the contract year.
+  - **Thirty years with a hoarding manager** (seed 7): every summer the manager releases the two oldest players allowed and buys the cheapest players up to the limit. After every contract year the world validates, every AI squad is full and transfer fees sum to zero.
+  - **Invalid saves:** 10 are rejected: 8 with the journal trimmed past the release (so only `validateReleases` and `restoreRelease` can catch them) and 2 edited events.
+- **Existing tests adjusted:** "full position" became "full squad" for signing and bidding, and "squad above roster" became "squad above the limit".
+- **Deliberate-bug checks,** each caught: no vacancy youth (both long tests: an AI club ends the contract year with 5 midfielders); `validateReleases` removed (3 invalid saves load); a release that leaves bids open.
+- **CLI:** the preview, confirmation and refusals of `release`, the payoff in `finances` and the inbox, the squad limit under `squad`, and a purchase at a full position.
+
+### Limitations
+
+- **The web client** still applies the old per-position cap and cannot release players. That is a `ui` note.
+- **AI clubs never release players** or buy upgrades, so the market still moves only through the manager and vacancies.
+- **A payoff needs the money in hand,** so a club deep in debt cannot release anyone. There are no negotiated or mutual terminations.
+- **The manager may re-sign a released player** at once, on new terms.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

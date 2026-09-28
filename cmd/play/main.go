@@ -228,6 +228,8 @@ func (s *session) loop() {
 			err = s.freeAgents(args)
 		case "sign":
 			err = s.sign(args)
+		case "release":
+			err = s.release(args)
 		case "transfers":
 			err = s.transfers(args)
 		case "market":
@@ -300,6 +302,7 @@ func (s *session) help() {
   renew ID [YEARS [WAGE]]  offer a new contract to a player in the final year (default: usual terms)
   free                  free agents: players without a club
   sign ID [YEARS [WAGE]]   sign a free agent (default: usual terms; not on a matchday)
+  release ID [yes]      release one of your players, paying the rest of his contract (not on a matchday)
   transfers             the transfer window, bids for your players, your bids, this window's transfers
   market GK|DF|MF|FW    other clubs' players at a position, best first, with asking prices
   bid ID [FEE [YEARS [WAGE]]]  bid for another club's player (default: the asking price and usual terms)
@@ -538,6 +541,12 @@ func (s *session) squad(args []string) error {
 	s.printf("Ratings are 1-100. COND is fitness (100%% = fully fit). Contracts end on %s of the year shown.\n",
 		monthDay(cal.Epoch()))
 	s.printf("Every year on the eve of that date, young players improve, older ones decline, and some retire.\n")
+	defs := s.w.Content()
+	var mins []string
+	for _, q := range defs.Roster {
+		mins = append(mins, fmt.Sprintf("%d %s", q.Min, q.Position))
+	}
+	s.printf("You have %d players; a squad holds at most %d, and at least %s.\n", len(players), defs.SquadLimit, strings.Join(mins, ", "))
 	s.printf("Lineup shows each player's attributes.\n")
 	return nil
 }
@@ -827,6 +836,8 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("youth: %s joined from the youth ranks until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
 	case inbox.KindDeveloped:
 		s.printf("development: %d of your players improved and %d declined over the year (type squad)\n", m.Improved, m.Declined)
+	case inbox.KindReleased:
+		s.printf("release: %s left the club as a free agent; you paid %s\n", m.PlayerName, m.Compensation)
 	default:
 		s.printTransferMessage(m)
 	}
@@ -1607,6 +1618,9 @@ func (s *session) finances(args []string) error {
 		}
 		if e.Offer != 0 {
 			what = fmt.Sprintf("%s O%d", what, e.Offer)
+		}
+		if e.Player != 0 {
+			what = fmt.Sprintf("%s P%d", what, e.Player)
 		}
 		allRows[i] = row{at: e.At, what: what, amount: e.Amount, balance: running}
 	}

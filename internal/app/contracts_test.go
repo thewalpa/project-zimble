@@ -458,24 +458,20 @@ func TestContractCommandRejections(t *testing.T) {
 		t.Fatal("rejected commands changed the world")
 	}
 
-	// After the contract year there are free agents; signing needs room at
-	// the position and no round awaiting results.
+	// After the contract year there are free agents; signing needs room in
+	// the squad and no round awaiting results.
 	mustContinue(t, w, w.ContractYearEnd())
 	fa := w.FreeAgents()[0]
 	sign := func() error {
 		_, err := w.SignPlayer(SignPlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: fa.Player, Offer: suggest(t, w, fa.Player)})
 		return err
 	}
-	for i, q := range w.defs.Roster {
-		if q.Position == fa.Position {
-			orig := q.Count
-			w.defs.Roster[i].Count = w.squadCounts(mustUserTeam(t, w))[q.Position]
-			if err := sign(); !errors.Is(err, ErrSquadFull) {
-				t.Errorf("full position: %v", err)
-			}
-			w.defs.Roster[i].Count = orig
-		}
+	limit := w.defs.SquadLimit
+	w.defs.SquadLimit = len(w.employment.Squad(mustUserTeam(t, w)))
+	if err := sign(); !errors.Is(err, ErrSquadFull) {
+		t.Errorf("full squad: %v", err)
 	}
+	w.defs.SquadLimit = limit
 	readyBatch(t, w)
 	if err := sign(); !errors.Is(err, ErrSquadsLocked) {
 		t.Errorf("signing while a round awaits results: %v", err)
@@ -548,9 +544,12 @@ func TestRestoreRejectsInvalidContracts(t *testing.T) {
 			gk = of(s, 1, players.Goalkeeper)
 			s.Employment = slices.Delete(s.Employment, gk[0], gk[0]+1)
 		},
-		"squad above roster": func(s *WorldSnapshot) {
-			i := of(s, 1, players.Forward)[0]
-			s.Employment[of(s, 2, players.Forward)[0]].Club, s.Employment[of(s, 2, players.Forward)[0]].Team = 1, s.Employment[i].Team
+		"squad above the limit": func(s *WorldSnapshot) {
+			team := s.Employment[of(s, 1, players.Forward)[0]].Team
+			for club := ids.ClubID(2); club <= 7; club++ { // one forward each: club 1 holds 26
+				j := of(s, club, players.Forward)[0]
+				s.Employment[j].Club, s.Employment[j].Team = 1, team
+			}
 		},
 		"contract-year task missing": func(s *WorldSnapshot) {
 			s.Scheduler.Tasks = slices.DeleteFunc(s.Scheduler.Tasks, func(t sim.Task) bool { return t.Kind == taskContractYear })

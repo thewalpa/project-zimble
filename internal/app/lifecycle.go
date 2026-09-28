@@ -60,10 +60,14 @@ func (w *World) age(player ids.PlayerID, t sim.GameInstant) (int, error) {
 //  2. Each club replaces every player of its own who retired with a youth
 //     player at the same position (worldgen.Youth), club by club in ID
 //     order, retirees in ID order, with new IDs from the registry's
-//     allocator. So every squad keeps its size per position and stays legal,
-//     and the world's active population stays balanced. A youth contract
-//     runs Youth.ContractYears contract years from the coming contract-year
-//     end, at the player's demand.
+//     allocator. So every squad keeps its size per position and stays legal.
+//     Then each AI club also fills its vacancies (positions below the roster
+//     count, left by sales the free agents could not replace) with youth
+//     players, in roster order. So every AI squad is full again before the
+//     contract year, and its free agents can always refill every club (see
+//     contractYear), however many players the manager keeps. A youth
+//     contract runs Youth.ContractYears contract years from the coming
+//     contract-year end, at the player's demand.
 //  3. Every module plans its part, next year's task is queued, then every
 //     plan is applied and the events are emitted: one PlayersDeveloped, then
 //     one PlayerRetired per retirement, then one YouthJoined per youth.
@@ -118,13 +122,24 @@ func (w *World) playerYear(at sim.GameInstant, cohort []sim.Task) error {
 	nextID := w.registry.LastPlayer()
 	for _, c := range w.registry.Clubs() {
 		team, _ := w.registry.SeniorTeam(c.ID)
+		var intake []players.Position
 		for _, r := range retired {
-			if r.Club != c.ID {
-				continue
+			if r.Club == c.ID {
+				old, _ := w.players.Profile(r.Player)
+				intake = append(intake, old.Position)
 			}
-			old, _ := w.players.Profile(r.Player)
+		}
+		if c.ID != w.userClub {
+			counts := w.squadCounts(team) // retirees are replaced one for one
+			for _, q := range w.defs.Roster {
+				for n := counts[q.Position]; n < q.Count; n++ {
+					intake = append(intake, q.Position)
+				}
+			}
+		}
+		for _, pos := range intake {
 			nextID++
-			identity, profile, err := worldgen.Youth(w.defs, w.seed, nextID, old.Position, at)
+			identity, profile, err := worldgen.Youth(w.defs, w.seed, nextID, pos, at)
 			if err != nil {
 				return err
 			}

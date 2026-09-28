@@ -143,7 +143,7 @@ func (w *World) emitLedger(at sim.GameInstant, cause events.Cause, plan finance.
 	for _, e := range entries {
 		p.Entries = append(p.Entries, events.LedgerEntry{
 			Entry: uint64(e.ID), Club: e.Club, Kind: uint8(e.Kind), Amount: e.Amount,
-			Balance: w.balanceAfter(e), Fixture: e.Fixture, Offer: e.Offer,
+			Balance: w.balanceAfter(e), Fixture: e.Fixture, Offer: e.Offer, Player: e.Player,
 		})
 	}
 	w.emit(at, cause, events.Event{Kind: events.KindLedgerPosted, LedgerPosted: p})
@@ -240,7 +240,8 @@ func (w *World) validateFinance() []error {
 func (w *World) checkLedgerEvent(p *events.LedgerPosted) error {
 	for _, le := range p.Entries {
 		e, ok := w.finance.Entry(finance.EntryID(le.Entry))
-		if !ok || e.Club != le.Club || uint8(e.Kind) != le.Kind || e.Amount != le.Amount || e.Fixture != le.Fixture || e.Offer != le.Offer || w.balanceAfter(e) != le.Balance {
+		if !ok || e.Club != le.Club || uint8(e.Kind) != le.Kind || e.Amount != le.Amount || e.Fixture != le.Fixture || e.Offer != le.Offer ||
+			e.Player != le.Player || w.balanceAfter(e) != le.Balance {
 			return fmt.Errorf("ledger entry %d differs from the ledger", le.Entry)
 		}
 	}

@@ -189,6 +189,13 @@ func (w *World) checkEventFacts(e events.Event) error {
 	case events.KindPlayerSigned:
 		p := e.PlayerSigned
 		return w.checkPlayerEvent(p.Player, p.Club, p.Team)
+	case events.KindPlayerReleased:
+		p := e.PlayerReleased
+		if rec := w.commands[CommandID(e.Cause.ID)].release; e.Cause.Kind != events.CauseCommand || rec == nil ||
+			rec.Result.Player != p.Player || rec.Result.Compensation != p.Compensation || p.Club != w.userClub {
+			return errors.New("differs from the recorded release")
+		}
+		return w.checkPlayerEvent(p.Player, p.Club, p.Team)
 	case events.KindPlayerRetired, events.KindYouthJoined, events.KindPlayersDeveloped:
 		return w.checkLifecycleEvent(e)
 	case events.KindTransferOffered, events.KindTransferCompleted, events.KindOfferClosed:
@@ -213,7 +220,7 @@ type InboxItem struct {
 	Stage           string    // season ended, cup: "winner", or the round the team went out in, e.g. "semi-final"
 	OpponentLabel   TeamLabel // matchday, result
 	ChampionLabel   TeamLabel // season ended
-	PlayerName      string    // renewed, left, joined, retired, youth, transfers
+	PlayerName      string    // renewed, left, joined, retired, youth, transfers, released
 	ClubName        string    // transfers: the other club
 }
 

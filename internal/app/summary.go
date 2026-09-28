@@ -102,6 +102,7 @@ type SquadPlayer struct {
 	Contract   employment.Contract
 	Demand     money.Money
 	Value      money.Money // employed players: the club's valuation, the fee it sells for
+	Payoff     money.Money // employed players: what releasing him costs now, the rest of his contract
 }
 
 // Squad returns a club's senior squad in ascending player ID order, or false
@@ -132,6 +133,7 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	if a, ok := w.employment.Assignment(id); ok {
 		row.Contract = a.Contract
 		row.Value, _ = w.valuation(id, w.Now())
+		row.Payoff, _ = releaseCost(a.Contract, w.Now())
 	}
 	return row
 }

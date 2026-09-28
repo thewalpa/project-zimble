@@ -233,6 +233,37 @@ func (s *session) sign(args []string) error {
 	return nil
 }
 
+// release releases one of the club's players: "release ID" shows what it
+// costs, "release ID yes" does it.
+func (s *session) release(args []string) error {
+	if len(args) < 1 || len(args) > 2 || (len(args) == 2 && strings.ToLower(args[1]) != "yes") {
+		return errors.New("usage: release ID [yes]")
+	}
+	player, err := parsePlayer(args[0])
+	if err != nil {
+		return err
+	}
+	squad, _ := s.w.Squad(s.club())
+	i := slices.IndexFunc(squad, func(p app.SquadPlayer) bool { return p.Player == player })
+	if i < 0 {
+		return fmt.Errorf("player %d is not in your squad", player)
+	}
+	p := squad[i]
+	if len(args) == 1 {
+		s.printf("Releasing %s costs %s: his wages until his contract ends on %s. He becomes a free agent.\n",
+			p.Name, p.Payoff, s.endDate(p.Contract.Expires))
+		s.printf("Type release %d yes to release him.\n", player)
+		return nil
+	}
+	res, err := s.w.ReleasePlayer(app.ReleasePlayer{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Player: player})
+	if err != nil {
+		return err
+	}
+	s.printf("%s was released and is now a free agent. You paid %s.\n", p.Name, res.Compensation)
+	s.markInboxRead()
+	return nil
+}
+
 // endDate renders a contract end, e.g. "1 July 2029".
 func (s *session) endDate(at sim.GameInstant) string {
 	cal := s.w.Calendar()

@@ -87,6 +87,12 @@ func TestPlayerMessages(t *testing.T) {
 	add(events.KindPlayerSigned, func(e *events.Event) {
 		e.PlayerSigned = &events.PlayerSigned{Player: 10, Club: 3, Team: 3, Expires: 800, WeeklyWage: 70}
 	})
+	add(events.KindPlayerReleased, func(e *events.Event) {
+		e.PlayerReleased = &events.PlayerReleased{Player: 10, Club: 3, Team: 3, Compensation: 700}
+	})
+	add(events.KindPlayerReleased, func(e *events.Event) {
+		e.PlayerReleased = &events.PlayerReleased{Player: 11, Club: 4, Team: 4, Compensation: 900}
+	})
 	b := mustNew(t, 3)
 	if _, err := b.Apply(j); err != nil {
 		t.Fatal(err)
@@ -96,6 +102,7 @@ func TestPlayerMessages(t *testing.T) {
 		{Event: 7, At: 70, Kind: KindRenewed, Player: 7, Expires: 900, WeeklyWage: 50},
 		{Event: 9, At: 90, Kind: KindPlayerLeft, Player: 9},
 		{Event: 11, At: 110, Kind: KindPlayerJoined, Player: 10, Expires: 800, WeeklyWage: 70},
+		{Event: 12, At: 120, Kind: KindReleased, Player: 10, Compensation: 700},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("player messages %+v", got)
@@ -107,6 +114,16 @@ func TestPlayerMessages(t *testing.T) {
 	snap.Messages[4].Player = 0
 	if _, err := New(3, snap); err == nil {
 		t.Fatal("player message without a player accepted")
+	}
+	for name, mutate := range map[string]func(*Message){
+		"negative compensation": func(m *Message) { m.Compensation = -1 },
+		"compensation on left":  func(m *Message) { m.Kind = KindPlayerLeft },
+	} {
+		snap := b.Snapshot()
+		mutate(&snap.Messages[7])
+		if _, err := New(3, snap); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 	none := mustNew(t, 0)
 	none.Apply(j)

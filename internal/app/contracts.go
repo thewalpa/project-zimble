@@ -1,8 +1,12 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"maps"
+	"math"
+	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -10,8 +14,10 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
 // taskContractYear ends the contract year: at 00:00 on day 1 of the epoch's
@@ -27,7 +33,7 @@ var (
 	ErrNotFinalYear  = errors.New("app: the contract is not in its final year")
 	ErrNotFreeAgent  = errors.New("app: the player is not a free agent")
 	ErrOfferRejected = errors.New("app: contract offer rejected")
-	ErrSquadFull     = errors.New("app: the squad is full at that position")
+	ErrSquadFull     = errors.New("app: the squad is full")
 	ErrSquadsLocked  = errors.New("app: squads cannot change while rounds await results")
 )
 
@@ -122,6 +128,26 @@ func (w *World) applyEmployment(plan employment.Plan) {
 	if err := w.employment.Apply(plan); err != nil {
 		panic(fmt.Sprintf("app: unreachable: %v", err))
 	}
+}
+
+// squadSize is the number of players in a squad's counts by position.
+func squadSize(counts map[players.Position]int) int {
+	n := 0
+	for _, c := range counts {
+		n += c
+	}
+	return n
+}
+
+// hasRoom reports whether a club with these squad counts may take one more
+// player at pos: the user club while its squad is below the squad limit, at
+// any position; an AI club only to fill a vacancy, a position below its
+// roster count.
+func (w *World) hasRoom(club ids.ClubID, counts map[players.Position]int, pos players.Position) bool {
+	if club == w.userClub {
+		return squadSize(counts) < w.defs.SquadLimit
+	}
+	return counts[pos] < w.defs.Quota(pos).Count
 }
 
 // squadCounts counts a team's players by position.
@@ -330,8 +356,8 @@ type RenewRecord struct {
 
 // SignPlayer signs a free agent to the user club's senior team for
 // Offer.Years contract years (the current one included) at
-// Offer.WeeklyWage. The squad must have room at the player's position, and
-// squads cannot change while rounds await results.
+// Offer.WeeklyWage. The squad must be below the squad limit, and squads
+// cannot change while rounds await results.
 type SignPlayer struct {
 	ID               CommandID
 	ExpectedRevision Revision
@@ -438,8 +464,8 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 	}
 	team, _ := w.userTeam()
 	p, _ := w.players.Profile(cmd.Player)
-	if n, limit := w.squadCounts(team)[p.Position], w.defs.Quota(p.Position).Count; n >= limit {
-		return PlayerSigned{}, fmt.Errorf("%w: %d %s of %d", ErrSquadFull, n, p.Position, limit)
+	if counts := w.squadCounts(team); !w.hasRoom(w.userClub, counts, p.Position) {
+		return PlayerSigned{}, fmt.Errorf("%w: %d players of %d", ErrSquadFull, squadSize(counts), w.defs.SquadLimit)
 	}
 	if err := w.checkOffer(cmd.Player, cmd.Offer); err != nil {
 		return PlayerSigned{}, err
@@ -468,6 +494,163 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 	}})
 	w.publish()
 	return res, nil
+}
+
+// ReleasePlayer ends a user-club player's contract early. The club pays the
+// rest of the contract at once, a contract payoff (see releaseCost), and
+// the player becomes a free agent whom any club may sign; every open bid
+// for him collapses. The squad must keep its minimum at his position and
+// the club must have the payoff in hand; squads cannot change while rounds
+// await results.
+type ReleasePlayer struct {
+	ID               CommandID
+	ExpectedRevision Revision
+	Player           ids.PlayerID
+}
+
+// PlayerReleased is the recorded result of ReleasePlayer.
+type PlayerReleased struct {
+	Command      CommandID
+	Revision     Revision
+	Player       ids.PlayerID
+	Compensation money.Money // the contract payoff; zero when no wage was still due
+}
+
+type ReleaseRecord struct {
+	Request ReleasePlayer
+	Result  PlayerReleased
+}
+
+// releaseCost is what ending a contract at t costs: its weekly wage for
+// every weekly wage run still due under it, after t and before it expires
+// (the contract year runs before the wages at the expiry instant).
+func releaseCost(c employment.Contract, t sim.GameInstant) (money.Money, error) {
+	week := sim.GameInstant(sim.Week)
+	runs := int64((c.Expires-1)/week - t/week)
+	if runs <= 0 {
+		return 0, nil
+	}
+	if c.WeeklyWage > money.Money(math.MaxInt64)/money.Money(runs) {
+		return 0, fmt.Errorf("app: a payoff of %d weeks at %s overflows", runs, c.WeeklyWage)
+	}
+	return c.WeeklyWage * money.Money(runs), nil
+}
+
+// ReleasePlayer records a release (see the ReleasePlayer type). Retries
+// follow ResolveRounds. On error nothing changes.
+func (w *World) ReleasePlayer(cmd ReleasePlayer) (PlayerReleased, error) {
+	rec, retry, err := w.checkCommand(cmd.ID, cmd.ExpectedRevision, func(r commandRecord) bool { return r.release != nil && r.release.Request == cmd })
+	if err != nil {
+		return PlayerReleased{}, err
+	}
+	if retry {
+		return rec.release.Result, nil
+	}
+	a, ok := w.employment.Assignment(cmd.Player)
+	if !ok || a.Club != w.userClub {
+		return PlayerReleased{}, fmt.Errorf("%w: player %d", ErrNotUserPlayer, cmd.Player)
+	}
+	if _, pending := w.pendingRounds(); pending {
+		return PlayerReleased{}, ErrSquadsLocked
+	}
+	m, err := w.newMarket(w.Now())
+	if err != nil {
+		return PlayerReleased{}, err
+	}
+	pos := m.position[cmd.Player]
+	if n, q := m.counts[w.userClub][pos], w.defs.Quota(pos); n <= q.Min {
+		return PlayerReleased{}, fmt.Errorf("%w: %d %s, minimum %d", ErrSquadMinimum, n, pos, q.Min)
+	}
+	cost, err := releaseCost(a.Contract, w.Now())
+	if err != nil {
+		return PlayerReleased{}, err
+	}
+	if cost > m.balances[w.userClub] {
+		return PlayerReleased{}, fmt.Errorf("%w: payoff %s, balance %s", ErrCannotAfford, cost, m.balances[w.userClub])
+	}
+	m.jobs.Departures = append(m.jobs.Departures, cmd.Player)
+	if cost > 0 {
+		m.postings = append(m.postings, finance.Posting{Club: w.userClub, Kind: finance.KindPayoff, Amount: -cost, Player: cmd.Player})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.offers)) {
+		if o := m.offers[id]; o.Player == cmd.Player {
+			m.closeOffer(o, transfers.StatusCollapsed)
+		}
+	}
+	offerPlan, moneyPlan, err := m.commit(nil)
+	if err != nil {
+		return PlayerReleased{}, err
+	}
+
+	// Committed. Nothing below can fail.
+	w.revision++
+	res := PlayerReleased{Command: cmd.ID, Revision: w.revision, Player: cmd.Player, Compensation: cost}
+	w.commands[cmd.ID] = commandRecord{release: &ReleaseRecord{Request: cmd, Result: res}}
+	cause := commandCause(cmd.ID)
+	w.emit(w.Now(), cause, events.Event{Kind: events.KindPlayerReleased, PlayerReleased: &events.PlayerReleased{
+		Player: cmd.Player, Club: a.Club, Team: a.Team, Compensation: cost,
+	}})
+	m.emit(cause, offerPlan, moneyPlan)
+	w.publish()
+	return res, nil
+}
+
+// restoreRelease validates a recorded ReleasePlayer: a fresh ID, a result
+// within the revision range for the same registered player, a user club,
+// and a payoff that is not negative. validateReleases matches payoffs with
+// the ledger.
+func (w *World) restoreRelease(c ReleaseRecord, revision Revision) error {
+	q, r := c.Request, c.Result
+	if err := w.checkRecordID(q.ID, r.Command); err != nil {
+		return err
+	}
+	if r.Revision <= q.ExpectedRevision || r.Revision > revision {
+		return fmt.Errorf("result revision %d outside (%d, %d]", r.Revision, q.ExpectedRevision, revision)
+	}
+	if w.userClub == 0 || r.Player != q.Player || r.Compensation < 0 {
+		return fmt.Errorf("result %+v for player %d, user club %d", r, q.Player, w.userClub)
+	}
+	if _, ok := w.registry.Player(q.Player); !ok {
+		return fmt.Errorf("unknown player %d", q.Player)
+	}
+	return nil
+}
+
+// validateReleases checks that contract payoffs and releases match: every
+// payoff entry is the user club's and belongs to a recorded release of that
+// player for that amount, and every release that paid something posted
+// exactly one such entry.
+func (w *World) validateReleases() []error {
+	var errs []error
+	type payoff struct {
+		player ids.PlayerID
+		amount money.Money
+	}
+	want := map[payoff]int{}
+	for _, rec := range w.commands {
+		if r := rec.release; r != nil && r.Result.Compensation > 0 {
+			want[payoff{r.Result.Player, -r.Result.Compensation}]++
+		}
+	}
+	for _, e := range w.finance.All() {
+		if e.Kind != finance.KindPayoff {
+			continue
+		}
+		key := payoff{e.Player, e.Amount}
+		if e.Club != w.userClub || want[key] == 0 {
+			errs = append(errs, fmt.Errorf("app: contract payoff %d of %s to player %d by club %d matches no release", e.ID, e.Amount, e.Player, e.Club))
+			continue
+		}
+		want[key]--
+	}
+	for _, k := range slices.SortedFunc(maps.Keys(want), func(a, b payoff) int {
+		return cmp.Or(cmp.Compare(a.player, b.player), cmp.Compare(a.amount, b.amount))
+	}) {
+		if want[k] > 0 {
+			errs = append(errs, fmt.Errorf("app: the release of player %d paid no payoff of %s", k.player, -k.amount))
+		}
+	}
+	return errs
 }
 
 // SuggestContract returns the terms an AI club would offer: for a user-club
@@ -523,9 +706,9 @@ func (w *World) ContractYearEnd() sim.GameInstant {
 //
 //   - the roster minimums allow a legal lineup: a goalkeeper and enough
 //     outfield players;
-//   - every club's senior squad holds between Min and Count players of each
-//     roster position, and no one else; players are employed only by their
-//     club's senior team;
+//   - every club's senior squad holds at least Min players of each roster
+//     position, no one else, and at most SquadLimit in all; players are
+//     employed only by their club's senior team;
 //   - every contract ends at a contract-year end after now and no more than
 //     the longest renewal beyond the next one;
 //   - exactly one contract-year task is queued, in the Expiries phase with
@@ -550,9 +733,12 @@ func (w *World) validateContracts() []error {
 		team, _ := w.registry.SeniorTeam(c.ID)
 		counts := w.squadCounts(team)
 		for _, pos := range players.Positions() {
-			if n, q := counts[pos], w.defs.Quota(pos); n < q.Min || n > q.Count {
-				fail("club %d senior squad has %d %s, allowed %d..%d", c.ID, n, pos, q.Min, q.Count)
+			if n, q := counts[pos], w.defs.Quota(pos); n < q.Min || (q.Count == 0 && n > 0) {
+				fail("club %d senior squad has %d %s, minimum %d", c.ID, n, pos, q.Min)
 			}
+		}
+		if n := squadSize(counts); n > w.defs.SquadLimit {
+			fail("club %d senior squad has %d players, limit %d", c.ID, n, w.defs.SquadLimit)
 		}
 	}
 

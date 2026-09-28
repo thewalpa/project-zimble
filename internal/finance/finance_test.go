@@ -53,6 +53,27 @@ func TestTransferFeesMoveBetweenLedgers(t *testing.T) {
 	}
 }
 
+// A contract payoff leaves the club's ledger and names the released player.
+func TestContractPayoffNamesThePlayer(t *testing.T) {
+	s := opened(t)
+	plan, err := s.Plan(5, []Posting{{Club: 1, Kind: KindPayoff, Amount: -700, Player: 12}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := s.Balance(1); b != 300 {
+		t.Fatalf("balance %d", b)
+	}
+	if e, _ := s.Entry(3); e.Player != 12 || e.Kind.String() != "contract payoff" {
+		t.Fatalf("entry %+v", e)
+	}
+	if _, err := New(s.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The balance is always the sum of the club's entries.
 func TestBalanceIsTheSumOfEntries(t *testing.T) {
 	s := opened(t)
@@ -125,6 +146,9 @@ func TestPlanRejectsInvalidPostingsWithoutChange(t *testing.T) {
 		"fee without offer": {{Club: 2, Kind: KindTransfer, Amount: -1}},
 		"offer on gate":     {{Club: 1, Kind: KindGate, Amount: 1, Fixture: 1, Offer: 1}},
 		"offer on wages":    {{Club: 1, Kind: KindWages, Amount: -1, Offer: 1}},
+		"positive payoff":   {{Club: 1, Kind: KindPayoff, Amount: 1, Player: 1}},
+		"payoff no player":  {{Club: 1, Kind: KindPayoff, Amount: -1}},
+		"player on wages":   {{Club: 1, Kind: KindWages, Amount: -1, Player: 1}},
 		"overflow":          {{Club: 1, Kind: KindGate, Amount: 1, Fixture: 2}},
 		"later overflows":   {{Club: 2, Kind: KindWages, Amount: -1}, {Club: 1, Kind: KindGate, Amount: 1, Fixture: 3}},
 	} {

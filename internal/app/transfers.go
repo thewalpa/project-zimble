@@ -29,7 +29,7 @@ var (
 	ErrAlreadyBid      = errors.New("app: your club has already bid for the player in this window")
 	ErrCannotAfford    = errors.New("app: the club cannot afford the fee")
 	ErrNoSuchOffer     = errors.New("app: no open offer for one of your players has that ID")
-	ErrSquadMinimum    = errors.New("app: the sale would leave the squad below its minimum at that position")
+	ErrSquadMinimum    = errors.New("app: the squad would fall below its minimum at that position")
 )
 
 // Transfer windows. A window opens at each contract-year end and closes
@@ -223,8 +223,9 @@ func isRuleError(err error) bool {
 // fee moves between the ledgers, and every other open offer for the player
 // collapses. It revalidates the rules first: the window is open, the seller
 // still employs the player and he has not moved in this window, the seller
-// keeps its minimum at his position, the buyer has room there and can pay
-// the fee. A rule failure returns one of ruleErrors and stages nothing.
+// keeps its minimum at his position, the buyer has room for him (hasRoom)
+// and can pay the fee. A rule failure returns one of ruleErrors and stages
+// nothing.
 func (m *market) complete(o transfers.Offer) error {
 	pos := m.position[o.Player]
 	q := m.w.defs.Quota(pos)
@@ -235,8 +236,8 @@ func (m *market) complete(o transfers.Offer) error {
 		return fmt.Errorf("%w: player %d is not at club %d or has moved", ErrNotTransferable, o.Player, o.Seller)
 	case m.counts[o.Seller][pos] <= q.Min:
 		return fmt.Errorf("%w: club %d has %d %s", ErrSquadMinimum, o.Seller, m.counts[o.Seller][pos], pos)
-	case m.counts[o.Buyer][pos] >= q.Count:
-		return fmt.Errorf("%w: club %d has %d %s", ErrSquadFull, o.Buyer, m.counts[o.Buyer][pos], pos)
+	case !m.w.hasRoom(o.Buyer, m.counts[o.Buyer], pos):
+		return fmt.Errorf("%w: club %d has %d players, %d %s", ErrSquadFull, o.Buyer, squadSize(m.counts[o.Buyer]), m.counts[o.Buyer][pos], pos)
 	case m.balances[o.Buyer] < o.Fee:
 		return fmt.Errorf("%w: club %d has %s, fee %s", ErrCannotAfford, o.Buyer, m.balances[o.Buyer], o.Fee)
 	}
@@ -599,10 +600,10 @@ func (m *market) target(club ids.ClubID, pos players.Position, freeAgent int) (a
 // valuation, and the transfer then completes at once if the rules still
 // allow it. A bid needs an open window with a run left before the close, a
 // player of another club who has not moved in this window, and it must be
-// the user club's first bid for him in this window. The user club must
-// have room at his position and the fee in hand; the seller must keep its
-// minimum there; the player accepts a wage from his demand up to the offer
-// ceiling.
+// the user club's first bid for him in this window. The user club must be
+// below the squad limit, at any position, and have the fee in hand; the
+// seller must keep its minimum there; the player accepts a wage from his
+// demand up to the offer ceiling.
 type MakeTransferOffer struct {
 	ID               CommandID
 	ExpectedRevision Revision
@@ -686,8 +687,8 @@ func (w *World) MakeTransferOffer(cmd MakeTransferOffer) (TransferOfferMade, err
 	pos := m.position[cmd.Player]
 	q := w.defs.Quota(pos)
 	switch {
-	case m.counts[w.userClub][pos] >= q.Count:
-		return TransferOfferMade{}, fmt.Errorf("%w: %d %s of %d", ErrSquadFull, m.counts[w.userClub][pos], pos, q.Count)
+	case !w.hasRoom(w.userClub, m.counts[w.userClub], pos):
+		return TransferOfferMade{}, fmt.Errorf("%w: %d players of %d", ErrSquadFull, squadSize(m.counts[w.userClub]), w.defs.SquadLimit)
 	case m.counts[seller][pos] <= q.Min:
 		return TransferOfferMade{}, fmt.Errorf("%w: the selling club has %d %s", ErrSquadMinimum, m.counts[seller][pos], pos)
 	case cmd.Fee <= 0 || cmd.Fee > m.balances[w.userClub]:

@@ -27,13 +27,13 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-**Releasing players and AI squad upgrades.** Let clubs make room, so the market also moves when the manager doesn't.
+**AI squad upgrades.** Let AI clubs make room, so the market also moves when the manager doesn't.
 
-- **A release command:** the manager releases a player and pays off the rest of the contract (a new ledger entry kind). The player becomes a free agent. It is refused below the roster minimum and while rounds are pending.
-- **AI upgrades in the window:** an AI club with a full position may bid for a clearly better player, and release its weakest there on completion, in the same unit of work.
-- **Keep the population balanced.** Released older free agents retire without replacement, so decide how squads stay fillable. For example, youth intake could also fill vacancies at the player year, or players who would retire as free agents could not be released. Prove it over 30 simulated years, as in milestone 14.
+- **AI upgrades in the window:** an AI club with a full position may bid for a clearly better player, and release its weakest there on completion, in the same unit of work. The release command (`ReleasePlayer`, with its payoff) and the vacancy youth at the player year already exist.
+- **Keep the population balanced.** AI releases would put more older players into the free-agent pool, where they retire without replacement. The vacancy youth keeps AI squads full; check the total population over 30 years, as in `TestSquadsSurviveAHoardingManager`.
 - **Proofs:** payouts conserve money, releases never break the roster minimum, and AI-only worlds keep full, legal squads for decades.
-- **When done:** a `ui` note for the release command, and an inbox message kind (agree on it with `data`).
+
+Done: squad sizes up to `SquadLimit`, purchases at any position for the manager, the manager's release command, and vacancy youth (see progress.md, "squad: squad sizes, free transfers and releases"). Open notes: `ui--release-and-squad-limit.md`, `data--squad-limit-and-release.md`.
 
 ## Backlog
 

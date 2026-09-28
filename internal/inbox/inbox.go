@@ -36,13 +36,14 @@ const (
 	KindTransferIn    Kind = 12 // the team bought a player
 	KindTransferOut   Kind = 13 // the team sold a player
 	KindOfferClosed   Kind = 14 // a bid by or for the team ended without a transfer (Outcome)
+	KindReleased      Kind = 15 // the team released one of its players (Compensation)
 )
 
-func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindOfferClosed }
+func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindReleased }
 
 // transfer reports whether messages of this kind are about a transfer
 // offer.
-func (k Kind) transfer() bool { return k >= KindBidReceived }
+func (k Kind) transfer() bool { return k >= KindBidReceived && k <= KindOfferClosed }
 
 // competition reports whether messages of this kind belong to a league
 // season; the others are about the team's players.
@@ -68,7 +69,7 @@ type Message struct {
 	Champion    ids.TeamID      // season ended
 	Position    int             // season ended: the team's final position, 0 if it did not take part
 	Kickoff     sim.GameInstant // season started: first kickoff
-	Player      ids.PlayerID    // renewed, left, joined, retired, youth, transfers
+	Player      ids.PlayerID    // renewed, left, joined, retired, youth, transfers, released
 	Expires     sim.GameInstant // renewed, joined, youth, transfer in: the contract's end
 	WeeklyWage  money.Money     // renewed, joined, youth, transfer in
 	Age         uint8           // retired
@@ -84,6 +85,8 @@ type Message struct {
 	Deadline sim.GameInstant `json:",omitempty"`
 	Outcome  uint8           `json:",omitempty"`
 	Selling  bool            `json:",omitempty"`
+	// Released: what the team paid to end the contract.
+	Compensation money.Money `json:",omitempty"`
 }
 
 // Snapshot is the inbox's persisted state.
@@ -119,6 +122,8 @@ func New(team ids.TeamID, snap Snapshot) (*Inbox, error) {
 			return nil, fmt.Errorf("inbox: match message %+v without a team, fixture or opponent", m)
 		case m.Kind.transfer() && (!m.Offer.Valid() || !m.Club.Valid() || m.Fee <= 0):
 			return nil, fmt.Errorf("inbox: transfer message %+v without an offer, club or fee", m)
+		case m.Compensation < 0 || (m.Compensation != 0 && m.Kind != KindReleased):
+			return nil, fmt.Errorf("inbox: message %+v with a compensation", m)
 		}
 	}
 	return &Inbox{team: team, offset: snap.Offset, messages: slices.Clone(snap.Messages)}, nil
@@ -260,6 +265,11 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 		if p := e.OfferClosed; b.team != 0 && (p.SellerTeam == b.team || p.BuyerTeam == b.team) {
 			m.Kind, m.Outcome, m.Selling = KindOfferClosed, p.Outcome, p.SellerTeam == b.team
 			return b.deal(m, p.Deal), true
+		}
+	case events.KindPlayerReleased:
+		if p := e.PlayerReleased; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Compensation = KindReleased, p.Player, p.Compensation
+			return m, true
 		}
 	}
 	return Message{}, false

@@ -39,6 +39,8 @@ func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 		"bad quota":        func(d *Definitions) { d.Roster[0].Count = 0 },
 		"min above count":  func(d *Definitions) { d.Roster[0].Min = d.Roster[0].Count + 1 },
 		"zero min":         func(d *Definitions) { d.Roster[1].Min = 0 },
+		"no squad limit":   func(d *Definitions) { d.SquadLimit = 0 },
+		"limit below size": func(d *Definitions) { d.SquadLimit = d.SquadSize() - 1 },
 		"offer ceiling":    func(d *Definitions) { d.Economy.OfferCeilingPct = 99 },
 		"missing profile":  func(d *Definitions) { d.Profiles = d.Profiles[1:] },
 		"range above max":  func(d *Definitions) { d.Profiles[0].Ranges[players.Pace].Max = 101 },

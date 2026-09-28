@@ -404,6 +404,7 @@ func (w *World) Validate() error {
 	errs = append(errs, w.validateContracts()...)
 	errs = append(errs, w.validateLifecycle()...)
 	errs = append(errs, w.validateTransfers()...)
+	errs = append(errs, w.validateReleases()...)
 	return errors.Join(errs...)
 }
 

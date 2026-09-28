@@ -357,3 +357,30 @@ func TestSortableLists(t *testing.T) {
 		`! unknown sort "bogus": choose home, away, score or id`,
 	)
 }
+
+// Releasing a player shows the payoff first and needs yes; the payoff
+// reaches the ledger and the inbox. Releases are refused at the minimum
+// and on a matchday, and the squad may grow beyond the roster count.
+func TestRelease(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"release 60", "release 60 yes", "release 43 yes", "release 42 yes", "release 999", "release 60 no",
+		"finances 2", "inbox 2", "squad", "bid 238", "continue", "continue", "release 41 yes", "q", "q")
+	contains(t, out,
+		"Releasing Rafael Okafor costs 179,400.00: his wages until his contract ends on 1 July 2028. He becomes a free agent.",
+		"Type release 60 yes to release him.",
+		"Rafael Okafor was released and is now a free agent. You paid 179,400.00.",
+		"Gareth Gallo was released and is now a free agent. You paid 113,360.00.",
+		"! app: the squad would fall below its minimum at that position: 2 GK, minimum 2",
+		"! player 999 is not in your squad",
+		"! usage: release ID [yes]",
+		"contract payoff P60    -179,400.00",
+		"release: Gareth Gallo left the club as a free agent; you paid 113,360.00",
+		"You have 18 players; a squad holds at most 25, and at least 2 GK, 5 DF, 5 MF, 3 FW.",
+		"You bid 1,060,000.00 for Oscar Adeyemi (offer 1)",
+		"transfer: Oscar Adeyemi joined from Ironbridge Wanderers",
+		"! app: squads cannot change while rounds await results",
+	)
+	if strings.Count(out, "was released") != 2 {
+		t.Fatal("a refused release was reported as done")
+	}
+}

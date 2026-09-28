@@ -42,6 +42,7 @@ const (
 	KindTransferOffered   Kind = 13
 	KindTransferCompleted Kind = 14
 	KindOfferClosed       Kind = 15
+	KindPlayerReleased    Kind = 16
 )
 
 func (k Kind) String() string {
@@ -76,6 +77,8 @@ func (k Kind) String() string {
 		return "transfer completed"
 	case KindOfferClosed:
 		return "offer closed"
+	case KindPlayerReleased:
+		return "player released"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -154,11 +157,12 @@ type LedgerEntry struct {
 	Amount  money.Money
 	Balance money.Money
 	Fixture ids.FixtureID
-	Offer   ids.OfferID `json:",omitempty"`
+	Offer   ids.OfferID  `json:",omitempty"`
+	Player  ids.PlayerID `json:",omitempty"`
 }
 
 // LedgerPosted: one commit posted entries to club ledgers (weekly wages,
-// gate receipts, transfer fees), in entry order.
+// gate receipts, transfer fees, contract payoffs), in entry order.
 type LedgerPosted struct {
 	Entries []LedgerEntry
 }
@@ -265,6 +269,16 @@ type OfferClosed struct {
 	Outcome uint8
 }
 
+// PlayerReleased: a club released a player from his contract. He left the
+// club (and Team) and became a free agent; the club paid Compensation, the
+// rest of his contract (zero when no wage was still due).
+type PlayerReleased struct {
+	Player       ids.PlayerID
+	Club         ids.ClubID
+	Team         ids.TeamID
+	Compensation money.Money
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -292,6 +306,7 @@ type Event struct {
 	TransferOffered   *TransferOffered   `json:",omitempty"`
 	TransferCompleted *TransferCompleted `json:",omitempty"`
 	OfferClosed       *OfferClosed       `json:",omitempty"`
+	PlayerReleased    *PlayerReleased    `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -316,6 +331,7 @@ func (e Event) payloads() (set int, match bool) {
 		{KindTransferOffered, e.TransferOffered != nil},
 		{KindTransferCompleted, e.TransferCompleted != nil},
 		{KindOfferClosed, e.OfferClosed != nil},
+		{KindPlayerReleased, e.PlayerReleased != nil},
 	} {
 		if p.set {
 			set++
@@ -420,6 +436,10 @@ func (e Event) Validate() error {
 		if p := e.OfferClosed; !p.Deal.valid() || p.Outcome < 3 || p.Outcome > 5 {
 			return fail("invalid payload %+v", p)
 		}
+	case KindPlayerReleased:
+		if p := e.PlayerReleased; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Compensation < 0 {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -490,6 +510,10 @@ func (e Event) Clone() Event {
 	if p := e.OfferClosed; p != nil {
 		c := *p
 		e.OfferClosed = &c
+	}
+	if p := e.PlayerReleased; p != nil {
+		c := *p
+		e.PlayerReleased = &c
 	}
 	return e
 }
