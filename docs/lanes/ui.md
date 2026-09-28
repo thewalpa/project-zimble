@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Idle; wait for new `ui--*` handoff notes from other lanes, or pick from the backlog.
+Take `ui--transfer-list.md`: the transfer list in the web client.
 
 ## Backlog
 

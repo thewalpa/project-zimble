@@ -13,7 +13,8 @@
     {{else if $d.Matchday}}
       <h2>Matchday</h2>
       <p class="big">{{$d.Matchday.Name}} v {{$d.Matchday.Opponent}}</p>
-      <p class="muted">{{$d.Matchday.When}}</p>
+      <p class="muted">{{$d.Matchday.When}}{{if $d.Matchday.LineupSource}} · Lineup: {{$d.Matchday.LineupSource}}{{end}}</p>
+      {{range $d.Matchday.DroppedNotes}}<div class="note" style="margin-top:8px">{{.}}</div>{{end}}
       <div class="actions">
         <a class="button" href="/lineup">Pick lineup</a>
         <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Play match</button></form>

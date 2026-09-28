@@ -127,9 +127,10 @@ type session struct {
 // draft is the lineup being prepared for a pending user fixture. It becomes
 // a SubmitLineup command only when the match is played, and only if edited.
 type draft struct {
-	fixture ids.FixtureID
-	lineup  selection.Lineup
-	edited  bool
+	fixture  ids.FixtureID
+	lineup   selection.Lineup
+	matchday app.MatchdayLineup
+	edited   bool
 }
 
 func (s *session) printf(format string, args ...any) { fmt.Fprintf(s.out, format, args...) }
@@ -250,7 +251,7 @@ func (s *session) loop() {
 			} else {
 				err = s.showLineup()
 			}
-		case "swap", "role", "reset":
+		case "swap", "role", "reset", "assistant":
 			if _, live := s.w.LiveMatch(); live {
 				err = errors.New("the match has kicked off: use sub OUT IN or mentality M")
 			} else if cmd == "swap" {
@@ -318,7 +319,7 @@ func (s *session) help() {
   swap A B              swap two players (IDs) between XI, bench and squad
   role P GK|DF|MF|FW    play starter P in another role
   mentality (m) M       defensive, balanced or attacking (during your match: a live change)
-  reset                 go back to the AI's suggested lineup
+  reset, assistant      ask the assistant for a suggested lineup
   watch (w) [MIN]       play your match live to MIN (default: half time, then full time)
   sub OUT IN            during your match: substitute player OUT with IN (IDs)
   continue (c)          play the waiting match, or go to your next matchday (while the
@@ -922,14 +923,11 @@ func (s *session) currentDraft() (*draft, error) {
 	if s.draft != nil && s.draft.fixture == fixture {
 		return s.draft, nil
 	}
-	l, ok := s.w.SubmittedLineup(fixture)
-	if !ok {
-		var err error
-		if l, err = s.w.SuggestLineup(fixture); err != nil {
-			return nil, err
-		}
+	ml, err := s.w.MatchdayLineup(fixture)
+	if err != nil {
+		return nil, err
 	}
-	s.draft = &draft{fixture: fixture, lineup: l}
+	s.draft = &draft{fixture: fixture, lineup: ml.Lineup, matchday: ml}
 	return s.draft, nil
 }
 
@@ -965,14 +963,14 @@ func (s *session) showLineup() error {
 	}
 	info := s.fixtureInfo(d.fixture)
 	squad := s.squadByID()
-	state := "AI suggestion"
-	if _, ok := s.w.SubmittedLineup(d.fixture); ok {
-		state = "submitted"
-	}
+	state := s.lineupSourceLabel(d.matchday)
 	if d.edited {
 		state = "your changes (used when you continue)"
 	}
 	s.printf("\n%s v %s, %s: %s\n", capitalize(matchName(info)), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
+	for _, msg := range s.w.LineupDroppedMessages(d.matchday) {
+		s.printf("%s\n", msg)
+	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
 	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %5s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", " GK DEF PAS FIN PAC STA")
 	for i, sl := range d.lineup.Starters {
@@ -1120,6 +1118,22 @@ func (s *session) mentality(args []string) error {
 	return errors.New("mentality must be defensive, balanced or attacking")
 }
 
+func (s *session) lineupSourceLabel(ml app.MatchdayLineup) string {
+	switch ml.Source {
+	case app.LineupFromSubmission:
+		return "your lineup for this match"
+	case app.LineupCarriedOver:
+		if opp := s.w.OpponentName(ml.From); opp != "" {
+			return fmt.Sprintf("carried over from the last match (vs %s)", opp)
+		}
+		return "carried over from the last match"
+	case app.LineupSuggested:
+		return "the assistant's suggestion"
+	default:
+		return "the assistant's suggestion"
+	}
+}
+
 func (s *session) reset() error {
 	fixture, ok := s.pendingFixture()
 	if !ok {
@@ -1129,8 +1143,13 @@ func (s *session) reset() error {
 	if err != nil {
 		return err
 	}
-	s.draft = &draft{fixture: fixture, lineup: l}
-	s.printf("Lineup reset to the AI's suggestion.\n")
+	s.draft = &draft{
+		fixture:  fixture,
+		lineup:   l,
+		matchday: app.MatchdayLineup{Fixture: fixture, Lineup: l, Source: app.LineupSuggested},
+		edited:   true,
+	}
+	s.printf("Lineup reset to the assistant's suggestion (used when you continue).\n")
 	return nil
 }
 
@@ -1197,7 +1216,12 @@ func (s *session) advance() error {
 		}
 		s.newMessages()
 		info := s.fixtureInfo(ready.UserFixtures[0])
+		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
 		s.printf("\nMATCHDAY %s: %s v %s.\n", s.w.Calendar().Format(info.Kickoff), matchName(info), s.describe(info.FixtureLine))
+		s.printf("Lineup: %s.\n", s.lineupSourceLabel(ml))
+		for _, msg := range s.w.LineupDroppedMessages(ml) {
+			s.printf("%s\n", msg)
+		}
 		s.printf("Type lineup to check your team, or continue to play with it.\n")
 		return nil
 	}
@@ -1213,6 +1237,15 @@ func (s *session) play() error {
 		if m.Home.Club == s.club() || m.Away.Club == s.club() {
 			f := app.FixtureLine{Home: m.Home, Away: m.Away, Played: true, Score: m.Score, Shootout: m.Shootout}
 			s.printf("\nFULL TIME  %s %d-%d %s%s  (%s)\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout), outcome(f, s.club()))
+			side := 0
+			if m.Away.Club == s.club() {
+				side = 1
+			}
+			if m.Selected[side] == app.SelectedByManager {
+				s.printf("Lineup: your lineup\n")
+			} else {
+				s.printf("Lineup: the assistant's suggestion\n")
+			}
 			names := map[ids.PlayerID]string{}
 			for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {
 				squad, _ := s.w.Squad(c)

@@ -1947,6 +1947,30 @@ A lineup the manager submits now stands until they change it. A pending fixture 
 - **Condition doesn't move a carried starter.** A tired player keeps his place until the manager changes it. The clients show condition.
 - **The clients** still show the suggestion instead of the carried lineup: that is the `ui` note `ui--matchday-lineup`.
 
+## ui: lineup carryover and dropped players in clients (done)
+
+Both the terminal (`cmd/play`) and web (`cmd/web`) clients now support lineup carryover across matchdays and name dropped players when a carried lineup is refilled.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/app` | Created `views.go` with read-only view helpers `LineupSourceLabel`, `LineupDroppedMessages`, and `OpponentName` |
+| `cmd/play` | Uses `MatchdayLineup` for draft initialization; displays lineup source ("your lineup for this match", "carried over from the last match (vs X)", "the assistant's suggestion"); reports dropped players and their replacements; reports "Lineup: your lineup" when played; added `assistant` command alias to `reset` |
+| `cmd/web` | Populates `LineupSource` and `DroppedNotes` on home matchday panel, matchday announcement, and `/lineup`; added "Ask the assistant" / "Your saved lineup" toggle on `/lineup`; reports "Your lineup" in game reports |
+
+### Decisions
+
+- **Shared read-only view helpers in `internal/app/views.go`**: As designated by the `ui` lane charter, `views.go` houses read queries that only combine existing `app` queries (`MatchdayLineup`, `SubmittedLineup`, `PlayerName`, `Squad`, `userTeam`, `competitions.Fixture`).
+- **Consistent source labeling across clients**: Both clients distinguish newly submitted lineups, carried-over lineups naming the opponent they were last played against, and assistant suggestions, keeping the same terminology.
+- **Naming dropped starters and replacements**: When a carried lineup drops a player who left the squad, both clients name the departed player and the replacement player who takes his starting place.
+
+### Verification
+
+- `cmd/play/main_test.go`: `TestLineupCarriesOverToNextMatchday` verifies Round 1 submission carries into Round 2 with "your lineup", and releasing a starter between rounds names the dropped player and his replacement.
+- `cmd/web/main_test.go`: `TestLineupCarriesOverInTheBrowser` verifies the Home screen matchday note, `/lineup` screen with carryover state, dropped starter notice, "Ask the assistant" toggle, and "Your lineup" on the game report.
+- All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

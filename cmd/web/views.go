@@ -18,6 +18,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
 var funcs = template.FuncMap{
@@ -194,11 +195,13 @@ func outcome(score, shootout [2]uint16, home bool) string {
 // --- home ---------------------------------------------------------------------
 
 type fixtureView struct {
-	Name     string // e.g. "Round 3", "Continental Cup semi-final"
-	Round    int
-	Opponent string
-	When     string
-	kickoff  sim.GameInstant
+	Name         string // e.g. "Round 3", "Continental Cup semi-final"
+	Round        int
+	Opponent     string
+	When         string
+	LineupSource string
+	DroppedNotes []string
+	kickoff      sim.GameInstant
 }
 
 type otherResult struct {
@@ -302,6 +305,14 @@ func (s *server) home(r *http.Request) (string, any, error) {
 				case r.Status == competitions.RoundScheduled && (v.Next == nil || r.Kickoff < v.Next.kickoff):
 					v.Next = fv
 				}
+			}
+		}
+	}
+	if v.Matchday != nil {
+		if fix, ok := s.pendingFixture(); ok {
+			if ml, err := s.w.MatchdayLineup(fix); err == nil {
+				v.Matchday.LineupSource = s.w.LineupSourceLabel(ml)
+				v.Matchday.DroppedNotes = s.w.LineupDroppedMessages(ml)
 			}
 		}
 	}
@@ -474,14 +485,16 @@ type lineupRow struct {
 }
 
 type lineupView struct {
-	Fixture     ids.FixtureID
-	Title       string
-	State       string
-	Mentality   string
-	Mentalities []string
-	Rows        []lineupRow
-	Slots       []slotOption
-	Sort        SortState
+	Fixture      ids.FixtureID
+	Title        string
+	State        string
+	Mentality    string
+	Mentalities  []string
+	Rows         []lineupRow
+	Slots        []slotOption
+	Sort         SortState
+	DroppedNotes []string
+	IsSuggested  bool
 }
 
 func (s *server) lineup(r *http.Request) (string, any, error) {
@@ -489,21 +502,33 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 	if !ok {
 		return "lineup", lineupView{}, nil
 	}
-	l, submitted := s.w.SubmittedLineup(fixture)
-	state := "Your saved lineup"
-	if !submitted {
+	suggest := r.URL.Query().Get("suggest") == "1"
+	var l selection.Lineup
+	var state string
+	var droppedNotes []string
+	if suggest {
 		var err error
 		if l, err = s.w.SuggestLineup(fixture); err != nil {
 			return "", nil, err
 		}
 		state = "The assistant's suggestion (used unless you save changes)"
+	} else {
+		ml, err := s.w.MatchdayLineup(fixture)
+		if err != nil {
+			return "", nil, err
+		}
+		l = ml.Lineup
+		state = s.w.LineupSourceLabel(ml)
+		droppedNotes = s.w.LineupDroppedMessages(ml)
 	}
 	info, _ := s.fixtureInfo(fixture)
 	sortState := newSortState(r, "selection", "asc")
 	v := lineupView{
 		Fixture: fixture, State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
-		Title: fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
-		Sort:  sortState,
+		Title:        fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
+		Sort:         sortState,
+		DroppedNotes: droppedNotes,
+		IsSuggested:  suggest,
 	}
 	for m := matches.Defensive; m <= matches.Attacking; m++ {
 		v.Mentalities = append(v.Mentalities, m.String())
@@ -677,9 +702,9 @@ type reportView struct {
 
 func selectedText(b app.SelectedBy) string {
 	if b == app.SelectedByManager {
-		return "Manager selection"
+		return "Your lineup"
 	}
-	return "Assistant selection"
+	return "The assistant's suggestion"
 }
 
 func (s *server) reportPage(r *http.Request) (string, any, error) {

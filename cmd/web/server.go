@@ -309,7 +309,11 @@ func (s *server) advance() error {
 			continue
 		}
 		info, _ := s.fixtureInfo(ready.UserFixtures[0])
-		s.say("Matchday: %s v %s. Check your lineup, then play the match.", matchName(info), s.opponent(info.FixtureLine))
+		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
+		s.say("Matchday: %s v %s. Lineup: %s.", matchName(info), s.opponent(info.FixtureLine), s.w.LineupSourceLabel(ml))
+		for _, msg := range s.w.LineupDroppedMessages(ml) {
+			s.say("%s", msg)
+		}
 		return nil
 	}
 }

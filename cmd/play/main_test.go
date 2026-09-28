@@ -109,7 +109,7 @@ func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 		"! role must be GK, DF, MF or FW",
 		"! mentality must be defensive, balanced or attacking",
 		"! usage: inbox [N]",
-		": AI suggestion\n")
+		": the assistant's suggestion\n")
 }
 
 // season plays the rest of the season; continue then crosses into the next,
@@ -398,4 +398,24 @@ func TestRelease(t *testing.T) {
 	if strings.Count(out, "was released") != 2 {
 		t.Fatal("a refused release was reported as done")
 	}
+}
+
+func TestLineupCarriesOverToNextMatchday(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"continue", // to R1 matchday
+		"swap 57 58", "mentality attacking",
+		"continue",       // play R1
+		"release 44 yes", // release starter 44 between rounds
+		"continue",       // to R2 matchday
+		"lineup",
+		"continue", // play R2 without submitting
+		"quit",
+	)
+	contains(t, out,
+		"carried over from the last match (vs Brackenmoor Town)",
+		"Elias Gallo has left the club;",
+		"takes his place",
+		"Mentality: attacking",
+		"Lineup: your lineup",
+	)
 }

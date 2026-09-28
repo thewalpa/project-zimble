@@ -5,6 +5,7 @@
 <div class="panel"><p class="muted">No match is waiting. Continue to your next matchday to pick a lineup.</p></div>
 {{else}}
 <p><b>{{$d.Title}}</b><br><span class="muted">{{$d.State}}. Pick eleven starters with exactly one goalkeeper; a player may start out of position. Up to seven on the bench.</span></p>
+{{range $d.DroppedNotes}}<div class="note">{{.}}</div>{{end}}
 <form method="post" action="/lineup">
   <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup"><input type="hidden" name="fixture" value="{{$d.Fixture}}">
   <div class="panel">
@@ -37,7 +38,14 @@
     {{end}}
   </table>
   </div>
-  <div class="actions"><button class="primary">Save lineup</button></div>
+  <div class="actions">
+    <button class="primary">Save lineup</button>
+    {{if $d.IsSuggested}}
+      <a class="button" href="/lineup">Your saved lineup</a>
+    {{else}}
+      <a class="button" href="/lineup?suggest=1">Ask the assistant</a>
+    {{end}}
+  </div>
 </form>
 {{end}}
 {{end}}

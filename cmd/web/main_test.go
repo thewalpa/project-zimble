@@ -753,3 +753,57 @@ func TestFullWidthLayout(t *testing.T) {
 	}
 	contains(t, page, ".bar { padding: 12px 16px;", "nav { padding: 0 16px;", "main { padding: 20px 16px 48px;")
 }
+
+func TestLineupCarriesOverInTheBrowser(t *testing.T) {
+	c := career(t)
+	// Advance to Round 1 matchday.
+	page := c.post("/continue", nil)
+	contains(t, page, "Matchday: Round 1 v Brackenmoor Town (home)", "Lineup: The assistant&#39;s suggestion")
+
+	// Submit changed lineup for Round 1.
+	fixture, _ := c.s.pendingFixture()
+	form := lineupForm(c, fixture, "attacking")
+	page = c.post("/lineup", form)
+	contains(t, page, "Lineup saved", "Your saved lineup for this match")
+
+	// Play Round 1.
+	page = c.post("/continue", nil)
+	contains(t, page, "Latest result")
+
+	// Release starter 44 (Elias Gallo) between rounds.
+	page = c.post("/release", url.Values{"player": {"44"}})
+	contains(t, page, "Elias Gallo was released")
+
+	// Advance to Round 2 matchday.
+	page = c.post("/continue", nil)
+	contains(t, page, "Matchday: Round 2 v Hollowick Town (away)",
+		"Lineup: Carried over from the last match (vs Brackenmoor Town)",
+		"Elias Gallo has left the club;",
+		"takes his place",
+	)
+
+	// Check /lineup page:
+	lineupPage := c.get("/lineup")
+	contains(t, lineupPage,
+		"Carried over from the last match (vs Brackenmoor Town)",
+		"Elias Gallo has left the club;",
+		"takes his place",
+		"Ask the assistant",
+	)
+
+	// Check /lineup?suggest=1 ("Ask the assistant"):
+	suggestPage := c.get("/lineup?suggest=1")
+	contains(t, suggestPage,
+		"The assistant&#39;s suggestion (used unless you save changes)",
+		"Your saved lineup",
+	)
+
+	// Play Round 2 without submitting:
+	r2Fixture, _ := c.s.pendingFixture()
+	page = c.post("/continue", nil)
+	contains(t, page, "Latest result")
+
+	// Report shows "Your lineup":
+	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", r2Fixture))
+	contains(t, reportPage, "Your lineup")
+}
