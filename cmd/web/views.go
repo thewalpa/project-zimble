@@ -994,31 +994,92 @@ func (s *server) cup(r *http.Request) (string, any, error) {
 	sortState := newSortState(r, "fixture", "asc")
 	var out []cupView
 	for _, c := range s.w.Cups() {
-		v := cupView{Name: c.Name, Edition: int(c.Edition), Champion: c.Champion, Sort: sortState}
-		for _, e := range c.Entrants {
-			v.Mine = v.Mine || e.Club == s.club()
-		}
-		for _, rRound := range c.Rounds {
-			title := capitalize(rRound.Name)
-			if rRound.Name != "final" {
-				title += "s"
-			}
-			rv := cupRoundView{Title: title, When: s.w.Calendar().Format(rRound.Kickoff)}
-			for _, f := range rRound.Ties {
-				t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
-				if f.Played {
-					t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
-					home := outcome(f.Score, f.Shootout, true) == "W"
-					t.HomeWins, t.AwayWins = home, !home
-				}
-				rv.Ties = append(rv.Ties, t)
-			}
-			sortCupTies(rv.Ties, sortState.Col, sortState.Dir)
-			v.Rounds = append(v.Rounds, rv)
-		}
-		out = append(out, v)
+		out = append(out, s.cupView(c, sortState))
 	}
 	return "cup", out, nil
+}
+
+func (s *server) cupView(c app.CupEdition, sortState SortState) cupView {
+	v := cupView{Name: c.Name, Edition: int(c.Edition), Champion: c.Champion, Sort: sortState}
+	for _, e := range c.Entrants {
+		v.Mine = v.Mine || e.Club == s.club()
+	}
+	for _, rRound := range c.Rounds {
+		title := capitalize(rRound.Name)
+		if rRound.Name != "final" {
+			title += "s"
+		}
+		rv := cupRoundView{Title: title, When: s.w.Calendar().Format(rRound.Kickoff)}
+		for _, f := range rRound.Ties {
+			t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
+			if f.Played {
+				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
+				home := outcome(f.Score, f.Shootout, true) == "W"
+				t.HomeWins, t.AwayWins = home, !home
+			}
+			rv.Ties = append(rv.Ties, t)
+		}
+		sortCupTies(rv.Ties, sortState.Col, sortState.Dir)
+		v.Rounds = append(v.Rounds, rv)
+	}
+	return v
+}
+
+// --- history ---------------------------------------------------------------
+
+type historyRow struct {
+	Competition ids.CompetitionID
+	Season      int
+	Name        string
+	Complete    bool
+	Champion    *app.TeamLabel
+	Mine        bool // the user club won it
+}
+
+type historyView struct {
+	Rows []historyRow
+	// Detail is set when one season is chosen: a league's table or a cup's
+	// bracket.
+	Title string
+	Table *app.Table
+	Cup   *cupView
+	Club  ids.ClubID
+}
+
+// history lists every league season and cup edition with its champion, and
+// shows one season's final table or bracket on request.
+func (s *server) history(r *http.Request) (string, any, error) {
+	v := historyView{Club: s.club()}
+	for _, h := range s.w.History() {
+		row := historyRow{Competition: h.Season.Competition, Season: int(h.Season.Season), Name: h.CompetitionName, Complete: h.Complete, Champion: h.Champion}
+		row.Mine = h.Champion != nil && h.Champion.Club == s.club()
+		v.Rows = append(v.Rows, row)
+	}
+	slices.SortStableFunc(v.Rows, func(a, b historyRow) int { return cmp.Compare(b.Season, a.Season) })
+	q := r.URL.Query()
+	comp, err1 := strconv.ParseUint(q.Get("competition"), 10, 64)
+	season, err2 := strconv.ParseUint(q.Get("season"), 10, 16)
+	if err1 != nil || err2 != nil {
+		return "history", v, nil
+	}
+	ref := competitions.SeasonRef{Competition: ids.CompetitionID(comp), Season: competitions.Season(season)}
+	for _, h := range s.w.History() {
+		if h.Season != ref {
+			continue
+		}
+		v.Title = fmt.Sprintf("%s season %d", h.CompetitionName, ref.Season)
+		if h.Format == competitions.FormatKnockout {
+			if c, ok := s.w.Cup(ref); ok {
+				cv := s.cupView(c, newSortState(r, "fixture", "asc"))
+				v.Title = fmt.Sprintf("%s %d", c.Name, c.Edition)
+				v.Cup = &cv
+			}
+		} else if t, ok := s.w.Table(ref); ok {
+			v.Table = &t
+		}
+		return "history", v, nil
+	}
+	return "", nil, errors.New("no such season")
 }
 
 // listSaves inspects available .json save files in savesDir, career.json in root,

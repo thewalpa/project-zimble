@@ -1,0 +1,41 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if $d.Title}}
+<p><a href="/history">← All seasons</a></p>
+{{if $d.Table}}
+{{with $d.Table}}
+<h1>{{$d.Title}}</h1>
+<p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}</p>
+<div class="panel scroll">
+<table>
+  <tr><th class="n">#</th><th>Club</th><th class="n">P</th><th class="n">W</th><th class="n">D</th><th class="n">L</th><th class="n">GF</th><th class="n">GA</th><th class="n">GD</th><th class="n">Pts</th></tr>
+  {{range .Rows}}
+  <tr {{if eq .Label.Club $d.Club}}class="me"{{end}}>
+    <td class="n">{{.Rank}}</td><td><a href="/squad?club={{.Label.Club}}">{{.Label.ClubName}}</a></td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
+    <td class="n">{{.GoalsFor}}</td><td class="n">{{.GoalsAgainst}}</td><td class="n">{{.GoalDifference}}</td><td class="n"><b>{{.Points}}</b></td>
+  </tr>
+  {{end}}
+</table>
+</div>
+{{end}}
+{{else if $d.Cup}}
+{{template "cupedition" $d.Cup}}
+{{end}}
+{{else}}
+<h1>History</h1>
+<div class="panel scroll">
+{{if $d.Rows}}
+<table>
+  <tr><th>Competition</th><th class="n">Season</th><th>Champion</th></tr>
+  {{range $d.Rows}}
+  <tr {{if .Mine}}class="me"{{end}}>
+    <td><a href="/history?competition={{.Competition}}&amp;season={{.Season}}">{{.Name}}</a></td>
+    <td class="n">{{.Season}}</td>
+    <td>{{if .Champion}}<b>{{.Champion.ClubName}}</b>{{else}}<span class="muted">{{if .Complete}}none{{else}}in progress{{end}}</span>{{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No season has been played yet.</p>{{end}}
+</div>
+{{end}}
+{{end}}

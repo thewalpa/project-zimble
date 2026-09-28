@@ -29,7 +29,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "transfers", "player"}
+var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player"}
 
 type config struct {
 	seed     random.Seed
@@ -81,7 +81,7 @@ func newServer(cfg config) (*server, error) {
 	}
 	s := &server{seed: cfg.seed, savePath: savePath, savesDir: savesDir, pages: map[string]*template.Template{}}
 	for _, name := range pageNames {
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html")
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/cupedition.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +109,7 @@ func newServer(cfg config) (*server, error) {
 		path string
 		view func(*http.Request) (string, any, error)
 	}{
-		{"/squad", s.squad}, {"/player", s.player}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup},
+		{"/squad", s.squad}, {"/player", s.player}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup}, {"/history", s.history},
 		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))

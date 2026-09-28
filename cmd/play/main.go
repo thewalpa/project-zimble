@@ -217,6 +217,8 @@ func (s *session) loop() {
 			err = s.player(args)
 		case "table", "t":
 			err = s.table(args)
+		case "history":
+			err = s.history(args)
 		case "cup":
 			err = s.cup(args)
 		case "fixtures", "f":
@@ -303,6 +305,7 @@ func (s *session) help() {
   player ID             one player of any club: attributes, contract, status
   table (t)             the league table
   cup                   the Continental Cup: this edition's bracket and results
+  history [COMP SEASON] every season's champion; one season's final table or bracket
   fixtures (f)          your club's fixtures and results this season
   inbox (i) [N]         the latest N inbox messages (default 10)
   finances [N]          your balance, weekly wage bill and latest N ledger entries
@@ -634,6 +637,13 @@ func (s *session) table(args []string) error {
 		}
 		return cmp.Or(diff, cmp.Compare(a.Rank, b.Rank))
 	})
+	s.printTable(t, rows)
+	return nil
+}
+
+// printTable prints a league table's rows in the order given, marking the
+// user club.
+func (s *session) printTable(t app.Table, rows []app.TableRow) {
 	s.printf("\n%s season %d (%d/%d rounds)\n", t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	s.printf("%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
 	for _, r := range rows {
@@ -644,7 +654,6 @@ func (s *session) table(args []string) error {
 		s.printf("%3d%s %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d\n", r.Rank, mark, r.Label.ShortName, r.Label.ClubName,
 			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points)
 	}
-	return nil
 }
 
 func (s *session) fixtures(args []string) error {
@@ -1753,8 +1762,17 @@ func (s *session) cup(args []string) error {
 		s.printf("No cup has been drawn yet: the Continental Cup starts when the league seasons end, with the top four of each league.\n")
 		return nil
 	}
-	cal := s.w.Calendar()
 	for _, c := range cups {
+		s.printEdition(c, len(args) > 0, col, desc)
+	}
+	return nil
+}
+
+// printEdition prints one cup edition's rounds, ties and winner. The ties
+// are sorted only when the player asked for it.
+func (s *session) printEdition(c app.CupEdition, sorted bool, col string, desc bool) {
+	cal := s.w.Calendar()
+	{
 		s.printf("\n%s %d\n", c.Name, c.Edition)
 		for _, r := range c.Rounds {
 			title := capitalize(r.Name)
@@ -1766,7 +1784,7 @@ func (s *session) cup(args []string) error {
 				s.printf("  to be decided\n")
 			}
 			ties := slices.Clone(r.Ties)
-			if len(args) > 0 {
+			if sorted {
 				slices.SortStableFunc(ties, func(a, b app.FixtureLine) int {
 					var diff int
 					switch col {
@@ -1801,7 +1819,6 @@ func (s *session) cup(args []string) error {
 			s.printf("\nWinner: %s\n", c.Champion.ClubName)
 		}
 	}
-	return nil
 }
 
 // player prints the profile of any player, at any club, free or retired.

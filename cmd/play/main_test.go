@@ -425,3 +425,18 @@ func TestPlayerProfileCommand(t *testing.T) {
 	contains(t, out, "Callum Ibsen (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:",
 		"no player 99999", "usage: player ID")
 }
+
+// history lists every season's champion and shows a past season's final
+// table or bracket.
+func TestHistory(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "6"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
+	contains(t, out,
+		"Founders League", "in progress",
+		"Eldhaven United *",
+		"Continental Cup   ", "Eldhaven United *",
+		"Founders League season 1 (14/14 rounds)",
+		"Winner: Eldhaven United",
+		"no season 1 of competition 99",
+		"usage: history [COMPETITION SEASON]",
+	)
+}

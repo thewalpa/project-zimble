@@ -2138,6 +2138,21 @@ Tests cover command retries and ID collisions, rejected-command atomicity, indep
 
 UI receives the command/query contract and display work in `ui--inbox-read-state.md`. Match and squad receive the shared command declaration's new location. The accepted five-attribute request still waits for squad's answer.
 
+## ui: season history (done)
+
+### Changes
+
+| Client | Command / page | Uses |
+| --- | --- | --- |
+| `cmd/web` | `/history` (History tab); `?competition=&season=` shows one season | `World.History`, `Table`, `Cup` |
+| `cmd/play` | `history [COMP SEASON]` | same |
+
+### Decisions
+
+- **No new state:** every season and its champion come from `World.History`; a league season shows its final table, a cup edition its bracket. In-progress seasons are listed too.
+- **Shared rendering:** the cup bracket template (`cupedition.html`) and `printEdition`/`printTable` serve both the current-cup page and history.
+- `cmd/simulate` already prints champions, so it is unchanged.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

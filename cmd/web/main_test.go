@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -923,4 +924,33 @@ func TestPlayerProfilePage(t *testing.T) {
 	}
 	contains(t, c.get("/player?id=99999"), "There is no player 99999")
 	contains(t, c.get("/player?id=x"), "is not a player ID")
+}
+
+// History lists the champions of past seasons and shows any season's final
+// table or bracket.
+func TestHistoryInTheBrowser(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 6, savePath: filepath.Join(t.TempDir(), "career.json")})
+	contains(t, c.get("/history"), "Founders League", "in progress")
+	c.post("/season", nil)
+	for range 7 {
+		c.post("/continue", nil)
+	}
+	page := c.get("/history")
+	contains(t, page, "Founders League", "Continental Cup", "Eldhaven United", "/history?competition=")
+	m := regexp.MustCompile(`href="(/history\?competition=[^"]+)"`).FindAllStringSubmatch(page, -1)
+	if len(m) == 0 {
+		t.Fatal("no season links")
+	}
+	var all string
+	for _, l := range m {
+		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
+	}
+	contains(t, all, "final table", "Quarter-finals", "Won by <b>Eldhaven United</b>", "← All seasons")
+	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode == http.StatusOK {
+		t.Fatal("an unknown season should not render")
+	}
 }
