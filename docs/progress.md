@@ -1909,10 +1909,31 @@ Accepted: the transfer is complete.
 
 ### Limitations
 
-- **The web client** has no listing form or transfer-list view yet; that is a `ui` note. `cmd/play` has them.
 - **AI clubs list only surplus.** They don't list declining or unwanted players to raise money, and they sell unlisted players to anyone who pays the valuation, their best included.
 - **Listings don't carry over** to the next window, and a listing has no minimum fee below the asking price: a bid is accepted at the asking price or not at all.
 - **Balances keep diverging** over decades (as before this change): AI clubs spend at most one upgrade a year, so rich clubs keep growing. Money use belongs to the "AI money" backlog item.
+
+## ui: the transfer list in the web client (done)
+
+The web client now lets the manager put players on the transfer list, change their asking prices and withdraw them. The Transfers page shows every listed player, offers bid forms for other clubs' listings, identifies the manager's own listings, and marks listed players in the wider positional market.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | Added `POST /list`; Squad-page list, reprice and unlist controls; a Transfer list section with bids at the asking price; listed markers in the market; an explanation that incoming bids require a listing |
+
+### Decisions
+
+- **One action for listing changes.** `POST /list` submits a positive whole-unit asking price to list or reprice a player; an explicit `unlist=yes` submits the app contract's zero asking price to withdraw him.
+- **App facts are displayed directly.** Asking prices and listed state come from `SquadPlayer.Value` and `SquadPlayer.Listed`; the transfer-list rows come from `World.TransferList`. The client adds no transfer rules.
+- **The page works without JavaScript.** Every list, reprice, unlist and bid action is a server-rendered form carrying the world revision.
+
+### Verification
+
+- `cmd/web/main_test.go`: `TestTransferListInTheBrowser` drives the forms on seed 42, club 3. It lists, reprices and unlists; checks the minimum-position refusal; receives Hollowick Town's 700,000.00 bid for Callum Ibsen; and verifies AI listings, bid forms and market markers.
+- `TestTransfersInTheBrowser` now lists Elias Gallo through the browser action instead of calling `World.ListPlayer` directly.
+- All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
 
 ## match: the manager's lineup carries over (done)
 
@@ -2085,4 +2106,3 @@ Answers `match`'s note `balance--tick-engine-profile`. A gated sweep plays both 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
 
 From now on, a lane records completed work in a section titled `## <lane>: <feature> (done)`, placed just above this one, with the same subsections as the milestones above. Milestone numbers end at 16 because parallel lanes would claim the same number. If two lanes append at the same time, keep both sections in merge order.
-

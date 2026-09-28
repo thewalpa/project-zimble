@@ -542,11 +542,9 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	page = c.post("/continue", nil)
 	contains(t, page, "Transfer news", "Jonas Gallo joined from Saltmere Athletic for 240,000.00",
 		"Your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected")
-	// AI clubs bid for the manager's players only when he lists them. The
-	// web client has no listing form yet, so the test lists through the app.
-	if _, err := c.s.w.ListPlayer(app.ListPlayer{ID: c.s.w.NextCommandID(), ExpectedRevision: c.s.w.Revision(), Player: 44, Asking: valueOf(t, c, "44")}); err != nil {
-		t.Fatal(err)
-	}
+	// AI clubs bid for the manager's players only when he lists them.
+	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
+		"Elias Gallo is on the transfer list")
 	page = c.post("/continue", nil)
 	contains(t, page, "Hollowick Town bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
 	page = c.get("/transfers")
@@ -556,6 +554,52 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, c.get("/inbox"), "Elias Gallo left for Hollowick Town for 1,200,000.00")
 	contains(t, c.get("/finances"), "transfer fee, offer 49")
 	contains(t, c.get("/squad?club=1"), "asking price")
+}
+
+// The manager lists and unlists players through the squad page. The
+// transfer page shows every listed player, offers bids for other clubs'
+// players, and marks listed players in the wider market.
+func TestTransferListInTheBrowser(t *testing.T) {
+	c := career(t)
+	page := c.get("/squad")
+	contains(t, page, `action="/list"`, `aria-label="Asking price for Callum Ibsen"`, ">List</button>")
+
+	page = c.post("/list", url.Values{"player": {"56"}, "asking": {"700,000"}, "back": {"/squad"}})
+	contains(t, page, "Callum Ibsen is on the transfer list at 700,000.00", "Listed at 700,000.00", ">Change</button>", ">Unlist</button>")
+	page = c.get("/transfers")
+	contains(t, page, "Transfer list", "Quillford FC (You)", "Callum Ibsen", "700,000.00", ">Unlist</button>",
+		"You receive bids only for players you put on the transfer list")
+
+	page = c.post("/list", url.Values{"player": {"56"}, "unlist": {"yes"}, "back": {"/transfers"}})
+	contains(t, page, "Callum Ibsen is off the transfer list", "No players are on the transfer list")
+	c.post("/list", url.Values{"player": {"56"}, "asking": {"700000"}, "back": {"/squad"}})
+
+	// A player at the positional minimum cannot be listed.
+	minimum := career(t)
+	minimum.post("/release", url.Values{"player": {"41"}, "back": {"/squad"}})
+	contains(t, minimum.post("/list", url.Values{"player": {"42"}, "asking": {"500000"}, "back": {"/squad"}}),
+		"the squad would fall below its minimum at that position: 2 GK, minimum 2")
+
+	page = c.post("/continue", nil)
+	contains(t, page, "Hollowick Town bid 700,000.00 for Callum Ibsen")
+	var other app.ListedPlayer
+	for day := 0; day < 3 && other.Player == 0; day++ {
+		for _, listed := range c.s.w.TransferList() {
+			if listed.Club != c.s.club() {
+				other = listed
+				break
+			}
+		}
+		if other.Player == 0 {
+			c.post("/continue", nil)
+		}
+	}
+	if other.Player == 0 {
+		t.Fatal("AI clubs put no player on the transfer list")
+	}
+	page = c.get("/transfers?pos=" + other.Position.String())
+	contains(t, page, other.ClubName, other.Name, `action="/bid"`,
+		other.Name+` <span class="muted">listed</span>`)
 }
 
 func mustAtoi(t *testing.T, s string) int {

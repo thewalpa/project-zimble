@@ -119,7 +119,7 @@ func newServer(cfg config) (*server, error) {
 		act  func(url.Values) (string, error)
 	}{
 		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
-		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
+		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
 	}

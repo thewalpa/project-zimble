@@ -26,13 +26,12 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Take `ui--transfer-list.md`: the transfer list in the web client.
+No open handoff. Take the player profile page next; inbox read state waits on a data-owned model.
 
 ## Backlog
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Inbox read state:** unread markers and "mark as read". This needs a read-state model from `data` first.
-- **Player profile page:** attributes, age, contract, condition, value and history in one place, composed from existing queries.
 - **Season history screen:** past tables, champions and cup winners (`World.History`, `Cups`).
 - **Match report polish:** incidents timeline and substitutions in both clients.

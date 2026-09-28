@@ -27,7 +27,7 @@
     <th class="n">{{sortHeader $d.Sort "wage" "Wage/week" "desc"}}</th>
     <th class="n">{{sortHeader $d.Sort "until" "Until" "asc"}}</th>
     <th>{{sortHeader $d.Sort "contract" "Contract" "desc"}}</th>
-    {{if $d.IsUserClub}}<th>{{sortHeader $d.Sort "payoff" "Release" "desc"}}</th>{{end}}
+    {{if $d.IsUserClub}}<th>Transfer list</th><th>{{sortHeader $d.Sort "payoff" "Release" "desc"}}</th>{{end}}
   </tr>
   {{range $d.Rows}}
   <tr {{if .FinalYear}}class="final"{{end}}>
@@ -43,6 +43,15 @@
       </form>
     {{else if $d.IsUserClub}}<span class="muted">asks {{.Demand}}</span>{{else}}<span class="muted">asking price {{.Value}}</span>{{end}}</td>
     {{if $d.IsUserClub}}
+    <td>
+      {{if .Listed}}<span class="muted">Listed at {{.Value}}</span>{{end}}
+      <form class="inline" method="post" action="/list">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/squad"><input type="hidden" name="player" value="{{.Player}}">
+        <input class="wage" name="asking" value="{{units .Value}}" aria-label="Asking price for {{.Name}}">
+        <button>{{if .Listed}}Change{{else}}List{{end}}</button>
+      </form>
+      {{if .Listed}}<form class="inline" method="post" action="/list"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/squad"><input type="hidden" name="player" value="{{.Player}}"><input type="hidden" name="unlist" value="yes"><button>Unlist</button></form>{{end}}
+    </td>
     <td>
       <form class="inline" method="post" action="/release" onsubmit="return confirm('Release {{.Name}} for {{.Payoff}}?');">
         <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/squad"><input type="hidden" name="player" value="{{.Player}}">

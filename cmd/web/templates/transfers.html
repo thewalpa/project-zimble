@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}{{$rev := .Rev}}
 <h1>Transfers</h1>
-<p class="muted">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. Continue takes you to the next transfer news while the window is open.</p>
+<p class="muted">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. You receive bids only for players you put on the transfer list. Continue takes you to the next transfer news while the window is open.</p>
 {{if $d.Received}}
 <div class="panel scroll">
 <h2>Bids for your players</h2>
@@ -40,6 +40,29 @@
 </div>
 {{end}}
 <div class="panel scroll">
+<h2>Transfer list</h2>
+{{if $d.Listed}}
+<table>
+  <tr><th>Club</th><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Asking price</th><th>Action</th></tr>
+  {{range $d.Listed}}
+  <tr {{if .Ours}}class="me"{{end}}><td>{{.ClubName}}{{if .Ours}} (You){{end}}</td><td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td>
+    <td>{{if .Ours}}
+      <form class="inline" method="post" action="/list"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="player" value="{{.Player}}"><input type="hidden" name="unlist" value="yes"><button>Unlist</button></form>
+    {{else}}
+      <form class="inline" method="post" action="/bid">
+        <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="player" value="{{.Player}}">
+        <input class="wage" name="fee" value="{{units .Value}}" aria-label="Fee">
+        <select name="years" aria-label="Years">{{$y := .Offer.Years}}{{range $d.YearOptions}}<option value="{{.}}" {{if eq . $y}}selected{{end}}>{{.}} yr</option>{{end}}</select>
+        <input class="wage" name="wage" value="{{units .Offer.WeeklyWage}}" aria-label="Weekly wage" title="Asks for {{.Demand}}; accepts up to double">
+        <button {{if or (not $d.CanBid) (not $d.Room)}}disabled{{end}}>Bid</button>
+      </form>
+    {{end}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}<p class="muted">No players are on the transfer list.</p>{{end}}
+</div>
+<div class="panel scroll">
 <h2>Market</h2>
 <div class="actions" style="margin: 0 0 12px;">
   {{range $d.Positions}}<a class="button{{if eq . $d.Position}} primary{{end}}" href="/transfers?pos={{.}}">{{.}}</a>{{end}}
@@ -56,7 +79,7 @@
     <th>Bid</th>
   </tr>
   {{range $d.Market}}
-  <tr><td>{{.Club}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
+  <tr><td>{{.Club}}</td><td>{{.Name}}{{if .Listed}} <span class="muted">listed</span>{{end}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
     <td>
       <form class="inline" method="post" action="/bid">
         <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers?pos={{$d.Position}}"><input type="hidden" name="player" value="{{.Player}}">

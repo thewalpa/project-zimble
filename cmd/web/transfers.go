@@ -32,6 +32,12 @@ type marketRow struct {
 	Offer app.ContractOffer
 }
 
+type listedRow struct {
+	app.ListedPlayer
+	Ours  bool
+	Offer app.ContractOffer
+}
+
 type transfersView struct {
 	Window       string
 	Open         bool
@@ -43,6 +49,7 @@ type transfersView struct {
 	Received     []offerRow
 	Mine         []offerRow
 	Done         []offerRow
+	Listed       []listedRow
 	Market       []marketRow
 	YearOptions  []int
 	SortMarket   SortState
@@ -108,6 +115,13 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 		}
 	}
 	slices.Reverse(v.Done)
+	for _, l := range s.w.TransferList() {
+		row := listedRow{ListedPlayer: l, Ours: l.Club == s.club()}
+		if !row.Ours {
+			row.Offer, _ = s.w.SuggestContract(l.Player)
+		}
+		v.Listed = append(v.Listed, row)
+	}
 	for _, c := range s.w.Summary().ClubRows {
 		if c.ID == s.club() {
 			continue
@@ -144,6 +158,46 @@ func positionByName(name string) (players.Position, bool) {
 		}
 	}
 	return 0, false
+}
+
+// listPlayer puts one of the manager's players on the transfer list, changes
+// his asking price, or takes him off it. Prices are entered in whole units.
+func (s *server) listPlayer(form url.Values) (string, error) {
+	if s.w == nil {
+		return "", errors.New("choose a club first")
+	}
+	playerID, err := strconv.ParseUint(form.Get("player"), 10, 64)
+	if err != nil || playerID == 0 {
+		return "", errors.New("unknown player")
+	}
+	player := ids.PlayerID(playerID)
+	asking := money.Money(0)
+	if form.Get("unlist") != "yes" {
+		units, err := strconv.ParseInt(strings.ReplaceAll(form.Get("asking"), ",", ""), 10, 64)
+		if err != nil || units <= 0 || units > 1_000_000_000_000 {
+			return "", errors.New("the asking price must be a positive whole amount")
+		}
+		asking = money.Units(units)
+	}
+	name := s.name(player)
+	res, err := s.w.ListPlayer(app.ListPlayer{
+		ID:               s.w.NextCommandID(),
+		ExpectedRevision: s.w.Revision(),
+		Player:           player,
+		Asking:           asking,
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.Asking == 0 {
+		s.say("%s is off the transfer list.", name)
+	} else {
+		s.say("%s is on the transfer list at %s until the window closes; clubs that need him may bid.", name, res.Asking)
+	}
+	if form.Get("back") == "/transfers" {
+		return "/transfers", nil
+	}
+	return "/squad", nil
 }
 
 // bid makes a bid from the market: "player", "fee", "years" and "wage"
