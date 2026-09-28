@@ -14,7 +14,7 @@ import (
 // the answer to a bid, the choice of a bid's target, and which players a
 // club lists and at what price. Bump it whenever the same squads, balances
 // and offers would produce different decisions.
-const TransfersVersion = 2
+const TransfersVersion = 3
 
 const (
 	// ValueAt60Units is a 60-overall player's value, in currency units, in
@@ -94,9 +94,13 @@ func ListingPrice(valuation money.Money) money.Money {
 }
 
 // AcceptBid reports whether an AI club accepts a bid: a fixed fee at or
-// above its price for the player, the asking price of a listed player and
-// its valuation of any other.
-func AcceptBid(fee, price money.Money) bool { return fee >= price }
+// above its price for the player (the asking price of a listed player and
+// its valuation of any other), for a player it can spare (the sale leaves it
+// at or above its roster count at his position) or still has time to
+// replace (replaceable).
+func AcceptBid(fee, price money.Money, spare, replaceable bool) bool {
+	return fee >= price && (spare || replaceable)
+}
 
 // Member is one of a club's players at a position.
 type Member struct {

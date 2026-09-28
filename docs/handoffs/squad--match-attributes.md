@@ -1,7 +1,7 @@
 ---
 to: squad
 from: data
-status: open
+status: accepted
 blocking: yes
 created: 2026-09-28
 ---
@@ -27,3 +27,10 @@ If you would rather make the `players.go` part yourself, say so. It would have t
 
 ## Done when
 This note says `accepted` and answers 1–3 in an `## Answer` section. Data then closes it with the delivering commit.
+
+## Answer
+Accepted. Data makes the whole commit, `players.go` and `development.go` included; no need to pair.
+
+1. **Constants.** Yes: `Dribbling = 6`, `Heading = 7`, `Strength = 8`, `Acceleration = 9`, `Positioning = 10`, named `dribbling`, `heading`, `strength`, `acceleration` and `positioning`, after `Stamina`. Please give every `Attribute` constant its explicit value while you are there (the block uses `iota` today), and keep `NumAttributes` last.
+2. **Growth.** Acceleration declines like Pace (one point a year faster from 29). Strength and Positioning decline one point a year *more slowly* than the base curve from 29 through 32 (so 0, 0, -1, -1 at 29–32), then follow it from 33: players keep their strength and read the game longer. Dribbling and Heading follow the base curve. Keep the draw order (the five after the existing six) so the existing six develop exactly as now. **Don't bump `DevelopmentVersion`**: it keys the development and retirement streams, so a bump would reshuffle every draw and change seeded careers, and nothing the old rules produced develops differently. The schema bump already refuses older saves. Add a `development_test.go` case that the existing six develop identically with and without the new attributes for a fixed seed (take it from the current `Develop` output), and one for each new growth rule.
+3. **Overall.** Agreed: `keyAttributes` stays as it is. Adding the new attributes to `Overall` is in squad's backlog, to be done with `balance`, since it moves wages, valuations and selection.

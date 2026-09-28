@@ -41,8 +41,15 @@ func TestValuationRisesWithOverallAndFallsWithAgeAndContract(t *testing.T) {
 }
 
 func TestAcceptBidAtOrAboveValuation(t *testing.T) {
-	if !AcceptBid(100, 100) || !AcceptBid(101, 100) || AcceptBid(99, 100) {
+	if !AcceptBid(100, 100, true, true) || !AcceptBid(101, 100, true, true) || AcceptBid(99, 100, true, true) {
 		t.Fatal("bids are not judged against the valuation")
+	}
+}
+
+// A club sells a player it needs only while it can replace him.
+func TestAcceptBidKeepsANeededPlayerLate(t *testing.T) {
+	if !AcceptBid(100, 100, false, true) || !AcceptBid(100, 100, true, false) || AcceptBid(100, 100, false, false) {
+		t.Fatal("a needed player is sold with no time to replace him")
 	}
 }
 

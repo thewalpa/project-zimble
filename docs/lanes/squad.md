@@ -27,12 +27,14 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-**Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility. Not started.
+**Star churn** ([squad--star-churn.md](../handoffs/squad--star-churn.md)): sellers keep their key players unless really outbid. Then the **free-agent pool** ([squad--free-agent-pool.md](../handoffs/squad--free-agent-pool.md)), designed with it.
 
-Done: the transfer list and AI transfers. Clubs list players at an asking price; AI clubs buy upgrades, list the players these replace, and fill vacancies from the list first; the manager lists with `ListPlayer` and gets AI bids only for listed players (see progress.md, "squad: the transfer list and AI transfers"). Those delivery notes are closed. Current incoming requests are in `squad--match-attributes.md`, `squad--free-agent-pool.md`, `squad--star-churn.md` and `squad--command-record-hub.md`; answer them under the normal handoff rhythm.
+Done: sellers keep needed players late in the window (`ai.TransfersVersion` 3; see progress.md). Answered: the five new attributes (`squad--match-attributes.md`, accepted with growth rules; data delivers).
 
 ## Backlog
 
+- **Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility.
+- **Overall with the new attributes:** once data lands the five match attributes, decide with `balance` whether they enter `keyAttributes` (it moves wages, valuations and selection).
 - **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year.
 - **Player potential** and development driven by minutes played. `MatchOutcome.Participants` already supplies minutes; agree with `match` and `data` how seasonal usage is retained and consumed without counting a retried result twice.
 - **Board feedback** and a transfer budget (club governance).

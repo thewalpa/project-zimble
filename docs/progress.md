@@ -2237,6 +2237,36 @@ Each nation now has a second division, and the default world has four leagues an
 
 - The transfer window and the season calendar drift apart by one day a year (52-week seasons); from about year 28 a first round kicks off inside the window. Reported to `competitions`.
 
+## squad: sellers keep needed players late in the window (done)
+
+An AI club no longer sells a player it needs when the answer comes too late for it to replace him. Promotion and relegation had exposed the gap: in seed 7's twelfth window, second-division club 31 sold a defender at the second-to-last run, could no longer bid for a replacement, found no defender in the pool at the close and started the season one short (`TestAIMarketKeepsSquadsFullForDecades`). Closes the `squad--seller-left-short` note.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/ai` | `AcceptBid(fee, price, spare, replaceable)`: a fee at or above the price, for a player the club can spare or still has time to replace. `TransfersVersion` 3 |
+| `internal/app` | `World.replaceable`: a club selling at a run can bid for a replacement at that run and, should that bid fail, at the next. The transfer run passes it with `spare` (the club holds more than its roster count at the position); `candidates` leaves out players an AI club would refuse to sell when the bid is answered, so AI buyers don't waste a bid on them. `TransferWindow.NeededClose` tells clients when that starts |
+
+### Decisions
+
+- **One retry, not one bid.** Requiring only that the seller can still bid at the answering run would fix seed 7, but a replacement bid that collapses at the last answering run would leave the club short again. One more run covers that; with the 28-day window, needed players stop being sold three days before the close.
+- **A timing rule, not a pool check.** Allowing the sale when the pool holds a free agent at the position would keep a few more late deals, but other clubs can take that free agent before the close.
+- **The goldens didn't move.** Seed 42's first window has no late sale of a needed player, so the version bump changes no pinned season.
+
+### Verification
+
+- `TestLateBidForANeededPlayerIsRejected`: the manager's bid made at `NeededClose` for a forward his club needs is rejected and the player stays; it fails without the rule. `TestAcceptBidKeepsANeededPlayerLate` covers the decision.
+- The full suite passes, the 30-year AI market (seed 7) and the long career tests included.
+
+### Handoffs
+
+[ui](handoffs/ui--needed-players-late.md): say when AI clubs stop selling needed players.
+
+### Limitations
+
+- A replacement bid for a manager's listed player can wait up to `ResponseDays` for the answer; if the manager lets it expire at the close, the AI club may still end short when the pool is empty. The long tests have not hit it.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

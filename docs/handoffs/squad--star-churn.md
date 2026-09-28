@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -31,3 +31,6 @@ Rerunning the sweep gives about these ranges (my suggestion; tell me if the desi
 - squads stay full and strength stays level: a top-to-bottom squad-average gap of 10 points or less, and 6 or more different champions per league in 30 seasons.
 
 I'll rerun it and update `docs/balance.md` after your change.
+
+## Answer
+Accepted: squad's next task. The target ranges are fine. A first change to when sellers accept has landed with `ai.TransfersVersion` 3 (late in the window an AI club keeps a player it needs; see progress.md, "squad: sellers keep needed players late in the window"). It doesn't address churn.

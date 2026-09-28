@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -25,3 +25,6 @@ If it is intended, decline this note with the reason, and I'll record it as the 
 
 ## Done when
 A suggestion: at the window's open, the AI-only sweep shows a pool of 3 or more players in most years, with the best of them within about 10 points of the average squad. Squads still end the window full.
+
+## Answer
+Accepted: not intended. It is second in squad's backlog, after star churn, and will be designed with it, since both are about when AI clubs sign and sell. The second divisions' clubs share the pool ([the data note](squad--market-spans-32-clubs.md), now closed, pointed this out); squad doesn't need a division rating gap for this.

@@ -70,6 +70,18 @@ func (w *World) nextTransferRun(t sim.GameInstant) (sim.GameInstant, error) {
 	return next + day, err
 }
 
+// replaceable reports whether an AI club that sells a player it needs at
+// the run at `at` can still replace him in the window closing at close: it
+// can bid at that run and, should that bid fail, once more at the next.
+func (w *World) replaceable(at, close sim.GameInstant) (bool, error) {
+	next, err := w.nextTransferRun(at)
+	if err != nil {
+		return false, err
+	}
+	after, err := w.nextTransferRun(next)
+	return after < close, err
+}
+
 // managerDeadline is when a bid made at t for one of the manager's players
 // expires: ResponseDays days later, never beyond the close.
 func (w *World) managerDeadline(t, close sim.GameInstant) sim.GameInstant {
@@ -491,8 +503,9 @@ func (w *World) deal(o transfers.Offer) events.Deal {
 //
 //  1. Every open offer to an AI club due now is answered, in offer order:
 //     the club accepts a fee of at least its price for the player (the
-//     asking price if he is listed, else its valuation; ai.AcceptBid), and
-//     an accepted offer completes at once or collapses (see complete).
+//     asking price if he is listed, else its valuation; ai.AcceptBid), for
+//     a player it can spare or can still replace (see replaceable), and an
+//     accepted offer completes at once or collapses (see complete).
 //  2. Every open offer to the manager due now expires.
 //  3. At the close, every AI club with a vacancy (a position below its
 //     roster count) signs free agents to fill it, as at the contract year
@@ -512,6 +525,10 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 	if err != nil {
 		return err
 	}
+	replaceable, err := w.replaceable(at, m.close)
+	if err != nil {
+		return err
+	}
 	for _, id := range slices.Sorted(maps.Keys(m.offers)) {
 		o, open := m.offers[id]
 		if !open || o.Deadline > at {
@@ -525,7 +542,9 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 		if err != nil {
 			return err
 		}
-		if !ai.AcceptBid(o.Fee, price) {
+		pos := m.position[o.Player]
+		spare := m.counts[o.Seller][pos] > m.w.defs.Quota(pos).Count
+		if !ai.AcceptBid(o.Fee, price, spare, replaceable) {
 			m.closeOffer(o, transfers.StatusRejected)
 			continue
 		}
@@ -761,16 +780,27 @@ func (m *market) aiBid(club ids.ClubID, target ai.TransferCandidate) error {
 // their clubs' prices: of another club that keeps its minimum at the
 // position, not moved in this window, not bid for by the club in this
 // window before, and, of the manager's players, only those he has listed.
-// It leaves out players another club has an open bid for: the earlier bid
-// is answered first.
+// It leaves out players another club has an open bid for (the earlier bid
+// is answered first), and players an AI club needs when the answer comes
+// too late for it to replace them (it would refuse; see replaceable).
 func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.TransferCandidate, error) {
 	w := m.w
+	answer, err := w.nextTransferRun(m.at)
+	if err != nil {
+		return nil, err
+	}
+	replaceable, err := w.replaceable(answer, m.close)
+	if err != nil {
+		return nil, err
+	}
 	var cands []ai.TransferCandidate
 	for _, id := range slices.Sorted(maps.Keys(m.employer)) {
 		seller, pos := m.employer[id], m.position[id]
 		_, listed := m.listings[id]
+		q := w.defs.Quota(pos)
 		if seller == club || !ok(id) || m.moved[id] || m.openFor[id] > 0 || m.bidFor[[2]uint64{uint64(club), uint64(id)}] ||
-			m.counts[seller][pos] <= w.defs.Quota(pos).Min || (seller == w.userClub && !listed) {
+			m.counts[seller][pos] <= q.Min || (seller == w.userClub && !listed) ||
+			(seller != w.userClub && !replaceable && m.counts[seller][pos] <= q.Count) {
 			continue
 		}
 		if _, stored := w.employment.Assignment(id); !stored {
@@ -790,7 +820,8 @@ func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.T
 // user club, offering the player a contract of Offer.Years contract years
 // (the current one included) at Offer.WeeklyWage. The selling club answers
 // at the next transfer run: an AI club accepts a fee of at least its
-// valuation, and the transfer then completes at once if the rules still
+// valuation (late in the window only for a player it can spare, see
+// replaceable), and the transfer then completes at once if the rules still
 // allow it. A bid needs an open window with a run left before the close, a
 // player of another club who has not moved in this window, and it must be
 // the user club's first bid for him in this window. The user club must be
@@ -1115,13 +1146,17 @@ func (w *World) TransferList() []ListedPlayer {
 
 // TransferWindow describes the transfer window under way, or the next one.
 // Bids are made until BidsClose (exclusive), so that the answer comes
-// inside the window; NextRun is when clubs next answer bids.
+// inside the window; NextRun is when clubs next answer bids. An AI club
+// sells a player it needs (it holds no more than its roster count at his
+// position) only for a bid made before NeededClose: it rejects a later one,
+// which leaves it too little time to replace him (see replaceable).
 type TransferWindow struct {
-	Open      bool
-	Opens     sim.GameInstant
-	Closes    sim.GameInstant // exclusive
-	BidsClose sim.GameInstant // exclusive
-	NextRun   sim.GameInstant
+	Open        bool
+	Opens       sim.GameInstant
+	Closes      sim.GameInstant // exclusive
+	BidsClose   sim.GameInstant // exclusive
+	NeededClose sim.GameInstant // exclusive
+	NextRun     sim.GameInstant
 }
 
 // TransferWindow returns the window under way or the next one. Read-only.
@@ -1133,7 +1168,8 @@ func (w *World) TransferWindow() TransferWindow {
 		close = open + sim.GameInstant(w.defs.Transfers.WindowDays)*sim.GameInstant(sim.Day)
 	}
 	next, _ := w.nextTransferRun(now)
-	return TransferWindow{Open: now >= open, Opens: open, Closes: close, BidsClose: close - sim.GameInstant(sim.Day), NextRun: next}
+	day := sim.GameInstant(sim.Day)
+	return TransferWindow{Open: now >= open, Opens: open, Closes: close, BidsClose: close - day, NeededClose: max(close-3*day, open), NextRun: next}
 }
 
 // OfferView is a transfer offer with display names.

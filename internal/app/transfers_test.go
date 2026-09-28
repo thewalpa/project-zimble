@@ -304,6 +304,54 @@ func TestBidBelowValuationIsRejected(t *testing.T) {
 	}
 }
 
+// Late in the window an AI club keeps a player it needs: a bid answered
+// with too few runs left for it to replace him (see replaceable) is
+// rejected, while it still sells a player it can spare.
+func TestLateBidForANeededPlayerIsRejected(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	release(t, w, userClub3, players.Forward)
+	window := w.TransferWindow()
+	late := window.NeededClose
+	if late != window.Closes-3*day {
+		t.Fatalf("needed players are sold until %d, window closes at %d", late, window.Closes)
+	}
+	mustContinue(t, w, late)
+	// The cheapest forward of an AI club holding exactly its roster count.
+	count := w.defs.Quota(players.Forward).Count
+	var target SquadPlayer
+	for _, c := range w.registry.Clubs() {
+		if c.ID == userClub3 || w.squadCounts(w.competitionsTeam(c.ID))[players.Forward] != count {
+			continue
+		}
+		squad, _ := w.Squad(c.ID)
+		for _, p := range squad {
+			if p.Position == players.Forward && biddable(w, p.Player) && (target.Player == 0 || p.Value < target.Value) &&
+				!slices.ContainsFunc(w.transfers.Open(), func(o transfers.Offer) bool { return o.Player == p.Player }) {
+				target = p
+			}
+		}
+	}
+	if target.Player == 0 {
+		t.Fatal("no forward to bid for")
+	}
+	seller := clubOf(w, target.Player)
+	res := bidFor(t, w, target.Player, target.Value)
+	mustContinue(t, w, late+day)
+	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRejected || clubOf(w, target.Player) != seller {
+		t.Fatalf("offer %+v, player at club %d", o, clubOf(w, target.Player))
+	}
+	// A bid made the day before would have been answered in time.
+	if ok, err := w.replaceable(late, window.Closes); !ok || err != nil {
+		t.Fatalf("a sale answered at %d is not replaceable: %v", late, err)
+	}
+	if ok, _ := w.replaceable(late+day, window.Closes); ok {
+		t.Fatalf("a sale answered at %d is replaceable", late+day)
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Every refused bid is reported and changes nothing.
 func TestTransferOfferRejectionsChangeNothing(t *testing.T) {
 	type setup struct {
