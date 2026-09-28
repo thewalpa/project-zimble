@@ -8,6 +8,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/selection"
@@ -26,7 +27,7 @@ type SelectedBy uint8
 
 const (
 	SelectedByAI      SelectedBy = 1 // the AI default: no lineup was submitted
-	SelectedByManager SelectedBy = 2 // the lineup submitted for the fixture
+	SelectedByManager SelectedBy = 2 // the manager's lineup: submitted for the fixture or carried over
 )
 
 func (s SelectedBy) Valid() bool { return s == SelectedByAI || s == SelectedByManager }
@@ -41,9 +42,55 @@ func (s SelectedBy) String() string {
 	return fmt.Sprintf("SelectedBy(%d)", uint8(s))
 }
 
+// LineupSource says where the lineup of a pending fixture comes from.
+// Values are durable.
+type LineupSource uint8
+
+const (
+	LineupFromSubmission LineupSource = 1 // submitted for this fixture
+	LineupCarriedOver    LineupSource = 2 // the lineup the user club last played, carried over
+	LineupSuggested      LineupSource = 3 // the AI selection: the manager has never picked one
+)
+
+func (s LineupSource) Valid() bool { return s >= LineupFromSubmission && s <= LineupSuggested }
+
+func (s LineupSource) String() string {
+	switch s {
+	case LineupFromSubmission:
+		return "submitted"
+	case LineupCarriedOver:
+		return "carried over"
+	case LineupSuggested:
+		return "suggested"
+	}
+	return fmt.Sprintf("LineupSource(%d)", uint8(s))
+}
+
+// MatchdayLineup is the lineup the user club plays in a pending fixture
+// unless the manager submits another.
+type MatchdayLineup struct {
+	Fixture ids.FixtureID
+	Lineup  selection.Lineup
+	Source  LineupSource
+	// Carried over only: the fixture the lineup was last played in, and the
+	// players of that lineup left out of this one, in lineup order. A
+	// player is left out when he is no longer in the squad (his starting
+	// place is refilled by the AI) or the bench is longer than this
+	// competition allows.
+	From    ids.FixtureID
+	Dropped []ids.PlayerID
+}
+
+func (m MatchdayLineup) clone() MatchdayLineup {
+	m.Lineup = m.Lineup.Clone()
+	m.Dropped = slices.Clone(m.Dropped)
+	return m
+}
+
 // SubmitLineup asks for the user club's lineup in a fixture of the pending
 // batch. Resubmitting replaces the earlier lineup. A fixture with no
-// submitted lineup is played with the AI selection.
+// submitted lineup is played with the lineup the user club last played,
+// carried over (see MatchdayLineup), or else the AI selection.
 type SubmitLineup struct {
 	ID               CommandID
 	ExpectedRevision Revision
@@ -147,6 +194,104 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 		l.Bench = append(l.Bench, p.Player)
 	}
 	return l, nil
+}
+
+// MatchdayLineup returns the lineup the user club plays in a pending
+// fixture if the manager submits nothing more, and where it comes from:
+//
+//   - the lineup submitted for the fixture;
+//   - else the lineup the user club played in its latest earlier match
+//     that had one (by kickoff, then fixture ID), carried over with the
+//     same tactics. Players who left the squad are dropped and their
+//     starting places refilled by ai.RefillLineup; the bench is cut to the
+//     competition's limit;
+//   - else, or when the carried lineup cannot be refilled, the AI's
+//     selection (SuggestLineup).
+//
+// ResolveRounds and PlayMatch field exactly this lineup. Read-only.
+func (w *World) MatchdayLineup(fixture ids.FixtureID) (MatchdayLineup, error) {
+	team, rules, err := w.pendingUserFixture(fixture)
+	if err != nil {
+		return MatchdayLineup{}, err
+	}
+	f, _ := w.competitions.Fixture(fixture)
+	m, ok, err := w.managerLineup(f, team, rules)
+	if err != nil || ok {
+		return m, err
+	}
+	l, err := w.SuggestLineup(fixture)
+	if err != nil {
+		return MatchdayLineup{}, err
+	}
+	return MatchdayLineup{Fixture: fixture, Lineup: l, Source: LineupSuggested}, nil
+}
+
+// managerLineup returns team's lineup for fixture f if the manager has one:
+// submitted for f, or carried over from the latest earlier fixture with a
+// stored lineup. ok is false when the AI selects instead. Read-only.
+func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules matches.Rules) (MatchdayLineup, bool, error) {
+	if l, ok := w.selections.Lineup(f.ID, team); ok {
+		return MatchdayLineup{Fixture: f.ID, Lineup: l, Source: LineupFromSubmission}, true, nil
+	}
+	var last selection.Entry
+	var lastKickoff sim.GameInstant
+	for _, e := range w.selections.Entries() {
+		prev, ok := w.competitions.Fixture(e.Fixture)
+		if e.Team != team || !ok || prev.Kickoff > f.Kickoff || e.Fixture == f.ID {
+			continue
+		}
+		if last.Fixture == 0 || prev.Kickoff > lastKickoff || (prev.Kickoff == lastKickoff && e.Fixture > last.Fixture) {
+			last, lastKickoff = e, prev.Kickoff
+		}
+	}
+	if last.Fixture == 0 {
+		return MatchdayLineup{}, false, nil
+	}
+
+	inSquad := func(p ids.PlayerID) bool {
+		a, ok := w.employment.Assignment(p)
+		return ok && a.Team == team
+	}
+	var slots []ai.Slot
+	for _, s := range last.Lineup.Starters {
+		if !inSquad(s.Player) {
+			s.Player = 0
+		}
+		slots = append(slots, ai.Slot{Player: s.Player, Role: s.Role})
+	}
+	var bench []ids.PlayerID
+	for _, p := range last.Lineup.Bench {
+		if inSquad(p) {
+			bench = append(bench, p)
+		}
+	}
+	var candidates []ai.Candidate
+	for _, id := range w.employment.Squad(team) {
+		c, err := w.candidate(id)
+		if err != nil {
+			return MatchdayLineup{}, false, err
+		}
+		candidates = append(candidates, c)
+	}
+	slots, bench, err := ai.RefillLineup(team, slots, bench, candidates, rules)
+	if errors.Is(err, ai.ErrNoLegalLineup) {
+		return MatchdayLineup{}, false, nil // the AI selects instead
+	}
+	if err != nil {
+		return MatchdayLineup{}, false, err
+	}
+	l := selection.Lineup{Bench: bench, Tactics: last.Lineup.Tactics}
+	for _, s := range slots {
+		l.Starters = append(l.Starters, selection.Slot{Player: s.Player, Role: s.Role})
+	}
+	m := MatchdayLineup{Fixture: f.ID, Lineup: l, Source: LineupCarriedOver, From: last.Fixture}
+	kept := l.Players()
+	for _, p := range last.Lineup.Players() {
+		if !slices.Contains(kept, p) {
+			m.Dropped = append(m.Dropped, p)
+		}
+	}
+	return m, true, nil
 }
 
 // SubmittedLineup returns the lineup the user club submitted for fixture, if

@@ -221,3 +221,106 @@ func TestSelectionWeighsCondition(t *testing.T) {
 		t.Fatal("zero condition accepted")
 	}
 }
+
+// savedLineup is the AI selection of squad() as a saved lineup.
+func savedLineup(t *testing.T) ([]Slot, []ids.PlayerID) {
+	t.Helper()
+	sel := mustSelect(t, squad())
+	var slots []Slot
+	for _, p := range sel.Starters {
+		slots = append(slots, Slot{Player: p.Player, Role: p.Role})
+	}
+	var bench []ids.PlayerID
+	for _, p := range sel.Bench {
+		bench = append(bench, p.Player)
+	}
+	return slots, bench
+}
+
+func TestRefillKeepsAFullLineup(t *testing.T) {
+	slots, bench := savedLineup(t)
+	got, subs, err := RefillLineup(9, slots, bench, squad(), rules)
+	if err != nil || !slices.Equal(got, slots) || !slices.Equal(subs, bench) {
+		t.Fatalf("refilled %v %v (%v), want the saved lineup", got, subs, err)
+	}
+	short := rules
+	short.MaxBench = 2
+	if _, subs, _ := RefillLineup(9, slots, bench, squad(), short); !slices.Equal(subs, bench[:2]) {
+		t.Fatalf("bench %v, want the first two of %v", subs, bench)
+	}
+}
+
+func TestRefillFillsOnlyVacancies(t *testing.T) {
+	slots, bench := savedLineup(t)
+	c := squad()
+	// A defender leaves: his slot is refilled with the best defender not
+	// starting, even from the bench, and nothing else moves.
+	gone := slots[1].Player
+	c = slices.DeleteFunc(c, func(x Candidate) bool { return x.Player == gone })
+	vacant := slices.Clone(slots)
+	vacant[1].Player = 0
+	got, subs, err := RefillLineup(9, vacant, bench, c, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want ids.PlayerID
+	for _, x := range c {
+		starts := slices.ContainsFunc(slots, func(s Slot) bool { return s.Player == x.Player })
+		if x.Natural == matches.Defender && !starts && (want == 0 || fitScore(x, matches.Defender) > fitScore(c[slices.IndexFunc(c, func(y Candidate) bool { return y.Player == want })], matches.Defender)) {
+			want = x.Player
+		}
+	}
+	for i := range slots {
+		if i == 1 {
+			if got[i] != (Slot{Player: want, Role: matches.Defender}) {
+				t.Fatalf("slot 1 = %+v, want defender %d", got[i], want)
+			}
+		} else if got[i] != slots[i] {
+			t.Fatalf("slot %d moved: %+v, was %+v", i, got[i], slots[i])
+		}
+	}
+	if slices.Contains(subs, want) || len(subs) != len(bench)-btoi(slices.Contains(bench, want)) {
+		t.Fatalf("bench %v after %d moved up from %v", subs, want, bench)
+	}
+
+	// Input order is irrelevant and the inputs are not modified.
+	before := slices.Clone(vacant)
+	slices.Reverse(c)
+	again, subs2, _ := RefillLineup(9, vacant, bench, c, rules)
+	if !slices.Equal(again, got) || !slices.Equal(subs2, subs) || !slices.Equal(vacant, before) {
+		t.Fatal("refill depends on candidate order or modified its input")
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func TestRefillRejectsWhatItCannotCarry(t *testing.T) {
+	slots, bench := savedLineup(t)
+	keeperless := slices.DeleteFunc(squad(), func(c Candidate) bool { return c.Natural == matches.Goalkeeper })
+	noKeeper := slices.Clone(slots)
+	noKeeper[0].Player = 0
+	twoKeepers := slices.Clone(slots)
+	twoKeepers[5].Role = matches.Goalkeeper
+	stranger := slices.Clone(slots)
+	stranger[3].Player = 999
+	for name, tc := range map[string]struct {
+		slots []Slot
+		bench []ids.PlayerID
+		pool  []Candidate
+	}{
+		"vacant goal, no keeper left": {noKeeper, nil, keeperless},
+		"two goalkeeper slots":        {twoKeepers, bench, squad()},
+		"starter not in the squad":    {stranger, bench, squad()},
+		"substitute also starts":      {slots, append(slices.Clone(bench), slots[4].Player), squad()},
+		"ten slots":                   {slots[:10], bench, squad()},
+	} {
+		if _, _, err := RefillLineup(9, tc.slots, tc.bench, tc.pool, rules); !errors.Is(err, ErrNoLegalLineup) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}

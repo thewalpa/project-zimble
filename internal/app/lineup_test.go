@@ -585,3 +585,134 @@ func userMatch(s *WorldSnapshot, cmd int, team ids.TeamID) int {
 	}
 	return -1
 }
+
+// userSide returns the index of team's side in a match report, or -1.
+func userSide(m MatchReport, team ids.TeamID) int {
+	switch team {
+	case m.Home.Team:
+		return 0
+	case m.Away.Team:
+		return 1
+	}
+	return -1
+}
+
+func TestLineupCarriesOverToLaterMatches(t *testing.T) {
+	// The manager submits one lineup in the first round and nothing after.
+	// Every later match carries it over, exactly as if the manager had
+	// submitted the carried lineup each time.
+	carried, explicit := userWorld(t, 42, userClub), userWorld(t, 42, userClub)
+	team := mustUserTeam(t, carried)
+	var last ids.FixtureID
+	batches := 0
+	for {
+		r1, r2 := mustContinue(t, carried, seasonEnd(carried)), mustContinue(t, explicit, seasonEnd(explicit))
+		ready, ok := r1.(FixtureRoundReady)
+		if _, ok2 := r2.(FixtureRoundReady); ok != ok2 {
+			t.Fatal("the worlds diverged before a matchday")
+		}
+		if !ok {
+			break
+		}
+		batches++
+		plays := map[ids.FixtureID]selection.Lineup{}
+		for _, f := range ready.UserFixtures {
+			m, err := carried.MatchdayLineup(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if last == 0 {
+				suggested, _ := carried.SuggestLineup(f)
+				if m.Source != LineupSuggested || !m.Lineup.Equal(suggested) || m.From != 0 {
+					t.Fatalf("first matchday: %+v, want the suggestion", m)
+				}
+				submit(t, carried, f, changedLineup(t, carried, f))
+				if m, _ = carried.MatchdayLineup(f); m.Source != LineupFromSubmission {
+					t.Fatalf("after submitting: source %s", m.Source)
+				}
+			} else if m.Source != LineupCarriedOver || m.From != last || len(m.Dropped) != 0 {
+				t.Fatalf("fixture %d: source %s from %d, dropped %v; want carried over from %d", f, m.Source, m.From, m.Dropped, last)
+			}
+			plays[f] = m.Lineup
+			submit(t, explicit, f, m.Lineup)
+			last = f
+		}
+		got, want := resolveNow(t, carried), resolveNow(t, explicit)
+		if !reflect.DeepEqual(got.Matches, want.Matches) {
+			t.Fatalf("batch %d: carrying over differs from submitting the same lineup", batches)
+		}
+		for _, m := range got.Matches {
+			if side := userSide(m, team); side >= 0 && m.Selected[side] != SelectedByManager {
+				t.Fatalf("fixture %d: user side selected by %s", m.Fixture, m.Selected[side])
+			}
+		}
+		for f, l := range plays {
+			if stored, ok := carried.SubmittedLineup(f); !ok || !stored.Equal(l) {
+				t.Fatalf("fixture %d: the lineup played was not stored", f)
+			}
+		}
+	}
+	if batches != 14 {
+		t.Fatalf("%d batches", batches)
+	}
+	if err := carried.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, carried)
+}
+
+func TestCarriedLineupReplacesPlayersWhoLeft(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	team := mustUserTeam(t, w)
+	ready := mustContinue(t, w, seasonEnd(w)).(FixtureRoundReady)
+	first := ready.UserFixtures[0]
+	saved := changedLineup(t, w, first)
+	submit(t, w, first, saved)
+	resolveNow(t, w)
+
+	// Release the first outfield starter the rules allow.
+	gone := -1
+	for i, s := range saved.Starters {
+		if s.Role == matches.Goalkeeper {
+			continue
+		}
+		if _, err := w.ReleasePlayer(ReleasePlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: s.Player}); err == nil {
+			gone = i
+			break
+		}
+	}
+	if gone < 0 {
+		t.Fatal("no starter could be released")
+	}
+
+	ready = mustContinue(t, w, seasonEnd(w)).(FixtureRoundReady)
+	next := ready.UserFixtures[0]
+	m, err := w.MatchdayLineup(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source != LineupCarriedOver || m.From != first || !slices.Equal(m.Dropped, []ids.PlayerID{saved.Starters[gone].Player}) {
+		t.Fatalf("source %s from %d, dropped %v; want player %d dropped from fixture %d", m.Source, m.From, m.Dropped, saved.Starters[gone].Player, first)
+	}
+	if m.Lineup.Tactics != saved.Tactics {
+		t.Fatal("tactics not carried over")
+	}
+	for i, s := range m.Lineup.Starters {
+		switch {
+		case i == gone && (s.Role != saved.Starters[i].Role || s.Player == saved.Starters[i].Player):
+			t.Fatalf("slot %d = %+v, want another role %d player", i, s, saved.Starters[i].Role)
+		case i != gone && s != saved.Starters[i]:
+			t.Fatalf("slot %d moved: %+v, was %+v", i, s, saved.Starters[i])
+		}
+	}
+	res := resolveNow(t, w)
+	for _, r := range res.Matches {
+		if side := userSide(r, team); side >= 0 && r.Selected[side] != SelectedByManager {
+			t.Fatal("the refilled lineup was not played")
+		}
+	}
+	if stored, _ := w.SubmittedLineup(next); !stored.Equal(m.Lineup) {
+		t.Fatal("the refilled lineup was not stored")
+	}
+	roundTrip(t, w)
+}

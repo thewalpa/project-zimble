@@ -1,5 +1,7 @@
-// Package selection owns managers' submitted match selections: the starting
-// eleven, bench and tactics a team will field in one fixture.
+// Package selection owns managers' match selections: the starting eleven,
+// bench and tactics a team will field in one fixture. The application
+// stores a submitted lineup, and also a lineup carried over from the
+// previous match once it has been played.
 //
 // It validates each lineup's own shape. Whether the players belong to the
 // team's squad, the bench fits the competition's rules and the fixture may

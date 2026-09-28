@@ -32,6 +32,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Backlog
 
+- **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup (today a submitted lineup carries over until replaced). Needs a stored "delegated" choice, so a save schema bump.
 - **Match statistics** in the outcome (shots, possession share), with a `ui` note for reports.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.

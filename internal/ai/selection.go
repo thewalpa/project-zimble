@@ -83,18 +83,9 @@ func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (m
 	if !team.Valid() {
 		return fail("invalid team ID")
 	}
-	pool := slices.Clone(candidates)
-	slices.SortFunc(pool, func(a, b Candidate) int { return cmp.Compare(a.Player, b.Player) })
-	for i, c := range pool {
-		if !c.Player.Valid() || (i > 0 && pool[i-1].Player == c.Player) {
-			return fail("player ID %d invalid or duplicated", c.Player)
-		}
-		if !c.Natural.Valid() {
-			return fail("player %d has invalid role %d", c.Player, c.Natural)
-		}
-		if c.Condition == 0 || c.Condition > matches.MaxCondition {
-			return fail("player %d has condition %d", c.Player, c.Condition)
-		}
+	pool, err := canonicalPool(team, candidates)
+	if err != nil {
+		return matches.TeamInput{}, err
 	}
 	if len(pool) < matches.StartersPerTeam {
 		return fail("%d players, need %d", len(pool), matches.StartersPerTeam)
@@ -158,6 +149,137 @@ func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (m
 		addBench(pick)
 	}
 	return input, nil
+}
+
+// canonicalPool returns a copy of candidates sorted by player ID, rejecting
+// invalid or duplicated players, roles and conditions.
+func canonicalPool(team ids.TeamID, candidates []Candidate) ([]Candidate, error) {
+	pool := slices.Clone(candidates)
+	slices.SortFunc(pool, func(a, b Candidate) int { return cmp.Compare(a.Player, b.Player) })
+	for i, c := range pool {
+		switch {
+		case !c.Player.Valid() || (i > 0 && pool[i-1].Player == c.Player):
+			return nil, fmt.Errorf("%w for team %d: player ID %d invalid or duplicated", ErrNoLegalLineup, team, c.Player)
+		case !c.Natural.Valid():
+			return nil, fmt.Errorf("%w for team %d: player %d has invalid role %d", ErrNoLegalLineup, team, c.Player, c.Natural)
+		case c.Condition == 0 || c.Condition > matches.MaxCondition:
+			return nil, fmt.Errorf("%w for team %d: player %d has condition %d", ErrNoLegalLineup, team, c.Player, c.Condition)
+		}
+	}
+	return pool, nil
+}
+
+// Slot is one starting place of a saved lineup. A zero Player is a vacancy:
+// the player who held it is no longer available.
+type Slot struct {
+	Player ids.PlayerID
+	Role   matches.Role
+}
+
+// RefillLineup carries a manager's saved lineup into a new match, changing
+// as little as possible. starters are the saved slots in slot order, with
+// vacancies; bench is the saved bench without the players who are gone;
+// candidates are the team's whole current squad.
+//
+//   - Kept starters keep their slot and role; the bench keeps its order.
+//   - Each vacancy, in slot order, is filled as SelectTeam fills a role:
+//     the natural player not starting with the best fitScore (bench players
+//     included; ties: lower player ID), else for an outfield slot the best
+//     outfield player not starting. A bench player who starts leaves the
+//     bench.
+//   - The bench is cut to rules.MaxBench, keeping its first players. Its
+//     empty places are not filled.
+//
+// Every kept player must be a candidate and selected once, and the saved
+// lineup must have exactly one goalkeeper slot. A vacancy nobody can fill
+// is ErrNoLegalLineup.
+func RefillLineup(team ids.TeamID, starters []Slot, bench []ids.PlayerID, candidates []Candidate, rules matches.Rules) ([]Slot, []ids.PlayerID, error) {
+	fail := func(format string, args ...any) ([]Slot, []ids.PlayerID, error) {
+		return nil, nil, fmt.Errorf("%w for team %d: "+format, append([]any{ErrNoLegalLineup, team}, args...)...)
+	}
+	if !team.Valid() {
+		return fail("invalid team ID")
+	}
+	pool, err := canonicalPool(team, candidates)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(starters) != matches.StartersPerTeam {
+		return fail("%d starting slots, want %d", len(starters), matches.StartersPerTeam)
+	}
+	index := func(p ids.PlayerID) int {
+		i, found := slices.BinarySearchFunc(pool, p, func(c Candidate, p ids.PlayerID) int { return cmp.Compare(c.Player, p) })
+		if !found {
+			return -1
+		}
+		return i
+	}
+	starting := make([]bool, len(pool))
+	benched := make([]bool, len(pool))
+	keepers := 0
+	for _, s := range starters {
+		if !s.Role.Valid() {
+			return fail("slot with role %d", s.Role)
+		}
+		if s.Role == matches.Goalkeeper {
+			keepers++
+		}
+		if s.Player == 0 {
+			continue
+		}
+		i := index(s.Player)
+		if i < 0 || starting[i] {
+			return fail("starter %d is not a candidate or starts twice", s.Player)
+		}
+		starting[i] = true
+	}
+	if keepers != 1 {
+		return fail("%d goalkeeper slots, want 1", keepers)
+	}
+	for _, p := range bench {
+		i := index(p)
+		if i < 0 || starting[i] || benched[i] {
+			return fail("substitute %d is not a candidate or selected twice", p)
+		}
+		benched[i] = true
+	}
+
+	// best returns the index of the best candidate not starting accepted by
+	// ok, scored for role, or -1.
+	best := func(role matches.Role, ok func(Candidate) bool) int {
+		pick := -1
+		for i, c := range pool {
+			if starting[i] || !ok(c) {
+				continue
+			}
+			if pick < 0 || fitScore(c, role) > fitScore(pool[pick], role) {
+				pick = i // ties keep the earlier (lower) player ID
+			}
+		}
+		return pick
+	}
+	out := slices.Clone(starters)
+	for n, s := range out {
+		if s.Player != 0 {
+			continue
+		}
+		i := best(s.Role, func(c Candidate) bool { return c.Natural == s.Role })
+		if i < 0 && s.Role != matches.Goalkeeper {
+			i = best(s.Role, func(c Candidate) bool { return c.Natural != matches.Goalkeeper })
+		}
+		if i < 0 {
+			return fail("cannot fill a %s slot", roleName(s.Role))
+		}
+		starting[i], benched[i] = true, false
+		out[n].Player = pool[i].Player
+	}
+	var subs []ids.PlayerID
+	for _, p := range bench {
+		if benched[index(p)] && len(subs) < int(rules.MaxBench) {
+			subs = append(subs, p)
+		}
+	}
+	return out, subs, nil
 }
 
 func roleName(r matches.Role) string {

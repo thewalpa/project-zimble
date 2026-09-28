@@ -16,6 +16,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
+	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
 type (
@@ -104,6 +105,7 @@ type plannedMatch struct {
 	input    matches.MatchInput
 	selected [2]SelectedBy
 	stamina  map[ids.PlayerID]uint8 // every selected player's, for exposure
+	carried  []selection.Entry      // carried-over lineups, stored once the results are
 }
 
 // ResolveRounds plays and records the whole pending batch as one unit of
@@ -117,11 +119,13 @@ type plannedMatch struct {
 //   - ExpectedRevision must equal Revision, and Rounds must equal the
 //     pending batch exactly.
 //   - Steps: prepare (validate fixtures, reject overlapping teams, take each
-//     side's submitted lineup or else the AI selection, with current
+//     side's manager lineup (submitted or carried over, see
+//     MatchdayLineup) or else the AI selection, with current
 //     condition, build detached inputs) -> simulate every fixture with its
 //     own random stream -> validate every outcome -> plan every
 //     participant's condition loss -> record all results and complete all
-//     rounds in one competitions call -> apply the condition plan, bump the
+//     rounds in one competitions call -> apply the condition plan, store
+//     each carried-over lineup for the fixture it was played in, bump the
 //     revision and record the command.
 //
 // Any failure before the competitions call leaves the world exactly as it
@@ -197,6 +201,14 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	// Committed. Nothing below can fail.
 	w.applyMedical(wear)
 	w.applyFinance(receipts)
+	for _, p := range plan {
+		for _, e := range p.carried {
+			// The lineup passed lineupInput, so its shape is valid.
+			if err := w.selections.Submit(e); err != nil {
+				panic(fmt.Sprintf("app: unreachable: %v", err))
+			}
+		}
+	}
 	w.live = nil // a live match is now finished and official
 	w.revision++
 	res := RoundsResolved{Command: cmd.ID, Revision: w.revision, At: w.Now(), Rounds: rounds}
@@ -283,11 +295,14 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 		}
 		p.input = matches.MatchInput{Match: p.fixture.ID, Rules: rules}
 		for _, side := range []matches.Side{matches.Home, matches.Away} {
-			in, by, err := w.sideSelection(p.fixture, side, rules)
+			in, by, carried, err := w.sideSelection(p.fixture, side, rules)
 			if err != nil {
 				return nil, err
 			}
 			*p.input.Team(side), p.selected[side.Index()] = in, by
+			if carried != nil {
+				p.carried = append(p.carried, *carried)
+			}
 		}
 		p.stamina = map[ids.PlayerID]uint8{}
 		for _, side := range []matches.Side{matches.Home, matches.Away} {
@@ -320,22 +335,34 @@ func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 	return matches.Rules{}, fmt.Errorf("app: competition %d has no league or cup definition", comp)
 }
 
-// sideSelection returns the lineup a side plays: the one submitted for the
-// fixture, revalidated against the current squad, or else the AI selection.
-func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules matches.Rules) (matches.TeamInput, SelectedBy, error) {
+// sideSelection returns the lineup a side plays: the manager's (submitted
+// for the fixture, or carried over; see MatchdayLineup), revalidated against
+// the current squad, or else the AI selection. A carried-over lineup is also
+// returned as the entry to store for the fixture once it is played, so the
+// next match carries it on and the report's SelectedByManager always has a
+// stored lineup behind it.
+func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules matches.Rules) (matches.TeamInput, SelectedBy, *selection.Entry, error) {
 	team := f.Home
 	if side == matches.Away {
 		team = f.Away
 	}
-	if l, ok := w.selections.Lineup(f.ID, team); ok {
-		in, err := w.lineupInput(team, l, rules)
+	m, ok, err := w.managerLineup(f, team, rules)
+	if err != nil {
+		return matches.TeamInput{}, 0, nil, fmt.Errorf("app: fixture %d: %w", f.ID, err)
+	}
+	if ok {
+		in, err := w.lineupInput(team, m.Lineup, rules)
 		if err != nil {
-			return matches.TeamInput{}, 0, fmt.Errorf("app: fixture %d: %w", f.ID, err)
+			return matches.TeamInput{}, 0, nil, fmt.Errorf("app: fixture %d: %w", f.ID, err)
 		}
-		return in, SelectedByManager, nil
+		var carried *selection.Entry
+		if m.Source == LineupCarriedOver {
+			carried = &selection.Entry{Fixture: f.ID, Team: team, Lineup: m.Lineup}
+		}
+		return in, SelectedByManager, carried, nil
 	}
 	in, err := w.selectTeam(team, rules)
-	return in, SelectedByAI, err
+	return in, SelectedByAI, nil, err
 }
 
 // selectTeam builds AI candidates from the team's current squad and picks a

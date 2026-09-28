@@ -1914,6 +1914,39 @@ Accepted: the transfer is complete.
 - **Listings don't carry over** to the next window, and a listing has no minimum fee below the asking price: a bid is accepted at the asking price or not at all.
 - **Balances keep diverging** over decades (as before this change): AI clubs spend at most one upgrade a year, so rich clubs keep growing. Money use belongs to the "AI money" backlog item.
 
+## match: the manager's lineup carries over (done)
+
+A lineup the manager submits now stands until they change it. A pending fixture with no lineup submitted is played with the lineup the user club played in its previous match, with the same tactics. Before this, one "Play match" without resubmitting dropped the manager back to the AI's pick. If a player from that lineup has left the squad, his starting place is refilled by the AI and he is reported as dropped. `ResolveRounds` and `PlayMatch` field exactly what the new `MatchdayLineup` query shows, and the report says `SelectedByManager`. This answers `ui`'s note `match--preserve-lineup-selection`. The same session reviewed and closed `squad`'s note `match--managed-season-baselines` without changes: the tests' match-lane invariants survived. A passive manager is still reported as AI-selected, and submitting the suggestion still plays the passive season. The invariant "a passive manager plays exactly the AI-only season" belongs to the transfer market.
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/ai` | `Slot`, `RefillLineup`: fills a saved lineup's vacancies as `SelectTeam` fills a role and cuts the bench to `MaxBench`; `SelectTeam`'s candidate checks moved to `canonicalPool` (same behavior) | – (`SelectTeam` unchanged) |
+| `internal/app` | `LineupSource` (`LineupFromSubmission` 1, `LineupCarriedOver` 2, `LineupSuggested` 3), `MatchdayLineup{Fixture, Lineup, Source, From, Dropped}`, `World.MatchdayLineup`; `sideSelection` plays the carried lineup, and `ResolveRounds` stores it for the fixture once the results are official | – (no save change) |
+
+### Decisions
+
+- **Derived, not stored as a new fact.** The standing lineup is the user team's stored lineup for its latest earlier fixture, by kickoff and then fixture ID. So the save schema doesn't change and old saves carry over at once.
+- **The lineup played is stored.** When a carried lineup is played, `ResolveRounds` stores it in `selection` for that fixture. Two things follow. The next match carries on from the lineup that was actually fielded, refills included. And the save rule "a report says `SelectedByManager` exactly when a lineup is stored" still holds. The store is written after the competitions commit, like the medical and finance plans, and it can't fail there because `lineupInput` already validated the lineup. No event is emitted: the manager didn't submit anything, and `MatchCompleted` covers the commit.
+- **Refill, don't discard.** A lineup with a player who left is kept and only his slot is refilled. Otherwise a single summer sale would silently throw away the manager's whole selection and mentality. If a slot can't be filled (no goalkeeper left), the AI selects the whole side, and the query reports `LineupSuggested`.
+- **`SuggestLineup` is still the assistant's fresh pick**, so clients can offer "ask the assistant". `SelectedBy` gets no new value: a carried lineup is the manager's.
+- **No version bump.** Seeded output changes only for careers in which the manager submitted a lineup and later didn't. No golden covers that case: the goldens submit nothing or submit every fixture, and all of them are unchanged.
+
+### Verification
+
+- **`ai`:** a full lineup comes back unchanged, with the bench cut to a smaller limit; only the vacancy is refilled, with the best natural player not starting (a bench player who moves up leaves the bench); input order doesn't matter and the inputs aren't modified; 5 lineups it cannot carry are rejected.
+- **App:**
+  - **A season carrying round 1's lineup** (seed 42, club 3, 14 matchdays): every later fixture reports `LineupCarriedOver` from the previous one. The results equal those of a world that submits the same lineup each time. Every user side is `SelectedByManager`, each lineup played is stored, and the world validates and round-trips through a save.
+  - **A released starter:** the next match drops only him, refills his slot in the same role, keeps every other slot and the tactics, is played by the manager, and round-trips through a save.
+- Every existing test and golden passes unchanged.
+
+### Limitations
+
+- **No way back to a weekly assistant pick.** Once the manager submits a lineup, it stands. Submitting the suggestion fixes that particular lineup rather than letting the assistant choose again every week. This is in the match backlog.
+- **Condition doesn't move a carried starter.** A tired player keeps his place until the manager changes it. The clients show condition.
+- **The clients** still show the suggestion instead of the carried lineup: that is the `ui` note `ui--matchday-lineup`.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
