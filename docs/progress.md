@@ -2056,6 +2056,30 @@ A second match engine, `internal/matches/tick`, moves the ball and all 22 player
 - **Simple decisions:** each tick a carrier shoots, passes or dribbles with a fixed hazard; nobody makes runs into space.
 - **Statistics are not in the outcome** and there are no checkpoints, as in `simple`.
 
+## balance: tick engine against simple engine (done)
+
+Answers `match`'s note `balance--tick-engine-profile`. A gated sweep plays both engines on the same `enginetest` teams and seeds: 17 scenarios × 3,000 knockout matches each, covering equal teams, rating gaps, quality levels and mentality pairings. The numbers and the command are in [docs/balance.md](balance.md#match-engines-tick-against-simple).
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/matches/tick` | `balance_test.go`: `TestBalanceEngineComparison` runs `simple` and `tick` in parallel and logs markdown tables. It skips unless `ZIMBLE_BALANCE=1` (about 60 s on 32 cores). It checks that knockout shootouts equal level matches | – (tests only) |
+| `docs` | `balance.md`: section "Match engines: tick against simple" | – |
+
+### Findings
+
+- **Equal teams:** `tick` 2.92 goals and 44 / 25 / 31 home / draw / away; `simple` 2.75 goals and 39 / 27 / 35. `tick`'s draws are not low: the 21% `match` saw was 200-match noise. `simple`'s home edge is weak but plausible.
+- **Mentality in `tick`:** attacking against balanced adds 20 points of win rate at no cost, and a defensive side against a non-defensive one plays in 4.7-goal matches. Filed as `match--tick-mentality`.
+- **Goals by level in `tick`:** equal teams score 2.1 goals at 40, 2.9 at 60 and 4.6 at 80, and a 20-point mismatch averages 4.3. Filed as `match--tick-goals-by-level`.
+- **Shootouts, both engines:** the stronger side wins 74–80% of shootouts at 65 v 55 and 88–90% at 70 v 50. Filed as `match--shootout-favourite`.
+
+### Decisions
+
+- **One run for league and cup:** every sweep match is a knockout. The contract guarantees the 90 minutes are unchanged by the knockout rule, so regulation results and shootouts come from the same matches.
+- **Synthetic teams, not a career:** no career match can use `tick` until `app` chooses the engine per match (`match` roadmap phase 2). The league-season comparison waits for that and is in the balance backlog.
+- **No always-on bound:** `tick`'s `TestModelTrends` already guards the signs, and a mentality or shootout bound would fail today on the findings themselves. Those bounds belong with `match`'s fixes.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

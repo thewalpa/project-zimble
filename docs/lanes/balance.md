@@ -23,7 +23,7 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
-**A baseline.** The market part is done: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market) and its sweep in `internal/app/balance_test.go`. Matches, money over 10 seasons and the population remain.
+**A baseline.** The market part is done: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market) and its sweep in `internal/app/balance_test.go`. The match engines are profiled on synthetic teams: see ["Match engines: tick against simple"](../balance.md#match-engines-tick-against-simple) and `internal/matches/tick/balance_test.go`. Matches measured over career seasons, money over 10 seasons and the population remain.
 
 Measure the current game over a fixed seed set and record it in `docs/balance.md`:
 
@@ -38,5 +38,7 @@ Then add always-on bounds for the most important of these, and file notes for an
 
 - Rerun the market sweep when `squad` answers `squad--star-churn` or `squad--free-agent-pool`, then add an always-on churn bound (a few seeds, loose limits).
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work, and after promotion and relegation lands.
+- Rerun `TestBalanceEngineComparison` when `match` answers `match--tick-mentality`, `match--tick-goals-by-level` or `match--shootout-favourite`. Then propose always-on bounds for mentality and shootouts (a few seeds, loose limits) to `match`, whose trend tests they would sit beside.
+- Once `app` can run a career on `tick` (`match` roadmap phase 2), compare the two engines over league seasons: goals, home and draw rates, upsets, final-table spread.
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.
