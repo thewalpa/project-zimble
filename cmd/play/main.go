@@ -13,6 +13,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -210,25 +211,25 @@ func (s *session) loop() {
 		case "status", "s":
 			s.status()
 		case "squad":
-			s.squad()
+			err = s.squad(args)
 		case "table", "t":
-			s.table()
+			err = s.table(args)
 		case "cup":
-			s.cup()
+			err = s.cup(args)
 		case "fixtures", "f":
-			s.fixtures()
+			err = s.fixtures(args)
 		case "finances", "money":
 			err = s.finances(args)
 		case "contracts":
-			s.contracts()
+			err = s.contracts(args)
 		case "renew":
 			err = s.renew(args)
 		case "free", "agents":
-			s.freeAgents()
+			err = s.freeAgents(args)
 		case "sign":
 			err = s.sign(args)
 		case "transfers":
-			s.transfers()
+			err = s.transfers(args)
 		case "market":
 			err = s.market(args)
 		case "bid":
@@ -453,17 +454,80 @@ func (s *session) status() {
 	s.printf("Season finished. Type continue for the next season.\n")
 }
 
-func (s *session) squad() {
+func (s *session) squad(args []string) error {
+	col := "id"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "ovr", "cond", "wage":
+			desc = true
+		case "pos", "name", "age", "contract", "ends", "id", "pick":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose pos, name, age, ovr, cond, wage, contract or id", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: squad [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: squad [COLUMN [asc|desc]]")
+		}
+	}
 	players, _ := s.w.Squad(s.club())
 	marks := map[ids.PlayerID]string{}
+	markOrder := map[ids.PlayerID]int{}
 	if d, err := s.currentDraft(); err == nil {
 		for i, sl := range d.lineup.Starters {
 			marks[sl.Player] = fmt.Sprintf("XI %-2d", i+1)
+			markOrder[sl.Player] = i + 1
 		}
-		for _, p := range d.lineup.Bench {
+		for i, p := range d.lineup.Bench {
 			marks[p] = "bench"
+			markOrder[p] = 100 + i
 		}
 	}
+	slices.SortStableFunc(players, func(a, b app.SquadPlayer) int {
+		var diff int
+		switch col {
+		case "pos":
+			diff = cmp.Compare(a.Position, b.Position)
+		case "name":
+			diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "age":
+			diff = cmp.Compare(a.Age, b.Age)
+		case "ovr":
+			diff = cmp.Compare(a.Overall, b.Overall)
+		case "cond":
+			diff = cmp.Compare(a.Condition, b.Condition)
+		case "wage":
+			diff = cmp.Compare(a.Contract.WeeklyWage, b.Contract.WeeklyWage)
+		case "contract", "ends":
+			diff = cmp.Compare(a.Contract.Expires, b.Contract.Expires)
+		case "pick":
+			oa, ob := markOrder[a.Player], markOrder[b.Player]
+			if oa == 0 {
+				oa = 999
+			}
+			if ob == 0 {
+				ob = 999
+			}
+			diff = cmp.Compare(oa, ob)
+		default:
+			diff = cmp.Compare(a.Player, b.Player)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(a.Player, b.Player))
+	})
 	cal := s.w.Calendar()
 	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s %8s  %s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "WAGE/WEEK", "CONTRACT", "PICK")
 	for _, p := range players {
@@ -475,23 +539,84 @@ func (s *session) squad() {
 		monthDay(cal.Epoch()))
 	s.printf("Every year on the eve of that date, young players improve, older ones decline, and some retire.\n")
 	s.printf("Lineup shows each player's attributes.\n")
+	return nil
 }
 
 func condition(c uint8) string { return fmt.Sprintf("%d%%", c) }
 
-func (s *session) table() {
+func (s *session) table(args []string) error {
+	col := "rank"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "pos", "rank":
+			desc = false
+		case "pts", "points", "w", "won", "d", "drawn", "gf", "gd", "p", "played":
+			desc = true
+		case "l", "lost", "ga", "club":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose pts, gd, gf, ga, w, d, l, played, club or rank", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: table [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: table [COLUMN [asc|desc]]")
+		}
+	}
 	sc, ok := s.userSchedule()
 	if !ok {
-		return
+		return errors.New("your club has no season")
 	}
 	t, _ := s.w.Table(competitions.SeasonRef{Competition: sc.Competition, Season: sc.Season})
 	if t.RoundsCompleted == 0 && t.Season > 1 {
 		// The off-season: last season's final table.
 		t, _ = s.w.Table(competitions.SeasonRef{Competition: sc.Competition, Season: sc.Season - 1})
 	}
+	rows := append([]app.TableRow(nil), t.Rows...)
+	slices.SortStableFunc(rows, func(a, b app.TableRow) int {
+		var diff int
+		switch col {
+		case "pos", "rank":
+			diff = cmp.Compare(a.Rank, b.Rank)
+		case "club":
+			diff = strings.Compare(strings.ToLower(a.Label.ClubName), strings.ToLower(b.Label.ClubName))
+		case "p", "played":
+			diff = cmp.Compare(a.Played, b.Played)
+		case "w", "won":
+			diff = cmp.Compare(a.Won, b.Won)
+		case "d", "drawn":
+			diff = cmp.Compare(a.Drawn, b.Drawn)
+		case "l", "lost":
+			diff = cmp.Compare(a.Lost, b.Lost)
+		case "gf":
+			diff = cmp.Compare(a.GoalsFor, b.GoalsFor)
+		case "ga":
+			diff = cmp.Compare(a.GoalsAgainst, b.GoalsAgainst)
+		case "gd":
+			diff = cmp.Compare(a.GoalDifference(), b.GoalDifference())
+		case "pts", "points":
+			diff = cmp.Compare(a.Points, b.Points)
+		default:
+			diff = cmp.Compare(a.Rank, b.Rank)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(a.Rank, b.Rank))
+	})
 	s.printf("\n%s season %d (%d/%d rounds)\n", t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	s.printf("%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
-	for _, r := range t.Rows {
+	for _, r := range rows {
 		mark := " "
 		if r.Label.Club == s.club() {
 			mark = "*"
@@ -499,12 +624,47 @@ func (s *session) table() {
 		s.printf("%3d%s %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d\n", r.Rank, mark, r.Label.ShortName, r.Label.ClubName,
 			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points)
 	}
+	return nil
 }
 
-func (s *session) fixtures() {
-	sc, _ := s.userSchedule()
-	cal := s.w.Calendar()
-	s.printf("\n%s season %d\n", sc.CompetitionName, sc.Season)
+func (s *session) fixtures(args []string) error {
+	col := "round"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "round":
+			desc = false
+		case "date", "when", "opp", "opponent", "result":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose round, date, opp or result", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: fixtures [round|date|opp|result [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: fixtures [round|date|opp|result [asc|desc]]")
+		}
+	}
+	sc, ok := s.userSchedule()
+	if !ok {
+		return errors.New("your club has no season")
+	}
+	type fixLine struct {
+		round   competitions.Round
+		kickoff sim.GameInstant
+		fixture app.FixtureLine
+		result  string
+	}
+	var lines []fixLine
 	for _, r := range sc.Rounds {
 		for _, f := range r.Fixtures {
 			if f.Home.Club != s.club() && f.Away.Club != s.club() {
@@ -514,9 +674,34 @@ func (s *session) fixtures() {
 			if f.Played {
 				result = fmt.Sprintf("%d-%d %s", f.Score[0], f.Score[1], outcome(f, s.club()))
 			}
-			s.printf("  R%-2d %s  F%-3d v %-30s %s\n", r.Round, cal.Format(r.Kickoff), f.ID, s.describe(f), result)
+			lines = append(lines, fixLine{round: r.Round, kickoff: r.Kickoff, fixture: f, result: result})
 		}
 	}
+	slices.SortStableFunc(lines, func(a, b fixLine) int {
+		var diff int
+		switch col {
+		case "round":
+			diff = cmp.Compare(a.round, b.round)
+		case "date", "when":
+			diff = cmp.Compare(a.kickoff, b.kickoff)
+		case "opp", "opponent":
+			diff = strings.Compare(strings.ToLower(s.describe(a.fixture)), strings.ToLower(s.describe(b.fixture)))
+		case "result":
+			diff = strings.Compare(a.result, b.result)
+		default:
+			diff = cmp.Compare(a.round, b.round)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(a.round, b.round), cmp.Compare(a.fixture.ID, b.fixture.ID))
+	})
+	cal := s.w.Calendar()
+	s.printf("\n%s season %d\n", sc.CompetitionName, sc.Season)
+	for _, l := range lines {
+		s.printf("  R%-2d %s  F%-3d v %-30s %s\n", l.round, cal.Format(l.kickoff), l.fixture.ID, s.describe(l.fixture), l.result)
+	}
+	return nil
 }
 
 // outcome is W, D or L from the club's point of view.
@@ -541,20 +726,53 @@ func outcome(f app.FixtureLine, club ids.ClubID) string {
 
 func (s *session) inbox(args []string) error {
 	n := 10
+	order := "latest"
 	if len(args) > 0 {
 		v, err := strconv.Atoi(args[0])
-		if err != nil || v < 1 {
-			return errors.New("usage: inbox [N]")
+		if err == nil {
+			if v < 1 {
+				return errors.New("usage: inbox [N]")
+			}
+			n = v
+			if len(args) > 1 {
+				switch strings.ToLower(args[1]) {
+				case "oldest", "asc":
+					order = "oldest"
+				case "latest", "newest", "desc":
+					order = "latest"
+				default:
+					return errors.New("usage: inbox [N] [latest|oldest]")
+				}
+			}
+		} else {
+			switch strings.ToLower(args[0]) {
+			case "oldest", "asc":
+				order = "oldest"
+			case "latest", "newest", "desc":
+				order = "latest"
+			default:
+				return errors.New("usage: inbox [N]")
+			}
+			if len(args) > 1 {
+				if v, err := strconv.Atoi(args[1]); err == nil && v >= 1 {
+					n = v
+				}
+			}
 		}
-		n = v
 	}
 	items := s.w.Inbox()
 	if len(items) == 0 {
 		s.printf("Your inbox is empty.\n")
 		return nil
 	}
-	s.printf("\nInbox (latest %d of %d)\n", min(n, len(items)), len(items))
-	for _, m := range items[max(len(items)-n, 0):] {
+	var showing []app.InboxItem
+	if order == "oldest" {
+		showing = append([]app.InboxItem(nil), items[:min(n, len(items))]...)
+	} else {
+		showing = append([]app.InboxItem(nil), items[max(len(items)-n, 0):]...)
+	}
+	s.printf("\nInbox (%s %d of %d)\n", order, len(showing), len(items))
+	for _, m := range showing {
 		s.printMessage(m)
 	}
 	s.markInboxRead()
@@ -1079,7 +1297,7 @@ func (s *session) season() error {
 			return err
 		}
 	}
-	s.table()
+	s.table(nil)
 	s.printf("\nSeason finished. Type continue for the next season.\n")
 	return nil
 }
@@ -1314,12 +1532,58 @@ func monthDay(epoch sim.CivilTime) string {
 // finances shows the club's balance, wage bill and latest ledger entries.
 func (s *session) finances(args []string) error {
 	n := 10
+	col := "date"
+	desc := false
 	if len(args) > 0 {
 		v, err := strconv.Atoi(args[0])
-		if err != nil || v < 1 {
-			return errors.New("usage: finances [N]")
+		if err == nil {
+			if v < 1 {
+				return errors.New("usage: finances [N]")
+			}
+			n = v
+			if len(args) > 1 {
+				col = strings.ToLower(args[1])
+				switch col {
+				case "date", "when", "what":
+					desc = false
+				case "amount", "balance":
+					desc = true
+				default:
+					return fmt.Errorf("unknown sort %q: choose date, what, amount or balance", args[1])
+				}
+				if len(args) > 2 {
+					switch strings.ToLower(args[2]) {
+					case "asc":
+						desc = false
+					case "desc":
+						desc = true
+					default:
+						return errors.New("usage: finances [N [COLUMN [asc|desc]]]")
+					}
+				}
+			}
+		} else {
+			switch strings.ToLower(args[0]) {
+			case "date", "when", "what":
+				col = strings.ToLower(args[0])
+				desc = false
+			case "amount", "balance":
+				col = strings.ToLower(args[0])
+				desc = true
+			default:
+				return errors.New("usage: finances [N]")
+			}
+			if len(args) > 1 {
+				switch strings.ToLower(args[1]) {
+				case "asc":
+					desc = false
+				case "desc":
+					desc = true
+				default:
+					return errors.New("usage: finances [COLUMN [asc|desc]]")
+				}
+			}
 		}
-		n = v
 	}
 	fin, ok := s.w.Finances(s.club())
 	if !ok {
@@ -1328,15 +1592,15 @@ func (s *session) finances(args []string) error {
 	cal := s.w.Calendar()
 	s.printf("\nBalance %s | weekly wages %s | %d ledger entries\n", fin.Balance, fin.WeeklyWage, len(fin.Entries))
 	var running money.Money
-	balances := make([]money.Money, len(fin.Entries))
+	type row struct {
+		at      sim.GameInstant
+		what    string
+		amount  money.Money
+		balance money.Money
+	}
+	allRows := make([]row, len(fin.Entries))
 	for i, e := range fin.Entries {
 		running += e.Amount
-		balances[i] = running
-	}
-	start := max(len(fin.Entries)-n, 0)
-	s.printf("\n%-26s %-16s %14s %16s\n", "DATE", "WHAT", "AMOUNT", "BALANCE")
-	for i := start; i < len(fin.Entries); i++ {
-		e := fin.Entries[i]
 		what := e.Kind.String()
 		if e.Fixture != 0 {
 			what = fmt.Sprintf("%s F%d", what, e.Fixture)
@@ -1344,7 +1608,32 @@ func (s *session) finances(args []string) error {
 		if e.Offer != 0 {
 			what = fmt.Sprintf("%s O%d", what, e.Offer)
 		}
-		s.printf("%-26s %-16s %14s %16s\n", cal.Format(e.At), what, e.Amount, balances[i])
+		allRows[i] = row{at: e.At, what: what, amount: e.Amount, balance: running}
+	}
+	start := max(len(allRows)-n, 0)
+	rows := append([]row(nil), allRows[start:]...)
+	if col != "date" || desc {
+		slices.SortStableFunc(rows, func(a, b row) int {
+			var diff int
+			switch col {
+			case "date", "when":
+				diff = cmp.Compare(a.at, b.at)
+			case "what":
+				diff = strings.Compare(strings.ToLower(a.what), strings.ToLower(b.what))
+			case "amount":
+				diff = cmp.Compare(a.amount, b.amount)
+			case "balance":
+				diff = cmp.Compare(a.balance, b.balance)
+			}
+			if desc {
+				diff = -diff
+			}
+			return diff
+		})
+	}
+	s.printf("\n%-26s %-16s %14s %16s\n", "DATE", "WHAT", "AMOUNT", "BALANCE")
+	for _, r := range rows {
+		s.printf("%-26s %-16s %14s %16s\n", cal.Format(r.at), r.what, r.amount, r.balance)
 	}
 	return nil
 }
@@ -1375,11 +1664,37 @@ func capitalize(s string) string {
 }
 
 // cup shows every cup's latest edition: its rounds, ties and results.
-func (s *session) cup() {
+func (s *session) cup(args []string) error {
+	col := "id"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "score", "result":
+			desc = true
+		case "home", "away", "id":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose home, away, score or id", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: cup [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: cup [COLUMN [asc|desc]]")
+		}
+	}
 	cups := s.w.Cups()
 	if len(cups) == 0 {
 		s.printf("No cup has been drawn yet: the Continental Cup starts when the league seasons end, with the top four of each league.\n")
-		return
+		return nil
 	}
 	cal := s.w.Calendar()
 	for _, c := range cups {
@@ -1393,7 +1708,27 @@ func (s *session) cup() {
 			if len(r.Ties) == 0 {
 				s.printf("  to be decided\n")
 			}
-			for _, f := range r.Ties {
+			ties := slices.Clone(r.Ties)
+			if len(args) > 0 {
+				slices.SortStableFunc(ties, func(a, b app.FixtureLine) int {
+					var diff int
+					switch col {
+					case "home":
+						diff = strings.Compare(strings.ToLower(a.Home.ClubName), strings.ToLower(b.Home.ClubName))
+					case "away":
+						diff = strings.Compare(strings.ToLower(a.Away.ClubName), strings.ToLower(b.Away.ClubName))
+					case "score", "result":
+						diff = cmp.Compare(a.Score[0]+a.Score[1], b.Score[0]+b.Score[1])
+					default:
+						diff = cmp.Compare(a.ID, b.ID)
+					}
+					if desc {
+						diff = -diff
+					}
+					return cmp.Or(diff, cmp.Compare(a.ID, b.ID))
+				})
+			}
+			for _, f := range ties {
 				result := "v"
 				if f.Played {
 					result = fmt.Sprintf("%d-%d", f.Score[0], f.Score[1])
@@ -1409,4 +1744,5 @@ func (s *session) cup() {
 			s.printf("\nWinner: %s\n", c.Champion.ClubName)
 		}
 	}
+	return nil
 }

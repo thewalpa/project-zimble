@@ -12,7 +12,13 @@
 {{end}}
 <div class="panel scroll">
 <table>
-  <tr><th>Round</th><th>Kickoff</th><th>Opponent</th><th class="n">Score</th><th></th></tr>
+  <tr>
+    <th>{{sortHeader $d.Sort "round" "Round" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "when" "Kickoff" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "opp" "Opponent" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "score" "Score" "desc"}}</th>
+    <th>{{sortHeader $d.Sort "outcome" "Outcome" "asc"}}</th>
+  </tr>
   {{range $d.Rows}}
   <tr>
     <td>{{.Name}}</td>

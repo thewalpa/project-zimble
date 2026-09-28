@@ -58,6 +58,12 @@ ul.plain { list-style: none; margin: 0; padding: 0; }
 ul.plain li { padding: 5px 0; border-bottom: 1px solid var(--line); }
 ul.plain li:last-child { border-bottom: 0; }
 .when { color: var(--muted); font-size: 13px; display: block; }
+.sort-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+.sort-link:hover { color: var(--ink); text-decoration: underline; }
+th.n .sort-link { justify-content: flex-end; }
+.sort-icon { font-size: 11px; line-height: 1; }
+.sort-icon.asc, .sort-icon.desc { color: var(--accent); font-weight: 700; }
+.sort-link.active { color: var(--ink); font-weight: 700; }
 </style>
 </head>
 <body>
@@ -96,5 +102,92 @@ ul.plain li:last-child { border-bottom: 0; }
   {{range .Notes}}<div class="note{{if .Error}} error{{end}}">{{.Text}}</div>{{end}}
   {{template "content" .}}
 </main>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('table').forEach(function(table) {
+    var headers = table.querySelectorAll('th');
+    headers.forEach(function(th, colIdx) {
+      var link = th.querySelector('a.sort-link');
+      if (!link) return;
+      link.addEventListener('click', function(e) {
+        var tbody = table.querySelector('tbody') || table;
+        var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(r) {
+          return !r.querySelector('th');
+        });
+        if (rows.length <= 1) return;
+        e.preventDefault();
+
+        var currentDir = link.getAttribute('data-dir');
+        var nextDir = currentDir === 'asc' ? 'desc' : 'asc';
+        if (!link.classList.contains('active')) {
+          var href = link.getAttribute('href') || '';
+          if (href.indexOf('dir=desc') !== -1) {
+            nextDir = 'desc';
+          } else {
+            nextDir = 'asc';
+          }
+        }
+
+        table.querySelectorAll('th a.sort-link').forEach(function(l) {
+          l.classList.remove('active', 'asc', 'desc');
+          var icon = l.querySelector('.sort-icon');
+          if (icon) {
+            icon.className = 'sort-icon muted';
+            icon.textContent = '↕';
+          }
+        });
+
+        link.classList.add('active', nextDir);
+        link.setAttribute('data-dir', nextDir);
+        var icon = link.querySelector('.sort-icon');
+        if (icon) {
+          icon.className = 'sort-icon ' + nextDir;
+          icon.textContent = nextDir === 'asc' ? '▲' : '▼';
+        }
+
+        rows.sort(function(rowA, rowB) {
+          var cellA = rowA.children[colIdx];
+          var cellB = rowB.children[colIdx];
+          if (!cellA || !cellB) return 0;
+          var valA = (cellA.textContent || '').trim();
+          var valB = (cellB.textContent || '').trim();
+
+          var selA = cellA.querySelector('select');
+          if (selA) valA = selA.value;
+          var selB = cellB.querySelector('select');
+          if (selB) valB = selB.value;
+
+          var cleanA = valA.replace(/[,%£$€]/g, '').trim();
+          var cleanB = valB.replace(/[,%£$€]/g, '').trim();
+          var numA = parseFloat(cleanA);
+          var numB = parseFloat(cleanB);
+          var isNum = !isNaN(numA) && !isNaN(numB) && cleanA !== '' && cleanB !== '';
+
+          var cmp = 0;
+          if (isNum) {
+            cmp = numA - numB;
+          } else {
+            cmp = valA.localeCompare(valB, undefined, {numeric: true, sensitivity: 'base'});
+          }
+          return nextDir === 'desc' ? -cmp : cmp;
+        });
+
+        rows.forEach(function(row) { tbody.appendChild(row); });
+
+        if (window.history && window.history.replaceState) {
+          try {
+            var currentUrl = new URL(window.location.href);
+            var hrefUrl = new URL(link.href, window.location.origin);
+            hrefUrl.searchParams.forEach(function(v, k) {
+              currentUrl.searchParams.set(k, v);
+            });
+            window.history.replaceState(null, '', currentUrl.toString());
+          } catch(err) {}
+        }
+      });
+    });
+  });
+});
+</script>
 </body>
 </html>

@@ -5,7 +5,15 @@
 <div class="panel scroll">
 {{if $d.Rows}}
 <table>
-  <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th><th class="n">Asks</th><th>Offer</th></tr>
+  <tr>
+    <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "asks" "Asks" "asc"}}</th>
+    <th>Offer</th>
+  </tr>
   {{range $d.Rows}}
   <tr>
     <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td><td class="n">{{.Demand}}</td>

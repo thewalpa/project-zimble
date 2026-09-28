@@ -23,6 +23,10 @@ import (
 var funcs = template.FuncMap{
 	// units renders money as whole units for a form field.
 	"units": func(m money.Money) int64 { return int64(m) / money.MinorPerUnit },
+	// sortHeader renders a sortable column header link with indicator.
+	"sortHeader": func(s SortState, col, label, defaultDir string) template.HTML {
+		return s.Header(col, label, defaultDir)
+	},
 }
 
 // layout is what every page gets: the career header, notes and the page's
@@ -235,15 +239,19 @@ type homeView struct {
 type chooseView struct {
 	Seed  uint64
 	Clubs []app.ClubSummary
+	Sort  SortState
 }
 
-func (s *server) home(*http.Request) (string, any, error) {
+func (s *server) home(r *http.Request) (string, any, error) {
 	if s.w == nil {
 		preview, err := app.NewWorld(app.DefaultConfig(s.seed))
 		if err != nil {
 			return "", nil, err
 		}
-		return "choose", chooseView{Seed: uint64(s.seed), Clubs: preview.Summary().ClubRows}, nil
+		sortState := newSortState(r, "name", "asc")
+		clubs := append([]app.ClubSummary(nil), preview.Summary().ClubRows...)
+		sortClubSummaryRows(clubs, sortState.Col, sortState.Dir)
+		return "choose", chooseView{Seed: uint64(s.seed), Clubs: clubs, Sort: sortState}, nil
 	}
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
@@ -360,6 +368,7 @@ type squadView struct {
 	Rows        []squadRow
 	ContractEnd string
 	YearOptions []int
+	Sort        SortState
 }
 
 func (s *server) squad(r *http.Request) (string, any, error) {
@@ -376,10 +385,12 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	isUserClub := (viewClub == s.club())
 	end := s.w.ContractYearEnd()
 	e := s.w.Content().Economy
+	sortState := newSortState(r, "pos", "asc")
 	v := squadView{
 		Club:        clubLabel,
 		IsUserClub:  isUserClub,
 		ContractEnd: s.endDate(end),
+		Sort:        sortState,
 	}
 	for y := e.ContractYears[0]; y <= e.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
@@ -401,7 +412,7 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 		}
 		v.Rows = append(v.Rows, row)
 	}
-	slices.SortStableFunc(v.Rows, func(a, b squadRow) int { return cmp.Compare(a.Position, b.Position) })
+	sortSquadRows(v.Rows, sortState.Col, sortState.Dir)
 	return "squad", v, nil
 }
 
@@ -416,9 +427,10 @@ type freeView struct {
 	Locked      bool // a matchday is waiting: squads cannot change
 	YearOptions []int
 	RetireAge   int
+	Sort        SortState
 }
 
-func (s *server) free(*http.Request) (string, any, error) {
+func (s *server) free(r *http.Request) (string, any, error) {
 	defs := s.w.Content()
 	counts := map[players.Position]int{}
 	squad, _ := s.w.Squad(s.club())
@@ -426,7 +438,8 @@ func (s *server) free(*http.Request) (string, any, error) {
 		counts[p.Position]++
 	}
 	_, locked := s.w.Pending()
-	v := freeView{Locked: locked, RetireAge: players.FreeAgentRetirementAge}
+	sortState := newSortState(r, "ovr", "desc")
+	v := freeView{Locked: locked, RetireAge: players.FreeAgentRetirementAge, Sort: sortState}
 	for y := defs.Economy.ContractYears[0]; y <= defs.Economy.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
 	}
@@ -434,7 +447,7 @@ func (s *server) free(*http.Request) (string, any, error) {
 		o, _ := s.w.SuggestContract(p.Player)
 		v.Rows = append(v.Rows, freeRow{SquadPlayer: p, Offer: o, Room: counts[p.Position] < defs.Quota(p.Position).Count})
 	}
-	slices.SortStableFunc(v.Rows, func(a, b freeRow) int { return cmp.Compare(b.Overall, a.Overall) })
+	sortFreeRows(v.Rows, sortState.Col, sortState.Dir)
 	return "free", v, nil
 }
 
@@ -463,9 +476,10 @@ type lineupView struct {
 	Mentalities []string
 	Rows        []lineupRow
 	Slots       []slotOption
+	Sort        SortState
 }
 
-func (s *server) lineup(*http.Request) (string, any, error) {
+func (s *server) lineup(r *http.Request) (string, any, error) {
 	fixture, ok := s.pendingFixture()
 	if !ok {
 		return "lineup", lineupView{}, nil
@@ -480,9 +494,11 @@ func (s *server) lineup(*http.Request) (string, any, error) {
 		state = "The assistant's suggestion (used unless you save changes)"
 	}
 	info, _ := s.fixtureInfo(fixture)
+	sortState := newSortState(r, "selection", "asc")
 	v := lineupView{
 		Fixture: fixture, State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
 		Title: fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
+		Sort:  sortState,
 	}
 	for m := matches.Defensive; m <= matches.Attacking; m++ {
 		v.Mentalities = append(v.Mentalities, m.String())
@@ -499,10 +515,7 @@ func (s *server) lineup(*http.Request) (string, any, error) {
 		row := lineupRow{SquadPlayer: p, Slot: cmp.Or(slot[p.Player], "out")}
 		v.Rows = append(v.Rows, row)
 	}
-	order := map[string]int{"gk": 0, "df": 1, "mf": 2, "fw": 3, "bench": 4, "out": 5}
-	slices.SortStableFunc(v.Rows, func(a, b lineupRow) int {
-		return cmp.Or(cmp.Compare(order[a.Slot], order[b.Slot]), cmp.Compare(a.Position, b.Position))
-	})
+	sortLineupRows(v.Rows, sortState.Col, sortState.Dir)
 	return "lineup", v, nil
 }
 
@@ -511,19 +524,23 @@ func (s *server) lineup(*http.Request) (string, any, error) {
 type tableView struct {
 	Tables []app.Table // the club's league first
 	Club   ids.ClubID
+	Sort   SortState
 }
 
-func (s *server) table(*http.Request) (string, any, error) {
+func (s *server) table(r *http.Request) (string, any, error) {
 	sc, ok := s.userSchedule()
 	if !ok {
 		return "", nil, errors.New("your club has no season")
 	}
-	v := tableView{Club: s.club()}
+	sortState := newSortState(r, "rank", "asc")
+	v := tableView{Club: s.club(), Sort: sortState}
 	for _, t := range s.w.Tables() {
 		if t.RoundsCompleted == 0 && t.Season > 1 {
 			// The off-season: last season's final table.
 			t, _ = s.w.Table(competitions.SeasonRef{Competition: t.Competition, Season: t.Season - 1})
 		}
+		t.Rows = append([]app.TableRow(nil), t.Rows...)
+		sortTableRows(t.Rows, sortState.Col, sortState.Dir)
 		if t.Competition == sc.Competition {
 			v.Tables = append([]app.Table{t}, v.Tables...)
 		} else {
@@ -550,6 +567,7 @@ type fixturesView struct {
 	Clubs  []clubOption
 	Season string
 	Rows   []fixtureRow
+	Sort   SortState
 }
 
 func (s *server) fixtures(r *http.Request) (string, any, error) {
@@ -566,9 +584,11 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 		return "", nil, errors.New("the club has no season")
 	}
 	clubLabel, _ := s.w.ClubLabel(viewClub)
+	sortState := newSortState(r, "round", "asc")
 	v := fixturesView{
 		Club:   clubLabel,
 		Season: fmt.Sprintf("%s season %d", sc.CompetitionName, sc.Season),
+		Sort:   sortState,
 	}
 	for _, c := range s.w.Summary().ClubRows {
 		v.Clubs = append(v.Clubs, clubOption{
@@ -620,6 +640,7 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 			}
 		}
 	}
+	sortFixtureRows(v.Rows, sortState.Col, sortState.Dir)
 	return "fixtures", v, nil
 }
 
@@ -749,12 +770,17 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 	return "report", v, nil
 }
 
-// --- inbox and money ------------------------------------------------------------
+type inboxView struct {
+	Messages []messageView
+	Sort     SortState
+}
 
-func (s *server) inbox(*http.Request) (string, any, error) {
+func (s *server) inbox(r *http.Request) (string, any, error) {
 	msgs := s.messages()
 	slices.Reverse(msgs)
-	return "inbox", msgs, nil
+	sortState := newSortState(r, "when", "desc")
+	sortInboxMessages(msgs, sortState.Col, sortState.Dir)
+	return "inbox", inboxView{Messages: msgs, Sort: sortState}, nil
 }
 
 // messages renders the inbox, oldest first.
@@ -827,14 +853,16 @@ type financesView struct {
 	WeeklyWage money.Money
 	Entries    int
 	Rows       []ledgerRow // newest first
+	Sort       SortState
 }
 
-func (s *server) finances(*http.Request) (string, any, error) {
+func (s *server) finances(r *http.Request) (string, any, error) {
 	fin, ok := s.w.Finances(s.club())
 	if !ok {
 		return "", nil, errors.New("your club has no account")
 	}
-	v := financesView{Balance: fin.Balance, WeeklyWage: fin.WeeklyWage, Entries: len(fin.Entries)}
+	sortState := newSortState(r, "when", "desc")
+	v := financesView{Balance: fin.Balance, WeeklyWage: fin.WeeklyWage, Entries: len(fin.Entries), Sort: sortState}
 	var running money.Money
 	for _, e := range fin.Entries {
 		running += e.Amount
@@ -849,6 +877,7 @@ func (s *server) finances(*http.Request) (string, any, error) {
 	}
 	slices.Reverse(v.Rows)
 	v.Rows = v.Rows[:min(len(v.Rows), 40)]
+	sortLedgerRows(v.Rows, sortState.Col, sortState.Dir)
 	return "finances", v, nil
 }
 
@@ -885,24 +914,26 @@ type cupView struct {
 	Rounds   []cupRoundView
 	Champion *app.TeamLabel
 	Mine     bool // the user club is in this edition
+	Sort     SortState
 }
 
 // cup shows the latest edition of each cup: rounds, ties, results and the
 // winner. Before the first edition it explains how teams qualify.
-func (s *server) cup(*http.Request) (string, any, error) {
+func (s *server) cup(r *http.Request) (string, any, error) {
+	sortState := newSortState(r, "fixture", "asc")
 	var out []cupView
 	for _, c := range s.w.Cups() {
-		v := cupView{Name: c.Name, Edition: int(c.Edition), Champion: c.Champion}
+		v := cupView{Name: c.Name, Edition: int(c.Edition), Champion: c.Champion, Sort: sortState}
 		for _, e := range c.Entrants {
 			v.Mine = v.Mine || e.Club == s.club()
 		}
-		for _, r := range c.Rounds {
-			title := capitalize(r.Name)
-			if r.Name != "final" {
+		for _, rRound := range c.Rounds {
+			title := capitalize(rRound.Name)
+			if rRound.Name != "final" {
 				title += "s"
 			}
-			rv := cupRoundView{Title: title, When: s.w.Calendar().Format(r.Kickoff)}
-			for _, f := range r.Ties {
+			rv := cupRoundView{Title: title, When: s.w.Calendar().Format(rRound.Kickoff)}
+			for _, f := range rRound.Ties {
 				t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
 				if f.Played {
 					t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
@@ -911,6 +942,7 @@ func (s *server) cup(*http.Request) (string, any, error) {
 				}
 				rv.Ties = append(rv.Ties, t)
 			}
+			sortCupTies(rv.Ties, sortState.Col, sortState.Dir)
 			v.Rounds = append(v.Rounds, rv)
 		}
 		out = append(out, v)

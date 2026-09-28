@@ -45,7 +45,33 @@ func (s *session) bidsReceived() []app.OfferView {
 
 // transfers shows the window, the bids for the club's players awaiting an
 // answer, the club's own bids and this window's transfers.
-func (s *session) transfers() {
+func (s *session) transfers(args []string) error {
+	col := "date"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "fee":
+			desc = true
+		case "date", "player", "name", "from", "to", "id":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose date, player, from, to or fee", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: transfers [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: transfers [COLUMN [asc|desc]]")
+		}
+	}
 	cal := s.w.Calendar()
 	win := s.w.TransferWindow()
 	s.printf("\n%s\n", s.windowLine())
@@ -58,19 +84,65 @@ func (s *session) transfers() {
 			done = append(done, o)
 		}
 	}
+	sortOffers := func(offers []app.OfferView) {
+		slices.SortStableFunc(offers, func(a, b app.OfferView) int {
+			var diff int
+			switch col {
+			case "date":
+				diff = cmp.Compare(a.Deadline, b.Deadline)
+			case "player", "name":
+				diff = strings.Compare(strings.ToLower(a.PlayerName), strings.ToLower(b.PlayerName))
+			case "from":
+				diff = strings.Compare(strings.ToLower(a.SellerName), strings.ToLower(b.SellerName))
+			case "to":
+				diff = strings.Compare(strings.ToLower(a.BuyerName), strings.ToLower(b.BuyerName))
+			case "fee":
+				diff = cmp.Compare(a.Fee, b.Fee)
+			case "id":
+				diff = cmp.Compare(a.ID, b.ID)
+			}
+			if desc {
+				diff = -diff
+			}
+			return cmp.Or(diff, cmp.Compare(a.Deadline, b.Deadline), cmp.Compare(a.ID, b.ID))
+		})
+	}
 	if received := s.bidsReceived(); len(received) > 0 {
+		sortOffers(received)
 		s.printf("\nBids for your players (accept OFFER or reject OFFER):\n")
 		for _, o := range received {
 			s.printf("  offer %-4d %-24s %-22s %14s  answer before %s\n", o.ID, o.PlayerName, o.BuyerName, o.Fee, cal.Format(o.Deadline))
 		}
 	}
 	if len(mine) > 0 {
+		sortOffers(mine)
 		s.printf("\nYour bids awaiting an answer:\n")
 		for _, o := range mine {
 			s.printf("  offer %-4d %-24s %-22s %14s  answered %s\n", o.ID, o.PlayerName, o.SellerName, o.Fee, cal.Format(o.Deadline))
 		}
 	}
 	if len(done) > 0 && win.Open {
+		slices.SortStableFunc(done, func(a, b app.OfferView) int {
+			var diff int
+			switch col {
+			case "date":
+				diff = cmp.Compare(a.ClosedAt, b.ClosedAt)
+			case "player", "name":
+				diff = strings.Compare(strings.ToLower(a.PlayerName), strings.ToLower(b.PlayerName))
+			case "from":
+				diff = strings.Compare(strings.ToLower(a.SellerName), strings.ToLower(b.SellerName))
+			case "to":
+				diff = strings.Compare(strings.ToLower(a.BuyerName), strings.ToLower(b.BuyerName))
+			case "fee":
+				diff = cmp.Compare(a.Fee, b.Fee)
+			case "id":
+				diff = cmp.Compare(a.ID, b.ID)
+			}
+			if desc {
+				diff = -diff
+			}
+			return cmp.Or(diff, cmp.Compare(a.ClosedAt, b.ClosedAt), cmp.Compare(a.ID, b.ID))
+		})
 		s.printf("\nTransfers in this window:\n")
 		for _, o := range done {
 			mark := "  "
@@ -81,17 +153,44 @@ func (s *session) transfers() {
 		}
 	}
 	s.printf("\nmarket GK|DF|MF|FW lists other clubs' players with their asking prices; bid ID [FEE [YEARS [WAGE]]] makes a bid.\n")
+	return nil
 }
 
 // market lists other clubs' players at a position, best first, with their
 // clubs' asking prices.
 func (s *session) market(args []string) error {
-	if len(args) != 1 {
+	if len(args) < 1 {
 		return errors.New("usage: market GK|DF|MF|FW")
 	}
 	pos, ok := positionNames[strings.ToLower(args[0])]
 	if !ok {
 		return errors.New("usage: market GK|DF|MF|FW")
+	}
+	col := "ovr"
+	desc := true
+	if len(args) > 1 {
+		col = strings.ToLower(args[1])
+		switch col {
+		case "ovr", "price", "value":
+			desc = true
+		case "id", "club", "clb", "name", "age", "ends", "contract":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose ovr, price, id, club, name, age or ends", args[1])
+		}
+		if len(args) > 2 {
+			switch strings.ToLower(args[2]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: market GK|DF|MF|FW [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 3 {
+			return errors.New("usage: market GK|DF|MF|FW [COLUMN [asc|desc]]")
+		}
 	}
 	type row struct {
 		app.SquadPlayer
@@ -109,7 +208,29 @@ func (s *session) market(args []string) error {
 			}
 		}
 	}
-	slices.SortStableFunc(rows, func(a, b row) int { return cmp.Or(cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player)) })
+	slices.SortStableFunc(rows, func(a, b row) int {
+		var diff int
+		switch col {
+		case "id":
+			diff = cmp.Compare(a.Player, b.Player)
+		case "club", "clb":
+			diff = strings.Compare(strings.ToLower(a.club), strings.ToLower(b.club))
+		case "name":
+			diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "age":
+			diff = cmp.Compare(a.Age, b.Age)
+		case "ovr":
+			diff = cmp.Compare(a.Overall, b.Overall)
+		case "ends", "contract":
+			diff = cmp.Compare(a.Contract.Expires, b.Contract.Expires)
+		case "price", "value":
+			diff = cmp.Compare(a.Value, b.Value)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
+	})
 	cal := s.w.Calendar()
 	s.printf("\n%4s  %-3s %-24s %3s %5s %8s %14s\n", "ID", "CLB", "NAME", "AGE", "OVR", "ENDS", "ASKING PRICE")
 	for _, r := range rows[:min(len(rows), 20)] {

@@ -509,3 +509,45 @@ func valueOf(t *testing.T, c *client, player string) money.Money {
 	t.Fatalf("player %s is at no club", player)
 	return 0
 }
+
+func TestSortableLists(t *testing.T) {
+	c := career(t)
+
+	// 1. Squad sorting
+	squadOvrDesc := c.get("/squad?sort=ovr&dir=desc")
+	contains(t, squadOvrDesc, "data-col=\"ovr\"", "sort-icon desc")
+
+	squadNameAsc := c.get("/squad?sort=name&dir=asc")
+	contains(t, squadNameAsc, "data-col=\"name\"", "sort-icon asc")
+
+	// 2. Table sorting
+	tableClub := c.get("/table?sort=club&dir=asc")
+	contains(t, tableClub, "data-col=\"club\"", "sort-icon asc")
+
+	// 3. Fixtures sorting
+	fixturesOpp := c.get("/fixtures?sort=opp&dir=asc")
+	contains(t, fixturesOpp, "data-col=\"opp\"", "sort-icon asc")
+
+	// 4. Finances sorting
+	financesAmount := c.get("/finances?sort=amount&dir=desc")
+	contains(t, financesAmount, "data-col=\"amount\"", "sort-icon desc")
+
+	// 5. Transfers market sorting
+	transfersPrice := c.get("/transfers?sort=price&dir=desc")
+	contains(t, transfersPrice, "data-col=\"price\"")
+
+	// 6. Choose club sorting (no career)
+	cNoClub := newClient(t, config{seed: 42, savePath: filepath.Join(t.TempDir(), "new.json")})
+	chooseName := cNoClub.get("/?sort=name&dir=asc")
+	contains(t, chooseName, "data-col=\"name\"", "sort-icon asc")
+
+	// 7. Lineup sorting (when pending match)
+	c.post("/continue", nil) // moves to matchday
+	lineupOvr := c.get("/lineup?sort=ovr&dir=desc")
+	contains(t, lineupOvr, "data-col=\"ovr\"", "sort-icon desc")
+
+	// 8. Inbox sorting (after playing match)
+	c.post("/continue", nil) // plays match
+	inboxDate := c.get("/inbox?sort=when&dir=asc")
+	contains(t, inboxDate, "data-col=\"when\"")
+}

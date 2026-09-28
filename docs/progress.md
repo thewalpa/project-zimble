@@ -1708,8 +1708,29 @@ Accepted: the transfer is complete.
 - **AI valuations ignore form and the club's needs,** and AI clubs don't sell to raise money or refuse to sell their best player.
 - **The window's free-agent signings** don't prefer players the club did not release, unlike the contract year.
 
+## ui: sortable lists in web and CLI (done)
+
+All lists and tables in the application are now sortable by column in both the web interface (`cmd/web`) and the interactive CLI (`cmd/play`).
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `cmd/web` | Added `sort.go` with `SortState`, `sortHeader` template helper, and stable multi-column sorting functions for squad, table, fixtures, finances, transfers (market, received, mine, done), free agents, choose club, lineup, cup, and inbox. Updated all list templates with clickable column header links (`?sort=...&dir=...`), CSS indicator arrows, and progressive enhancement JS. |
+| `cmd/play` | Added optional sorting arguments to `squad`, `table`, `fixtures`, `finances`, `contracts`, `free`, `market`, `transfers`, `inbox`, and `cup`. |
+| `cmd/web/main_test.go` | Added `TestSortableLists` testing sorting URL parameters and output ordering across all views. |
+| `cmd/play/main_test.go` | Added `TestSortableLists` testing CLI sort commands and error messages for invalid sort arguments. |
+
+### Decisions
+
+- **No-JS first with progressive enhancement:** In `cmd/web`, all column headers are standard HTML anchor links carrying `?sort=<col>&dir=<asc|desc>`. Sorting is fully server-side rendered. For users with JavaScript enabled, a lightweight client-side table sorter intercepts clicks to sort instantly and update the URL via `history.replaceState`.
+- **Both clients rule:** Every list that can be sorted in `cmd/web` can also be sorted in `cmd/play` via optional arguments (e.g. `squad ovr desc`, `table club asc`, `fixtures opp`, `market fw price desc`).
+- **Stable sorting:** Slices are sorted with `slices.SortStableFunc` and deterministic tie-breakers (e.g., ID or round) to maintain consistent order across repeated sorts.
+- **Strict backward compatibility:** In `cmd/play`, omitting sort arguments retains previous default ordering and output verbatim, and existing command syntax is preserved without regressions.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
 
 From now on, a lane records completed work in a section titled `## <lane>: <feature> (done)`, placed just above this one, with the same subsections as the milestones above. Milestone numbers end at 16 because parallel lanes would claim the same number. If two lanes append at the same time, keep both sections in merge order.
+

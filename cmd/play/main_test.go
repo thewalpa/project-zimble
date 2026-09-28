@@ -323,3 +323,37 @@ func TestTransfers(t *testing.T) {
 		t.Fatal("a rejected bid moved the player")
 	}
 }
+
+func TestSortableLists(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"squad ovr desc",
+		"squad name asc",
+		"squad bogus",
+		"table club",
+		"table gd",
+		"table bogus",
+		"fixtures opp",
+		"contracts wage",
+		"contracts bogus",
+		"finances what",
+		"finances 5 amount desc",
+		"market fw price desc",
+		"market fw name asc",
+		"market fw bogus",
+		"inbox 5 oldest",
+		"cup home",
+		"cup bogus",
+		"q", "q",
+	)
+	contains(t, out,
+		"POS", "NAME", "OVR",
+		"ABB", "CLUB",
+		"WAGE/WEEK",
+		"ASKING PRICE",
+		`! unknown sort "bogus": choose pos, name, age, ovr, cond, wage, contract or id`,
+		`! unknown sort "bogus": choose pts, gd, gf, ga, w, d, l, played, club or rank`,
+		`! unknown sort "bogus": choose ends, wage, ovr, age, name, pos or asks`,
+		`! unknown sort "bogus": choose ovr, price, id, club, name, age or ends`,
+		`! unknown sort "bogus": choose home, away, score or id`,
+	)
+}

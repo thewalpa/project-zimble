@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -32,9 +33,61 @@ func (s *session) expiring() []app.SquadPlayer {
 
 // contracts lists the squad's contracts, soonest end first, with what each
 // player asks for in a new one.
-func (s *session) contracts() {
+func (s *session) contracts(args []string) error {
+	col := "ends"
+	desc := false
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "ends", "contract":
+			desc = false
+		case "wage", "ovr":
+			desc = true
+		case "age", "name", "pos", "asks", "id":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose ends, wage, ovr, age, name, pos or asks", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: contracts [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: contracts [COLUMN [asc|desc]]")
+		}
+	}
 	squad, _ := s.w.Squad(s.club())
-	slices.SortStableFunc(squad, func(a, b app.SquadPlayer) int { return cmp.Compare(a.Contract.Expires, b.Contract.Expires) })
+	slices.SortStableFunc(squad, func(a, b app.SquadPlayer) int {
+		var diff int
+		switch col {
+		case "ends", "contract":
+			diff = cmp.Compare(a.Contract.Expires, b.Contract.Expires)
+		case "wage":
+			diff = cmp.Compare(a.Contract.WeeklyWage, b.Contract.WeeklyWage)
+		case "ovr":
+			diff = cmp.Compare(a.Overall, b.Overall)
+		case "age":
+			diff = cmp.Compare(a.Age, b.Age)
+		case "name":
+			diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "pos":
+			diff = cmp.Compare(a.Position, b.Position)
+		case "asks":
+			diff = cmp.Compare(a.Demand, b.Demand)
+		default:
+			diff = cmp.Compare(a.Contract.Expires, b.Contract.Expires)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(a.Contract.Expires, b.Contract.Expires), cmp.Compare(a.Player, b.Player))
+	})
 	cal := s.w.Calendar()
 	end := s.w.ContractYearEnd()
 	s.printf("\n%4s  %-3s %-24s %3s %5s %12s %8s %12s\n", "ID", "POS", "NAME", "AGE", "OVR", "WAGE/WEEK", "ENDS", "ASKS FOR")
@@ -48,23 +101,75 @@ func (s *session) contracts() {
 	}
 	s.printf("Contracts in their final year end on %s. Players accept from their asking wage up to double it.\n", cal.Format(end))
 	s.printf("renew ID [YEARS [WAGE]] offers a new contract; without YEARS and WAGE it offers the usual terms.\n")
+	return nil
 }
 
 // freeAgents lists the unemployed players, best first.
-func (s *session) freeAgents() {
+func (s *session) freeAgents(args []string) error {
+	col := "ovr"
+	desc := true
+	if len(args) > 0 {
+		col = strings.ToLower(args[0])
+		switch col {
+		case "ovr", "cond", "wage", "asks":
+			desc = true
+		case "pos", "name", "age", "id":
+			desc = false
+		default:
+			return fmt.Errorf("unknown sort %q: choose ovr, pos, name, age, cond, asks or id", args[0])
+		}
+		if len(args) > 1 {
+			switch strings.ToLower(args[1]) {
+			case "asc":
+				desc = false
+			case "desc":
+				desc = true
+			default:
+				return errors.New("usage: free [COLUMN [asc|desc]]")
+			}
+		}
+		if len(args) > 2 {
+			return errors.New("usage: free [COLUMN [asc|desc]]")
+		}
+	}
 	agents := s.w.FreeAgents()
 	if len(agents) == 0 {
 		s.printf("There are no free agents. Players whose contracts end on %s and are not renewed become free agents.\n",
 			s.w.Calendar().Format(s.w.ContractYearEnd()))
-		return
+		return nil
 	}
-	slices.SortStableFunc(agents, func(a, b app.SquadPlayer) int { return cmp.Compare(b.Overall, a.Overall) })
+	slices.SortStableFunc(agents, func(a, b app.SquadPlayer) int {
+		var diff int
+		switch col {
+		case "pos":
+			diff = cmp.Compare(a.Position, b.Position)
+		case "name":
+			diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+		case "age":
+			diff = cmp.Compare(a.Age, b.Age)
+		case "ovr":
+			diff = cmp.Compare(a.Overall, b.Overall)
+		case "cond":
+			diff = cmp.Compare(a.Condition, b.Condition)
+		case "wage", "asks":
+			diff = cmp.Compare(a.Demand, b.Demand)
+		case "id":
+			diff = cmp.Compare(a.Player, b.Player)
+		default:
+			diff = cmp.Compare(b.Overall, a.Overall)
+		}
+		if desc {
+			diff = -diff
+		}
+		return cmp.Or(diff, cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
+	})
 	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "ASKS FOR")
 	for _, p := range agents {
 		s.printf("%4d  %-3s %-24s %3d %5d %5s %12s\n", p.Player, p.Position, p.Name, p.Age, p.Overall, condition(p.Condition), p.Demand)
 	}
 	s.printf("Free agents retire on the eve of %s once they are %d.\n", monthDay(s.w.Calendar().Epoch()), players.FreeAgentRetirementAge)
 	s.printf("sign ID [YEARS [WAGE]] signs a player; without YEARS and WAGE it offers the usual terms.\n")
+	return nil
 }
 
 // offer parses "ID [YEARS [WAGE]]" for a player in pool, taking missing

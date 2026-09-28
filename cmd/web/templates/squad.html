@@ -12,9 +12,22 @@
 {{end}}
 <div class="panel scroll">
 <table>
-  <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th>
-      <th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th>
-      <th class="n">Wage/week</th><th class="n">Until</th><th>Contract</th></tr>
+  <tr>
+    <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "gk" "GK" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "def" "DEF" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "pas" "PAS" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "fin" "FIN" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "pac" "PAC" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "sta" "STA" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "wage" "Wage/week" "desc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "until" "Until" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "contract" "Contract" "desc"}}</th>
+  </tr>
   {{range $d.Rows}}
   <tr {{if .FinalYear}}class="final"{{end}}>
     <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>

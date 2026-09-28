@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"net/http"
@@ -34,17 +33,21 @@ type marketRow struct {
 }
 
 type transfersView struct {
-	Window      string
-	Open        bool
-	CanBid      bool // the window takes bids and no matchday is waiting
-	Room        bool // the squad has room at the market's position
-	Position    string
-	Positions   []string
-	Received    []offerRow
-	Mine        []offerRow
-	Done        []offerRow
-	Market      []marketRow
-	YearOptions []int
+	Window       string
+	Open         bool
+	CanBid       bool // the window takes bids and no matchday is waiting
+	Room         bool // the squad has room at the market's position
+	Position     string
+	Positions    []string
+	Received     []offerRow
+	Mine         []offerRow
+	Done         []offerRow
+	Market       []marketRow
+	YearOptions  []int
+	SortMarket   SortState
+	SortReceived SortState
+	SortMine     SortState
+	SortDone     SortState
 }
 
 // windowText describes the transfer window under way or the next one.
@@ -116,9 +119,18 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 			v.Market = append(v.Market, marketRow{SquadPlayer: p, Club: c.ShortName, Ends: ends.Year, Offer: o})
 		}
 	}
-	slices.SortStableFunc(v.Market, func(a, b marketRow) int {
-		return cmp.Or(cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
-	})
+	v.SortMarket = newSortStatePrefixed(r, "m_", "ovr", "desc")
+	if r.URL.Query().Has("sort") && !r.URL.Query().Has("m_sort") {
+		v.SortMarket = newSortState(r, "ovr", "desc")
+	}
+	v.SortReceived = newSortStatePrefixed(r, "rec_", "id", "asc")
+	v.SortMine = newSortStatePrefixed(r, "mine_", "id", "asc")
+	v.SortDone = newSortStatePrefixed(r, "done_", "when", "desc")
+
+	sortMarketRows(v.Market, v.SortMarket.Col, v.SortMarket.Dir)
+	sortOfferRows(v.Received, v.SortReceived.Col, v.SortReceived.Dir)
+	sortOfferRows(v.Mine, v.SortMine.Col, v.SortMine.Dir)
+	sortOfferRows(v.Done, v.SortDone.Col, v.SortDone.Dir)
 	return "transfers", v, nil
 }
 

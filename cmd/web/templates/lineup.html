@@ -14,8 +14,20 @@
   </div>
   <div class="panel scroll">
   <table>
-    <tr><th>Selection</th><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Cond</th>
-        <th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th></tr>
+    <tr>
+      <th>{{sortHeader $d.Sort "selection" "Selection" "asc"}}</th>
+      <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
+      <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "gk" "GK" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "def" "DEF" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "pas" "PAS" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "fin" "FIN" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "pac" "PAC" "desc"}}</th>
+      <th class="n">{{sortHeader $d.Sort "sta" "STA" "desc"}}</th>
+    </tr>
     {{range $d.Rows}}{{$slot := .Slot}}
     <tr>
       <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>

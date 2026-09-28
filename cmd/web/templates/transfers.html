@@ -6,7 +6,14 @@
 <div class="panel scroll">
 <h2>Bids for your players</h2>
 <table>
-  <tr><th>Offer</th><th>Player</th><th>From</th><th class="n">Fee</th><th>Answer before</th><th></th></tr>
+  <tr>
+    <th>{{sortHeader $d.SortReceived "id" "Offer" "asc"}}</th>
+    <th>{{sortHeader $d.SortReceived "player" "Player" "asc"}}</th>
+    <th>{{sortHeader $d.SortReceived "buyer" "From" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortReceived "fee" "Fee" "desc"}}</th>
+    <th>{{sortHeader $d.SortReceived "when" "Answer before" "asc"}}</th>
+    <th></th>
+  </tr>
   {{range $d.Received}}
   <tr><td>{{.ID}}</td><td>{{.PlayerName}}</td><td>{{.BuyerName}}</td><td class="n">{{.Fee}}</td><td>{{.When}}</td>
     <td>
@@ -21,7 +28,13 @@
 <div class="panel scroll">
 <h2>Your bids awaiting an answer</h2>
 <table>
-  <tr><th>Offer</th><th>Player</th><th>Club</th><th class="n">Fee</th><th>Answered on</th></tr>
+  <tr>
+    <th>{{sortHeader $d.SortMine "id" "Offer" "asc"}}</th>
+    <th>{{sortHeader $d.SortMine "player" "Player" "asc"}}</th>
+    <th>{{sortHeader $d.SortMine "seller" "Club" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortMine "fee" "Fee" "desc"}}</th>
+    <th>{{sortHeader $d.SortMine "when" "Answered on" "asc"}}</th>
+  </tr>
   {{range $d.Mine}}<tr><td>{{.ID}}</td><td>{{.PlayerName}}</td><td>{{.SellerName}}</td><td class="n">{{.Fee}}</td><td>{{.When}}</td></tr>{{end}}
 </table>
 </div>
@@ -33,7 +46,15 @@
 </div>
 {{if not $d.Room}}<p class="muted">Your squad is full at {{$d.Position}}: you can buy only where you have room.</p>{{end}}
 <table>
-  <tr><th>Club</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Until</th><th class="n">Asking price</th><th>Bid</th></tr>
+  <tr>
+    <th>{{sortHeader $d.SortMarket "club" "Club" "asc"}}</th>
+    <th>{{sortHeader $d.SortMarket "name" "Name" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortMarket "age" "Age" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortMarket "ovr" "OVR" "desc"}}</th>
+    <th class="n">{{sortHeader $d.SortMarket "until" "Until" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortMarket "price" "Asking price" "desc"}}</th>
+    <th>Bid</th>
+  </tr>
   {{range $d.Market}}
   <tr><td>{{.Club}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
     <td>
@@ -52,7 +73,13 @@
 <div class="panel scroll">
 <h2>Transfers in this window</h2>
 <table>
-  <tr><th>Date</th><th>Player</th><th>From</th><th>To</th><th class="n">Fee</th></tr>
+  <tr>
+    <th>{{sortHeader $d.SortDone "when" "Date" "desc"}}</th>
+    <th>{{sortHeader $d.SortDone "player" "Player" "asc"}}</th>
+    <th>{{sortHeader $d.SortDone "from" "From" "asc"}}</th>
+    <th>{{sortHeader $d.SortDone "to" "To" "asc"}}</th>
+    <th class="n">{{sortHeader $d.SortDone "fee" "Fee" "desc"}}</th>
+  </tr>
   {{range $d.Done}}<tr {{if .Ours}}class="me"{{end}}><td>{{.When}}</td><td>{{.PlayerName}}</td><td>{{.SellerName}}</td><td>{{.BuyerName}}</td><td class="n">{{.Fee}}</td></tr>{{end}}
 </table>
 </div>
