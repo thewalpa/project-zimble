@@ -46,7 +46,8 @@ func release(t *testing.T, w *World, club ids.ClubID, pos players.Position) ids.
 }
 
 // bestAt returns the best player at a position (ties: lowest ID) of a club
-// other than except whose squad is above its minimum there.
+// other than except whose squad is above its minimum there, whom no club
+// has an open bid for (the earlier bid would be answered first).
 func bestAt(t *testing.T, w *World, pos players.Position, except ids.ClubID) SquadPlayer {
 	t.Helper()
 	var best []SquadPlayer
@@ -57,7 +58,7 @@ func bestAt(t *testing.T, w *World, pos players.Position, except ids.ClubID) Squ
 		}
 		squad, _ := w.Squad(c.ID)
 		for _, p := range squad {
-			if p.Position == pos {
+			if p.Position == pos && !slices.ContainsFunc(w.transfers.Open(), func(o transfers.Offer) bool { return o.Player == p.Player }) {
 				best = append(best, p)
 			}
 		}
@@ -172,12 +173,24 @@ func TestTransferWindowAndRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Without a manager, full squads have no vacancies: the window passes
-	// without an offer.
+	// Without a manager, AI clubs trade among themselves: they buy
+	// upgrades, list the players these replace and buy listed players to
+	// fill their vacancies. The transfer list is cleared at the close.
 	ai := newWorld(t, 42)
-	mustContinue(t, ai, closes+day)
-	if len(ai.Offers()) != 0 || len(transferEvents(ai)) != 0 {
-		t.Fatalf("an AI-only world made %d offers", len(ai.Offers()))
+	listed := 0
+	for d := sim.GameInstant(1); d < 28; d++ {
+		mustContinue(t, ai, d*day)
+		listed = max(listed, len(ai.TransferList()))
+	}
+	if listed == 0 || !slices.ContainsFunc(ai.Offers(), func(o OfferView) bool { return o.Status == transfers.StatusCompleted }) {
+		t.Fatalf("an AI-only world made %d offers and listed at most %d players", len(ai.Offers()), listed)
+	}
+	mustContinue(t, ai, closes)
+	if len(ai.TransferList()) != 0 || len(ai.transfers.Open()) != 0 {
+		t.Fatalf("after the close %d players are listed and %d offers open", len(ai.TransferList()), len(ai.transfers.Open()))
+	}
+	if err := ai.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -373,50 +386,56 @@ func TestTransferOfferRejectionsChangeNothing(t *testing.T) {
 	}
 }
 
-// bidScenario finds, by simulation, an AI club whose vacancy leads it to
-// bid for one of the manager's players at the first run: the world after
-// that run and the bid. Every fresh world is the same, so the search is
-// deterministic.
+func listFor(t *testing.T, w *World, player ids.PlayerID, asking money.Money) PlayerListed {
+	t.Helper()
+	res, err := w.ListPlayer(ListPlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: player, Asking: asking})
+	if err != nil {
+		t.Fatalf("list player %d at %s: %v", player, asking, err)
+	}
+	return res
+}
+
+// bidScenario finds, by simulation, a manager's player whom an AI club bids
+// for at the first run once the manager lists him at half his valuation:
+// the world after that run and the bid. Every fresh world is the same, so the
+// search is deterministic.
 func bidScenario(t *testing.T) func(*testing.T) (*World, transfers.Offer) {
 	t.Helper()
-	for _, c := range newWorld(t, 42).registry.Clubs() {
-		if c.ID == userClub3 {
-			continue
-		}
-		for _, pos := range players.Positions() {
-			build := func(t *testing.T) (*World, transfers.Offer) {
-				w := userWorld(t, 42, userClub3)
-				release(t, w, c.ID, pos)
-				mustContinue(t, w, day)
-				for _, o := range w.transfers.Open() {
-					if o.Seller == userClub3 {
-						return w, o
-					}
-				}
-				return nil, transfers.Offer{}
-			}
-			if w, _ := build(t); w != nil {
-				return func(t *testing.T) (*World, transfers.Offer) {
-					w, o := build(t)
-					if w == nil {
-						t.Fatal("scenario not reproduced")
-					}
+	squad, _ := userWorld(t, 42, userClub3).Squad(userClub3)
+	slices.SortStableFunc(squad, func(a, b SquadPlayer) int { return b.Overall - a.Overall })
+	for _, p := range squad {
+		build := func(t *testing.T) (*World, transfers.Offer) {
+			w := userWorld(t, 42, userClub3)
+			listFor(t, w, p.Player, p.Value/2)
+			mustContinue(t, w, day)
+			for _, o := range w.transfers.Open() {
+				if o.Seller == userClub3 {
 					return w, o
 				}
 			}
+			return nil, transfers.Offer{}
+		}
+		if w, _ := build(t); w != nil {
+			return func(t *testing.T) (*World, transfers.Offer) {
+				w, o := build(t)
+				if w == nil {
+					t.Fatal("scenario not reproduced")
+				}
+				return w, o
+			}
 		}
 	}
-	t.Fatal("no AI club bids for a manager's player")
+	t.Fatal("no AI club bids for a manager's listed player")
 	return nil
 }
 
-// An AI club with a vacancy bids its valuation for the manager's player;
-// the manager accepts, declines or lets the bid expire.
+// An AI club bids the asking price for the manager's listed player; the
+// manager accepts, declines or lets the bid expire.
 func TestManagerAnswersBids(t *testing.T) {
 	scenario := bidScenario(t)
 	w, o := scenario(t)
-	if value, _ := w.valuation(o.Player, day); o.Fee != value || o.MadeAt != day || o.Deadline != 4*day {
-		t.Fatalf("bid %+v, valuation %s", o, value)
+	if l, _ := w.transfers.Listing(o.Player); o.Fee != l.Asking || o.MadeAt != day || o.Deadline != 4*day {
+		t.Fatalf("bid %+v, listing %+v", o, l)
 	}
 	if m := lastMessage(w); m.Kind != inbox.KindBidReceived || m.Offer != o.ID || m.Deadline != o.Deadline || !m.Selling || m.Club != o.Buyer || m.ClubName == "" {
 		t.Fatalf("inbox %+v", m)
@@ -671,33 +690,36 @@ func TestWindowConservesMoneyPlayersAndSquads(t *testing.T) {
 		}
 		assertEveryPlayerOnce(t, w, registry)
 	}
+	// An AI club buys one player in the window, and after that only listed
+	// players (their clubs are left without a vacancy).
+	listedAt := map[ids.PlayerID]sim.GameInstant{}
+	for _, e := range w.Events() {
+		if e.Kind == events.KindPlayerListed {
+			listedAt[e.PlayerListed.Player] = e.OccurredAt
+		}
+	}
 	bought := map[ids.ClubID]int{}
 	completed := 0
 	for _, o := range w.Offers() {
 		if o.Status == transfers.StatusCompleted {
 			completed++
-			bought[o.Buyer]++
+			if bought[o.Buyer]++; o.Buyer != userClub3 && bought[o.Buyer] > 1 {
+				if at, ok := listedAt[o.Player]; !ok || at > o.MadeAt {
+					t.Fatalf("AI club %d bought a second, unlisted player %d", o.Buyer, o.Player)
+				}
+			}
 		}
 		if o.Status == transfers.StatusOpen {
 			t.Fatalf("offer %d is still open after the close", o.ID)
 		}
 	}
-	for c, n := range bought {
-		if c != userClub3 && n > 1 {
-			t.Fatalf("AI club %d bought %d players", c, n)
-		}
+	if completed < 3 || len(listedAt) == 0 {
+		t.Fatalf("%d transfers completed, %d players listed", completed, len(listedAt))
 	}
-	if completed < 3 {
-		t.Fatalf("%d transfers completed", completed)
+	if len(w.TransferList()) != 0 {
+		t.Fatal("players are still listed after the close")
 	}
-	for _, c := range w.registry.Clubs() {
-		counts := w.squadCounts(w.competitionsTeam(c.ID))
-		for _, q := range w.defs.Roster {
-			if c.ID != userClub3 && counts[q.Position] != q.Count {
-				t.Fatalf("club %d has %d %s after the close", c.ID, counts[q.Position], q.Position)
-			}
-		}
-	}
+	assertAISquadsFull(t, w)
 	assertLedgersConsistent(t, roundTrip(t, w))
 }
 

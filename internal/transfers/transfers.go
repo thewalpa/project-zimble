@@ -1,9 +1,10 @@
 // Package transfers owns transfer offers: one club's bid of a fixed fee for
 // another club's player, with the personal terms offered to the player, and
 // where each offer stands in the workflow (open, then completed, rejected,
-// expired or collapsed). Who employs the player and money belong to
-// employment and finance; the application completes an accepted offer with
-// them in one unit of work.
+// expired or collapsed). It also owns the transfer list: the players clubs
+// have put up for sale, each at an asking price. Who employs the player and
+// money belong to employment and finance; the application completes an
+// accepted offer with them in one unit of work.
 //
 // Changes are two-step so an application workflow can commit several
 // modules atomically: Plan validates closures and new bids and allocates
@@ -107,32 +108,56 @@ type Closure struct {
 	Status Status
 }
 
+// Listing puts a club's player on the transfer list: the club offers him for
+// sale at Asking. A player is listed at most once.
+type Listing struct {
+	Player   ids.PlayerID
+	Club     ids.ClubID
+	Asking   money.Money // positive
+	ListedAt sim.GameInstant
+}
+
+func (l Listing) validate() error {
+	if !l.Player.Valid() || !l.Club.Valid() || l.Asking <= 0 || !l.ListedAt.Valid() {
+		return fmt.Errorf("transfers: invalid listing %+v", l)
+	}
+	return nil
+}
+
 // Changes is a set of changes made together at one instant: Close closes
-// open offers (each at most once), then Bids adds new open offers.
+// open offers (each at most once), then Bids adds new open offers; Unlist
+// takes listed players off the transfer list (each at most once), then List
+// lists players who are not listed (ListedAt is set by Plan). Unlisting and
+// listing a player in one change replaces his listing.
 type Changes struct {
-	Close []Closure
-	Bids  []Bid
+	Close  []Closure
+	Bids   []Bid
+	Unlist []ids.PlayerID
+	List   []Listing
 }
 
 // ErrStalePlan: the store changed after the plan was made.
 var ErrStalePlan = errors.New("transfers: plan is stale")
 
-// Snapshot is the store's authoritative state: every offer in ID order and
-// the offer ID allocator.
+// Snapshot is the store's authoritative state: every offer in ID order, the
+// offer ID allocator, and the transfer list in player ID order.
 type Snapshot struct {
 	Offers    []Offer
 	LastOffer ids.OfferID
+	Listings  []Listing
 }
 
-// Store holds the offers. Queries return copies.
+// Store holds the offers and the transfer list. Queries return copies.
 type Store struct {
 	offers     []Offer // ascending ID
 	lastOffer  ids.OfferID
+	listings   []Listing // ascending player ID
 	generation uint64
 }
 
 // New validates a snapshot: offer IDs ascending, non-zero and at most
-// LastOffer; offers made in time order; each offer valid.
+// LastOffer; offers made in time order; each offer valid; listings valid, in
+// ascending player order and at most one per player.
 func New(snap Snapshot) (*Store, error) {
 	for i, o := range snap.Offers {
 		if err := o.validate(); err != nil {
@@ -142,7 +167,15 @@ func New(snap Snapshot) (*Store, error) {
 			return nil, fmt.Errorf("transfers: offer %d out of order or above allocator %d", o.ID, snap.LastOffer)
 		}
 	}
-	return &Store{offers: slices.Clone(snap.Offers), lastOffer: snap.LastOffer}, nil
+	for i, l := range snap.Listings {
+		if err := l.validate(); err != nil {
+			return nil, err
+		}
+		if i > 0 && l.Player <= snap.Listings[i-1].Player {
+			return nil, fmt.Errorf("transfers: listing of player %d out of order or listed twice", l.Player)
+		}
+	}
+	return &Store{offers: slices.Clone(snap.Offers), lastOffer: snap.LastOffer, listings: slices.Clone(snap.Listings)}, nil
 }
 
 // Plan is a validated set of changes ready to apply.
@@ -150,8 +183,11 @@ type Plan struct {
 	generation uint64
 	offers     []Offer
 	lastOffer  ids.OfferID
+	listings   []Listing
 	closed     []Offer
 	made       []Offer
+	unlisted   []Listing
+	listed     []Listing
 }
 
 // Closed returns the offers the plan closes, with their final status.
@@ -160,15 +196,27 @@ func (p Plan) Closed() []Offer { return slices.Clone(p.closed) }
 // Made returns the offers the plan adds, with their IDs.
 func (p Plan) Made() []Offer { return slices.Clone(p.made) }
 
+// Unlisted returns the listings the plan ends, in change order.
+func (p Plan) Unlisted() []Listing { return slices.Clone(p.unlisted) }
+
+// Listed returns the listings the plan adds, in change order.
+func (p Plan) Listed() []Listing { return slices.Clone(p.listed) }
+
 // Plan validates changes made at instant at and returns the resulting state
 // without changing the store. Closures must name open offers made at or
 // before at, with a final status; new bids are made at at, which must not be
-// before the latest offer.
+// before the latest offer or listing. Unlisting must name listed players;
+// listing, players not listed.
 func (s *Store) Plan(at sim.GameInstant, c Changes) (Plan, error) {
 	if n := len(s.offers); n > 0 && at < s.offers[n-1].MadeAt {
 		return Plan{}, fmt.Errorf("transfers: changes at %d before the latest offer at %d", at, s.offers[n-1].MadeAt)
 	}
-	plan := Plan{generation: s.generation, offers: slices.Clone(s.offers), lastOffer: s.lastOffer}
+	for _, l := range s.listings {
+		if at < l.ListedAt {
+			return Plan{}, fmt.Errorf("transfers: changes at %d before player %d was listed at %d", at, l.Player, l.ListedAt)
+		}
+	}
+	plan := Plan{generation: s.generation, offers: slices.Clone(s.offers), lastOffer: s.lastOffer, listings: slices.Clone(s.listings)}
 	for _, cl := range c.Close {
 		i, ok := s.index(cl.Offer)
 		switch {
@@ -194,6 +242,26 @@ func (s *Store) Plan(at sim.GameInstant, c Changes) (Plan, error) {
 		plan.offers = append(plan.offers, o)
 		plan.made = append(plan.made, o)
 	}
+	for _, player := range c.Unlist {
+		i, ok := listingIndex(plan.listings, player)
+		if !ok {
+			return Plan{}, fmt.Errorf("transfers: player %d is not listed", player)
+		}
+		plan.unlisted = append(plan.unlisted, plan.listings[i])
+		plan.listings = slices.Delete(plan.listings, i, i+1)
+	}
+	for _, l := range c.List {
+		l.ListedAt = at
+		if err := l.validate(); err != nil {
+			return Plan{}, err
+		}
+		i, listed := listingIndex(plan.listings, l.Player)
+		if listed {
+			return Plan{}, fmt.Errorf("transfers: player %d is already listed", l.Player)
+		}
+		plan.listings = slices.Insert(plan.listings, i, l)
+		plan.listed = append(plan.listed, l)
+	}
 	return plan, nil
 }
 
@@ -203,13 +271,17 @@ func (s *Store) Apply(p Plan) error {
 	if p.generation != s.generation {
 		return fmt.Errorf("%w: made at generation %d, store at %d", ErrStalePlan, p.generation, s.generation)
 	}
-	s.offers, s.lastOffer = p.offers, p.lastOffer
+	s.offers, s.lastOffer, s.listings = p.offers, p.lastOffer, p.listings
 	s.generation++
 	return nil
 }
 
 func (s *Store) index(id ids.OfferID) (int, bool) {
 	return slices.BinarySearchFunc(s.offers, id, func(o Offer, id ids.OfferID) int { return cmp.Compare(o.ID, id) })
+}
+
+func listingIndex(listings []Listing, player ids.PlayerID) (int, bool) {
+	return slices.BinarySearchFunc(listings, player, func(l Listing, id ids.PlayerID) int { return cmp.Compare(l.Player, id) })
 }
 
 // Offer returns an offer by ID.
@@ -238,7 +310,19 @@ func (s *Store) Open() []Offer {
 // LastOffer returns the offer ID allocator: the highest ID ever issued.
 func (s *Store) LastOffer() ids.OfferID { return s.lastOffer }
 
+// Listing returns a player's listing, or false if he is not listed.
+func (s *Store) Listing(player ids.PlayerID) (Listing, bool) {
+	i, ok := listingIndex(s.listings, player)
+	if !ok {
+		return Listing{}, false
+	}
+	return s.listings[i], true
+}
+
+// Listings returns the transfer list in player ID order.
+func (s *Store) Listings() []Listing { return slices.Clone(s.listings) }
+
 // Snapshot exports the store's authoritative state as a fresh copy.
 func (s *Store) Snapshot() Snapshot {
-	return Snapshot{Offers: slices.Clone(s.offers), LastOffer: s.lastOffer}
+	return Snapshot{Offers: slices.Clone(s.offers), LastOffer: s.lastOffer, Listings: slices.Clone(s.listings)}
 }

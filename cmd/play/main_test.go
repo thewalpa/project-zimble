@@ -219,7 +219,7 @@ func TestMoneyViews(t *testing.T) {
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
-		"continue", "continue", "free", "sign 44", "sign 72 1", "squad", "inbox 12", "continue", "sign 72 1", "sign 168 1", "q", "q")
+		"continue", "continue", "free", "sign 44", "sign 178 1", "squad", "inbox 12", "continue", "sign 178 1", "q", "q")
 	contains(t, out,
 		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
 		"  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year",
@@ -232,16 +232,15 @@ func TestContracts(t *testing.T) {
 		"development: 8 of your players improved and 11 declined over the year (type squad)",
 		"contract: Callum Ibsen renewed until 1 July 2028 at 2,570.00 a week",
 		"contract: Oscar Bellamy left the club as a free agent",
-		"signing: Pavel Engel joined until 1 July 2028 at 1,300.00 a week",
-		"  72  MF  Elias Adeyemi             24    51  100%     1,160.00",
+		"signing: Umar Holm joined until 1 July 2027 at 1,390.00 a week",
+		" 178  FW  Kofi Doyle                23    46  100%       940.00",
 		"Free agents retire on the eve of 1 July once they are 31.",
 		"! player 44 is not a free agent; type free for the list",
 		"! app: squads cannot change while rounds await results",
 		"  56  MF  Callum Ibsen              27    76  100%     2,570.00  to 2028",
-		"Elias Adeyemi joined until 1 July 2027 at 1,160.00 a week.",
-		"Tomas Grady joined until 1 July 2027 at 940.00 a week.",
+		"Kofi Doyle joined until 1 July 2027 at 940.00 a week.",
 	)
-	if strings.Count(out, "Elias Adeyemi joined") != 1 {
+	if strings.Count(out, "Kofi Doyle joined") != 1 {
 		t.Fatal("signed a player on a matchday, or twice")
 	}
 }
@@ -253,7 +252,7 @@ func TestPlayerYearMessages(t *testing.T) {
 	contains(t, out,
 		"Wed 2027-06-30 00:00 UTC  development: 4 of your players improved and 7 declined over the year (type squad)",
 		"Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36",
-		"Wed 2027-06-30 00:00 UTC  youth: Viktor Okafor joined from the youth ranks until 1 July 2030 at 1,110.00 a week",
+		"Wed 2027-06-30 00:00 UTC  youth: Pavel Zeller joined from the youth ranks until 1 July 2030 at 1,020.00 a week",
 		"Every year on the eve of that date, young players improve, older ones decline, and some retire.",
 	)
 	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Hugo Kowal") {
@@ -268,58 +267,74 @@ func TestCup(t *testing.T) {
 	contains(t, out,
 		"No cup has been drawn yet",
 		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Glenrock Town",
+		"Continental Cup 1 won by Eldhaven United",
 		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
-		"  Glenrock Town            0-0 Brackenmoor Town (3-1 on penalties)",
+		"  Foxmere Town             1-1 Eldhaven United (2-4 on penalties)",
 		"Final, Sat 2025-12-06 15:00 UTC",
-		"Winner: Glenrock Town",
+		"Winner: Eldhaven United",
 	)
 }
 
-// A managed club in the cup: its matchday is named after the round, and the
-// result can be decided on penalties.
+// A managed club in the cup: its matchday is named after the round, the
+// result can be decided on penalties, and the inbox says how far it went.
 func TestManagedCupRun(t *testing.T) {
-	// Glenrock Town (club 15) won the first edition.
-	out := play(t, []string{"-seed", "42", "-club", "15"}, "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q")
+	script := []string{"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q"}
+	// Brackenmoor Town (club 4) goes out on penalties in the semi-final.
+	out := play(t, []string{"-seed", "42", "-club", "4"}, script...)
 	contains(t, out,
-		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final v Greyfen United (away).",
-		"matchday: Continental Cup semi-final v Brackenmoor Town (home)",
-		"FULL TIME  Glenrock Town 0-0 Brackenmoor Town (3-1 on penalties)  (W)",
-		"result: 0-0 (3-1 on penalties) v Brackenmoor Town (home)",
-		"Continental Cup 1 won by Glenrock Town: your club won it!",
+		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final v Foxmere Town (away).",
+		"matchday: Continental Cup semi-final v Glenrock Town (away)",
+		"FULL TIME  Glenrock Town 0-0 Brackenmoor Town (5-4 on penalties)  (L)",
+		"result: 0-0 (4-5 on penalties) v Glenrock Town (away)",
+		"Continental Cup 1 won by Glenrock Town; you went out in the semi-final",
+	)
+	// Eldhaven United (club 6) wins it.
+	out = play(t, []string{"-seed", "42", "-club", "6"}, script...)
+	contains(t, out,
+		"matchday: Continental Cup final v Ashcombe City (home)",
+		"FULL TIME  Eldhaven United 2-0 Ashcombe City  (W)",
+		"Continental Cup 1 won by Eldhaven United: your club won it!",
 	)
 }
 
 // In the transfer window: the manager bids (at and below the asking
-// price), the answers arrive at the next run, an AI club bids for one of
-// the manager's players, and the manager answers it before and after
+// price), the answers arrive at the next run, the manager lists a player,
+// an AI club bids for him, and the manager answers it before and after
 // saving.
 func TestTransfers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "continue", "market fw", "market", "bid 282", "bid 244", "bid 315", "bid 37", "bid 238 500000", "bid 238",
-		"bid 44", "continue", "continue", "transfers", "status", "save "+path, "accept 99", "q", "q")
+		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "save "+path, "accept 99", "q", "q")
 	contains(t, out,
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
-		"  37  GRY Jonas Gallo               32    74     2027     240,000.00",
+		"  37  SAL Jonas Gallo               32    74     2027     240,000.00",
 		"! usage: market GK|DF|MF|FW",
-		"You bid 240,000.00 for Jonas Gallo (offer 4), offering 1 year at 2,430.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
+		"You bid 240,000.00 for Jonas Gallo (offer 32), offering 1 year at 2,430.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
 		"! app: your club has already bid for the player in this window: player 238",
 		"! player 44 is not at another club; type market POS for the list",
-		"transfer: Jonas Gallo joined from Greyfen United for 240,000.00, until 1 July 2027 at 2,430.00 a week",
+		"! app: the squad would fall below its minimum at that position: 5 DF, minimum 5", // before the bought defenders arrive
+		"Elias Gallo is on the transfer list at 1,200,000.00 until the window closes; clubs that need a defender may bid.",
+		"  44  Quillford FC           Elias Gallo              DF   18    75   1,200,000.00",
+		"transfer: Jonas Gallo joined from Saltmere Athletic for 240,000.00, until 1 July 2027 at 2,430.00 a week",
 		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
-		"bid: Ironbridge Wanderers bid 1,200,000.00 for Elias Gallo (offer 14); answer before Tue 2026-07-07 00:00 UTC (accept/reject)",
+		"bid: Hollowick Town bid 1,200,000.00 for Elias Gallo (offer 49); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
-		"* Thu 2026-07-02 00:00 UTC   Jonas Gallo              Greyfen United         -> Quillford FC",
+		"Your players on the transfer list (unlist ID takes one off):",
+		"* Thu 2026-07-02 00:00 UTC   Jonas Gallo              Saltmere Athletic      -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 14", "finances 2", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 49", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Elias Gallo left for Ironbridge Wanderers for 1,200,000.00", "transfer fee O14")
-	rejected := play(t, []string{"-load", path}, "reject 14", "continue", "q", "q")
-	contains(t, rejected, "Rejected.", "transfer: the bid of 1,200,000.00 from Ironbridge Wanderers for Elias Gallo was rejected")
-	if strings.Contains(rejected, "left for Ironbridge") {
+		"transfer: Elias Gallo left for Hollowick Town for 1,200,000.00", "transfer fee O49")
+	if strings.Contains(accepted, "  44  Quillford FC") {
+		t.Fatal("a sold player is still listed")
+	}
+	rejected := play(t, []string{"-load", path}, "reject 49", "unlist 44", "unlist 44", "continue", "q", "q")
+	contains(t, rejected, "Rejected.", "Elias Gallo is off the transfer list.", "! app: the player is not on the transfer list: player 44",
+		"transfer: the bid of 1,200,000.00 from Hollowick Town for Elias Gallo was rejected")
+	if strings.Contains(rejected, "left for Hollowick") {
 		t.Fatal("a rejected bid moved the player")
 	}
 }

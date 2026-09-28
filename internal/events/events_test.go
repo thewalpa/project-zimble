@@ -46,7 +46,12 @@ func valid() []Event {
 	r := env(16, KindPlayerReleased)
 	r.Cause.Kind = CauseCommand
 	r.PlayerReleased = &PlayerReleased{Player: 9, Club: 1, Team: 1, Compensation: 12_000}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r}
+	ls := env(17, KindPlayerListed)
+	ls.PlayerListed = &PlayerListed{Player: 9, Club: 1, Team: 1, Asking: 400_000}
+	ul := env(18, KindPlayerUnlisted)
+	ul.Cause.Kind = CauseCommand
+	ul.PlayerUnlisted = &PlayerUnlisted{Player: 9, Club: 1, Team: 1}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul}
 }
 
 func TestValidate(t *testing.T) {
@@ -102,6 +107,10 @@ func TestValidate(t *testing.T) {
 		"released nobody":   func(v []Event) Event { v[15].PlayerReleased.Player = 0; return v[15] },
 		"released no team":  func(v []Event) Event { v[15].PlayerReleased.Team = 0; return v[15] },
 		"released refunded": func(v []Event) Event { v[15].PlayerReleased.Compensation = -1; return v[15] },
+		"listed no club":    func(v []Event) Event { v[16].PlayerListed.Club = 0; return v[16] },
+		"listed for free":   func(v []Event) Event { v[16].PlayerListed.Asking = 0; return v[16] },
+		"unlisted nobody":   func(v []Event) Event { v[17].PlayerUnlisted.Player = 0; return v[17] },
+		"unlisted no team":  func(v []Event) Event { v[17].PlayerUnlisted.Team = 0; return v[17] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -130,6 +139,8 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[13].TransferCompleted.Expires = 9
 	c[14].OfferClosed.Outcome = 9
 	c[15].PlayerReleased.Compensation = 9
+	c[16].PlayerListed.Asking = 9
+	c[17].PlayerUnlisted.Club = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

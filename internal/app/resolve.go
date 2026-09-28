@@ -94,6 +94,7 @@ type commandRecord struct {
 	offer    *OfferRecord
 	respond  *ResponseRecord
 	release  *ReleaseRecord
+	listing  *ListingRecord
 }
 
 // plannedMatch is a fixture with its detached, validated match input.

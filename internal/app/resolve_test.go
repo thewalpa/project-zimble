@@ -18,20 +18,21 @@ import (
 )
 
 // goldenSeasonSeed42 pins every official result of the default seed-42
-// season. It covers world generation, scheduling, AI selection, condition
-// and the match model: an intended change must bump the responsible version
-// (worldgen/content/random, competitions.ScheduleVersion,
-// ai.SelectionVersion, medical.Version, simple.ModelVersion) and update this
-// value. Last changed by contracts and finance (worldgen v2 re-derives every
-// generation stream, content v3).
+// season. It covers world generation, scheduling, AI selection, condition,
+// the AI transfer market in the first window and the match model: an
+// intended change must bump the responsible version (worldgen/content/
+// random, competitions.ScheduleVersion, ai.SelectionVersion,
+// ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
+// this value. Last changed by the transfer list and AI upgrades
+// (ai.TransfersVersion 2: AI clubs now trade in the first window).
 //
 // It covers the first league's season 1, which the second league and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "7e0c0217846a07df578958a702cdd711e0cd886f80a1b36b5a29247871bdf469"
-	goldenSecondLeagueSeed42 = "99110526c9cdaf0e652ba932d54b2b3db7d7b99e2150767056c0173921133044"
-	goldenCupSeed42          = "fbb6d1a22e6b59cdd1f0a2ba214f8938dd109ebd7c43a81e4ee322200bd18c1a"
+	goldenSeasonSeed42       = "942e76b96f2f7b008a562877ef1673207e0df8cc4b979a297a14bdab46207c8d"
+	goldenSecondLeagueSeed42 = "5e907ce2b60f8c9d90684a6559e042184932631309e17f452c3cb7cf4a935403"
+	goldenCupSeed42          = "850ad40089f3c8e7b355ddb8d819ef3efc1bc29a998011a010fddf03bae35a74"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

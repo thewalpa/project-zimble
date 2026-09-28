@@ -241,14 +241,17 @@ func TestReleaseCollapsesOpenBids(t *testing.T) {
 func TestManagerSquadGrowsToTheLimit(t *testing.T) {
 	w := userWorld(t, 42, userClub3)
 	sellers := map[ids.ClubID]map[players.Position]int{}
-	for n := len(w.employment.Squad(mustUserTeam(t, w))); n < w.defs.SquadLimit; n++ {
+	for bids := 0; len(w.employment.Squad(mustUserTeam(t, w))) < w.defs.SquadLimit; bids++ {
+		if bids == 2*w.defs.SquadLimit {
+			t.Fatal("too many bids failed")
+		}
 		target := cheapestForSale(t, w)
-		bidFor(t, w, target.Player, target.Value)
+		res := bidFor(t, w, target.Player, target.Value)
 		mustContinue(t, w, w.Now()+day)
 		if clubOf(w, target.Player) != userClub3 {
-			t.Fatalf("purchase %d of player %d did not complete", n, target.Player)
+			continue // an earlier bid, or another sale by his club that day, came first
 		}
-		seller := offerOf(t, w, w.transfers.Offers()[len(w.transfers.Offers())-1].ID).Seller
+		seller := offerOf(t, w, res.Offer).Seller
 		if sellers[seller] == nil {
 			sellers[seller] = map[players.Position]int{}
 		}
@@ -304,7 +307,8 @@ func TestManagerSquadGrowsToTheLimit(t *testing.T) {
 }
 
 // cheapestForSale returns the cheapest player the user club may bid for:
-// at another club above its minimum at his position (ties: lowest ID).
+// at another club above its minimum at his position, and biddable (ties:
+// lowest ID).
 func cheapestForSale(t *testing.T, w *World) SquadPlayer {
 	t.Helper()
 	var cands []SquadPlayer
@@ -316,7 +320,7 @@ func cheapestForSale(t *testing.T, w *World) SquadPlayer {
 		counts := w.squadCounts(team)
 		squad, _ := w.Squad(c.ID)
 		for _, p := range squad {
-			if counts[p.Position] > w.defs.Quota(p.Position).Min {
+			if counts[p.Position] > w.defs.Quota(p.Position).Min && biddable(w, p.Player) {
 				cands = append(cands, p)
 			}
 		}
@@ -327,6 +331,9 @@ func cheapestForSale(t *testing.T, w *World) SquadPlayer {
 	return slices.MinFunc(cands, func(a, b SquadPlayer) int { return int(a.Value - b.Value) })
 }
 
+// assertAISquadsFull checks that every AI squad holds at least its roster
+// count at each position, and at most one player more in all: the one an
+// upgrade replaced, listed until another club buys him (see hasRoom).
 func assertAISquadsFull(t *testing.T, w *World) {
 	t.Helper()
 	for _, c := range w.registry.Clubs() {
@@ -336,11 +343,24 @@ func assertAISquadsFull(t *testing.T, w *World) {
 		team, _ := w.registry.SeniorTeam(c.ID)
 		counts := w.squadCounts(team)
 		for _, q := range w.defs.Roster {
-			if counts[q.Position] != q.Count {
+			if counts[q.Position] < q.Count {
 				t.Fatalf("AI club %d has %d %s, want %d", c.ID, counts[q.Position], q.Position, q.Count)
 			}
 		}
+		if n := squadSize(counts); n > w.defs.SquadSize()+1 {
+			t.Fatalf("AI club %d has %d players", c.ID, n)
+		}
 	}
+}
+
+// biddable reports whether the user club may still bid for a player in the
+// window under way: he has not moved in it, and the club has not bid for
+// him in it (a bid may collapse when a sale leaves his club at its minimum).
+func biddable(w *World, player ids.PlayerID) bool {
+	open, _, _ := w.transferWindow(w.Now())
+	return !slices.ContainsFunc(w.transfers.Offers(), func(o transfers.Offer) bool {
+		return o.Player == player && o.MadeAt >= open && (o.Buyer == w.userClub || o.Status == transfers.StatusCompleted)
+	})
 }
 
 // A manager who hoards and churns players for thirty years (every summer

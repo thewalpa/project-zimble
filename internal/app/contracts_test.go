@@ -324,28 +324,32 @@ func TestRenewedContractIsPaidFromTheNextWeek(t *testing.T) {
 
 // The manager's defaults are the AI's decisions: a club-3 player the AI
 // renews in a world without a user club gets exactly the suggested terms,
-// asked for after the player year (the eve of the contract-year end).
+// asked for after the player year (the eve of the contract-year end). AI
+// clubs trade in that world, so only players it kept at club 3 until the
+// contract year and renewed there are compared.
 func TestSuggestedTermsAreTheAIDecision(t *testing.T) {
 	plain, managed := newWorld(t, 42), userWorld(t, 42, userClub)
 	playSeason(t, plain)
 	playSeason(t, managed)
 	end := managed.ContractYearEnd()
 	mustContinue(t, managed, end-sim.GameInstant(sim.Day))
-	average := squadAverage(managed, userClub)
 	suggested := map[ids.PlayerID]ContractOffer{}
 	for _, p := range finalYear(t, managed, userClub) {
 		suggested[p.Player] = suggest(t, managed, p.Player)
 	}
+	mustContinue(t, plain, end-sim.GameInstant(sim.Day))
+	kept := map[ids.PlayerID]bool{}
+	for _, p := range finalYear(t, plain, userClub) {
+		kept[p.Player] = true
+	}
 	mustContinue(t, plain, end)
 	checked := 0
 	for id, offer := range suggested {
-		p, _ := plain.players.Profile(id)
-		age, _ := plain.age(id, end)
-		if !ai.Renew(p.Overall(), average, age) {
-			continue
-		}
 		a, _ := plain.employment.Assignment(id)
-		if want := mustAddYears(t, plain, end, offer.Years); a.Club != userClub || a.Contract != (employment.Contract{Expires: want, WeeklyWage: offer.WeeklyWage}) {
+		if !kept[id] || a.Club != userClub {
+			continue // sold by the AI, or not renewed
+		}
+		if want := mustAddYears(t, plain, end, offer.Years); a.Contract != (employment.Contract{Expires: want, WeeklyWage: offer.WeeklyWage}) {
 			t.Fatalf("player %d: AI renewal %+v, suggested %+v", id, a, offer)
 		}
 		checked++
@@ -461,8 +465,11 @@ func TestContractCommandRejections(t *testing.T) {
 	// After the contract year there are free agents; signing needs room in
 	// the squad and no round awaiting results.
 	mustContinue(t, w, w.ContractYearEnd())
-	fa := w.FreeAgents()[0]
 	sign := func() error {
+		if len(w.FreeAgents()) == 0 { // AI clubs signed every free agent in the window
+			release(t, w, userClub+1, players.Defender)
+		}
+		fa := w.FreeAgents()[0]
 		_, err := w.SignPlayer(SignPlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: fa.Player, Offer: suggest(t, w, fa.Player)})
 		return err
 	}

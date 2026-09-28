@@ -117,13 +117,14 @@ func TestChoosingAUserClub(t *testing.T) {
 		t.Fatal("choosing a club changed the generated world or its schedule")
 	}
 
-	// Without submitted lineups the AI selects for the user club too, so the
-	// season is the golden one, and every side is reported as AI-selected.
-	want := playWithLineups(t, plain, nil)
-	got := playWithLineups(t, managed, nil)
-	if !reflect.DeepEqual(got, want) || resultsFingerprint(managed) != goldenSeasonSeed42 {
-		t.Fatal("a user club without lineups changed the season")
+	// Without submitted lineups the AI selects for the user club too, and
+	// every side is reported as AI-selected. (The season is not the golden
+	// one: AI clubs trade with each other in the first window, and bid for
+	// a manager's players only when the manager lists them.)
+	if playWithLineups(t, plain, nil); resultsFingerprint(plain) != goldenSeasonSeed42 {
+		t.Fatal("the AI season differs from the golden one")
 	}
+	got := playWithLineups(t, managed, nil)
 	for _, r := range got {
 		for _, m := range r.Matches {
 			if m.Selected != [2]SelectedBy{SelectedByAI, SelectedByAI} {
@@ -233,10 +234,11 @@ func TestSuggestedLineupReproducesTheAIDefault(t *testing.T) {
 		}
 		return l
 	})
-	if resultsFingerprint(w) != goldenSeasonSeed42 {
+	passive := userWorld(t, 42, userClub) // the same squads, no lineups submitted
+	want := playWithLineups(t, passive, nil)
+	if resultsFingerprint(w) != resultsFingerprint(passive) {
 		t.Fatal("submitting the suggestion changed results")
 	}
-	want := playWithLineups(t, newWorld(t, 42), nil)
 	for i := range got {
 		for j := range got[i].Matches {
 			g, x := got[i].Matches[j], want[i].Matches[j]
@@ -255,7 +257,7 @@ func TestUserLineupChangesOnlyUserMatches(t *testing.T) {
 	w := userWorld(t, 42, userClub)
 	team := mustUserTeam(t, w)
 	got := playWithLineups(t, w, func(f ids.FixtureID) selection.Lineup { return changedLineup(t, w, f) })
-	want := playWithLineups(t, newWorld(t, 42), nil)
+	want := playWithLineups(t, userWorld(t, 42, userClub), nil) // the same squads, no lineups submitted
 	if len(got) != 14 || len(want) != 14 {
 		t.Fatalf("%d and %d batches", len(got), len(want))
 	}

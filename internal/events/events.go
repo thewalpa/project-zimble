@@ -43,6 +43,8 @@ const (
 	KindTransferCompleted Kind = 14
 	KindOfferClosed       Kind = 15
 	KindPlayerReleased    Kind = 16
+	KindPlayerListed      Kind = 17
+	KindPlayerUnlisted    Kind = 18
 )
 
 func (k Kind) String() string {
@@ -79,6 +81,10 @@ func (k Kind) String() string {
 		return "offer closed"
 	case KindPlayerReleased:
 		return "player released"
+	case KindPlayerListed:
+		return "player listed"
+	case KindPlayerUnlisted:
+		return "player unlisted"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -279,6 +285,24 @@ type PlayerReleased struct {
 	Compensation money.Money
 }
 
+// PlayerListed: a club put a player of its Team on the transfer list, or
+// changed his asking price: it offers him for sale at Asking until the
+// transfer window closes. The listing ends without an event of its own when
+// the player leaves the club or the window closes.
+type PlayerListed struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+	Asking money.Money
+}
+
+// PlayerUnlisted: a club took a player of its Team off the transfer list.
+type PlayerUnlisted struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+}
+
 // Event is one committed fact. Revision is the world revision that made it
 // visible; Sequence orders the events of one commit from 1. Exactly the
 // payload matching Kind is set.
@@ -307,6 +331,8 @@ type Event struct {
 	TransferCompleted *TransferCompleted `json:",omitempty"`
 	OfferClosed       *OfferClosed       `json:",omitempty"`
 	PlayerReleased    *PlayerReleased    `json:",omitempty"`
+	PlayerListed      *PlayerListed      `json:",omitempty"`
+	PlayerUnlisted    *PlayerUnlisted    `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -332,6 +358,8 @@ func (e Event) payloads() (set int, match bool) {
 		{KindTransferCompleted, e.TransferCompleted != nil},
 		{KindOfferClosed, e.OfferClosed != nil},
 		{KindPlayerReleased, e.PlayerReleased != nil},
+		{KindPlayerListed, e.PlayerListed != nil},
+		{KindPlayerUnlisted, e.PlayerUnlisted != nil},
 	} {
 		if p.set {
 			set++
@@ -440,6 +468,14 @@ func (e Event) Validate() error {
 		if p := e.PlayerReleased; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Compensation < 0 {
 			return fail("invalid payload %+v", p)
 		}
+	case KindPlayerListed:
+		if p := e.PlayerListed; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Asking <= 0 {
+			return fail("invalid payload %+v", p)
+		}
+	case KindPlayerUnlisted:
+		if p := e.PlayerUnlisted; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -514,6 +550,14 @@ func (e Event) Clone() Event {
 	if p := e.PlayerReleased; p != nil {
 		c := *p
 		e.PlayerReleased = &c
+	}
+	if p := e.PlayerListed; p != nil {
+		c := *p
+		e.PlayerListed = &c
+	}
+	if p := e.PlayerUnlisted; p != nil {
+		c := *p
+		e.PlayerUnlisted = &c
 	}
 	return e
 }

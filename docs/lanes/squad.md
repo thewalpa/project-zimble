@@ -27,18 +27,14 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-**AI squad upgrades.** Let AI clubs make room, so the market also moves when the manager doesn't.
+**Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility. Not started.
 
-- **AI upgrades in the window:** an AI club with a full position may bid for a clearly better player, and release its weakest there on completion, in the same unit of work. The release command (`ReleasePlayer`, with its payoff) and the vacancy youth at the player year already exist.
-- **Keep the population balanced.** AI releases would put more older players into the free-agent pool, where they retire without replacement. The vacancy youth keeps AI squads full; check the total population over 30 years, as in `TestSquadsSurviveAHoardingManager`.
-- **Proofs:** payouts conserve money, releases never break the roster minimum, and AI-only worlds keep full, legal squads for decades.
-
-Done: squad sizes up to `SquadLimit`, purchases at any position for the manager, the manager's release command, and vacancy youth (see progress.md, "squad: squad sizes, free transfers and releases"). Open notes: `ui--release-and-squad-limit.md`, `data--squad-limit-and-release.md`.
+Done: the transfer list and AI transfers. Clubs list players at an asking price; AI clubs buy upgrades, list the players these replace, and fill vacancies from the list first; the manager lists with `ListPlayer` and gets AI bids only for listed players (see progress.md, "squad: the transfer list and AI transfers"). Open notes: `ui--transfer-list.md`, `balance--ai-transfer-market.md`, `match--managed-season-baselines.md` and `data--listing-events-and-journal-test.md`.
 
 ## Backlog
 
-- **Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility.
-- **AI money:** AI clubs use their balance in renewals and signings.
+- **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year.
 - **Player potential** and development driven by minutes played. Ask `match` for minutes in the outcome.
 - **Board feedback** and a transfer budget (club governance).
-- **Negotiation:** counter-offers and players refusing terms.
+- **Negotiation:** counter-offers, players refusing terms, and bids below a listed player's asking price.
+- **Listings across windows:** let the manager keep a player listed from one window to the next.

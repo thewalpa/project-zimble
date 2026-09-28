@@ -141,13 +141,20 @@ func squadSize(counts map[players.Position]int) int {
 
 // hasRoom reports whether a club with these squad counts may take one more
 // player at pos: the user club while its squad is below the squad limit, at
-// any position; an AI club only to fill a vacancy, a position below its
-// roster count.
+// any position; an AI club to fill a vacancy (a position below its roster
+// count), or for an upgrade while it holds no surplus (no position above
+// its roster count) and is below the squad limit. An AI squad therefore
+// exceeds its roster count by at most one player, whom it lists.
 func (w *World) hasRoom(club ids.ClubID, counts map[players.Position]int, pos players.Position) bool {
-	if club == w.userClub {
+	if club == w.userClub || counts[pos] >= w.defs.Quota(pos).Count {
+		for _, q := range w.defs.Roster {
+			if club != w.userClub && counts[q.Position] > q.Count {
+				return false
+			}
+		}
 		return squadSize(counts) < w.defs.SquadLimit
 	}
-	return counts[pos] < w.defs.Quota(pos).Count
+	return true
 }
 
 // squadCounts counts a team's players by position.
@@ -499,7 +506,7 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 // ReleasePlayer ends a user-club player's contract early. The club pays the
 // rest of the contract at once, a contract payoff (see releaseCost), and
 // the player becomes a free agent whom any club may sign; every open bid
-// for him collapses. The squad must keep its minimum at his position and
+// for him collapses and his listing ends. The squad must keep its minimum at his position and
 // the club must have the payoff in hand; squads cannot change while rounds
 // await results.
 type ReleasePlayer struct {
@@ -577,6 +584,7 @@ func (w *World) ReleasePlayer(cmd ReleasePlayer) (PlayerReleased, error) {
 			m.closeOffer(o, transfers.StatusCollapsed)
 		}
 	}
+	m.unlist(cmd.Player, false)
 	offerPlan, moneyPlan, err := m.commit(nil)
 	if err != nil {
 		return PlayerReleased{}, err

@@ -2,6 +2,7 @@ package ai
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -96,5 +97,96 @@ func TestChooseTarget(t *testing.T) {
 	}
 	if _, ok := ChooseTarget(ids.ClubID(1), nil, 0, budget); ok {
 		t.Fatal("chose from no candidates")
+	}
+}
+
+func TestListingPriceIsADiscountedWholeStep(t *testing.T) {
+	step := money.Units(ValueStepUnits)
+	if p := ListingPrice(money.Units(600_000)); p != money.Units(480_000) {
+		t.Fatalf("a player valued at 600,000 is listed at %s", p)
+	}
+	for _, v := range []money.Money{step, Valuation(55, 30, 1), Valuation(73, 24, 2), Valuation(100, 17, 4)} {
+		p := ListingPrice(v)
+		if p < step || p%step != 0 || p > v || (v > step && p >= v) {
+			t.Fatalf("valuation %s is listed at %s", v, p)
+		}
+	}
+	if ListingPrice(0) != step || ListingPrice(-5) != step {
+		t.Fatal("a worthless player is listed below one step")
+	}
+}
+
+func TestSurplusIsEveryoneButTheBest(t *testing.T) {
+	members := []Member{{Player: 4, Overall: 60}, {Player: 2, Overall: 71}, {Player: 9, Overall: 55}, {Player: 3, Overall: 60}, {Player: 7, Overall: 64}}
+	// The best three are 2, 7 and 3 (the tie at 60 goes to the lower ID).
+	if got := Surplus(members, 3); !slices.Equal(got, []ids.PlayerID{4, 9}) {
+		t.Fatalf("surplus %v", got)
+	}
+	rev := slices.Clone(members)
+	slices.Reverse(rev)
+	if got := Surplus(rev, 3); !slices.Equal(got, []ids.PlayerID{4, 9}) {
+		t.Fatalf("surplus %v from reversed input", got)
+	}
+	if members[0].Player != 4 || rev[0].Player != 7 {
+		t.Fatal("the input was modified")
+	}
+	if Surplus(members, 5) != nil || Surplus(members, 9) != nil || Surplus(nil, 0) != nil {
+		t.Fatal("a club without surplus lists players")
+	}
+}
+
+func TestChooseUpgrade(t *testing.T) {
+	budget := money.Units(1_000_000)
+	weakest := map[matches.Role]int{matches.Defender: 60, matches.Forward: 70, matches.Midfielder: 50}
+	cands := []TransferCandidate{
+		{Player: 5, Club: 2, Role: matches.Midfielder, Overall: 80, Value: money.Units(1_200_000)}, // too dear
+		{Player: 6, Club: 1, Role: matches.Midfielder, Overall: 79, Value: money.Units(100_000)},   // own player
+		{Player: 3, Club: 3, Role: matches.Goalkeeper, Overall: 90, Value: money.Units(100_000)},   // no keeper to replace
+		{Player: 8, Club: 3, Role: matches.Forward, Overall: 77, Value: money.Units(500_000)},      // +7: not enough
+		{Player: 9, Club: 3, Role: matches.Defender, Overall: 70, Value: money.Units(700_000)},     // +10
+		{Player: 7, Club: 2, Role: matches.Midfielder, Overall: 60, Value: money.Units(600_000)},   // +10, cheapest
+		{Player: 4, Club: 3, Role: matches.Midfielder, Overall: 60, Value: money.Units(650_000)},
+	}
+	if c, ok := ChooseUpgrade(1, cands, weakest, budget); !ok || c.Player != 7 {
+		t.Fatalf("chose %+v %v", c, ok)
+	}
+	rev := slices.Clone(cands)
+	slices.Reverse(rev)
+	if c, _ := ChooseUpgrade(1, rev, weakest, budget); c.Player != 7 {
+		t.Fatalf("chose %+v from reversed input", c)
+	}
+	// The margin is inclusive.
+	if c, ok := ChooseUpgrade(1, cands[3:4], map[matches.Role]int{matches.Forward: 77 - UpgradeMargin}, budget); !ok || c.Player != 8 {
+		t.Fatalf("chose %+v %v, want the forward 8 at exactly the margin", c, ok)
+	}
+	if _, ok := ChooseUpgrade(1, cands, weakest, 0); ok {
+		t.Fatal("chose an upgrade without a budget")
+	}
+	if _, ok := ChooseUpgrade(1, cands, map[matches.Role]int{matches.Midfielder: 75}, budget); ok {
+		t.Fatal("chose a player who is no clear upgrade")
+	}
+}
+
+// AI clubs look at the transfer list first: a listed player who qualifies
+// is chosen over better unlisted ones.
+func TestListedPlayersComeFirst(t *testing.T) {
+	budget := money.Units(1_000_000)
+	cands := []TransferCandidate{
+		{Player: 5, Club: 2, Role: matches.Defender, Overall: 80, Value: money.Units(500_000)},
+		{Player: 7, Club: 3, Role: matches.Defender, Overall: 70, Value: money.Units(400_000), Listed: true},
+		{Player: 9, Club: 3, Role: matches.Defender, Overall: 61, Value: money.Units(100_000), Listed: true}, // no clear improvement
+	}
+	if c, ok := ChooseTarget(1, cands, 60, budget); !ok || c.Player != 7 {
+		t.Fatalf("vacancy chose %+v %v, want the listed 7", c, ok)
+	}
+	if c, ok := ChooseUpgrade(1, cands, map[matches.Role]int{matches.Defender: 60}, budget); !ok || c.Player != 7 {
+		t.Fatalf("upgrade chose %+v %v, want the listed 7", c, ok)
+	}
+	// With no listed player qualifying, the best unlisted one is chosen.
+	if c, ok := ChooseUpgrade(1, cands, map[matches.Role]int{matches.Defender: 65}, budget); !ok || c.Player != 5 {
+		t.Fatalf("upgrade chose %+v %v, want 5", c, ok)
+	}
+	if c, _ := ChooseTarget(1, cands, 66, budget); c.Player != 5 {
+		t.Fatalf("vacancy chose %+v, want 5", c)
 	}
 }

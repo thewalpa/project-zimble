@@ -50,7 +50,7 @@ Every authoritative fact has exactly one owner. Different modules may own differ
 | Match | Active sessions, match-local state and completed match records | Minute-based scoring chances and basic incidents | Possession, player decisions, ball physics, detailed statistics |
 | Competitions | Competition entries, fixtures, season stages, results, registrations and disciplinary eligibility | One double round-robin league | Cups, playoffs, promotion, continental qualification and varied calendars |
 | Employment | Contracts, employer relationships, loans and agreed obligations | Contract end date and weekly salary | Bonuses, clauses, agents, staff and complex loans |
-| Transfers | Offers, negotiations, agreements and completion workflow state | Fixed-price bids and accept/reject | Competing bids, installments, clauses and recruitment strategy |
+| Transfers | Offers, negotiations, agreements, the transfer list and completion workflow state | Fixed-price bids and accept/reject, a transfer list with asking prices | Competing bids, installments, clauses and recruitment strategy |
 | Finance | Ledger entries, cash, reserved funds and budget allocations | Wages, match income and transfer fees | Debt, sponsorship, taxes, installments and financial rules |
 | Training | Training plans, scheduled sessions and completed workload records | One team focus per week | Individual plans, coaches, facilities and periodization |
 | Scouting | Club-specific knowledge, assignments and reports | Reveal estimates after an assignment | Regional coverage, uncertainty, bias and knowledge decay |

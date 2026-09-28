@@ -200,6 +200,8 @@ func (w *World) checkEventFacts(e events.Event) error {
 		return w.checkLifecycleEvent(e)
 	case events.KindTransferOffered, events.KindTransferCompleted, events.KindOfferClosed:
 		return w.checkTransferEvent(e)
+	case events.KindPlayerListed, events.KindPlayerUnlisted:
+		return w.checkListingEvent(e)
 	case events.KindSeasonStarted:
 		p := e.SeasonStarted
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}

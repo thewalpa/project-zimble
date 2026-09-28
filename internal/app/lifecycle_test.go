@@ -198,8 +198,29 @@ func TestRetiredPlayersNeverReturn(t *testing.T) {
 	for range 3 {
 		playSeason(t, w)
 		// The manager renews no one, so free agents build up; old ones
-		// retire at the player year.
+		// retire at the player year. AI clubs sign free agents to fill the
+		// vacancies their transfers leave, so an AI club also lets its
+		// oldest player go on the eve (a vacancy youth replaces him).
 		at := playerYearTask(t, w).DueAt
+		mustContinue(t, w, at-1)
+		oldest := SquadPlayer{}
+		for _, c := range w.registry.Clubs() {
+			squad, _ := w.Squad(c.ID)
+			counts := w.squadCounts(w.competitionsTeam(c.ID))
+			for _, p := range squad {
+				if c.ID != userClub && counts[p.Position] > w.defs.Quota(p.Position).Min && p.Age > oldest.Age {
+					oldest = p
+				}
+			}
+		}
+		if age, _ := w.age(oldest.Player, at); age < players.FreeAgentRetirementAge {
+			t.Fatalf("the oldest player is %d", age)
+		}
+		plan, err := w.employment.Plan(employment.Changes{Departures: []ids.PlayerID{oldest.Player}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.applyEmployment(plan)
 		mustContinue(t, w, at)
 		for _, p := range w.FreeAgents() {
 			if age, _ := w.age(p.Player, at); age >= players.FreeAgentRetirementAge {
@@ -268,13 +289,9 @@ func TestSquadsStayLegalAndBalancedOverTheYears(t *testing.T) {
 			if err := w.Validate(); err != nil {
 				t.Fatalf("club %d year %d: %v", club, year, err)
 			}
+			assertAISquadsFull(t, w)
 			s := w.Summary()
-			for _, row := range s.ClubRows {
-				if row.ID != club && row.Players != w.defs.SquadSize() {
-					t.Fatalf("year %d: AI club %d has %d players", year, row.ID, row.Players)
-				}
-			}
-			if s.Players < 300 || s.Players > 320+s.FreeAgents {
+			if s.Players < 300 || s.Players > 320+s.Clubs+s.FreeAgents {
 				t.Fatalf("club %d year %d: %d active players, %d free agents", club, year, s.Players, s.FreeAgents)
 			}
 			if avg := averageOverall(w); avg < start-6 || avg > start+6 {

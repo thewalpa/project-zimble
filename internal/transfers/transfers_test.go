@@ -3,6 +3,7 @@ package transfers
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -150,5 +151,91 @@ func TestNewRejectsInvalidSnapshots(t *testing.T) {
 	snap.Offers[0].Fee = 1
 	if o, _ := s.Offer(1); o.Fee != 50_000 {
 		t.Fatal("snapshot aliases the store")
+	}
+}
+
+func listing(player, club uint64, asking money.Money) Listing {
+	return Listing{Player: ids.PlayerID(player), Club: ids.ClubID(club), Asking: asking}
+}
+
+// Players are listed with the time of the change, kept in player order,
+// relisted at a new price by unlisting and listing in one change, taken off
+// the list, and survive a snapshot.
+func TestListingsListUnlistAndRestore(t *testing.T) {
+	s, _ := New(Snapshot{})
+	p := mustApply(t, s, 10, Changes{List: []Listing{listing(9, 1, 300), listing(4, 2, 100)}})
+	if l := p.Listed(); len(l) != 2 || l[0].Player != 9 || l[0].ListedAt != 10 {
+		t.Fatalf("listed %+v", l)
+	}
+	if got := s.Listings(); len(got) != 2 || got[0].Player != 4 || got[1].Player != 9 {
+		t.Fatalf("listings %+v", got)
+	}
+	p = mustApply(t, s, 12, Changes{Unlist: []ids.PlayerID{9}, List: []Listing{listing(9, 1, 250)}})
+	if u, l := p.Unlisted(), p.Listed(); len(u) != 1 || u[0].Asking != 300 || len(l) != 1 || l[0].Asking != 250 || l[0].ListedAt != 12 {
+		t.Fatalf("relisted: unlisted %+v, listed %+v", u, l)
+	}
+	if l, ok := s.Listing(9); !ok || l.Asking != 250 {
+		t.Fatalf("listing 9 = %+v, %v", l, ok)
+	}
+	r, err := New(s.Snapshot())
+	if err != nil || !reflect.DeepEqual(r.Snapshot(), s.Snapshot()) {
+		t.Fatalf("restore differs: %v", err)
+	}
+	mustApply(t, r, 12, Changes{Unlist: []ids.PlayerID{4, 9}})
+	if _, ok := r.Listing(4); ok || len(r.Listings()) != 0 {
+		t.Fatalf("unlisted players still listed: %+v", r.Listings())
+	}
+}
+
+func TestPlanRejectsInvalidListingsWithoutChange(t *testing.T) {
+	s, _ := New(Snapshot{})
+	mustApply(t, s, 10, Changes{List: []Listing{listing(7, 1, 500)}})
+	want := s.Snapshot()
+	for name, c := range map[string]Changes{
+		"listed twice":      {List: []Listing{listing(8, 1, 1), listing(8, 1, 2)}},
+		"already listed":    {List: []Listing{listing(7, 1, 400)}},
+		"not listed":        {Unlist: []ids.PlayerID{8}},
+		"unlisted twice":    {Unlist: []ids.PlayerID{7, 7}},
+		"no player":         {List: []Listing{listing(0, 1, 1)}},
+		"no club":           {List: []Listing{listing(8, 0, 1)}},
+		"no asking price":   {List: []Listing{listing(8, 1, 0)}},
+		"negative price":    {List: []Listing{listing(8, 1, -1)}},
+		"later one invalid": {Unlist: []ids.PlayerID{7}, List: []Listing{listing(8, 1, 1), listing(9, 1, 0)}},
+	} {
+		if _, err := s.Plan(12, c); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if _, err := s.Plan(9, Changes{List: []Listing{listing(8, 1, 1)}}); err == nil {
+		t.Error("changes before the latest listing accepted")
+	}
+	if !reflect.DeepEqual(s.Snapshot(), want) {
+		t.Fatal("rejected plans changed the store")
+	}
+}
+
+func TestNewRejectsInvalidListings(t *testing.T) {
+	good := []Listing{{Player: 3, Club: 1, Asking: 10, ListedAt: 5}, {Player: 8, Club: 2, Asking: 20, ListedAt: 6}}
+	for name, mutate := range map[string]func([]Listing){
+		"out of order": func(l []Listing) { l[0].Player, l[1].Player = 8, 3 },
+		"listed twice": func(l []Listing) { l[1].Player = 3 },
+		"no club":      func(l []Listing) { l[1].Club = 0 },
+		"no price":     func(l []Listing) { l[0].Asking = 0 },
+		"invalid time": func(l []Listing) { l[0].ListedAt = sim.MaxInstant + 1 },
+		"no player":    func(l []Listing) { l[0].Player = 0 },
+	} {
+		l := slices.Clone(good)
+		mutate(l)
+		if _, err := New(Snapshot{Listings: l}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	s, err := New(Snapshot{Listings: good})
+	if err != nil {
+		t.Fatal(err)
+	}
+	good[0].Asking = 1
+	if l, _ := s.Listing(3); l.Asking != 10 {
+		t.Fatal("the store aliases its input")
 	}
 }

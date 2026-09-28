@@ -21,6 +21,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
 // client drives a server as a browser would: GET pages, POST forms and
@@ -287,13 +288,13 @@ func TestContractsInTheBrowser(t *testing.T) {
 	contains(t, page, "The transfer window has opened", "Oscar Bellamy left the club as a free agent")
 	page = c.post("/continue", nil) // no transfer news: the first matchday of season 2
 	contains(t, page, "Matchday: Round 1 v Greyfen United (away)")
-	page = c.get("/free")
-	contains(t, page, "Elias Adeyemi", "Signings wait until the matchday has been played", "disabled")
-	sign := url.Values{"player": {"72"}, "years": {"1"}, "wage": {"1160"}}
+	page = c.get("/free") // AI clubs signed the others in the transfer window
+	contains(t, page, "Kofi Doyle", "Signings wait until the matchday has been played", "disabled")
+	sign := url.Values{"player": {"178"}, "years": {"1"}, "wage": {"940"}}
 	contains(t, c.post("/sign", sign), "squads cannot change while rounds await results")
 	c.post("/continue", nil)
-	contains(t, c.post("/sign", sign), "Elias Adeyemi joined until 1 July 2027 at 1,160.00 a week.")
-	contains(t, c.get("/squad"), "Elias Adeyemi")
+	contains(t, c.post("/sign", sign), "Kofi Doyle joined until 1 July 2027 at 940.00 a week.")
+	contains(t, c.get("/squad"), "Kofi Doyle")
 	contains(t, c.post("/sign", sign), "the player is not a free agent")
 }
 
@@ -423,24 +424,30 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 // cup tie as the next match and the matchday, a win on penalties, the
 // bracket, the club's fixtures and both league tables.
 func TestCupInTheBrowser(t *testing.T) {
-	c := newClient(t, config{seed: 42, club: 15, savePath: filepath.Join(t.TempDir(), "career.json")}) // Glenrock Town
+	c := newClient(t, config{seed: 42, club: 4, savePath: filepath.Join(t.TempDir(), "career.json")}) // Brackenmoor Town
 	contains(t, c.get("/cup"), "No edition has been drawn yet")
 	c.post("/season", nil)
-	contains(t, c.get("/"), "Next match", "Continental Cup quarter-final v Greyfen United (away)")
-	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Greyfen United (away).")
-	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Greyfen United (away)")
+	contains(t, c.get("/"), "Next match", "Continental Cup quarter-final v Foxmere Town (away)")
+	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Foxmere Town (away).")
+	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Foxmere Town (away)")
 	c.post("/continue", nil) // the quarter-final
 	c.post("/continue", nil) // to the semi-final
 	page := c.post("/continue", nil)
-	contains(t, page, "Glenrock Town 0-0 Brackenmoor Town (3-1 on penalties)", `class="pill W"`)
-	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "0-0 (3-1 on penalties)", "Your club is in it.")
-	contains(t, c.get("/fixtures"), "Continental Cup semi-final", "Continental Cup final")
+	contains(t, page, "Glenrock Town 0-0 Brackenmoor Town (5-4 on penalties)", `class="pill L"`)
+	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "0-0 (5-4 on penalties)", "Your club is in it.")
+	contains(t, c.get("/fixtures"), "Continental Cup quarter-final", "Continental Cup semi-final")
 	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
-	c.post("/continue", nil) // to the final
-	c.post("/continue", nil) // the final
-	c.post("/continue", nil) // the cup ends; on to the contract stop
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Glenrock Town: your club won it!", "(3-1 on penalties) v Brackenmoor Town (home), Continental Cup semi-final")
+	c.post("/continue", nil) // the final, without the club
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Glenrock Town; you went out in the semi-final.", "(4-5 on penalties) v Glenrock Town (away), Continental Cup semi-final")
 	contains(t, c.get("/cup"), "Won by <b>Glenrock Town</b>")
+
+	// Eldhaven United (club 6) wins it.
+	c = newClient(t, config{seed: 42, club: 6, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c.post("/season", nil)
+	for range 7 { // the quarter-final, semi-final and final, each a matchday and a match; then the cup ends
+		c.post("/continue", nil)
+	}
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Eldhaven United: your club won it!")
 }
 
 // In the window the manager bids from the market, the answer arrives with
@@ -474,16 +481,21 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, bid("37", "abc"), "the fee must be a positive whole amount")
 
 	page = c.post("/continue", nil)
-	contains(t, page, "Transfer news", "Jonas Gallo joined from Greyfen United for 240,000.00",
+	contains(t, page, "Transfer news", "Jonas Gallo joined from Saltmere Athletic for 240,000.00",
 		"Your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected")
+	// AI clubs bid for the manager's players only when he lists them. The
+	// web client has no listing form yet, so the test lists through the app.
+	if _, err := c.s.w.ListPlayer(app.ListPlayer{ID: c.s.w.NextCommandID(), ExpectedRevision: c.s.w.Revision(), Player: 44, Asking: valueOf(t, c, "44")}); err != nil {
+		t.Fatal(err)
+	}
 	page = c.post("/continue", nil)
-	contains(t, page, "Ironbridge Wanderers bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
+	contains(t, page, "Hollowick Town bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"14"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
-	contains(t, c.get("/inbox"), "Elias Gallo left for Ironbridge Wanderers for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 14")
+	contains(t, c.post("/answer", url.Values{"offer": {"49"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.get("/inbox"), "Elias Gallo left for Hollowick Town for 1,200,000.00")
+	contains(t, c.get("/finances"), "transfer fee, offer 49")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
@@ -607,7 +619,20 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 		contains(t, res, "You bid")
 	}
 
+	// AI clubs trade in the window too: players who moved in it, already
+	// have a bid awaiting an answer, or were bid for by the club are taken.
+	takenPlayers := func() map[ids.PlayerID]bool {
+		opens := c.s.w.TransferWindow().Opens
+		taken := map[ids.PlayerID]bool{}
+		for _, o := range c.s.w.Offers() {
+			if o.MadeAt >= opens && (o.Buyer == c.s.club() || o.Status == transfers.StatusOpen || o.Status == transfers.StatusCompleted) {
+				taken[o.Player] = true
+			}
+		}
+		return taken
+	}
 	cheapestTarget := func() ids.PlayerID {
+		taken := takenPlayers()
 		var cands []app.SquadPlayer
 		for _, cr := range c.s.w.Summary().ClubRows {
 			if cr.ID == c.s.club() {
@@ -619,7 +644,7 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 				counts[p.Position.String()]++
 			}
 			for _, p := range otherSquad {
-				if p.Position.String() == "GK" {
+				if p.Position.String() == "GK" || taken[p.Player] {
 					continue
 				}
 				if counts[p.Position.String()] > c.s.w.Content().Quota(p.Position).Min {
@@ -683,12 +708,14 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 		"back":   {"/free"},
 	})
 
-	// Release player 58 to have a free agent while bringing squad to 25 via another bid, or test free full:
-	// Now release player 58:
-	c.post("/release", url.Values{"player": {"58"}})
+	// Release goalkeeper 43 to have a free agent while bringing the squad back
+	// to 25 via another bid. (A goalkeeper, because AI clubs sign free agents
+	// for their vacancies in the window, and rarely need one.)
+	c.post("/release", url.Values{"player": {"43"}})
 	// Bid for another player from club 13 to fill back to 25:
 	sq13, _ := c.s.w.Squad(ids.ClubID(13))
-	bidPlayer(sq13[1].Player)
+	taken := takenPlayers()
+	bidPlayer(sq13[slices.IndexFunc(sq13, func(p app.SquadPlayer) bool { return p.Position.String() != "GK" && !taken[p.Player] })].Player)
 	c.post("/continue", nil)
 
 	squad, _ = c.s.w.Squad(c.s.club())
@@ -698,14 +725,12 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 
 	// Free agents page reflects squad full.
 	freeFull := c.get("/free")
-	contains(t, freeFull, "Wes Lindqvist", "squad full")
+	contains(t, freeFull, "Gareth Gallo", "squad full")
 	if strings.Contains(freeFull, "Sign</button>") {
 		t.Fatal("found sign button when squad is full")
 	}
 
-	// Squad minimum rejection: club 3 has GKs; releasing down to 2 GKs (minimum 2), then releasing another is refused.
-	c.post("/release", url.Values{"player": {"43"}})
-	c.post("/release", url.Values{"player": {"42"}})
+	// Squad minimum rejection: club 3 is down to 2 GKs (minimum 2), so releasing another is refused.
 	page = c.post("/release", url.Values{"player": {"41"}})
 	contains(t, page, "the squad would fall below its minimum at that position: 2 GK, minimum 2")
 

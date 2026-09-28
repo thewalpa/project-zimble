@@ -114,6 +114,18 @@ func (s *session) transfers(args []string) error {
 			s.printf("  offer %-4d %-24s %-22s %14s  answer before %s\n", o.ID, o.PlayerName, o.BuyerName, o.Fee, cal.Format(o.Deadline))
 		}
 	}
+	var listed []app.ListedPlayer
+	for _, l := range s.w.TransferList() {
+		if l.Club == s.club() {
+			listed = append(listed, l)
+		}
+	}
+	if len(listed) > 0 {
+		s.printf("\nYour players on the transfer list (unlist ID takes one off):\n")
+		for _, l := range listed {
+			s.printf("  %4d  %-24s %-3s %14s\n", l.Player, l.Name, l.Position, l.Value)
+		}
+	}
 	if len(mine) > 0 {
 		sortOffers(mine)
 		s.printf("\nYour bids awaiting an answer:\n")
@@ -153,6 +165,7 @@ func (s *session) transfers(args []string) error {
 		}
 	}
 	s.printf("\nmarket GK|DF|MF|FW lists other clubs' players with their asking prices; bid ID [FEE [YEARS [WAGE]]] makes a bid.\n")
+	s.printf("list shows the players clubs have put up for sale; list ID [PRICE] puts one of yours on it.\n")
 	return nil
 }
 
@@ -235,11 +248,78 @@ func (s *session) market(args []string) error {
 	s.printf("\n%4s  %-3s %-24s %3s %5s %8s %14s\n", "ID", "CLB", "NAME", "AGE", "OVR", "ENDS", "ASKING PRICE")
 	for _, r := range rows[:min(len(rows), 20)] {
 		ends, _ := cal.Civil(r.Contract.Expires)
-		s.printf("%4d  %-3s %-24s %3d %5d %8d %14s\n", r.Player, r.club, r.Name, r.Age, r.Overall, ends.Year, r.Value)
+		listed := ""
+		if r.Listed {
+			listed = "  listed"
+		}
+		s.printf("%4d  %-3s %-24s %3d %5d %8d %14s%s\n", r.Player, r.club, r.Name, r.Age, r.Overall, ends.Year, r.Value, listed)
 	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		s.printf("Your balance is %s. %s\n", fin.Balance, s.windowLine())
 	}
+	return nil
+}
+
+// list shows the transfer list, or with "ID [PRICE]" puts one of the club's
+// players on it at PRICE (whole units; default: his value).
+func (s *session) list(args []string) error {
+	const usage = "usage: list [ID [PRICE]]"
+	if len(args) > 2 {
+		return errors.New(usage)
+	}
+	if len(args) == 0 {
+		list := s.w.TransferList()
+		if len(list) == 0 {
+			s.printf("No one is on the transfer list. %s\n", s.windowLine())
+			return nil
+		}
+		s.printf("\n%4s  %-22s %-24s %-3s %3s %5s %14s\n", "ID", "CLUB", "NAME", "POS", "AGE", "OVR", "ASKING PRICE")
+		for _, l := range list {
+			s.printf("%4d  %-22s %-24s %-3s %3d %5d %14s\n", l.Player, l.ClubName, l.Name, l.Position, l.Age, l.Overall, l.Value)
+		}
+		s.printf("bid ID buys another club's player at his asking price; list ID [PRICE] and unlist ID manage yours.\n")
+		return nil
+	}
+	player, err := parsePlayer(args[0])
+	if err != nil {
+		return err
+	}
+	squad, _ := s.w.Squad(s.club())
+	i := slices.IndexFunc(squad, func(p app.SquadPlayer) bool { return p.Player == player })
+	if i < 0 {
+		return fmt.Errorf("player %d is not in your squad", player)
+	}
+	p := squad[i]
+	asking := p.Value
+	if len(args) > 1 {
+		units, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil || units <= 0 || units > 1_000_000_000_000 {
+			return errors.New(usage)
+		}
+		asking = money.Units(units)
+	}
+	res, err := s.w.ListPlayer(app.ListPlayer{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Player: player, Asking: asking})
+	if err != nil {
+		return err
+	}
+	role := map[players.Position]string{players.Goalkeeper: "goalkeeper", players.Defender: "defender", players.Midfielder: "midfielder", players.Forward: "forward"}[p.Position]
+	s.printf("%s is on the transfer list at %s until the window closes; clubs that need a %s may bid.\n", p.Name, res.Asking, role)
+	return nil
+}
+
+// unlist takes one of the club's players off the transfer list.
+func (s *session) unlist(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: unlist ID")
+	}
+	player, err := parsePlayer(args[0])
+	if err != nil {
+		return err
+	}
+	if _, err := s.w.ListPlayer(app.ListPlayer{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Player: player}); err != nil {
+		return err
+	}
+	s.printf("%s is off the transfer list.\n", s.name(player))
 	return nil
 }
 

@@ -328,13 +328,20 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if strings.Count(managed, "  <- AI lineup") != 14 || strings.Contains(managed, "your lineup") {
 		t.Fatal("want 14 managed fixtures marked as AI lineups")
 	}
-	if !slices.Equal(matchLines(t, managed), matchLines(t, plain)) || section(t, managed, "Final table") != section(t, plain, "Final table") {
+	// The AI's lineup is the suggested one. (The season differs from the
+	// unmanaged one: AI clubs trade among themselves in the first window,
+	// and bid for a manager's players only when he lists them.)
+	suggested, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "balanced", "-season")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(matchLines(t, managed), matchLines(t, suggested)) || section(t, managed, "Final table") != section(t, suggested, "Final table") {
 		t.Fatal("managing a club without lineups changed results")
 	}
 }
 
 func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
-	plain, _ := runCLI(t, "-seed", "42", "-season")
+	plain, _ := runCLI(t, "-seed", "42", "-club", "3", "-season") // the same squads, AI lineups
 	out, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
 	if err != nil {
 		t.Fatal(err)

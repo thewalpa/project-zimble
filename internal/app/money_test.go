@@ -43,29 +43,40 @@ func assertLedgersConsistent(t *testing.T, w *World) {
 	}
 }
 
-// Every club pays its wage bill once a week from the first week on.
+// Every club pays its wage bill once a week from the first week on: the
+// bill as it stands at the run (transfers in the window change it, and are
+// decided after the wages at the same instant).
 func TestWagesArePaidWeekly(t *testing.T) {
 	w := newWorld(t, 42)
-	opening := w.defs.Economy.OpeningBalance
+	bills := map[ids.ClubID][]money.Money{}
+	for k := sim.GameInstant(1); k <= 5; k++ {
+		mustContinue(t, w, k*week-1)
+		for _, c := range w.registry.Clubs() {
+			bill, _ := w.employment.WageBill(c.ID)
+			bills[c.ID] = append(bills[c.ID], bill)
+		}
+	}
 	mustContinue(t, w, 5*week+day)
 	for _, c := range w.registry.Clubs() {
-		bill, _ := w.employment.WageBill(c.ID)
 		entries := w.finance.Entries(c.ID)
-		if len(entries) != 6 || entries[0].Kind != finance.KindOpening {
-			t.Fatalf("club %d has %d entries", c.ID, len(entries))
-		}
-		for i, e := range entries[1:] {
-			if e.Kind != finance.KindWages || e.At != sim.GameInstant(i+1)*week || e.Amount != -bill {
-				t.Fatalf("club %d wage entry %+v, bill %s", c.ID, e, bill)
+		var wages []finance.Entry
+		for _, e := range entries {
+			if e.Kind == finance.KindWages {
+				wages = append(wages, e)
 			}
 		}
-		if b := balance(t, w, c.ID); b != opening-5*bill {
-			t.Fatalf("club %d balance %s", c.ID, b)
+		if entries[0].Kind != finance.KindOpening || len(wages) != 5 {
+			t.Fatalf("club %d has %d wage entries", c.ID, len(wages))
+		}
+		for i, e := range wages {
+			if e.At != sim.GameInstant(i+1)*week || e.Amount != -bills[c.ID][i] {
+				t.Fatalf("club %d wage entry %+v, bill %s", c.ID, e, bills[c.ID][i])
+			}
 		}
 	}
 	ledger := 0
 	for _, e := range w.Events() {
-		if e.Kind == events.KindLedgerPosted {
+		if e.Kind == events.KindLedgerPosted && finance.Kind(e.LedgerPosted.Entries[0].Kind) == finance.KindWages {
 			ledger++
 			if len(e.LedgerPosted.Entries) != 16 || e.Cause.Kind != events.CauseTask {
 				t.Fatalf("wage event %+v", e)
@@ -165,8 +176,14 @@ func TestWageOverflowFailsTheRunAtomically(t *testing.T) {
 	}
 	w.employment = orig
 	mustContinue(t, w, week)
-	if n := len(w.finance.Entries(1)); n != 2 {
-		t.Fatalf("club 1 has %d entries after the retried run, want 2", n)
+	wages := 0
+	for _, e := range w.finance.Entries(1) {
+		if e.Kind == finance.KindWages {
+			wages++
+		}
+	}
+	if wages != 1 {
+		t.Fatalf("club 1 has %d wage entries after the retried run, want 1", wages)
 	}
 	assertLedgersConsistent(t, w)
 }

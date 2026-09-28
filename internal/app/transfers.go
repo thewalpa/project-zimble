@@ -7,12 +7,14 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/ai"
+	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/finance"
+	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -30,6 +32,8 @@ var (
 	ErrCannotAfford    = errors.New("app: the club cannot afford the fee")
 	ErrNoSuchOffer     = errors.New("app: no open offer for one of your players has that ID")
 	ErrSquadMinimum    = errors.New("app: the squad would fall below its minimum at that position")
+	ErrNotListed       = errors.New("app: the player is not on the transfer list")
+	ErrInvalidPrice    = errors.New("app: an asking price must be positive")
 )
 
 // Transfer windows. A window opens at each contract-year end and closes
@@ -136,8 +140,8 @@ func (w *World) windowTerms(player ids.PlayerID, open sim.GameInstant) (transfer
 
 // market is the transfer state staged by one command or transfer run:
 // employers, squads, balances and wage bills as they will be after the
-// staged changes, the open offers, and the changes themselves. Decisions
-// later in a run see the earlier ones.
+// staged changes, the open offers, the transfer list, and the changes
+// themselves. Decisions later in a run see the earlier ones.
 type market struct {
 	w           *World
 	at          sim.GameInstant
@@ -153,13 +157,20 @@ type market struct {
 	bidFor   map[[2]uint64]bool                  // (buyer, player) offers made in this window
 	offers   map[ids.OfferID]transfers.Offer     // open offers
 	openBids map[ids.ClubID]int                  // open offers by buyer
+	openFor  map[ids.PlayerID]int                // open offers by player
 	pool     []ai.FreeAgent                      // free agents not signed yet, best first
 	terms    map[ids.OfferID]employment.Contract // completed offers' contracts
+	listings map[ids.PlayerID]transfers.Listing  // the transfer list
+	values   map[ids.PlayerID]money.Money        // valuations at m.at, computed once
 
 	jobs     employment.Changes
 	postings []finance.Posting
 	changes  transfers.Changes
 	actions  []marketAction // AI bids and signings, in order
+	// Listing changes to announce, in order; a listing that ends because the
+	// player leaves or the window closes is not announced.
+	listed   []transfers.Listing
+	unlisted []transfers.Listing
 }
 
 // marketAction is one AI action of a run: a bid (index into changes.Bids)
@@ -180,8 +191,9 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 		employer: map[ids.PlayerID]ids.ClubID{}, position: map[ids.PlayerID]players.Position{},
 		counts: map[ids.ClubID]map[players.Position]int{}, balances: map[ids.ClubID]money.Money{},
 		wages: map[ids.ClubID]money.Money{}, moved: map[ids.PlayerID]bool{}, bought: map[ids.ClubID]bool{}, bidFor: map[[2]uint64]bool{},
-		offers: map[ids.OfferID]transfers.Offer{}, openBids: map[ids.ClubID]int{},
-		terms: map[ids.OfferID]employment.Contract{},
+		offers: map[ids.OfferID]transfers.Offer{}, openBids: map[ids.ClubID]int{}, openFor: map[ids.PlayerID]int{},
+		terms: map[ids.OfferID]employment.Contract{}, listings: map[ids.PlayerID]transfers.Listing{},
+		values: map[ids.PlayerID]money.Money{},
 	}
 	for _, c := range w.registry.Clubs() {
 		m.counts[c.ID] = map[players.Position]int{}
@@ -205,9 +217,63 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 		if o.Status == transfers.StatusOpen {
 			m.offers[o.ID] = o
 			m.openBids[o.Buyer]++
+			m.openFor[o.Player]++
 		}
 	}
+	for _, l := range w.transfers.Listings() {
+		m.listings[l.Player] = l
+	}
 	return m, nil
+}
+
+// value is ai.Valuation of a player employed since before the market, at
+// m.at.
+func (m *market) value(player ids.PlayerID) (money.Money, error) {
+	if v, ok := m.values[player]; ok {
+		return v, nil
+	}
+	v, err := m.w.valuation(player, m.at)
+	if err != nil {
+		return 0, err
+	}
+	m.values[player] = v
+	return v, nil
+}
+
+// price is the fee at which a player's club sells him: his asking price if
+// he is listed, else its valuation.
+func (m *market) price(player ids.PlayerID) (money.Money, error) {
+	if l, ok := m.listings[player]; ok {
+		return l.Asking, nil
+	}
+	return m.value(player)
+}
+
+// list stages a listing at m.at, replacing the player's listing if he has
+// one, and announces it.
+func (m *market) list(player ids.PlayerID, club ids.ClubID, asking money.Money) {
+	if _, ok := m.listings[player]; ok {
+		m.unlist(player, false)
+	}
+	l := transfers.Listing{Player: player, Club: club, Asking: asking, ListedAt: m.at}
+	m.changes.List = append(m.changes.List, l)
+	m.listings[player] = l
+	m.listed = append(m.listed, l)
+}
+
+// unlist stages the end of a player's listing, if he has one. Only a club
+// taking him off the list is announced: when he leaves the club or the
+// window closes, his listing ends with that event.
+func (m *market) unlist(player ids.PlayerID, announce bool) {
+	l, ok := m.listings[player]
+	if !ok {
+		return
+	}
+	m.changes.Unlist = append(m.changes.Unlist, player)
+	delete(m.listings, player)
+	if announce {
+		m.unlisted = append(m.unlisted, l)
+	}
 }
 
 // ruleErrors are the reasons an accepted offer can fail to complete; any
@@ -221,7 +287,7 @@ func isRuleError(err error) bool {
 // complete stages an accepted offer's transfer at m.at: the player leaves
 // the seller and joins the buyer's senior team on the offer's terms, the
 // fee moves between the ledgers, and every other open offer for the player
-// collapses. It revalidates the rules first: the window is open, the seller
+// collapses and his listing ends. It revalidates the rules first: the window is open, the seller
 // still employs the player and he has not moved in this window, the seller
 // keeps its minimum at his position, the buyer has room for him (hasRoom)
 // and can pay the fee. A rule failure returns one of ruleErrors and stages
@@ -264,6 +330,7 @@ func (m *market) complete(o transfers.Offer) error {
 	m.counts[o.Buyer][pos]++
 	m.employer[o.Player], m.moved[o.Player], m.bought[o.Buyer] = o.Buyer, true, true
 	m.terms[o.ID] = contract
+	m.unlist(o.Player, false)
 	m.closeOffer(o, transfers.StatusCompleted)
 	for _, id := range slices.Sorted(maps.Keys(m.offers)) {
 		if other := m.offers[id]; other.Player == o.Player {
@@ -278,6 +345,7 @@ func (m *market) closeOffer(o transfers.Offer, status transfers.Status) {
 	m.changes.Close = append(m.changes.Close, transfers.Closure{Offer: o.ID, Status: status})
 	delete(m.offers, o.ID)
 	m.openBids[o.Buyer]--
+	m.openFor[o.Player]--
 }
 
 // bid stages a new open offer with the deadline its seller has: the next
@@ -295,6 +363,7 @@ func (m *market) bid(player ids.PlayerID, buyer ids.ClubID, fee money.Money, ter
 	m.changes.Bids = append(m.changes.Bids, b)
 	m.bidFor[[2]uint64{uint64(buyer), uint64(player)}] = true
 	m.openBids[buyer]++
+	m.openFor[player]++
 	return b, nil
 }
 
@@ -369,8 +438,9 @@ func (m *market) commit(extra func() error) (transfers.Plan, finance.Plan, error
 }
 
 // emit stages the events of a committed market: each closed offer in
-// closure order (TransferCompleted or OfferClosed), the fee postings, then
-// the AI actions in order (TransferOffered or PlayerSigned).
+// closure order (TransferCompleted or OfferClosed), the fee postings, the
+// announced listing changes (PlayerUnlisted, then PlayerListed), then the
+// AI actions in order (TransferOffered or PlayerSigned).
 func (m *market) emit(cause events.Cause, offerPlan transfers.Plan, moneyPlan finance.Plan) {
 	w := m.w
 	for _, o := range offerPlan.Closed() {
@@ -385,6 +455,14 @@ func (m *market) emit(cause events.Cause, offerPlan transfers.Plan, moneyPlan fi
 		w.emit(m.at, cause, events.Event{Kind: events.KindOfferClosed, OfferClosed: &events.OfferClosed{Deal: deal, Outcome: uint8(o.Status)}})
 	}
 	w.emitLedger(m.at, cause, moneyPlan)
+	for _, l := range m.unlisted {
+		team, _ := w.registry.SeniorTeam(l.Club)
+		w.emit(m.at, cause, events.Event{Kind: events.KindPlayerUnlisted, PlayerUnlisted: &events.PlayerUnlisted{Player: l.Player, Club: l.Club, Team: team}})
+	}
+	for _, l := range m.listed {
+		team, _ := w.registry.SeniorTeam(l.Club)
+		w.emit(m.at, cause, events.Event{Kind: events.KindPlayerListed, PlayerListed: &events.PlayerListed{Player: l.Player, Club: l.Club, Team: team, Asking: l.Asking}})
+	}
 	made := offerPlan.Made()
 	for _, a := range m.actions {
 		if a.bid < 0 {
@@ -412,20 +490,17 @@ func (w *World) deal(o transfers.Offer) events.Deal {
 // all-or-nothing change:
 //
 //  1. Every open offer to an AI club due now is answered, in offer order:
-//     the club accepts a fee of at least its valuation (ai.AcceptBid), and
+//     the club accepts a fee of at least its price for the player (the
+//     asking price if he is listed, else its valuation; ai.AcceptBid), and
 //     an accepted offer completes at once or collapses (see complete).
 //  2. Every open offer to the manager due now expires.
 //  3. At the close, every AI club with a vacancy (a position below its
 //     roster count) signs free agents to fill it, as at the contract year
-//     (ai.Signings).
-//  4. Otherwise every AI club with a vacancy and no open bid, in club ID
-//     order, acts once for its largest need: it bids its valuation for the
-//     best player it can afford who is clearly better than the best free
-//     agent at the position (ai.ChooseTarget), if the answer can still come
-//     inside the window and it has not bought a player in this window yet;
-//     else it signs that free agent. It bids only for players it may buy:
-//     of another club that keeps its minimum at the position, not moved in
-//     this window, and not bid for by the club in this window before.
+//     (ai.Signings), and the transfer list is cleared.
+//  4. Otherwise every AI club lists the players it does not need (see
+//     listSurplus), then every AI club with no open bid, in club ID order,
+//     acts once (see aiActions): for its largest need if it has a vacancy,
+//     else for an upgrade.
 //
 // Then the next run is queued, the plans are applied, and the events are
 // emitted.
@@ -446,11 +521,11 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 			m.closeOffer(o, transfers.StatusExpired)
 			continue
 		}
-		value, err := w.valuation(o.Player, at)
+		price, err := m.price(o.Player)
 		if err != nil {
 			return err
 		}
-		if !ai.AcceptBid(o.Fee, value) {
+		if !ai.AcceptBid(o.Fee, price) {
 			m.closeOffer(o, transfers.StatusRejected)
 			continue
 		}
@@ -467,8 +542,16 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 		if err := m.fillSquads(); err != nil {
 			return err
 		}
-	} else if err := m.aiActions(); err != nil {
-		return err
+		for _, id := range slices.Sorted(maps.Keys(m.listings)) {
+			m.unlist(id, false)
+		}
+	} else {
+		if err := m.listSurplus(); err != nil {
+			return err
+		}
+		if err := m.aiActions(); err != nil {
+			return err
+		}
 	}
 	next, err := w.nextTransferRun(at)
 	if err != nil {
@@ -508,8 +591,75 @@ func (m *market) fillSquads() error {
 	return nil
 }
 
-// aiActions lets every AI club with a vacancy and no open bid act once (see
-// transferRun).
+// members returns a club's players at a position, as staged.
+func (m *market) members(club ids.ClubID, pos players.Position) []ai.Member {
+	var out []ai.Member
+	for _, id := range slices.Sorted(maps.Keys(m.employer)) {
+		if m.employer[id] == club && m.position[id] == pos {
+			p, _ := m.w.players.Profile(id)
+			out = append(out, ai.Member{Player: id, Overall: p.Overall()})
+		}
+	}
+	return out
+}
+
+// hasSurplus reports whether a club holds more players than its roster
+// count at some position.
+func (m *market) hasSurplus(club ids.ClubID) bool {
+	return slices.ContainsFunc(m.w.defs.Roster, func(q content.Quota) bool { return m.counts[club][q.Position] > q.Count })
+}
+
+// listSurplus brings every AI club's transfer list in line with the players
+// it does not need: at each position where it holds more than its roster
+// count, everyone but its best (ai.Surplus) is listed at ai.ListingPrice of
+// his valuation, except a player who moved in this window (he cannot be
+// sold again in it); a listed player it needs again is taken off the list.
+func (m *market) listSurplus() error {
+	w := m.w
+	for _, c := range w.registry.Clubs() {
+		if c.ID == w.userClub {
+			continue
+		}
+		surplus := map[ids.PlayerID]bool{}
+		for _, q := range w.defs.Roster {
+			for _, id := range ai.Surplus(m.members(c.ID, q.Position), q.Count) {
+				surplus[id] = !m.moved[id]
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(m.listings)) {
+			if m.listings[id].Club == c.ID && !surplus[id] {
+				m.unlist(id, true)
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(surplus)) {
+			if _, listed := m.listings[id]; listed || !surplus[id] {
+				continue
+			}
+			value, err := m.value(id)
+			if err != nil {
+				return err
+			}
+			m.list(id, c.ID, ai.ListingPrice(value))
+		}
+	}
+	return nil
+}
+
+// aiActions lets every AI club with no open bid act once, in club ID order:
+//
+//   - With a vacancy, for its largest need: it bids its price for the best
+//     player it can afford who is clearly better than the best free agent
+//     at the position (ai.ChooseTarget), if the answer can still come inside
+//     the window; else it signs that free agent. Once it has bought a player
+//     in this window, it bids only for listed players: buying one leaves his
+//     club without a vacancy, so no chain of purchases follows.
+//   - Without one, for an upgrade: if the answer can still come inside the
+//     window, it has not bought a player in this window and holds no
+//     surplus, it bids its price for the player it can afford who most
+//     improves on its weakest player in his role (ai.ChooseUpgrade). Once he
+//     joins, it lists the player he replaces (see listSurplus).
+//
+// It bids only for players it may buy (see candidates).
 func (m *market) aiActions() error {
 	w := m.w
 	next, err := w.nextTransferRun(m.at)
@@ -523,6 +673,11 @@ func (m *market) aiActions() error {
 		}
 		role, ok := ai.LargestNeed(m.needs(c.ID))
 		if !ok {
+			if canBid && !m.bought[c.ID] && !m.hasSurplus(c.ID) {
+				if err := m.upgrade(c.ID); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		var pos players.Position
@@ -538,24 +693,24 @@ func (m *market) aiActions() error {
 				break
 			}
 		}
-		if canBid && !m.bought[c.ID] {
+		if canBid {
 			floor := 0
 			if best >= 0 {
 				floor = m.pool[best].Overall
 			}
-			target, ok, err := m.target(c.ID, pos, floor)
+			listedOnly := m.bought[c.ID]
+			cands, err := m.candidates(c.ID, func(id ids.PlayerID) bool {
+				_, listed := m.listings[id]
+				return m.position[id] == pos && (listed || !listedOnly)
+			})
 			if err != nil {
 				return err
 			}
-			if ok {
-				terms, err := w.windowTerms(target.Player, m.open)
-				if err != nil {
+			budget := ai.TransferBudget(m.balances[c.ID], m.wages[c.ID])
+			if target, ok := ai.ChooseTarget(c.ID, cands, floor, budget); ok {
+				if err := m.aiBid(c.ID, target); err != nil {
 					return err
 				}
-				if _, err := m.bid(target.Player, c.ID, target.Value, terms); err != nil {
-					return err
-				}
-				m.actions = append(m.actions, marketAction{bid: len(m.changes.Bids) - 1})
 				continue
 			}
 		}
@@ -568,29 +723,67 @@ func (m *market) aiActions() error {
 	return nil
 }
 
-// target chooses the player an AI club bids for at a position, if any.
-func (m *market) target(club ids.ClubID, pos players.Position, freeAgent int) (ai.TransferCandidate, bool, error) {
+// upgrade lets an AI club bid for an upgrade, if it finds one.
+func (m *market) upgrade(club ids.ClubID) error {
+	weakest := map[matches.Role]int{}
+	for _, q := range m.w.defs.Roster {
+		for i, mem := range m.members(club, q.Position) {
+			if r := roleOf(q.Position); i == 0 || mem.Overall < weakest[r] {
+				weakest[r] = mem.Overall
+			}
+		}
+	}
+	cands, err := m.candidates(club, func(ids.PlayerID) bool { return true })
+	if err != nil {
+		return err
+	}
+	target, ok := ai.ChooseUpgrade(club, cands, weakest, ai.TransferBudget(m.balances[club], m.wages[club]))
+	if !ok {
+		return nil
+	}
+	return m.aiBid(club, target)
+}
+
+// aiBid stages an AI club's bid of its target's price, on windowTerms.
+func (m *market) aiBid(club ids.ClubID, target ai.TransferCandidate) error {
+	terms, err := m.w.windowTerms(target.Player, m.open)
+	if err != nil {
+		return err
+	}
+	if _, err := m.bid(target.Player, club, target.Value, terms); err != nil {
+		return err
+	}
+	m.actions = append(m.actions, marketAction{bid: len(m.changes.Bids) - 1})
+	return nil
+}
+
+// candidates lists the players ok accepts that an AI club may bid for, at
+// their clubs' prices: of another club that keeps its minimum at the
+// position, not moved in this window, not bid for by the club in this
+// window before, and, of the manager's players, only those he has listed.
+// It leaves out players another club has an open bid for: the earlier bid
+// is answered first.
+func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.TransferCandidate, error) {
 	w := m.w
 	var cands []ai.TransferCandidate
 	for _, id := range slices.Sorted(maps.Keys(m.employer)) {
-		seller := m.employer[id]
-		if seller == club || m.position[id] != pos || m.moved[id] || m.bidFor[[2]uint64{uint64(club), uint64(id)}] ||
-			m.counts[seller][pos] <= w.defs.Quota(pos).Min {
+		seller, pos := m.employer[id], m.position[id]
+		_, listed := m.listings[id]
+		if seller == club || !ok(id) || m.moved[id] || m.openFor[id] > 0 || m.bidFor[[2]uint64{uint64(club), uint64(id)}] ||
+			m.counts[seller][pos] <= w.defs.Quota(pos).Min || (seller == w.userClub && !listed) {
 			continue
 		}
 		if _, stored := w.employment.Assignment(id); !stored {
 			continue // signed in this run
 		}
-		value, err := w.valuation(id, m.at)
+		price, err := m.price(id)
 		if err != nil {
-			return ai.TransferCandidate{}, false, err
+			return nil, err
 		}
 		p, _ := w.players.Profile(id)
-		cands = append(cands, ai.TransferCandidate{Player: id, Club: seller, Overall: p.Overall(), Value: value})
+		cands = append(cands, ai.TransferCandidate{Player: id, Club: seller, Role: roleOf(pos), Overall: p.Overall(), Value: price, Listed: listed})
 	}
-	budget := ai.TransferBudget(m.balances[club], m.wages[club])
-	c, ok := ai.ChooseTarget(club, cands, freeAgent, budget)
-	return c, ok, nil
+	return cands, nil
 }
 
 // MakeTransferOffer bids Fee for another club's player on behalf of the
@@ -767,6 +960,159 @@ func (w *World) RespondToOffer(cmd RespondToOffer) (OfferAnswered, error) {
 	return res, nil
 }
 
+// ListPlayer puts a user-club player on the transfer list at Asking, or
+// changes his asking price if he is listed; Asking zero takes him off the
+// list. AI clubs that need a player at his position (a vacancy, or an
+// upgrade on their weakest there) may then bid Asking for him, and the
+// manager answers as for any bid. Listing needs an open window with a run
+// left before the close, like a bid, a player who has not moved in this
+// window, and a squad above its minimum at his position (else no club may
+// buy him); the listing ends when he leaves the club or the window closes.
+type ListPlayer struct {
+	ID               CommandID
+	ExpectedRevision Revision
+	Player           ids.PlayerID
+	Asking           money.Money
+}
+
+// PlayerListed is the recorded result of ListPlayer.
+type PlayerListed struct {
+	Command  CommandID
+	Revision Revision
+	Player   ids.PlayerID
+	Asking   money.Money // zero: taken off the list
+}
+
+type ListingRecord struct {
+	Request ListPlayer
+	Result  PlayerListed
+}
+
+// ListPlayer records a listing change (see the ListPlayer type). Retries
+// follow ResolveRounds. On error nothing changes.
+func (w *World) ListPlayer(cmd ListPlayer) (PlayerListed, error) {
+	rec, retry, err := w.checkCommand(cmd.ID, cmd.ExpectedRevision, func(r commandRecord) bool { return r.listing != nil && r.listing.Request == cmd })
+	if err != nil {
+		return PlayerListed{}, err
+	}
+	if retry {
+		return rec.listing.Result, nil
+	}
+	a, ok := w.employment.Assignment(cmd.Player)
+	if !ok || a.Club != w.userClub {
+		return PlayerListed{}, fmt.Errorf("%w: player %d", ErrNotUserPlayer, cmd.Player)
+	}
+	m, err := w.newMarket(w.Now())
+	if err != nil {
+		return PlayerListed{}, err
+	}
+	next, err := w.nextTransferRun(w.Now())
+	if err != nil {
+		return PlayerListed{}, err
+	}
+	_, listed := m.listings[cmd.Player]
+	switch {
+	case cmd.Asking < 0:
+		return PlayerListed{}, fmt.Errorf("%w: %s", ErrInvalidPrice, cmd.Asking)
+	case cmd.Asking == 0 && !listed:
+		return PlayerListed{}, fmt.Errorf("%w: player %d", ErrNotListed, cmd.Player)
+	case cmd.Asking == 0:
+		m.unlist(cmd.Player, true)
+	case w.Now() >= m.close || next >= m.close:
+		return PlayerListed{}, fmt.Errorf("%w: players are listed only while bids can be answered", ErrWindowClosed)
+	case m.moved[cmd.Player]:
+		return PlayerListed{}, fmt.Errorf("%w: player %d has moved in this window", ErrNotTransferable, cmd.Player)
+	case m.counts[w.userClub][m.position[cmd.Player]] <= w.defs.Quota(m.position[cmd.Player]).Min:
+		pos := m.position[cmd.Player]
+		return PlayerListed{}, fmt.Errorf("%w: %d %s, minimum %d", ErrSquadMinimum, m.counts[w.userClub][pos], pos, w.defs.Quota(pos).Min)
+	default:
+		m.list(cmd.Player, w.userClub, cmd.Asking)
+	}
+	offerPlan, moneyPlan, err := m.commit(nil)
+	if err != nil {
+		return PlayerListed{}, err
+	}
+
+	// Committed. Nothing below can fail.
+	w.revision++
+	res := PlayerListed{Command: cmd.ID, Revision: w.revision, Player: cmd.Player, Asking: cmd.Asking}
+	w.commands[cmd.ID] = commandRecord{listing: &ListingRecord{Request: cmd, Result: res}}
+	m.emit(commandCause(cmd.ID), offerPlan, moneyPlan)
+	w.publish()
+	return res, nil
+}
+
+// restoreListing validates a recorded ListPlayer: a fresh ID, a result
+// within the revision range for the same registered player and asking
+// price, which is not negative, and a user club. Later changes may have
+// ended the listing, so it is not compared with the transfer list.
+func (w *World) restoreListing(c ListingRecord, revision Revision) error {
+	q, r := c.Request, c.Result
+	if err := w.checkRecordID(q.ID, r.Command); err != nil {
+		return err
+	}
+	if r.Revision <= q.ExpectedRevision || r.Revision > revision {
+		return fmt.Errorf("result revision %d outside (%d, %d]", r.Revision, q.ExpectedRevision, revision)
+	}
+	if w.userClub == 0 || r.Player != q.Player || r.Asking != q.Asking || q.Asking < 0 {
+		return fmt.Errorf("result %+v for player %d at %s, user club %d", r, q.Player, q.Asking, w.userClub)
+	}
+	if _, ok := w.registry.Player(q.Player); !ok {
+		return fmt.Errorf("unknown player %d", q.Player)
+	}
+	return nil
+}
+
+// checkListingEvent compares a listing event with its cause: a manager's
+// listing change matches its recorded command, and a transfer run lists and
+// unlists only AI clubs' players.
+func (w *World) checkListingEvent(e events.Event) error {
+	var player ids.PlayerID
+	var club ids.ClubID
+	var team ids.TeamID
+	var asking money.Money // zero: unlisted
+	switch e.Kind {
+	case events.KindPlayerListed:
+		p := e.PlayerListed
+		player, club, team, asking = p.Player, p.Club, p.Team, p.Asking
+	case events.KindPlayerUnlisted:
+		p := e.PlayerUnlisted
+		player, club, team = p.Player, p.Club, p.Team
+	}
+	switch e.Cause.Kind {
+	case events.CauseCommand:
+		rec := w.commands[CommandID(e.Cause.ID)].listing
+		if rec == nil || rec.Result.Player != player || rec.Result.Asking != asking || club != w.userClub {
+			return errors.New("differs from the recorded listing")
+		}
+	default:
+		if club == w.userClub {
+			return errors.New("a transfer run listed a user-club player")
+		}
+	}
+	return w.checkPlayerEvent(player, club, team)
+}
+
+// ListedPlayer is a player on the transfer list, with his club and the
+// time he was listed. Value is his asking price.
+type ListedPlayer struct {
+	SquadPlayer
+	Club     ids.ClubID
+	ClubName string
+	ListedAt sim.GameInstant
+}
+
+// TransferList returns every player on the transfer list, in player ID
+// order. Read-only.
+func (w *World) TransferList() []ListedPlayer {
+	var out []ListedPlayer
+	for _, l := range w.transfers.Listings() {
+		label, _ := w.ClubLabel(l.Club)
+		out = append(out, ListedPlayer{SquadPlayer: w.squadPlayer(l.Player), Club: l.Club, ClubName: label.ClubName, ListedAt: l.ListedAt})
+	}
+	return out
+}
+
 // TransferWindow describes the transfer window under way, or the next one.
 // Bids are made until BidsClose (exclusive), so that the answer comes
 // inside the window; NextRun is when clubs next answer bids.
@@ -825,6 +1171,9 @@ func (w *World) Offers() []OfferView {
 //   - every transfer fee belongs to a completed offer, and every completed
 //     offer moved its fee exactly once: from the buyer's ledger to the
 //     seller's, when it completed;
+//   - every listed player is employed by the listing club and was listed
+//     inside the window under way, which is still open, and has not moved
+//     in it;
 //   - exactly one transfer-run task is queued, in the Decisions phase with
 //     no payload, due at the next run.
 func (w *World) validateTransfers() []error {
@@ -832,7 +1181,7 @@ func (w *World) validateTransfers() []error {
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("app: "+format, args...)) }
 
 	now := w.Now()
-	currentOpen, _, err := w.transferWindow(now)
+	currentOpen, currentClose, err := w.transferWindow(now)
 	if err != nil {
 		return append(errs, err)
 	}
@@ -900,6 +1249,18 @@ func (w *World) validateTransfers() []error {
 	for id := range fees {
 		if _, ok := w.transfers.Offer(id); !ok {
 			fail("transfer fee for unknown offer %d", id)
+		}
+	}
+	for _, l := range w.transfers.Listings() {
+		a, employed := w.employment.Assignment(l.Player)
+		open, _, err := w.transferWindow(l.ListedAt)
+		switch {
+		case !employed || a.Club != l.Club:
+			fail("player %d is listed by club %d, which does not employ him", l.Player, l.Club)
+		case err != nil || open != currentOpen || l.ListedAt > now || now >= currentClose:
+			fail("player %d was listed at %d, outside the open window", l.Player, l.ListedAt)
+		case moves[[2]int64{int64(currentOpen), int64(l.Player)}]:
+			fail("player %d is listed after moving in this window", l.Player)
 		}
 	}
 

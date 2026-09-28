@@ -8,9 +8,11 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/selection"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
 // managedSeason plays season 1 with a submitted lineup for each user
@@ -40,6 +42,27 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 		// edition.
 		events.KindRoundStarted: 28, events.KindMatchCompleted: 112, events.KindLineupSubmitted: 14,
 		events.KindSeasonEnded: 2, events.KindSeasonStarted: 3, events.KindLedgerPosted: 14 + weeks,
+	}
+	// The AI clubs' transfer market: one event per offer made, completed or
+	// closed, one ledger posting per run that moved fees, and the listings.
+	feeRuns := map[sim.GameInstant]bool{}
+	for _, o := range w.transfers.Offers() {
+		want[events.KindTransferOffered]++
+		if o.Status == transfers.StatusCompleted {
+			want[events.KindTransferCompleted]++
+			feeRuns[o.ClosedAt] = true
+		} else {
+			want[events.KindOfferClosed]++
+		}
+	}
+	want[events.KindLedgerPosted] += len(feeRuns)
+	for _, k := range []events.Kind{events.KindPlayerListed, events.KindPlayerUnlisted} {
+		if n := count[k]; n > 0 {
+			want[k] = n
+		}
+	}
+	if want[events.KindTransferCompleted] == 0 || want[events.KindPlayerListed] == 0 {
+		t.Fatal("the AI clubs traded no players")
 	}
 	if !reflect.DeepEqual(count, want) {
 		t.Fatalf("event counts %v, want %v", count, want)

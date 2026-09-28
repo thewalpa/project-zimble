@@ -1839,6 +1839,81 @@ The web client (`cmd/web`) now utilizes the full available screenspace and align
 - `TestFullWidthLayout` confirms that the rendered HTML contains no `max-width: 1100px` or `margin: 0 auto` centering rules on `.bar`, `nav`, or `main`.
 - All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
 
+## squad: the transfer list and AI transfers (done)
+
+Clubs can now put players they don't need on a **transfer list** at an asking price, and clubs that need a player at that position bid for them. AI clubs use it both ways. They buy **upgrades**: a player clearly better than their weakest at a position. They then list the player he replaces, at a discount. Clubs with a vacancy look at the list first. So the market now moves every summer without the manager: about 25 transfers per window in an AI-only world, and every squad is back to full size at the close. The manager lists players with `list ID [PRICE]`. AI clubs bid for the manager's players only when they are listed.
+
+```text
+Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC; clubs answer bids made before Tue 2026-07-28 00:00 UTC.
+> list 44
+! app: the squad would fall below its minimum at that position: 5 DF, minimum 5
+> continue
+  Thu 2026-07-02 00:00 UTC  transfer: Gareth Abbott joined from Dunmarrow Albion for 250,000.00, until 1 July 2030 at 2,000.00 a week
+> list 44
+Elias Gallo is on the transfer list at 1,200,000.00 until the window closes; clubs that need a defender may bid.
+> continue
+  Fri 2026-07-03 00:00 UTC  bid: Hollowick Town bid 1,200,000.00 for Elias Gallo (offer 49); answer before Mon 2026-07-06 00:00 UTC (accept/reject)
+> accept 49
+Accepted: the transfer is complete.
+```
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/transfers` | The transfer list: `Listing{Player, Club, Asking, ListedAt}`; `Changes.Unlist`, `Changes.List`; `Plan.Listed`, `Plan.Unlisted`; `Store.Listing`, `Store.Listings`; `Snapshot.Listings` | – |
+| `internal/ai` | `ListingPrice` (`ListingPermille` 800), `Member`, `Surplus`, `ChooseUpgrade` (`UpgradeMargin` 8); `TransferCandidate.Role`, `.Listed`; `ChooseTarget` and `ChooseUpgrade` prefer listed players; `AcceptBid` judges a fee against the club's price | `ai.TransfersVersion` 2 |
+| `internal/events` | `PlayerListed` (17), `PlayerUnlisted` (18) | – |
+| `internal/app` | `ListPlayer` command (`Asking` zero takes a player off the list), `PlayerListed` result, `ListingRecord`; `TransferList()` and `ListedPlayer`; `SquadPlayer.Listed` (and `Value` is the asking price of a listed player); `ErrNotListed`, `ErrInvalidPrice`; the transfer run lists surplus and buys upgrades; `hasRoom` lets an AI club take one player beyond its roster count; listing checks in `validateTransfers` and the journal; `WorldSnapshot.ListingCommands` | save `SchemaVersion` 14 |
+| `cmd/play` | `list` (the transfer list), `list ID [PRICE]`, `unlist ID`; your listed players under `transfers`; `listed` marks in `market` | – |
+
+**Goldens changed on purpose.** AI clubs now trade in the first window, so the seed-42 season goldens (both leagues and the cup) moved with `ai.TransfersVersion` 2. The world fingerprint is unchanged.
+
+### Decisions
+
+- **The list belongs to `transfers`.** A listing is a transfer-market fact, like an offer. It is planned and applied with the offers in the same `market.commit`, so one run or command changes the list, the offers, employment and the ledgers together.
+- **A listing lasts one window.** It is made while bids can still be answered, like a bid, and only above the squad's minimum at the player's position. No club may buy him otherwise, and a listing that could never draw a bid would only confuse. It ends without an event of its own when the player leaves the club (a sale or a release) or when the window closes. The close run clears the list. So the contract year and the player year never see a listing, and no player who moved in the window can be listed (he can't be sold again in it). Only an explicit withdrawal is announced (`PlayerUnlisted`). Relisting at a new price replaces the listing and emits `PlayerListed` again.
+- **A club's price** is the asking price of a listed player, and its valuation otherwise. AI clubs accept any fee at or above it, and bid it. `SquadPlayer.Value` shows it, so the clients' "asking price" columns are always the fee that is accepted.
+- **AI upgrades.** An AI club without a vacancy may bid, once per window, for a player at least `UpgradeMargin` (8) better than its weakest in his role, choosing the largest improvement it can afford (`ai.ChooseUpgrade`, same budget as before). The player joins as an extra. At its next run the club lists everyone at a position beyond its best `Count` (`ai.Surplus`), at 80% of their valuation (`ai.ListingPrice`), and withdraws a listed player it needs again.
+  - **The bound:** `hasRoom` lets an AI club take a player beyond its roster count only while it holds no surplus, so an AI squad is never more than one player over its generated size (21). A club with an unsold surplus buys no upgrade.
+  - **Why list instead of releasing** (the plan in the lane doc): a listed player stays employed and is sold for a fee, so no one is pushed into the free-agent pool to retire unreplaced, and no money leaves the game.
+- **The list comes first.** An AI club picks listed players whenever one qualifies, both for a vacancy and for an upgrade (`listedFirst`). A club that has already bought in the window may still buy a *listed* player for a vacancy. That can't start a chain, because the seller only loses a surplus player. It is what empties the list: in 30-year runs every surplus player was sold within his window.
+- **No herding.** An AI club leaves alone a player another club already has an open bid for, since the earlier bid is answered first. Before this rule, ten clubs bid for the same player on day one and nine bids collapsed. Now almost every bid completes.
+- **The manager's players get bids only when listed.** Before, an AI club with a vacancy could bid for any of the manager's players. With upgrades, vacancies are common, and the manager was flooded with bids from the second day of every window. Listing is now how the manager sells, and AI clubs bid the asking price for listed players.
+  - Consequence: a passive manager's season is no longer the AI-only season, since the manager's club takes no part in the AI market. Tests that compared the two now compare with a managed world that submits nothing.
+- **Free agents are scarcer.** Clubs that sold an upgrade fill the vacancy from the list or with the best free agent. The better free agents are signed during the window, so after it the manager often finds only a few.
+
+### Verification
+
+- **`transfers`:** listing, relisting and unlisting, player order, snapshots; 9 invalid change sets and 6 invalid snapshots rejected without change.
+- **`ai`:** the listing price is a discounted whole step; surplus is everyone but the best, independent of order and without modifying the input; upgrade choice (the largest gain, then the cheapest; roles without players skipped; an inclusive margin; no budget); listed players first for vacancies and upgrades.
+- **`events`:** 4 invalid listing events rejected; clones share nothing.
+- **App (`listing_test.go`):**
+  - **The manager's listing:** the result, the stored listing, the squad row (`Listed`, `Value`), `TransferList`, the command-caused event, retries before and after a save, relisting (one `PlayerListed`), unlisting (one `PlayerUnlisted`), and no inbox message.
+  - **12 refused listings** change nothing: zero ID, stale revision, no manager, another club's player, an unknown player, a free agent, a negative price, unlisting an unlisted player, the last day of the window, after the close, a squad at its minimum at the player's position, and a player who moved in this window.
+  - **A listing ends silently** when the player is sold or released, and at the close.
+  - **AI listings, every day of a window:** an AI club lists exactly its surplus at `ListingPrice`; listed players are sold; a listed player the club needs again is withdrawn by a task-caused `PlayerUnlisted`. A club holding a surplus buys no upgrade and lists it, and no AI squad ever holds more than one extra player.
+  - **The list comes first:** the manager's best player, listed at a nominal price, draws exactly one bid, from the first club to act.
+  - **The manager buys a listed player** at the asking price, below his valuation.
+  - **8 invalid saves** rejected: a listing by a club that doesn't employ the player, a future listing, a duplicate, a moved player listed, two mismatched listing records, an edited listing event, and a run that listed the manager's player.
+  - **Thirty AI-only years** (seed 7): every window completes transfers and ends with an empty list and full AI squads; fees sum to zero; the population stays put; the world validates every year.
+- **Existing tests adjusted:**
+  - "AI-only worlds make no offer" became "AI-only worlds trade".
+  - "each AI club buys at most once" allows further purchases of listed players.
+  - "AI squads exactly full" became "full, with at most one extra player".
+  - The AI-bid scenarios now list the manager's player first.
+  - Tests that counted a passive world's ledger entries, events or free agents count around the market.
+  - Tests that pinned seed-42 names, cup winners and offer IDs in `cmd/play`, `cmd/web` and `cmd/simulate` were updated.
+- **Deliberate-bug checks,** each caught: a sale leaving the listing in place; the close not clearing the list; unlimited AI surplus; listing validation removed; AI clubs ignoring the list; AI clubs bidding for unlisted manager players.
+- **Simulation** (30 years, AI-only, seeds 7 and 42, measured after each window): 22–31 transfers per window, bids roughly equal to completions, every AI squad back at exactly 20 and the population at 320 every year.
+
+### Limitations
+
+- **The web client** has no listing form or transfer-list view yet; that is a `ui` note. `cmd/play` has them.
+- **AI clubs list only surplus.** They don't list declining or unwanted players to raise money, and they sell unlisted players to anyone who pays the valuation, their best included.
+- **Listings don't carry over** to the next window, and a listing has no minimum fee below the asking price: a bid is accepted at the asking price or not at all.
+- **Balances keep diverging** over decades (as before this change): AI clubs spend at most one upgrade a year, so rich clubs keep growing. Money use belongs to the "AI money" backlog item.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

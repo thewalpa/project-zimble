@@ -234,6 +234,10 @@ func (s *session) loop() {
 			err = s.transfers(args)
 		case "market":
 			err = s.market(args)
+		case "list":
+			err = s.list(args)
+		case "unlist":
+			err = s.unlist(args)
 		case "bid":
 			err = s.bid(args)
 		case "accept", "reject":
@@ -305,6 +309,9 @@ func (s *session) help() {
   release ID [yes]      release one of your players, paying the rest of his contract (not on a matchday)
   transfers             the transfer window, bids for your players, your bids, this window's transfers
   market GK|DF|MF|FW    other clubs' players at a position, best first, with asking prices
+  list                  the transfer list: players clubs have put up for sale, with asking prices
+  list ID [PRICE]       put one of your players on the transfer list (default: his value) until the window closes
+  unlist ID             take one of your players off the transfer list
   bid ID [FEE [YEARS [WAGE]]]  bid for another club's player (default: the asking price and usual terms)
   accept OFFER, reject OFFER   answer a bid for one of your players
   lineup (l)            your lineup for the match waiting to be played
