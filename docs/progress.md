@@ -2101,6 +2101,23 @@ Answers `match`'s note `balance--tick-engine-profile`. A gated sweep plays both 
 - **Synthetic teams, not a career:** no career match can use `tick` until `app` chooses the engine per match (`match` roadmap phase 2). The league-season comparison waits for that and is in the balance backlog.
 - **No always-on bound:** `tick`'s `TestModelTrends` already guards the signs, and a mentality or shootout bound would fail today on the findings themselves. Those bounds belong with `match`'s fixes.
 
+## ui: player profile (done)
+
+Any player, at any club, free or retired, has a profile page in both clients.
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/app` | `views.go`: `PlayerProfile(id)` returns the `SquadPlayer` row plus club and retired flag. It only combines existing queries | – |
+| `cmd/web` | `/player?id=N` page; player names in the squad, lineup, free agents and transfer market link to it | – |
+| `cmd/play` | `player ID` command (`p`) | – |
+
+### Decisions
+
+- **No new state:** the profile shows what `SquadPlayer` already holds. Career history (past clubs, goals, transfers) needs stored data and waits for a note to `data`.
+- **Unknown IDs are a message, not an error page,** so the web page always renders with status 200.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

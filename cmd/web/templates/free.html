@@ -16,7 +16,7 @@
   </tr>
   {{range $d.Rows}}
   <tr>
-    <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td><td class="n">{{.Demand}}</td>
+    <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td><td class="n">{{.Demand}}</td>
     <td>{{if .Room}}
       <form class="inline" method="post" action="/sign">
         <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/free"><input type="hidden" name="player" value="{{.Player}}">

@@ -45,7 +45,7 @@
 <table>
   <tr><th>Club</th><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Asking price</th><th>Action</th></tr>
   {{range $d.Listed}}
-  <tr {{if .Ours}}class="me"{{end}}><td>{{.ClubName}}{{if .Ours}} (You){{end}}</td><td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td>
+  <tr {{if .Ours}}class="me"{{end}}><td>{{.ClubName}}{{if .Ours}} (You){{end}}</td><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td>
     <td>{{if .Ours}}
       <form class="inline" method="post" action="/list"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="player" value="{{.Player}}"><input type="hidden" name="unlist" value="yes"><button>Unlist</button></form>
     {{else}}
@@ -79,7 +79,7 @@
     <th>Bid</th>
   </tr>
   {{range $d.Market}}
-  <tr><td>{{.Club}}</td><td>{{.Name}}{{if .Listed}} <span class="muted">listed</span>{{end}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
+  <tr><td>{{.Club}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a>{{if .Listed}} <span class="muted">listed</span>{{end}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
     <td>
       <form class="inline" method="post" action="/bid">
         <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers?pos={{$d.Position}}"><input type="hidden" name="player" value="{{.Player}}">

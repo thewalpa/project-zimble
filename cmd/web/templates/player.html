@@ -1,0 +1,24 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if $d.Missing}}<h1>Player</h1><p class="muted">{{$d.Missing}}</p>{{else}}
+<h1>{{$d.Name}}</h1>
+<p class="muted">{{$d.Position}} · age {{$d.Age}}{{if $d.Retired}} · retired{{else if not $d.Club}} · free agent{{else}} · <a href="/squad?club={{$d.Club}}">{{$d.ClubName}}</a>{{if $d.IsMine}} (You){{end}}{{end}}</p>
+<div class="panel scroll">
+<table>
+  <tr><th class="n">OVR</th><th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th>{{if not $d.Retired}}<th class="n">Cond</th>{{end}}</tr>
+  <tr><td class="n"><b>{{$d.Overall}}</b></td>{{range $d.Attributes}}<td class="n">{{.}}</td>{{end}}{{if not $d.Retired}}<td class="n">{{$d.Condition}}%</td>{{end}}</tr>
+</table>
+</div>
+{{if not $d.Retired}}
+<div class="panel">
+{{if $d.Club}}
+  <p>Contract: {{$d.Contract.WeeklyWage}} a week, until {{$d.Ends}}.</p>
+  <p>{{if $d.Listed}}On the transfer list at {{$d.Value}}.{{else}}Value: {{$d.Value}}.{{end}}</p>
+{{else}}
+  <p>Asks {{$d.Demand}} a week.</p>
+{{end}}
+</div>
+{{end}}
+<p class="muted">Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina. COND is fitness.</p>
+{{end}}
+{{end}}

@@ -31,7 +31,7 @@
   </tr>
   {{range $d.Rows}}
   <tr {{if .FinalYear}}class="final"{{end}}>
-    <td>{{.Position}}</td><td>{{.Name}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
+    <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
     {{range .Attributes}}<td class="n">{{.}}</td>{{end}}
     <td class="n">{{.Contract.WeeklyWage}}</td><td class="n">{{.Ends}}</td>
     <td>{{if .FinalYear}}

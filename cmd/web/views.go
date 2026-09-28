@@ -1110,3 +1110,24 @@ func (s *server) listSaves() []saveInfo {
 	})
 	return saves
 }
+
+type playerView struct {
+	app.PlayerProfile
+	Ends    int
+	IsMine  bool
+	Missing string // set when the ID names no player
+}
+
+func (s *server) player(r *http.Request) (string, any, error) {
+	arg := r.URL.Query().Get("id")
+	n, err := strconv.ParseUint(arg, 10, 64)
+	if err != nil || n == 0 {
+		return "player", playerView{Missing: fmt.Sprintf("%q is not a player ID.", arg)}, nil
+	}
+	p, ok := s.w.PlayerProfile(ids.PlayerID(n))
+	if !ok {
+		return "player", playerView{Missing: fmt.Sprintf("There is no player %d.", n)}, nil
+	}
+	c, _ := s.w.Calendar().Civil(p.Contract.Expires)
+	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club()}, nil
+}

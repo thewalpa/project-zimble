@@ -213,6 +213,8 @@ func (s *session) loop() {
 			s.status()
 		case "squad":
 			err = s.squad(args)
+		case "player", "p":
+			err = s.player(args)
 		case "table", "t":
 			err = s.table(args)
 		case "cup":
@@ -298,6 +300,7 @@ func (s *session) help() {
 	s.printf(`Commands:
   status (s)            date, season progress and your next match
   squad                 your players: ID, position, rating, condition
+  player ID             one player of any club: attributes, contract, status
   table (t)             the league table
   cup                   the Continental Cup: this edition's bracket and results
   fixtures (f)          your club's fixtures and results this season
@@ -1798,5 +1801,42 @@ func (s *session) cup(args []string) error {
 			s.printf("\nWinner: %s\n", c.Champion.ClubName)
 		}
 	}
+	return nil
+}
+
+// player prints the profile of any player, at any club, free or retired.
+func (s *session) player(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: player ID")
+	}
+	id, err := parsePlayer(args[0])
+	if err != nil {
+		return err
+	}
+	p, ok := s.w.PlayerProfile(id)
+	if !ok {
+		return fmt.Errorf("no player %d", id)
+	}
+	s.printf("\n%s (player %d), %s, age %d\n", p.Name, p.Player, p.Position, p.Age)
+	switch {
+	case p.Retired:
+		s.printf("Status:    retired\n")
+	case p.Club == 0:
+		s.printf("Status:    free agent, asks %s a week\n", p.Demand)
+	default:
+		ends, _ := s.w.Calendar().Civil(p.Contract.Expires)
+		s.printf("Club:      %s\n", p.ClubName)
+		s.printf("Contract:  %s a week, to %d\n", p.Contract.WeeklyWage, ends.Year)
+		if p.Listed {
+			s.printf("Value:     %s (on the transfer list)\n", p.Value)
+		} else {
+			s.printf("Value:     %s\n", p.Value)
+		}
+	}
+	if !p.Retired {
+		s.printf("Condition: %s\n", condition(p.Condition))
+	}
+	s.printf("Overall:   %d\n", p.Overall)
+	s.printf("%s\n%s\n", " GK DEF PAS FIN PAC STA", ratings(p.Attributes))
 	return nil
 }

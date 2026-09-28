@@ -599,7 +599,7 @@ func TestTransferListInTheBrowser(t *testing.T) {
 	}
 	page = c.get("/transfers?pos=" + other.Position.String())
 	contains(t, page, other.ClubName, other.Name, `action="/bid"`,
-		other.Name+` <span class="muted">listed</span>`)
+		other.Name+`</a> <span class="muted">listed</span>`)
 }
 
 func mustAtoi(t *testing.T, s string) int {
@@ -909,4 +909,18 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 	// Report shows "Your lineup":
 	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", r2Fixture))
 	contains(t, reportPage, "Your lineup")
+}
+
+func TestPlayerProfilePage(t *testing.T) {
+	c := career(t)
+	contains(t, c.get("/squad"), `href="/player?id=56"`)
+	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond")
+	// A player of another club shows that club, not "(You)".
+	other := c.get("/player?id=1")
+	contains(t, other, "</html>")
+	if strings.Contains(other, "(You)") {
+		t.Fatal("another club's player was marked as ours")
+	}
+	contains(t, c.get("/player?id=99999"), "There is no player 99999")
+	contains(t, c.get("/player?id=x"), "is not a player ID")
 }

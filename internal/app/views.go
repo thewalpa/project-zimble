@@ -103,3 +103,30 @@ func (w *World) LineupDroppedMessages(ml MatchdayLineup) []string {
 	}
 	return msgs
 }
+
+// PlayerProfile is the page of one player: the derived SquadPlayer row, where
+// he plays now (zero Club for a free agent or a retired player) and whether
+// he has retired.
+type PlayerProfile struct {
+	SquadPlayer
+	Club     ids.ClubID
+	ClubName string
+	Retired  bool
+}
+
+// PlayerProfile returns the profile of any player, at any club, free or
+// retired, or false for an unknown player. Read-only.
+func (w *World) PlayerProfile(id ids.PlayerID) (PlayerProfile, bool) {
+	p, ok := w.players.Profile(id)
+	if !ok {
+		return PlayerProfile{}, false
+	}
+	out := PlayerProfile{SquadPlayer: w.squadPlayer(id), Retired: p.Retired}
+	if a, ok := w.employment.Assignment(id); ok {
+		out.Club = a.Club
+		if c, ok := w.registry.Club(a.Club); ok {
+			out.ClubName = c.Name
+		}
+	}
+	return out, true
+}
