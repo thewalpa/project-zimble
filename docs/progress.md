@@ -2017,6 +2017,45 @@ The web client (`cmd/web`) now discovers saved careers and provides a save selec
 - `cmd/web/main_test.go`: `TestSaveSelectorOnStartupAndMultipleSaves` verifies discovery of multiple saves, loading from the startup page, creating copies via Save As, path traversal rejection, and switching active careers.
 - All checks pass (`gofmt -l .`, `go vet ./...`, `go test ./...`).
 
+## match: a tick-based match engine (done)
+
+A second match engine, `internal/matches/tick`, moves the ball and all 22 players across the pitch five times a second. Goals come out of play: formation spots that follow the ball, marking, pressing, passes to open teammates, dribbles, tackles, shots, saves, parries, deflections, throw-ins, corners, goal kicks and kickoffs. It implements the same session contract as `simple` (half time, substitutions, mentality, knockout shootouts). It is the first engine with positional frames: where the ball and every player are at each instant. No career match uses it yet; wiring it into `app` is phase 2 of the roadmap in [lanes/match.md](lanes/match.md#tick-engine-roadmap). To watch it: `go test ./internal/matches/tick -run TestWatch -v` prints a minute of play as text, one frame a second.
+
+### Changes
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/matches` | `AdvanceRequest.Frames`, `MatchStepResult.Frames`, `Frame`, `PitchPoint`, pitch geometry constants (`PitchLength`, `PitchWidth`, `GoalWidth`). Additive: zero values keep the old behavior | – |
+| `internal/matches/simple` | rejects a frame request with `ErrUnsupported` and resets `dst.Frames`; tests now run the shared contract suite, and its own copies of those tests are gone | – (output unchanged) |
+| `internal/matches/enginetest` (new) | the contract suite every engine runs: invariants, determinism, chunking, half time, substitutions, rejected commands and advances, input and buffer ownership, knockouts, frames. Also the shared test inputs | – |
+| `internal/matches/tick` (new) | the engine, its `Params`, trend tests, a golden over outcomes and frames, a benchmark and a text pitch viewer | `tick.ModelVersion` 1 |
+| `internal/app/boundaries_test.go` | entries for `tick` and `enginetest` (both: core and `matches` only) | – |
+
+### Decisions
+
+- **Behind the existing contract.** No caller changes. The contract suite moved into `enginetest` so "passes the same tests as `simple`" is a function call, not a copy. `simple` runs it too.
+- **Frames are opt-in and never change the match.** An engine emits one frame per instant only when asked, and the suite checks that events and outcomes are identical with and without frames. Coordinates are centimetres on a 105 × 68 m pitch; the teams change ends at half time. Frames are presentation, not results.
+- **Integer physics.** Positions in cm, speeds in cm per 200 ms tick, constant ball deceleration, integer square roots. No floats, as the project rules require. Distances are compared squared where possible, which halved the running time.
+- **Same ratings, same fatigue.** The engine reads the six existing ratings. Readiness, fatigue and home advantage work as in `simple`; home advantage is 3% on every effective rating. Pace sets sprint speed. Dribbling is stood in for by the mean of Passing and Pace until `data` can provide an attribute (note `data--match-attributes`).
+- **Fair contests.** Two players arriving on a ball in the same instant contest it evenly (a random order), not in team order. The team-order tie-break was a hidden home advantage of 94–54 wins in 200 even matches.
+- **Mentality** moves the lines 2.5 m, changes shot eagerness and pass ambition by ±15%, and makes an attacking side press with two players in the opponent's third. The second presser anywhere in the opponent's half more than doubled goals, so it is limited to the final third.
+- **Model detail stays inside the package.** Shot, pass, tackle and possession counters exist for tests only; exposing them is roadmap phase 3 (`DetailedStats`).
+
+### Verification
+
+- **Contract suite** on both engines: 300 matches for `simple`, 60 for `tick`, with 400 and 150 knockout pairs, plus frames: one frame per instant, in clock order, on the pitch, with the carrier on the pitch.
+- **Trends** (`TestModelTrends`, 200 matches each, seed 42): equal teams 2.94 goals a match, home 44%, away 35%, draws 21%, 14 shots a side, 79% of about 830 passes completed. At 55 v 65 the stronger side wins 56%. Attacking 3.4 goals, defensive 1.45. A home side at condition 30 wins 15% (`TestConditionMatters`).
+- **Physics:** no player moves faster than `MaxSprint` between two instants of play (`TestPlayersMoveAtHumanSpeed`); only the line-up for the second-half kickoff moves players at once.
+- **Golden** over three matches' frames and outcomes, with substitutions, mentality changes and a shootout.
+- **Speed:** about 20 ms and 13 allocations per match (`simple`: 0.03 ms). `go test -short` skips the trend tests.
+
+### Limitations
+
+- **Not in careers yet**, and too slow for every background match: a 380-match league season takes about 8 s.
+- **No offside, fouls, cards, penalties in play, headers or crosses.** The ball never leaves the ground, runs stop level with the last defender, and throw-ins and corners are rare because players rarely miss the ball.
+- **Simple decisions:** each tick a carrier shoots, passes or dribbles with a fixed hazard; nobody makes runs into space.
+- **Statistics are not in the outcome** and there are no checkpoints, as in `simple`.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

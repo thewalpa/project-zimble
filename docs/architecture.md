@@ -313,6 +313,8 @@ For live injuries, the session immediately changes match-local availability. At 
 | Second | Model possession, zones, passes, shots and individual contributions | Same session controls and normalized outcomes |
 | Third | Agent decisions, positioning, collisions and ball motion | Same world integration; optional richer presentation data |
 
+Two engines exist: `simple` (first generation) and `tick`, which starts the third: it moves the ball and all 22 players each 200 ms instant and offers positional frames (`AdvanceRequest.Frames`, `matches.Frame`). Both pass the shared contract suite in `internal/matches/enginetest`.
+
 Presentation frames and detailed metrics are optional capabilities. A summary engine need not invent coordinates or pretend to know pass completion. The UI falls back to commentary and summary statistics when detail is absent. Keep “unavailable” distinct from zero.
 
 For background matches, run a session to completion without rendering. A cheaper engine may implement the same contract. Keep one engine pinned for an active session; switching engines requires finishing the session or an explicit compatible conversion. Save at world boundaries first; mid-match saves can be added through the checkpoint seam.

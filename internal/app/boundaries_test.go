@@ -41,6 +41,9 @@ var allowedImports = map[string][]string{
 	// the scheduler or module stores.
 	"internal/matches":        {"internal/core/ids", "internal/core/random"},
 	"internal/matches/simple": {"internal/core/ids", "internal/core/random", "internal/matches"},
+	"internal/matches/tick":   {"internal/core/ids", "internal/core/random", "internal/matches"},
+	// The contract suite every engine's tests run; imported by tests only.
+	"internal/matches/enginetest": {"internal/core/ids", "internal/core/random", "internal/matches"},
 	// AI decides from detached match-contract data and amounts of money; it
 	// reads no module state.
 	"internal/ai": {"internal/core/ids", "internal/core/money", "internal/core/random", "internal/matches"},

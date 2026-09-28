@@ -1,0 +1,764 @@
+package tick
+
+import (
+	"github.com/thewalpa/project-zimble/internal/matches"
+)
+
+// Directions. A side's frame measures depth from its own goal line
+// (0) towards the opponent's (pitchL); lateral runs across in the same
+// handedness, so the pitch turns half a circle when ends change.
+
+// attacksUp reports whether side (a team index) attacks towards X = pitchL.
+func (s *session) attacksUp(side int) bool { return (side == 0) != s.secondHalf }
+
+// abs converts a side's (depth, lateral) to pitch coordinates.
+func (s *session) abs(side int, depth, lateral int64) vec {
+	if s.attacksUp(side) {
+		return vec{depth, lateral}
+	}
+	return vec{pitchL - depth, pitchW - lateral}
+}
+
+// depth is how far p is from side's own goal line.
+func (s *session) depth(side int, p vec) int64 {
+	if s.attacksUp(side) {
+		return p.x
+	}
+	return pitchL - p.x
+}
+
+func (s *session) goal(side int) vec    { return s.abs(side, pitchL, pitchW/2) } // the goal side attacks
+func (s *session) ownGoal(side int) vec { return s.abs(side, 0, pitchW/2) }
+
+// inBox reports whether p is in side's own penalty area.
+func (s *session) inBox(side int, p vec) bool {
+	return s.depth(side, p) <= boxDepth && abs64(p.y-pitchW/2) <= boxHalfWide
+}
+
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func (s *session) draw(n int64) int64 { return int64(s.rng.IntN(int(n))) }
+
+// chance draws true with probability p ppm.
+func (s *session) chance(p int64) bool { return s.draw(ppm) < p }
+
+// step plays one tick.
+func (s *session) step(dst *matches.MatchStepResult) {
+	s.tick++
+	var targets [2][matches.StartersPerTeam]vec
+	var sprint [2][matches.StartersPerTeam]bool
+	s.plan(&targets, &sprint)
+	if s.ball.carried && !s.dead {
+		s.stats.possession[s.ball.side]++
+		s.act(&targets, &sprint)
+	}
+	s.move(&targets, &sprint)
+	switch {
+	case s.dead:
+		s.takeRestart()
+	case s.ball.carried:
+		s.ball.pos = s.carrier().pos
+		s.challenge()
+	default:
+		s.fly(dst)
+	}
+}
+
+func (s *session) carrier() *player { return s.teams[s.ball.side].at(s.ball.slot) }
+
+// plan sets every player's target spot for this tick.
+func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matches.StartersPerTeam]bool) {
+	b := s.ball.pos
+	possession := s.lastSide
+	switch {
+	case s.dead:
+		possession = s.restart.side
+	case s.ball.carried:
+		possession = s.ball.side
+	}
+	for side := range s.teams {
+		t := &s.teams[side]
+		opp := &s.teams[1-side]
+		inPossession := side == possession
+		ballDepth := s.depth(side, b)
+		// The last opponent outfield player, seen from this side.
+		lastLine := int64(0)
+		for slot := range opp.pitch {
+			if p := opp.at(slot); p.role != matches.Goalkeeper {
+				lastLine = max(lastLine, s.depth(side, p.pos))
+			}
+		}
+		for slot := range t.pitch {
+			p := t.at(slot)
+			if p.role == matches.Goalkeeper {
+				targets[side][slot] = s.keeperSpot(side)
+				continue
+			}
+			line := s.p.DefendDepth[p.role]
+			if inPossession {
+				line = s.p.AttackDepth[p.role]
+			}
+			d := line + s.p.MentalityDepth[t.mentality] + (ballDepth-pitchL/2)*s.p.ShiftPermille/permille
+			if inPossession {
+				d = min(d, max(lastLine, ballDepth))
+			}
+			if s.dead && s.restart.kind == restartKickoff {
+				d = min(d, pitchL/2-100)
+			}
+			d = min(max(d, 500), pitchL-500)
+			lat := t.lateral[slot] + (s.abs(side, 0, b.y).y-pitchW/2)*s.p.LateralPermille/permille
+			lat = min(max(lat, 200), pitchW-200)
+			targets[side][slot] = s.abs(side, d, lat)
+		}
+		if !inPossession && !s.dead {
+			s.mark(side, &targets[side])
+		}
+	}
+
+	switch {
+	case s.dead:
+		r := &s.restart
+		for slot := range matches.StartersPerTeam {
+			// Opponents keep their distance from a set piece.
+			if tgt := targets[1-r.side][slot]; within(tgt, r.spot, s.p.RestartDistance-1) {
+				away := tgt.sub(r.spot)
+				if away == (vec{}) {
+					away = s.ownGoal(1 - r.side).sub(r.spot)
+				}
+				targets[1-r.side][slot] = clampPitch(r.spot.add(away.withLength(s.p.RestartDistance)))
+			}
+		}
+		targets[r.side][r.slot], sprint[r.side][r.slot] = r.spot, true
+
+	case s.ball.carried:
+		// The nearest defenders press the carrier; the next one covers.
+		def := 1 - s.ball.side
+		c := s.carrier().pos
+		order, count := s.nearest(def, c, false)
+		n := 1
+		if s.depth(def, c) > pitchL*2/3 { // a high press
+			n = s.p.Pressers[s.teams[def].mentality]
+		}
+		n = min(n, count-1)
+		for _, slot := range order[:n] {
+			targets[def][slot], sprint[def][slot] = c, true
+		}
+		cover := order[n]
+		targets[def][cover], sprint[def][cover] = c.add(s.ownGoal(def).sub(c).scale(300, permille)), true
+
+	default:
+		// A loose ball: the receiver runs onto a pass while the opponents
+		// hold their shape, ready to close him down. Otherwise the nearest
+		// player of each side chases the ball, a keeper only in his area.
+		ahead := s.ball.pos.add(s.ball.vel.scale(2, 1))
+		for side := range s.teams {
+			if s.ball.passTo >= 0 {
+				if side == s.lastSide {
+					targets[side][s.ball.passTo], sprint[side][s.ball.passTo] = s.ball.aim, true
+				}
+				continue
+			}
+			order, _ := s.nearest(side, ahead, s.inBox(side, s.ball.pos))
+			targets[side][order[0]], sprint[side][order[0]] = ahead, true
+		}
+	}
+}
+
+// mark has each outfield player of the defending side pick up the nearest
+// unmarked opponent within MarkRadius of his spot, in slot order, and
+// stand goal-side of him.
+func (s *session) mark(side int, targets *[matches.StartersPerTeam]vec) {
+	t, opp := &s.teams[side], &s.teams[1-side]
+	goal := s.ownGoal(side)
+	var taken [matches.StartersPerTeam]bool
+	for slot := range t.pitch {
+		if t.at(slot).role == matches.Goalkeeper {
+			continue
+		}
+		best, bestD := -1, s.p.MarkRadius*s.p.MarkRadius
+		for o := range opp.pitch {
+			q := opp.at(o).pos.sub(targets[slot])
+			if d := q.dot(q); !taken[o] && opp.at(o).role != matches.Goalkeeper && d < bestD {
+				best, bestD = o, d
+			}
+		}
+		if best >= 0 {
+			taken[best] = true
+			m := opp.at(best).pos
+			targets[slot] = m.add(goal.sub(m).withLength(s.p.MarkDistance))
+		}
+	}
+}
+
+// keeperSpot is on the line between the ball and the middle of the goal.
+func (s *session) keeperSpot(side int) vec {
+	lat := pitchW/2 + (s.abs(side, 0, s.ball.pos.y).y-pitchW/2)*s.p.KeeperTrackPermille/permille
+	lat = min(max(lat, pitchW/2-postHalf), pitchW/2+postHalf)
+	return s.abs(side, s.p.KeeperDepth, lat)
+}
+
+func (s *session) keeperSlot(side int) int {
+	t := &s.teams[side]
+	for slot := range t.pitch {
+		if t.at(slot).role == matches.Goalkeeper {
+			return slot
+		}
+	}
+	return 0 // unreachable: a side always has one goalkeeper
+}
+
+// nearest returns side's slots ordered by distance to p (ties by slot),
+// and how many there are: outfield players only unless keeper is set.
+func (s *session) nearest(side int, p vec, keeper bool) (order [matches.StartersPerTeam]int, n int) {
+	t := &s.teams[side]
+	var d [matches.StartersPerTeam]int64
+	for slot := range t.pitch {
+		q := t.at(slot)
+		if q.role == matches.Goalkeeper && !keeper {
+			continue
+		}
+		order[n], d[n] = slot, dist2(q.pos, p)
+		for k := n; k > 0 && d[k] < d[k-1]; k-- {
+			order[k], order[k-1] = order[k-1], order[k]
+			d[k], d[k-1] = d[k-1], d[k]
+		}
+		n++
+	}
+	return order, n
+}
+
+// move steps every player towards his target.
+func (s *session) move(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matches.StartersPerTeam]bool) {
+	for side := range s.teams {
+		t := &s.teams[side]
+		for slot := range t.pitch {
+			p := t.at(slot)
+			tgt := clampPitch(targets[side][slot])
+			speed := p.sprint
+			if s.ball.carried && !s.dead && side == s.ball.side && slot == s.ball.slot {
+				speed = speed * s.p.DribblePermille / permille
+			} else if !sprint[side][slot] && within(p.pos, tgt, s.p.SprintDistance) {
+				speed = speed * s.p.JogPermille / permille
+			}
+			p.pos = moveToward(p.pos, tgt, speed)
+		}
+	}
+}
+
+// act is the carrier's decision: shoot, pass or dribble.
+func (s *session) act(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matches.StartersPerTeam]bool) {
+	side, slot := s.ball.side, s.ball.slot
+	t := &s.teams[side]
+	c := t.at(slot)
+	targets[side][slot], sprint[side][slot] = c.pos, false
+	if s.tick < c.busy {
+		return
+	}
+	if s.ball.setPiece {
+		if !s.pass(side, slot) && s.tick < s.ball.setPieceFrom+s.p.RestartTimeoutTicks {
+			return // wait for a teammate to get free
+		}
+		s.ball.setPiece = false
+		return
+	}
+
+	goal := s.goal(side)
+	gd := dist(c.pos, goal)
+	if gd < s.p.ShotRange {
+		left := s.p.ShotRange - gd
+		p := s.p.ShotPPM * left / s.p.ShotRange * left / s.p.ShotRange * s.p.MentalityShotPermille[t.mentality] / permille
+		if gd <= s.p.CertainShotRange || s.chance(p) {
+			s.shoot(side, slot)
+			return
+		}
+	}
+	pressure := int64(pitchL * pitchL)
+	nearestOpp := vec{}
+	for oslot := range matches.StartersPerTeam {
+		o := s.teams[1-side].at(oslot)
+		if d := dist2(o.pos, c.pos); d < pressure {
+			pressure, nearestOpp = d, o.pos
+		}
+	}
+	pressure = isqrt(pressure)
+	passPPM := s.p.PassPPM
+	if pressure < s.p.PressureDistance {
+		passPPM = s.p.PressuredPassPPM
+	}
+	if s.chance(passPPM) && s.pass(side, slot) {
+		return
+	}
+	// Dribble at goal, stepping away from a close opponent ahead.
+	tgt := goal
+	if pressure < 2*s.p.PressureDistance && s.depth(side, nearestOpp) > s.depth(side, c.pos) {
+		if nearestOpp.y > c.pos.y {
+			tgt.y = c.pos.y - 800
+		} else {
+			tgt.y = c.pos.y + 800
+		}
+		tgt.x = s.abs(side, s.depth(side, c.pos)+500, 0).x
+	}
+	targets[side][slot] = tgt
+}
+
+// pass picks the best open teammate and passes to him. It reports false
+// when nobody is worth passing to.
+func (s *session) pass(side, slot int) bool {
+	t := &s.teams[side]
+	opp := &s.teams[1-side]
+	c := t.at(slot)
+	best, bestScore := -1, int64(0)
+	for j := range t.pitch {
+		if j == slot {
+			continue
+		}
+		q := t.at(j).pos
+		if within(c.pos, q, s.p.MinPass-1) || !within(c.pos, q, s.p.MaxPass) {
+			continue
+		}
+		d := dist(c.pos, q)
+		// Space around the receiver and along the lane; a marker at the
+		// passer's feet does not block the lane.
+		open := int64(1000 * 1000) // squared
+		for o := range opp.pitch {
+			op := opp.at(o).pos
+			open = min(open, dist2(op, q)*4/9)
+			if t, lane := closest(c.pos, q, op); t*d/permille > s.p.TackleRadius {
+				open = min(open, lane)
+			}
+		}
+		open = isqrt(open)
+		if open < s.p.BlockedDistance {
+			continue
+		}
+		progress := s.depth(side, q) - s.depth(side, c.pos)
+		score := progress*s.p.ProgressPermille[t.mentality]/permille + open - d/4 + s.draw(s.p.PassNoise)
+		if t.at(j).role == matches.Goalkeeper {
+			score -= 1500
+		}
+		if best < 0 || score > bestScore {
+			best, bestScore = j, score
+		}
+	}
+	if best < 0 {
+		return false
+	}
+	aim := t.at(best).pos
+	d := dist(c.pos, aim)
+	miss := d * (per10k - min(c.eff[effPassing], per10k)) / per10k * s.p.PassErrorPermille / permille
+	aim = clampPitch(aim.add(vec{s.spread(miss), s.spread(miss)}))
+	// Fast enough to arrive at PassArrivalSpeed: v0² = v1² + 2ad.
+	speed := isqrt(s.p.PassArrivalSpeed*s.p.PassArrivalSpeed + 2*s.p.GroundDecel*dist(c.pos, aim))
+	s.kick(side, slot, aim, min(max(speed, s.p.MinPassSpeed), s.p.MaxPassSpeed), s.p.GroundDecel)
+	s.ball.passTo, s.ball.aim = best, aim
+	s.stats.passes[side]++
+	return true
+}
+
+// spread draws an offset in [-n, n].
+func (s *session) spread(n int64) int64 {
+	if n <= 0 {
+		return 0
+	}
+	return s.draw(2*n+1) - n
+}
+
+func (s *session) shoot(side, slot int) {
+	c := s.teams[side].at(slot)
+	aim := s.goal(side)
+	aim.y += s.spread(postHalf - 60)
+	d := dist(c.pos, aim)
+	miss := d * (per10k - min(c.eff[effFinishing], per10k)) / per10k * s.p.ShotErrorPermille / permille
+	aim.y += s.spread(miss)
+	// Aim beyond the line so the ball crosses it.
+	aim = aim.add(aim.sub(c.pos).withLength(300))
+	speed := s.p.MinShotSpeed + (s.p.MaxShotSpeed-s.p.MinShotSpeed)*min(c.eff[effFinishing], per10k)/per10k
+	s.kick(side, slot, aim, speed, s.p.AirDecel)
+	s.ball.shot = true
+	s.stats.shots[side]++
+	if abs64(aim.y-pitchW/2) < postHalf {
+		s.stats.onTarget[side]++
+	}
+}
+
+func (s *session) kick(side, slot int, aim vec, speed, decel int64) {
+	p := s.teams[side].at(slot)
+	s.ball.carried, s.ball.shot, s.ball.setPiece = false, false, false
+	s.ball.side, s.ball.slot, s.ball.passTo = side, slot, -1
+	s.ball.vel = aim.sub(p.pos).withLength(speed)
+	s.ball.decel = decel
+	p.busy = s.tick + s.p.KickTicks
+	s.ball.free = s.tick + 1 // nobody controls it in its first instant
+	s.touch(side, slot)
+}
+
+func (s *session) touch(side, slot int) {
+	s.lastSide = side
+	s.teams[side].lastTouch = int(s.teams[side].pitch[slot])
+}
+
+// challenge lets defenders near the carrier tackle.
+func (s *session) challenge() {
+	if s.tick < s.ball.protect {
+		return
+	}
+	def := 1 - s.ball.side
+	c := s.carrier()
+	for slot := range matches.StartersPerTeam {
+		d := s.teams[def].at(slot)
+		if s.tick < d.busy || !within(d.pos, c.pos, s.p.TackleRadius) || !s.chance(s.p.TackleAttemptPPM) {
+			continue
+		}
+		tackle, dribble := d.eff[effDefending], (c.eff[effPassing]+c.eff[effPace])/2
+		p := s.p.TacklePPM * 2 * tackle / max(tackle+dribble, 1)
+		if !s.chance(min(max(p, s.p.MinControlPPM), s.p.MaxControlPPM)) {
+			d.busy = s.tick + s.p.BeatenTicks
+			continue
+		}
+		s.stats.tackles[def]++
+		c.busy = s.tick + s.p.MissTicks
+		if s.chance(s.p.WinBallPPM) {
+			s.gain(def, slot)
+			return
+		}
+		// Knocked loose.
+		dir := vec{s.spread(100), s.spread(100)}
+		if dir == (vec{}) {
+			dir = vec{1, 0}
+		}
+		s.ball.carried, s.ball.shot, s.ball.passTo = false, false, -1
+		s.ball.vel, s.ball.decel = dir.withLength(40+s.draw(60)), s.p.GroundDecel
+		d.busy = s.tick + s.p.KickTicks
+		s.touch(def, slot)
+		return
+	}
+}
+
+// gain gives side's slot the ball.
+func (s *session) gain(side, slot int) {
+	p := s.teams[side].at(slot)
+	if !s.ball.carried && s.ball.passTo >= 0 && s.lastSide == side {
+		s.stats.completed[side]++
+	}
+	s.ball = ball{pos: p.pos, carried: true, side: side, slot: slot, passTo: -1, protect: s.tick + s.p.ProtectTicks}
+	p.busy = s.tick + s.p.FirstTouchTicks
+	s.touch(side, slot)
+}
+
+// candidate is a player within reach of the ball's path this tick. Order
+// breaks ties: two players arriving on a ball at rest contest it evenly.
+type candidate struct {
+	t, d, order int64
+	side, slot  int
+	hands       bool
+}
+
+func (a candidate) after(b candidate) bool {
+	if a.t != b.t {
+		return a.t > b.t
+	}
+	if a.d != b.d {
+		return a.d > b.d
+	}
+	return a.order > b.order
+}
+
+// fly moves a loose ball one tick: someone along its path may control it;
+// otherwise it may leave the pitch.
+func (s *session) fly(dst *matches.MatchStepResult) {
+	from := s.ball.pos
+	to := from.add(s.ball.vel)
+	// Where the path leaves the pitch (permille of it), the point on the
+	// line it crosses first, and whether that is a goal line.
+	cross, exit, goalLine := int64(permille), vec{}, false
+	if to.x < 0 || to.x > pitchL {
+		x := int64(0)
+		if to.x > pitchL {
+			x = pitchL
+		}
+		cross, goalLine = (x-from.x)*permille/(to.x-from.x), true
+		exit = vec{x, from.y + (to.y-from.y)*(x-from.x)/(to.x-from.x)}
+	}
+	if to.y < 0 || to.y > pitchW {
+		y := int64(0)
+		if to.y > pitchW {
+			y = pitchW
+		}
+		if t := (y - from.y) * permille / (to.y - from.y); t < cross {
+			cross, goalLine = t, false
+			exit = vec{from.x + (to.x-from.x)*(y-from.y)/(to.y-from.y), y}
+		}
+	}
+
+	var cands [2 * matches.StartersPerTeam]candidate
+	n := 0
+	for side := range s.teams {
+		if s.tick < s.ball.free {
+			break
+		}
+		for slot := range matches.StartersPerTeam {
+			p := s.teams[side].at(slot)
+			if s.tick < p.busy {
+				continue
+			}
+			hands := p.role == matches.Goalkeeper && s.inBox(side, p.pos)
+			reach := s.p.ControlRadius
+			if hands {
+				reach = s.p.KeeperReach
+			}
+			t, d2 := closest(from, to, p.pos)
+			if d2 > reach*reach || t > cross {
+				continue
+			}
+			d := isqrt(d2)
+			c := candidate{t: t, d: d, order: s.draw(ppm), side: side, slot: slot, hands: hands}
+			k := n
+			for ; k > 0 && cands[k-1].after(c); k-- {
+				cands[k] = cands[k-1]
+			}
+			cands[k] = c
+			n++
+		}
+	}
+	speed := s.ball.vel.norm()
+	for _, c := range cands[:n] {
+		p := s.teams[c.side].at(c.slot)
+		reach := s.p.ControlRadius
+		var chance int64
+		switch {
+		case c.hands && s.ball.shot && c.side != s.lastSide:
+			reach = s.p.KeeperReach
+			chance = s.p.SavePPM + (p.eff[effGoalkeeping]-5000)*s.p.SaveSkillPPM/5000 - max(speed-s.p.EasySpeed, 0)*s.p.SaveSpeedPenaltyPPM
+		default:
+			if c.hands {
+				reach = s.p.KeeperReach
+			}
+			skill := p.eff[effPassing]
+			if c.hands {
+				skill = p.eff[effGoalkeeping]
+			} else if c.side != s.lastSide {
+				skill = p.eff[effDefending]
+			}
+			chance = s.p.ControlPPM + (skill-5000)*s.p.ControlSkillPPM/5000 - max(speed-s.p.EasySpeed, 0)*s.p.ControlSpeedPenaltyPPM
+			if c.side != s.lastSide {
+				chance = chance * s.p.InterceptPermille / permille
+			}
+		}
+		chance = chance * (3*reach - c.d) / (3 * reach)
+		if s.chance(min(max(chance, s.p.MinControlPPM), s.p.MaxControlPPM)) {
+			if s.ball.shot && c.side != s.lastSide {
+				s.stats.saves[c.side]++
+			}
+			s.gain(c.side, c.slot)
+			return
+		}
+		p.busy = s.tick + s.p.MissTicks
+		contact := from.add(to.sub(from).scale(c.t, permille))
+		switch {
+		case c.hands && s.ball.shot && c.side != s.lastSide:
+			if !s.chance(s.p.ParryPPM) {
+				continue // beaten
+			}
+			// Parried away from goal.
+			s.stats.saves[c.side]++
+			s.deflect(c, contact, vec{s.goal(c.side).x - contact.x, s.spread(2000)}.withLength(speed/3))
+			return
+		case s.chance(s.p.DeflectPPM):
+			// A heavy touch: the ball bounces off, slower.
+			v := s.ball.vel.scale(1, 2)
+			s.deflect(c, contact, v.add(vec{s.spread(v.norm() / 2), s.spread(v.norm() / 2)}))
+			return
+		}
+	}
+
+	if cross < permille {
+		s.out(dst, clampPitch(exit), goalLine)
+		return
+	}
+	s.ball.pos = to
+	if s.ball.passTo >= 0 && s.ball.vel.dot(s.ball.aim.sub(to)) < 0 {
+		s.ball.passTo = -1 // past its aim: anybody's ball
+	}
+	if v := speed - s.ball.decel; v >= s.p.MinBallSpeed {
+		s.ball.vel = s.ball.vel.withLength(v)
+	} else {
+		// At rest it is anybody's ball.
+		s.ball.vel = vec{}
+		s.ball.shot, s.ball.passTo = false, -1
+	}
+}
+
+// deflect sends the ball off a player's touch at contact.
+func (s *session) deflect(c candidate, contact, vel vec) {
+	s.ball.pos, s.ball.vel = contact, vel
+	s.ball.shot, s.ball.passTo, s.ball.decel = false, -1, s.p.GroundDecel
+	s.touch(c.side, c.slot)
+}
+
+// out handles the ball leaving the pitch at p, over a goal line or a
+// touchline.
+func (s *session) out(dst *matches.MatchStepResult, p vec, goalLine bool) {
+	s.ball.pos, s.ball.vel = p, vec{}
+	if goalLine {
+		// The side attacking this end.
+		att := 0
+		if s.depth(0, p) != pitchL {
+			att = 1
+		}
+		switch {
+		case abs64(p.y-pitchW/2) <= postHalf:
+			s.scored(dst, att)
+		case s.lastSide == att:
+			s.setRestart(restartGoalKick, 1-att, s.abs(1-att, 550, pitchW/2))
+		default:
+			y := int64(0)
+			if p.y > pitchW/2 {
+				y = pitchW
+			}
+			s.setRestart(restartCorner, att, vec{p.x, y})
+		}
+		return
+	}
+	s.setRestart(restartThrowIn, 1-s.lastSide, p)
+}
+
+func (s *session) scored(dst *matches.MatchStepResult, side int) {
+	t := &s.teams[side]
+	idx := t.lastTouch
+	if idx < 0 || t.players[idx].state != onPitch {
+		// The scorer went off since his touch: credit the side's most
+		// advanced player.
+		best := int64(-1)
+		for slot := range t.pitch {
+			if d := s.depth(side, t.at(slot).pos); d > best {
+				best, idx = d, int(t.pitch[slot])
+			}
+		}
+	}
+	scorer := t.players[idx].id
+	s.score[side]++
+	s.goals = append(s.goals, matches.Goal{Minute: s.minute, Side: matches.Side(side + 1), Scorer: scorer})
+	dst.Events = append(dst.Events, matches.MatchEvent{
+		Seq: s.nextSeq(), Minute: s.minute, Kind: matches.EventGoal, Side: matches.Side(side + 1), Player: scorer,
+	})
+	s.kickoff(matches.Side(2-side), false)
+}
+
+// kickoff restarts play from the centre spot for side. At the start of a
+// half the players line up at once; after a goal they walk back.
+func (s *session) kickoff(side matches.Side, lineUp bool) {
+	k := side.Index()
+	slot := 0
+	t := &s.teams[k]
+	best := int64(-1)
+	for sl := range t.pitch { // the most advanced by role, then slot
+		if r := int64(t.at(sl).role); r > best {
+			best, slot = r, sl
+		}
+	}
+	centre := vec{pitchL / 2, pitchW / 2}
+	s.ball = ball{pos: centre, passTo: -1}
+	s.dead = true
+	s.restart = restart{kind: restartKickoff, side: k, slot: slot, spot: centre, timeout: s.tick + s.p.RestartTimeoutTicks}
+	if !lineUp {
+		s.restart.notBefore = s.tick + s.p.CelebrationTicks
+		return
+	}
+	var targets [2][matches.StartersPerTeam]vec
+	var sprint [2][matches.StartersPerTeam]bool
+	s.lastSide = k
+	s.plan(&targets, &sprint)
+	for sd := range s.teams {
+		for sl := range matches.StartersPerTeam {
+			s.teams[sd].at(sl).pos = clampPitch(targets[sd][sl])
+		}
+	}
+}
+
+func (s *session) setRestart(kind restartKind, side int, spot vec) {
+	slot := s.keeperSlot(side)
+	if kind != restartGoalKick {
+		order, _ := s.nearest(side, spot, false)
+		slot = order[0]
+	}
+	s.ball = ball{pos: spot, passTo: -1}
+	s.dead = true
+	s.restart = restart{kind: kind, side: side, slot: slot, spot: spot, notBefore: s.tick + s.p.RestartTicks, timeout: s.tick + s.p.RestartTimeoutTicks}
+}
+
+// takeRestart puts the ball back in play once its taker is on the spot.
+func (s *session) takeRestart() {
+	r := &s.restart
+	p := s.teams[r.side].at(r.slot)
+	if s.tick >= r.timeout {
+		p.pos = r.spot // never wait forever
+	}
+	if s.tick < r.notBefore || p.pos != r.spot {
+		return
+	}
+	s.dead = false
+
+	s.gain(r.side, r.slot)
+	s.ball.protect = s.tick + s.p.RestartTicks
+	s.ball.setPiece, s.ball.setPieceFrom = true, s.tick
+}
+
+// maxSuddenDeath bounds the sudden-death pairs of a shootout; a draw after
+// them (practically impossible) is settled by one even draw.
+const maxSuddenDeath = 50
+
+// shootout takes a penalty shootout at full time, as the simple engine
+// does: each side's players on the pitch kick in order of effective
+// Finishing (ties: slot order), home first; best of five, then sudden
+// death.
+func (s *session) shootout() [2]uint16 {
+	var takers [2][matches.StartersPerTeam]*player
+	var keeper [2]int64
+	for side := range s.teams {
+		t := &s.teams[side]
+		for slot := range t.pitch {
+			p := t.at(slot)
+			takers[side][slot] = p
+			if p.role == matches.Goalkeeper {
+				keeper[side] = p.eff[effGoalkeeping]
+			}
+		}
+		order := takers[side][:]
+		for a := 1; a < len(order); a++ {
+			for b := a; b > 0 && order[b].eff[effFinishing] > order[b-1].eff[effFinishing]; b-- {
+				order[b], order[b-1] = order[b-1], order[b]
+			}
+		}
+	}
+	var goals [2]uint16
+	kick := func(side, n int) {
+		taker := takers[side][n%matches.StartersPerTeam]
+		c := s.p.ShootoutConversionPPM * (taker.eff[effFinishing] + s.p.ShootoutOffset) / (keeper[1-side] + s.p.ShootoutOffset)
+		if s.chance(min(max(c, s.p.MinShootoutPPM), s.p.MaxShootoutPPM)) {
+			goals[side]++
+		}
+	}
+	const firstKicks = 5
+	for n := range firstKicks {
+		for side := range 2 {
+			kick(side, n)
+			left := [2]int{firstKicks - n - 1, firstKicks - n - 1 + (1 - side)}
+			if int(goals[0])+left[0] < int(goals[1]) || int(goals[1])+left[1] < int(goals[0]) {
+				return goals
+			}
+		}
+	}
+	for n := firstKicks; n < firstKicks+maxSuddenDeath && goals[0] == goals[1]; n++ {
+		kick(0, n)
+		kick(1, n)
+	}
+	if goals[0] == goals[1] {
+		goals[s.rng.IntN(2)]++
+	}
+	return goals
+}

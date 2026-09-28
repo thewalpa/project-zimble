@@ -225,8 +225,12 @@ type MatchPosition struct {
 
 // AdvanceRequest asks a session to simulate up to and including ToMinute
 // (current minute..90). The session stops earlier at mandatory boundaries.
+// Frames asks for one Frame per simulated instant; only engines with the
+// PositionalFrames capability accept it, others return ErrUnsupported.
+// Asking for frames never changes the match.
 type AdvanceRequest struct {
 	ToMinute uint16
+	Frames   bool
 }
 
 type MatchStatus uint8
@@ -282,6 +286,34 @@ type MatchEvent struct {
 	Other     ids.PlayerID
 	Mentality Mentality
 	Period    Period
+}
+
+// Pitch geometry of positional frames, in centimetres. X runs along the
+// pitch, Y across it; the goals are centred on Y = PitchWidth/2 at X = 0
+// and X = PitchLength. The home side attacks towards X = PitchLength in
+// the first half and towards X = 0 in the second.
+const (
+	PitchLength = 10_500
+	PitchWidth  = 6_800
+	GoalWidth   = 732
+)
+
+// PitchPoint is a position on the pitch, in centimetres.
+type PitchPoint struct {
+	X, Y int32
+}
+
+// Frame is the ball and the players on the pitch at one instant, from an
+// engine with the PositionalFrames capability. Millis is the regulation
+// clock: 0 at kickoff, 45*60_000 at half time. Players are indexed by
+// Side.Index() and slot, as View.OnPitch of the same step: nobody changes
+// slot during one Advance call. Carrier is zero while the ball is loose or
+// out of play. A frame is a presentation of the match, not a result.
+type Frame struct {
+	Millis  uint32
+	Ball    PitchPoint
+	Carrier ids.PlayerID
+	Players [2][StartersPerTeam]PitchPoint
 }
 
 // MatchView is the live state after a step. Fixed-size arrays, indexed by
@@ -360,8 +392,8 @@ func (o MatchOutcome) Winner() (Side, bool) {
 }
 
 // MatchStepResult is caller-owned output for Advance. Advance resets the
-// lengths of Events, Outcome.Goals and Outcome.Participants to zero, keeps
-// their capacity and appends copies. Nothing in it aliases session memory;
+// lengths of Events, Frames, Outcome.Goals and Outcome.Participants to
+// zero, keeps their capacity and appends copies. Nothing in it aliases session memory;
 // it stays valid until the caller passes it to Advance again.
 type MatchStepResult struct {
 	Position MatchPosition
@@ -369,6 +401,7 @@ type MatchStepResult struct {
 	Stop     StopReason
 	View     MatchView
 	Events   []MatchEvent
+	Frames   []Frame // only when requested; see AdvanceRequest
 	Outcome  MatchOutcome
 }
 
