@@ -20,6 +20,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/selection"
 	"github.com/thewalpa/project-zimble/internal/storage"
@@ -119,7 +120,7 @@ func newServer(cfg config) (*server, error) {
 		act  func(url.Values) (string, error)
 	}{
 		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
-		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save},
+		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save}, {"/inbox/read", s.readInbox},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
 	}
@@ -594,4 +595,33 @@ func (s *server) release(form url.Values) (string, error) {
 	}
 	s.say("%s was released and is now a free agent. You paid %s.", name, res.Compensation)
 	return "/squad", nil
+}
+
+// readInbox acknowledges one inbox message, or every unread one.
+func (s *server) readInbox(form url.Values) (string, error) {
+	if s.w == nil {
+		return "", errors.New("choose a club first")
+	}
+	ack := func(id events.ID) error {
+		_, err := s.w.MarkInboxRead(app.MarkInboxRead{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Message: id})
+		return err
+	}
+	if form.Get("all") != "" {
+		for _, m := range s.w.Inbox() {
+			if !m.Read {
+				if err := ack(m.Event); err != nil {
+					return "", err
+				}
+			}
+		}
+		return "/inbox", nil
+	}
+	n, err := strconv.ParseUint(form.Get("message"), 10, 64)
+	if err != nil || n == 0 {
+		return "", errors.New("unknown message")
+	}
+	if err := ack(events.ID(n)); err != nil {
+		return "", err
+	}
+	return "/inbox", nil
 }

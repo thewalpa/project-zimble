@@ -26,12 +26,11 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-No open handoff. Inbox read state waits on a data-owned model; next up is match report polish.
+No open handoff. Next up is match report polish.
 
 ## Backlog
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Player career history** on the profile page (past clubs, transfers): needs a stored history from `squad` or `data`.
-- **Inbox read state:** unread markers and "mark as read". This needs a read-state model from `data` first.
 - **Match report polish:** incidents timeline and substitutions in both clients.

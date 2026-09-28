@@ -2153,6 +2153,20 @@ UI receives the command/query contract and display work in `ui--inbox-read-state
 - **Shared rendering:** the cup bracket template (`cupedition.html`) and `printEdition`/`printTable` serve both the current-cup page and history.
 - `cmd/simulate` already prints champions, so it is unchanged.
 
+## ui: inbox read state (done)
+
+Unread and read messages in both clients, using `InboxItem.Read`, `UnreadInboxCount` and `MarkInboxRead`.
+
+| Client | Where | Uses |
+| --- | --- | --- |
+| `cmd/web` | unread count in the Inbox tab, unread styling on the Home and Inbox pages, "Mark read" per message and "Mark all read" (`POST /inbox/read`) | the three `app` calls above |
+| `cmd/play` | `*` marks unread messages in `inbox`; `read` marks all read | same |
+
+### Decisions
+
+- **Viewing does not acknowledge:** the web pages and `inbox` only list. `cmd/play` still acknowledges what it prints as "New in your inbox" and what its own commands caused, replacing the client-local `lastSeen` marker with the stored flag, so a saved career keeps its read state.
+- Mark all issues one command per unread message, each at the revision after the previous one; a failure stops there and reports the error.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

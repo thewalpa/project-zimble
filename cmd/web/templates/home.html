@@ -48,7 +48,7 @@
   {{end}}
   <div class="panel">
     <h2>Inbox</h2>
-    {{if $d.Inbox}}<ul class="plain">{{range $d.Inbox}}<li><span class="when">{{.When}}</span>{{.Text}}</li>{{end}}</ul>
+    {{if $d.Inbox}}<ul class="plain">{{range $d.Inbox}}<li{{if not .Read}} class="unread"{{end}}><span class="when">{{.When}}</span>{{.Text}}</li>{{end}}</ul>
     <p><a href="/inbox">All messages</a></p>{{else}}<p class="muted">No messages yet.</p>{{end}}
   </div>
   <div class="panel">

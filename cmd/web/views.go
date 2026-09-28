@@ -49,6 +49,7 @@ type layout struct {
 	Data     any
 	SaveName string
 	SavesDir string
+	Unread   int // unread inbox messages
 }
 
 func (s *server) layout(page string, data any) layout {
@@ -65,6 +66,7 @@ func (s *server) layout(page string, data any) layout {
 	l.Career, l.Club, l.Date, l.Rev = true, s.clubLabel(), s.w.Calendar().Format(s.w.Now()), s.w.Revision()
 	l.Unsaved = !s.saved || s.w.Revision() != s.savedRevision
 	_, l.Pending = s.pendingFixture()
+	l.Unread = s.w.UnreadInboxCount()
 	if fin, ok := s.w.Finances(s.club()); ok {
 		l.Balance = fin.Balance
 	}
@@ -230,8 +232,10 @@ type matchReport struct {
 }
 
 type messageView struct {
-	When string
-	Text string
+	Event uint64
+	When  string
+	Text  string
+	Read  bool
 }
 
 type saveInfo struct {
@@ -838,6 +842,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 
 type inboxView struct {
 	Messages []messageView
+	Unread   int
 	Sort     SortState
 }
 
@@ -846,7 +851,7 @@ func (s *server) inbox(r *http.Request) (string, any, error) {
 	slices.Reverse(msgs)
 	sortState := newSortState(r, "when", "desc")
 	sortInboxMessages(msgs, sortState.Col, sortState.Dir)
-	return "inbox", inboxView{Messages: msgs, Sort: sortState}, nil
+	return "inbox", inboxView{Messages: msgs, Unread: s.w.UnreadInboxCount(), Sort: sortState}, nil
 }
 
 // messages renders the inbox, oldest first.
@@ -854,7 +859,7 @@ func (s *server) messages() []messageView {
 	cal := s.w.Calendar()
 	var out []messageView
 	for _, m := range s.w.Inbox() {
-		out = append(out, messageView{When: cal.Format(m.At), Text: s.messageText(m)})
+		out = append(out, messageView{Event: uint64(m.Event), When: cal.Format(m.At), Text: s.messageText(m), Read: m.Read})
 	}
 	return out
 }

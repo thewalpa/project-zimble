@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -439,4 +440,52 @@ func TestHistory(t *testing.T) {
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)
+}
+
+// The inbox marks unread messages, listing it acknowledges nothing, read
+// does, and the state survives a save.
+func TestInboxReadState(t *testing.T) {
+	dir := t.TempDir()
+	start, path := filepath.Join(dir, "start.json"), filepath.Join(dir, "career.json")
+	play(t, []string{"-seed", "42", "-club", "3"}, "continue", "save "+start, "quit")
+	w, err := storage.Load(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Time passes outside the client, as when a web session saved the career.
+	for i := 0; w.UnreadInboxCount() == 0; i++ {
+		if i > 20 {
+			t.Fatal("no message ever arrived")
+		}
+		if ready, ok := w.Pending(); ok {
+			cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
+			for _, r := range ready.Rounds {
+				cmd.Rounds = append(cmd.Rounds, r.Round)
+			}
+			if _, err := w.ResolveRounds(cmd); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if _, err := w.Continue(w.Now() + 7*24*60); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n := w.UnreadInboxCount()
+	if err := storage.Save(path, w); err != nil {
+		t.Fatal(err)
+	}
+
+	out := play(t, []string{"-load", path}, "inbox 3", "inbox 3", "read", "inbox 3", "save", "quit")
+	contains(t, out, fmt.Sprintf("%d unread; * marks unread", n), fmt.Sprintf("Marked %d message(s) read.", n), "0 unread; * marks unread")
+	if strings.Count(out, "\n* ") == 0 {
+		t.Fatalf("no unread marker:\n%s", out)
+	}
+	w, err = storage.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := w.UnreadInboxCount(); got != 0 {
+		t.Fatalf("%d unread after read and save", got)
+	}
 }

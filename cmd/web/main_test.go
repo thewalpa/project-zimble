@@ -21,6 +21,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
@@ -952,5 +953,56 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	}
 	if res.StatusCode == http.StatusOK {
 		t.Fatal("an unknown season should not render")
+	}
+}
+
+// New messages are unread; acknowledging one lowers the count, survives a
+// save and reload, and a stale form changes nothing.
+func TestInboxReadState(t *testing.T) {
+	c := career(t)
+	c.post("/continue", nil)
+	c.post("/continue", nil) // plays the first match: new messages arrive
+	n := c.s.w.UnreadInboxCount()
+	if n < 2 {
+		t.Fatalf("%d unread messages after a match", n)
+	}
+	page := c.get("/inbox")
+	contains(t, page, fmt.Sprintf("%d unread.", n), "Mark all read", "Inbox ("+strconv.Itoa(n)+")", `class="unread"`)
+
+	var first events.ID
+	for _, m := range c.s.w.Inbox() {
+		if !m.Read {
+			first = m.Event
+			break
+		}
+	}
+	c.post("/inbox/read", url.Values{"message": {strconv.FormatUint(uint64(first), 10)}})
+	if got := c.s.w.UnreadInboxCount(); got != n-1 {
+		t.Fatalf("unread %d after marking one, want %d", got, n-1)
+	}
+
+	before := c.s.w.Revision()
+	page = c.post("/inbox/read", url.Values{"message": {"1"}, "rev": {"1"}})
+	contains(t, page, "out of date")
+	c.post("/inbox/read", url.Values{"message": {"999999"}})
+	if c.s.w.Revision() != before || c.s.w.UnreadInboxCount() != n-1 {
+		t.Fatal("a failed acknowledgement changed the world")
+	}
+
+	c.post("/save", url.Values{"name": {"career.json"}})
+	w, err := storage.Load(c.s.savePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.UnreadInboxCount() != n-1 {
+		t.Fatalf("reloaded save has %d unread, want %d", w.UnreadInboxCount(), n-1)
+	}
+
+	c.post("/inbox/read", url.Values{"all": {"1"}})
+	if c.s.w.UnreadInboxCount() != 0 {
+		t.Fatal("mark all read left unread messages")
+	}
+	if strings.Contains(c.get("/inbox"), "Mark all read") {
+		t.Fatal("the inbox still offers to mark all read")
 	}
 }

@@ -31,7 +31,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
-	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
@@ -101,15 +100,13 @@ func run(args []string, in io.Reader, out, errOut io.Writer, newSeed func() (uin
 		s.w = w
 	}
 	s.saved, s.savedRevision = set["load"], s.w.Revision()
-	s.markInboxRead()
 	s.welcome()
 	s.loop()
 	return nil
 }
 
 // session is the interactive client state: the world, the input, the save
-// file, the lineup draft for the pending match and the newest inbox message
-// already shown.
+// file and the lineup draft for the pending match.
 type session struct {
 	w             *app.World
 	in            *bufio.Scanner
@@ -118,7 +115,6 @@ type session struct {
 	saved         bool         // the career exists on disk...
 	savedRevision app.Revision // ...at this revision
 	draft         *draft
-	lastSeen      events.ID
 	liveShown     int // live match events already printed
 	quitWarned    bool
 	warnedYearEnd sim.GameInstant // contract-year end already warned about
@@ -249,6 +245,8 @@ func (s *session) loop() {
 			err = s.answer(args, cmd == "accept")
 		case "inbox", "i":
 			err = s.inbox(args)
+		case "read":
+			err = s.readInbox()
 		case "lineup", "l":
 			if _, live := s.w.LiveMatch(); live {
 				err = s.showLive()
@@ -307,7 +305,8 @@ func (s *session) help() {
   cup                   the Continental Cup: this edition's bracket and results
   history [COMP SEASON] every season's champion; one season's final table or bracket
   fixtures (f)          your club's fixtures and results this season
-  inbox (i) [N]         the latest N inbox messages (default 10)
+  inbox (i) [N]         the latest N inbox messages (default 10); * marks unread
+  read                  mark every inbox message read
   finances [N]          your balance, weekly wage bill and latest N ledger entries
   contracts             your players' contracts, soonest end first, and what they ask for
   renew ID [YEARS [WAGE]]  offer a new contract to a player in the final year (default: usual terms)
@@ -800,11 +799,10 @@ func (s *session) inbox(args []string) error {
 	} else {
 		showing = append([]app.InboxItem(nil), items[max(len(items)-n, 0):]...)
 	}
-	s.printf("\nInbox (%s %d of %d)\n", order, len(showing), len(items))
+	s.printf("\nInbox (%s %d of %d, %d unread; * marks unread, read marks them all read)\n", order, len(showing), len(items), s.w.UnreadInboxCount())
 	for _, m := range showing {
 		s.printMessage(m)
 	}
-	s.markInboxRead()
 	return nil
 }
 
@@ -814,7 +812,11 @@ func (s *session) printMessage(m app.InboxItem) {
 	if m.Home {
 		venue = "home"
 	}
-	s.printf("  %s  ", cal.Format(m.At))
+	mark := " "
+	if !m.Read {
+		mark = "*"
+	}
+	s.printf("%s %s  ", mark, cal.Format(m.At))
 	switch m.Kind {
 	case inbox.KindMatchday:
 		s.printf("matchday: %s v %s (%s)\n", itemMatchName(m), m.OpponentLabel.ClubName, venue)
@@ -878,29 +880,40 @@ func ordinal(n int) string {
 	return strconv.Itoa(n) + suffix
 }
 
-// markInboxRead remembers the newest message as shown.
+// markInboxRead acknowledges every unread inbox message.
 func (s *session) markInboxRead() {
-	if items := s.w.Inbox(); len(items) > 0 {
-		s.lastSeen = items[len(items)-1].Event
+	for _, m := range s.w.Inbox() {
+		if !m.Read {
+			if _, err := s.w.MarkInboxRead(app.MarkInboxRead{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Message: m.Event}); err != nil {
+				return
+			}
+		}
 	}
 }
 
-// transferNews reports whether an unshown inbox message is about a
-// transfer.
+// readInbox is the read command: it says how many messages it acknowledged.
+func (s *session) readInbox() error {
+	n := s.w.UnreadInboxCount()
+	s.markInboxRead()
+	s.printf("Marked %d message(s) read.\n", n-s.w.UnreadInboxCount())
+	return nil
+}
+
+// transferNews reports whether an unread inbox message is about a transfer.
 func (s *session) transferNews() bool {
 	for _, m := range s.w.Inbox() {
-		if m.Event > s.lastSeen && m.Kind >= inbox.KindBidReceived {
+		if !m.Read && m.Kind >= inbox.KindBidReceived {
 			return true
 		}
 	}
 	return false
 }
 
-// newMessages prints inbox messages not shown yet.
+// newMessages prints the unread inbox messages and marks them read.
 func (s *session) newMessages() {
 	var fresh []app.InboxItem
 	for _, m := range s.w.Inbox() {
-		if m.Event > s.lastSeen {
+		if !m.Read {
 			fresh = append(fresh, m)
 		}
 	}

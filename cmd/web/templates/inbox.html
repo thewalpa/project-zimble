@@ -1,5 +1,5 @@
 {{define "content"}}
-{{$d := .Data}}
+{{$d := .Data}}{{$rev := .Rev}}
 <h1>Inbox</h1>
 <div class="panel">
 {{if $d.Messages}}
@@ -9,7 +9,10 @@
   <span class="muted">·</span>
   {{sortHeader $d.Sort "text" "Message" "asc"}}
 </div>
-<ul class="plain">{{range $d.Messages}}<li><span class="when">{{.When}}</span>{{.Text}}</li>{{end}}</ul>
+{{if $d.Unread}}<p>{{$d.Unread}} unread.
+  <form class="inline" method="post" action="/inbox/read"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/inbox"><input type="hidden" name="all" value="1"><button>Mark all read</button></form></p>{{end}}
+<ul class="plain">{{range $d.Messages}}<li{{if not .Read}} class="unread"{{end}}><span class="when">{{.When}}{{if not .Read}} · new{{end}}</span>{{.Text}}
+  {{if not .Read}}<form class="inline" method="post" action="/inbox/read"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/inbox"><input type="hidden" name="message" value="{{.Event}}"><button>Mark read</button></form>{{end}}</li>{{end}}</ul>
 {{else}}<p class="muted">No messages yet.</p>{{end}}
 </div>
 {{end}}
