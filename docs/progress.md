@@ -2173,6 +2173,30 @@ Reviewed all six lane documents and added scoped proposals for player comparison
 
 Corrected references to closed inbox/transfer-list/balance handoffs and noted that match outcomes already contain participant minutes. Existing UI requests for season-end stopping and lineup editing outside matchday remain the basis for the corresponding domain proposals.
 
+## competitions: promotion and relegation, rule and movement function (partly done)
+
+The rule is decided and the competitions-side function is built and tested. Wiring it into `app` waits for `data`'s second-division content ([handoff](handoffs/data--second-division-content.md)).
+
+| Package | Change |
+| --- | --- |
+| `internal/competitions` | `Link{Upper, Lower, Places}` and `NextEntrants(rankings, links)`: next season's entrants of every league from all final rankings |
+
+### Decisions
+
+- **Direct swap, no play-offs.** At a season's end the bottom N of the upper division's final ranking swap leagues with the top N of the lower's, so every division keeps its size. Play-offs would need extra fixtures between seasons and a knockout stage in the league calendar; they can come later as a different rule without changing the swap.
+- **Two places per link** is the proposed default; a link may not move more than half of either league, so promoted and relegated teams never overlap.
+- **Decided from the season just finished, for all leagues at once.** A team moves at most one division a year, even in a three-tier chain. Every league's next season is created in one `CreateSeasons` call from `NextEntrants`, once all linked leagues have ended, so no league's entrants depend on order.
+- **Pure function of rankings and links.** Validation will replay movement from recorded results: a league's entrants in season N+1 must equal `NextEntrants` of season N's rankings. Rankings are already derived, so nothing new is stored, and history stays coherent because past seasons keep their own entrants and results.
+- **Links are content pinned in the save**, like cups. `data` defines the type; competitions wires it.
+
+### Verification
+
+- Swaps keep sizes and move exactly the linked places across a three-league chain; no links leaves teams unchanged and does not modify its input; 6 invalid configurations are rejected (missing or identical leagues, zero or too many places, a reused league end, a team in two leagues).
+
+### Limitations
+
+- Not yet wired: leagues still keep their entrants each season, and validation still requires it.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

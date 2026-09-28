@@ -27,10 +27,12 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 **Promotion and relegation.** Each nation gets a second division, and clubs move between divisions at the season end on their final ranking.
 
-1. Design the rule: how many go up and down, and whether it is a direct swap or play-offs. Record it in `docs/progress.md` when done.
-2. File `data--second-division-content.md` for the clubs, league definitions and generation. It will change the world fingerprint, so `data` bumps the versions.
-3. Meanwhile, build the competitions side. A league season's entrants come from the previous seasons' rankings, not from generation. Validation replays movement from the recorded results, and history stays coherent when a club changes division.
+1. ~~Design the rule~~ Done: direct swap of two places per link (see `docs/progress.md`).
+2. ~~File `data--second-division-content.md`~~ Filed; waiting for `data`.
+3. ~~Competitions side~~ `competitions.NextEntrants` is built. Still to do once `data` answers: derive a league season's entrants from the previous rankings in `endSeasons` (all linked leagues end in one cohort, one `CreateSeasons` call), replace the equal-entrants check in `validateSeasons` with a replay, bump `storage.SchemaVersion` for the pinned links.
 4. Once `data` delivers, wire it together, prove it over several seasons (every club in exactly one league each season, histories intact), and file a `ui` note for tables by division and promotion markers.
+
+If `data` is slow, next take the top backlog item.
 
 ## Backlog
 
