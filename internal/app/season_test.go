@@ -47,7 +47,7 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if reflect.DeepEqual(pairings(s1), pairings(s2)) {
 		t.Fatal("season 2 repeats season 1's draw")
 	}
-	if n := len(kickoffTasks(w)); n != 28 { // both leagues; the cup was played
+	if n := len(kickoffTasks(w)); n != 56 { // all four leagues; the cup was played
 		t.Fatalf("%d kickoff tasks queued for season 2", n)
 	}
 	// Nine months of rest: everyone starts season 2 fully fit.
@@ -84,13 +84,14 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 		}
 	}
 
-	// History: both leagues' three seasons, then two complete cup editions
-	// won by their final's winner.
+	// History in competition ID order: the two first divisions' three
+	// seasons each, then two complete cup editions won by their final's
+	// winner, then the second divisions' six.
 	all := w.History()
-	if len(all) != 8 {
+	if len(all) != 14 {
 		t.Fatalf("history %+v", all)
 	}
-	for _, rec := range all[6:] {
+	for _, rec := range all[6:8] {
 		cup, ok := w.Cup(rec.Season)
 		final := cup.Rounds[len(cup.Rounds)-1].Ties[0]
 		winner := final.Home

@@ -30,7 +30,7 @@ func TestNewWorldBuildsValidWorld(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := w.Summary()
-	if s.Clubs != 16 || s.Teams != 16 || s.Players != 320 {
+	if s.Clubs != 32 || s.Teams != 32 || s.Players != 640 {
 		t.Fatalf("clubs=%d teams=%d players=%d", s.Clubs, s.Teams, s.Players)
 	}
 	seenTeams := map[ids.TeamID]bool{}
@@ -90,7 +90,7 @@ func TestLoadRejectsInconsistentWorlds(t *testing.T) {
 			s.Profiles[0].Position = players.Forward
 		},
 		"wrong club count": func(d *content.Definitions, _ *worldgen.Snapshot) {
-			d.Nations[1].Clubs = 7
+			d.Nations[1].Divisions[0].Clubs = 7
 		},
 		"attribute out of range": func(_ *content.Definitions, s *worldgen.Snapshot) {
 			s.Profiles[0].Attributes[players.Pace] = 101
@@ -159,7 +159,7 @@ func TestNewWorldSchedulesLeagueForSeniorTeams(t *testing.T) {
 
 // Creating the league must not change any generated world data.
 func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
-	const worldFingerprintSeed42 = "cbc055bbf242f14f5491eabbdad165ee1e13e7c79663b7d8fcf7bfd85fa7f35d"
+	const worldFingerprintSeed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {

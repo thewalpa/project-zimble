@@ -11,8 +11,9 @@ import (
 // LeagueVersion identifies the competition definitions returned by
 // DefaultLeagues and DefaultCups. It is separate from Version so competition
 // changes do not alter generated worlds. Version 3 added a second league and
-// the continental cup.
-const LeagueVersion = 3
+// the continental cup; version 4 added a second division for each league and
+// the promotion links between them.
+const LeagueVersion = 4
 
 // League defines a double round-robin league competition and its seasons'
 // scheduling inputs. FirstKickoff is the first season's first kickoff in UTC
@@ -47,12 +48,76 @@ func (l League) Validate() error {
 	return nil
 }
 
-// DefaultLeagues returns the built-in leagues: one per default nation, with
-// the same calendar, so their rounds kick off together.
+// DefaultLeagues returns the built-in leagues: a first division per default
+// nation (IDs 1 and 2) and a second division for each (IDs 4 and 5; ID 3 is
+// the cup), all with the same calendar, so their rounds kick off together.
+// Leagues take clubs in ID order, matching the order worldgen generates them:
+// both first divisions, then both second divisions.
 func DefaultLeagues() []League {
-	second := DefaultLeague()
-	second.ID, second.Name = 2, "Harbour League"
-	return []League{DefaultLeague(), second}
+	harbour := DefaultLeague()
+	harbour.ID, harbour.Name = 2, "Harbour League"
+	foundersTwo := DefaultLeague()
+	foundersTwo.ID, foundersTwo.Name = 4, "Founders Second Division"
+	harbourTwo := DefaultLeague()
+	harbourTwo.ID, harbourTwo.Name = 5, "Harbour Second Division"
+	return []League{DefaultLeague(), harbour, foundersTwo, harbourTwo}
+}
+
+// Promotion links two adjacent divisions: at a season's end the bottom Places
+// teams of Upper's final ranking swap leagues with the top Places teams of
+// Lower's (a direct swap, so both keep their size). Only Upper and Lower need
+// be known to apply it; the movement itself is competitions' rule.
+type Promotion struct {
+	Upper, Lower ids.CompetitionID
+	Places       int
+}
+
+// DefaultPromotions returns the built-in links: two places between each
+// nation's divisions. Continental Cup places stay with the first divisions.
+func DefaultPromotions() []Promotion {
+	return []Promotion{{Upper: 1, Lower: 4, Places: 2}, {Upper: 2, Lower: 5, Places: 2}}
+}
+
+// ValidatePromotions checks links against the leagues: each names two
+// distinct leagues of the same size, moves at least one and at most half of
+// their places, and no league is the upper end of two links or the lower end
+// of two. Links may chain (a league may be one link's lower end and another's
+// upper end) but not loop. Leagues must each be valid on their own.
+func ValidatePromotions(leagues []League, links []Promotion) error {
+	size := map[ids.CompetitionID]int{}
+	for _, l := range leagues {
+		size[l.ID] = l.Entrants
+	}
+	down, up := map[ids.CompetitionID]ids.CompetitionID{}, map[ids.CompetitionID]bool{}
+	for _, p := range links {
+		nu, okU := size[p.Upper]
+		nl, okL := size[p.Lower]
+		switch {
+		case !okU || !okL || p.Upper == p.Lower:
+			return fmt.Errorf("content: promotion %+v names a missing or identical league", p)
+		case nu != nl:
+			return fmt.Errorf("content: promotion %+v joins leagues of %d and %d entrants", p, nu, nl)
+		case p.Places < 1 || p.Places > nu/2:
+			return fmt.Errorf("content: promotion %+v moves %d places of %d entrants", p, p.Places, nu)
+		}
+		if _, dup := down[p.Upper]; dup || up[p.Lower] {
+			return fmt.Errorf("content: promotion %+v reuses a league end", p)
+		}
+		down[p.Upper], up[p.Lower] = p.Lower, true
+	}
+	for start := range down {
+		for at, n := start, 0; ; n++ {
+			next, ok := down[at]
+			if !ok {
+				break
+			}
+			if next == start || n > len(down) {
+				return fmt.Errorf("content: promotion links loop through league %d", start)
+			}
+			at = next
+		}
+	}
+	return nil
 }
 
 // DefaultLeague returns the first built-in league, for Westmark's clubs.

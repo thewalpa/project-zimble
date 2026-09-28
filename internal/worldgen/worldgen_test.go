@@ -15,9 +15,9 @@ import (
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v4 and content v5 (a second nation; the first
-// nation's clubs and players are unchanged since v3).
-const goldenSeed42 = "cbc055bbf242f14f5491eabbdad165ee1e13e7c79663b7d8fcf7bfd85fa7f35d"
+// Last changed by worldgen v5 and content v6 (a second division per nation;
+// the top divisions' clubs and players are unchanged since v3).
+const goldenSeed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -55,10 +55,10 @@ func TestGenerateShapeAndRanges(t *testing.T) {
 	defs := content.Default()
 	for _, seed := range []uint64{0, 1, 42, 1 << 63} {
 		s := generate(t, seed)
-		if len(s.Clubs) != 16 || len(s.Teams) != 16 || len(s.Players) != 320 {
+		if len(s.Clubs) != 32 || len(s.Teams) != 32 || len(s.Players) != 640 {
 			t.Fatalf("seed %d: clubs=%d teams=%d players=%d", seed, len(s.Clubs), len(s.Teams), len(s.Players))
 		}
-		if len(s.Profiles) != 320 || len(s.Assignments) != 320 {
+		if len(s.Profiles) != 640 || len(s.Assignments) != 640 {
 			t.Fatalf("seed %d: profiles=%d assignments=%d", seed, len(s.Profiles), len(s.Assignments))
 		}
 		for i, c := range s.Clubs {
@@ -183,31 +183,44 @@ func TestYouth(t *testing.T) {
 	}
 }
 
-// A second nation adds clubs after the first without changing it: the
-// first nation's clubs and players are exactly those of a one-nation world,
-// and each nation's clubs come from its own towns.
-func TestNationsAreGeneratedIndependently(t *testing.T) {
+// Lower divisions and further nations add clubs after those before them
+// without changing them: a world with only the top divisions is exactly the
+// first sixteen clubs (and 320 players) of the full one, a one-nation world
+// exactly the first eight, and each club comes from the towns of its own
+// nation and division.
+func TestDivisionsAreGeneratedIndependently(t *testing.T) {
 	defs := content.Default()
-	one := defs.Clone()
-	one.Nations = one.Nations[:1]
+	topOnly := defs.Clone()
+	for i := range topOnly.Nations {
+		topOnly.Nations[i].Divisions = topOnly.Nations[i].Divisions[:1]
+	}
+	oneNation := topOnly.Clone()
+	oneNation.Nations = oneNation.Nations[:1]
 	for _, seed := range []random.Seed{1, 42} {
-		both, err := Generate(defs, seed)
+		full, err := Generate(defs, seed)
 		if err != nil {
 			t.Fatal(err)
 		}
-		alone, err := Generate(one, seed)
-		if err != nil {
-			t.Fatal(err)
+		for _, sub := range []struct {
+			name  string
+			defs  content.Definitions
+			clubs int
+		}{{"top divisions", topOnly, 16}, {"first nation's top division", oneNation, 8}} {
+			part, err := Generate(sub.defs, seed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			n := len(part.Players)
+			if len(part.Clubs) != sub.clubs || !reflect.DeepEqual(full.Clubs[:sub.clubs], part.Clubs) || !reflect.DeepEqual(full.Players[:n], part.Players) ||
+				!reflect.DeepEqual(full.Profiles[:n], part.Profiles) || !reflect.DeepEqual(full.Contracts[:n], part.Contracts) {
+				t.Fatalf("seed %d: later clubs changed the %s", seed, sub.name)
+			}
 		}
-		n := len(alone.Players)
-		if !reflect.DeepEqual(both.Clubs[:8], alone.Clubs) || !reflect.DeepEqual(both.Players[:n], alone.Players) ||
-			!reflect.DeepEqual(both.Profiles[:n], alone.Profiles) || !reflect.DeepEqual(both.Contracts[:n], alone.Contracts) {
-			t.Fatalf("seed %d: the second nation changed the first", seed)
-		}
-		for i, c := range both.Clubs {
-			towns := defs.Nations[i/8].Towns
-			if !slices.ContainsFunc(towns, func(tw content.Town) bool { return tw.Short == c.ShortName }) {
-				t.Fatalf("seed %d: club %d (%s) is not from nation %d", seed, c.ID, c.Name, i/8+1)
+		// Clubs 1-8 and 9-16 are the top divisions, 17-24 and 25-32 the second.
+		for i, c := range full.Clubs {
+			division := defs.Nations[i/8%2].Divisions[i/16]
+			if !slices.ContainsFunc(division.Towns, func(tw content.Town) bool { return tw.Short == c.ShortName }) {
+				t.Fatalf("seed %d: club %d (%s) is not from nation %d's division %d", seed, c.ID, c.Name, i/8%2+1, i/16+1)
 			}
 		}
 	}

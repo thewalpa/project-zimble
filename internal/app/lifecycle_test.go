@@ -291,7 +291,7 @@ func TestSquadsStayLegalAndBalancedOverTheYears(t *testing.T) {
 			}
 			assertAISquadsFull(t, w)
 			s := w.Summary()
-			if s.Players < 300 || s.Players > 320+s.Clubs+s.FreeAgents {
+			if s.Players < 600 || s.Players > 640+s.Clubs+s.FreeAgents {
 				t.Fatalf("club %d year %d: %d active players, %d free agents", club, year, s.Players, s.FreeAgents)
 			}
 			if avg := averageOverall(w); avg < start-6 || avg > start+6 {

@@ -226,7 +226,7 @@ func TestSnapshotsShareNoMutableData(t *testing.T) {
 	want := w.Snapshot()
 
 	scribble := func(s *WorldSnapshot) {
-		s.Content.Nations[0].Towns[0].Name = "X"
+		s.Content.Nations[0].Divisions[0].Towns[0].Name = "X"
 		s.Content.Roster[0].Count = 99
 		s.Registry.Clubs[0].Name = "X"
 		s.Players[0].Attributes[0] = 1
@@ -307,7 +307,7 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 		return w.Snapshot()
 	}
 	cases := map[string]func(*WorldSnapshot){
-		"content changed":      func(s *WorldSnapshot) { s.Content.Nations[0].Towns[0].Name = "Elsewhere" },
+		"content changed":      func(s *WorldSnapshot) { s.Content.Nations[0].Divisions[0].Towns[0].Name = "Elsewhere" },
 		"league rules changed": func(s *WorldSnapshot) { s.Leagues[0].Definition.MaxBench = 5 },
 		"invalid epoch":        func(s *WorldSnapshot) { s.Epoch = sim.CivilTime{} },
 		"no leagues": func(s *WorldSnapshot) {

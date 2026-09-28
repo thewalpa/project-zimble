@@ -77,8 +77,8 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 	sched := w.Schedules()[0]
 	want, _ := w.Calendar().Instant(sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15})
 	all := kickoffTasks(w)
-	if len(all) != 28 || len(w.payloads) != 28 || w.scheduler.Len() != 35 {
-		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 28 of 35 (two leagues, with recovery, wages, 2 season ends, contract year, player year and transfer run)", len(all), w.scheduler.Len(), len(w.payloads))
+	if len(all) != 56 || len(w.payloads) != 56 || w.scheduler.Len() != 65 {
+		t.Fatalf("%d kickoff tasks of %d, %d payloads; want 56 of 65 (four leagues, with recovery, wages, 4 season ends, contract year, player year and transfer run)", len(all), w.scheduler.Len(), len(w.payloads))
 	}
 	var tasks []sim.Task // the first league's, in queue order
 	for _, task := range all {
@@ -111,20 +111,20 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	if res := mustContinue(t, w, k-1); res != (ReachedTarget{Now: k - 1}) {
 		t.Fatalf("before kickoff: %#v", res)
 	}
-	if len(kickoffTasks(w)) != 28 || len(w.competitions.PendingRounds()) != 0 {
+	if len(kickoffTasks(w)) != 56 || len(w.competitions.PendingRounds()) != 0 {
 		t.Fatal("a task ran before its kickoff")
 	}
 
 	res := mustContinue(t, w, k)
 	ready, ok := res.(FixtureRoundReady)
-	if !ok || ready.At != k || len(ready.Rounds) != 2 {
+	if !ok || ready.At != k || len(ready.Rounds) != 4 {
 		t.Fatalf("at kickoff: %#v", res)
 	}
 	r := ready.Rounds[0]
 	if r.Round != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) || r.Kickoff != k || len(r.Fixtures) != 4 {
 		t.Fatalf("ready round = %+v", r)
 	}
-	if w.Now() != k || len(kickoffTasks(w)) != 26 || len(w.payloads) != 26 {
+	if w.Now() != k || len(kickoffTasks(w)) != 52 || len(w.payloads) != 52 {
 		t.Fatalf("now=%d tasks=%d payloads=%d", w.Now(), len(kickoffTasks(w)), len(w.payloads))
 	}
 	if !reflect.DeepEqual(w.competitions.Fixtures(w.leagues[0].season), fixturesBefore) {
@@ -291,17 +291,28 @@ func addLeague(t *testing.T, w *World, comp ids.CompetitionID) {
 	}
 }
 
-// twoLeagueWorld builds the default world (16 clubs, two leagues with
-// identical timing, so every round of both leagues kicks off together) with
-// the leagues passed out of ID order, to check canonical ordering.
+// topDivisions returns the default content cut to each nation's top
+// division: 16 clubs for the two first-division leagues.
+func topDivisions(defs content.Definitions) content.Definitions {
+	defs = defs.Clone()
+	for i := range defs.Nations {
+		defs.Nations[i].Divisions = defs.Nations[i].Divisions[:1]
+	}
+	return defs
+}
+
+// twoLeagueWorld builds the default world cut to the top divisions (16 clubs,
+// two leagues with identical timing, so every round of both leagues kicks off
+// together) with the leagues passed out of ID order, to check canonical
+// ordering.
 func twoLeagueWorld(t *testing.T) *World {
 	t.Helper()
-	defs := content.Default()
+	defs := topDivisions(content.Default())
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	leagues := content.DefaultLeagues()
+	leagues := content.DefaultLeagues()[:2]
 	slices.Reverse(leagues)
 	w, err := load(defs, leagues, content.DefaultCups(), DefaultEpoch(), snap)
 	if err != nil {

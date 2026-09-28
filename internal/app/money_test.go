@@ -78,7 +78,7 @@ func TestWagesArePaidWeekly(t *testing.T) {
 	for _, e := range w.Events() {
 		if e.Kind == events.KindLedgerPosted && finance.Kind(e.LedgerPosted.Entries[0].Kind) == finance.KindWages {
 			ledger++
-			if len(e.LedgerPosted.Entries) != 16 || e.Cause.Kind != events.CauseTask {
+			if len(e.LedgerPosted.Entries) != 32 || e.Cause.Kind != events.CauseTask {
 				t.Fatalf("wage event %+v", e)
 			}
 		}

@@ -25,14 +25,15 @@ import (
 // Version identifies the generation algorithm. Bump it whenever the same
 // seed and content would produce a different snapshot. Version 2 added
 // contract terms; version 3 added birth dates; version 4 generates clubs
-// nation by nation.
-const Version = 4
+// nation by nation; version 5 adds each nation's lower divisions.
+const Version = 5
 
 // streamVersion keys the club and player streams: the generator version
 // that last changed their existing draws. Version 3 only appended a draw to
 // each player's stream, which leaves the earlier draws (names, attributes,
 // contracts) as they were; version 4 keeps the first nation's club stream
-// and adds one per further nation. Set it to Version when a change alters an
+// and adds one per further nation, and version 5 adds one per lower division
+// after every top division. Set it to Version when a change alters an
 // existing draw.
 const streamVersion = 2
 
@@ -74,10 +75,11 @@ type Snapshot struct {
 // Generate builds a snapshot. Identical definitions, seed and package
 // versions always produce an identical snapshot.
 //
-// IDs are allocated sequentially from 1 in generation order, nation by
-// nation. Each nation's clubs draw their towns and suffixes from the
-// nation's own stream (the first nation's is the stream of earlier versions,
-// so its clubs are unchanged). Each club gets one senior team; each player
+// IDs are allocated sequentially from 1 in generation order: every nation's
+// top division, then every nation's second division, and so on. Each
+// division's clubs draw their towns and suffixes from a stream of their own
+// (the first nation's top division uses the stream of earlier versions, so
+// its clubs are unchanged). Each club gets one senior team; each player
 // draws from a stream keyed by its own ID, so adding fields to one player's
 // generation does not shift other players.
 func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
@@ -99,48 +101,58 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 
 	var nextPlayer ids.PlayerID
 	var nextClub int
-	for ni, nation := range defs.Nations {
-		clubRNG := random.Derive(seed, "worldgen/clubs", streamVersion)
-		if ni > 0 {
-			clubRNG = random.Derive(seed, "worldgen/clubs", streamVersion, uint64(ni))
-		}
-		towns := clubRNG.Perm(len(nation.Towns))
-		for i := range nation.Clubs {
-			town := nation.Towns[towns[i]]
-			nextClub++
-			clubID := ids.ClubID(nextClub)
-			teamID := ids.TeamID(nextClub)
-			suffix := defs.ClubSuffixes[clubRNG.IntN(len(defs.ClubSuffixes))]
-			s.Clubs = append(s.Clubs, registry.Club{ID: clubID, Name: town.Name + " " + suffix, ShortName: town.Short})
-			s.Teams = append(s.Teams, registry.Team{ID: teamID, Club: clubID, Kind: registry.TeamSenior})
+	// Tier by tier, nation by nation: every nation's top division comes
+	// first, so adding a lower tier leaves the top divisions as they were.
+	for tier := range defs.Nations[0].Divisions {
+		for ni, nation := range defs.Nations {
+			division := nation.Divisions[tier]
+			// The first nation's top division keeps the stream of earlier
+			// versions; each other division has one keyed by nation and tier.
+			clubRNG := random.Derive(seed, "worldgen/clubs", streamVersion)
+			switch {
+			case tier > 0:
+				clubRNG = random.Derive(seed, "worldgen/clubs", streamVersion, uint64(ni), uint64(tier))
+			case ni > 0:
+				clubRNG = random.Derive(seed, "worldgen/clubs", streamVersion, uint64(ni))
+			}
+			towns := clubRNG.Perm(len(division.Towns))
+			for i := range division.Clubs {
+				town := division.Towns[towns[i]]
+				nextClub++
+				clubID := ids.ClubID(nextClub)
+				teamID := ids.TeamID(nextClub)
+				suffix := defs.ClubSuffixes[clubRNG.IntN(len(defs.ClubSuffixes))]
+				s.Clubs = append(s.Clubs, registry.Club{ID: clubID, Name: town.Name + " " + suffix, ShortName: town.Short})
+				s.Teams = append(s.Teams, registry.Team{ID: teamID, Club: clubID, Kind: registry.TeamSenior})
 
-			for _, q := range defs.Roster {
-				profile, _ := defs.Profile(q.Position) // presence checked by Validate
-				for range q.Count {
-					nextPlayer++
-					rng := random.Derive(seed, "worldgen/player", streamVersion, uint64(nextPlayer))
-					player := registry.Player{
-						ID:        nextPlayer,
-						FirstName: defs.FirstNames[rng.IntN(len(defs.FirstNames))],
-						LastName:  defs.LastNames[rng.IntN(len(defs.LastNames))],
+				for _, q := range defs.Roster {
+					profile, _ := defs.Profile(q.Position) // presence checked by Validate
+					for range q.Count {
+						nextPlayer++
+						rng := random.Derive(seed, "worldgen/player", streamVersion, uint64(nextPlayer))
+						player := registry.Player{
+							ID:        nextPlayer,
+							FirstName: defs.FirstNames[rng.IntN(len(defs.FirstNames))],
+							LastName:  defs.LastNames[rng.IntN(len(defs.LastNames))],
+						}
+						var attrs players.Attributes
+						for a, r := range profile.Ranges {
+							attrs[a] = players.Rating(rng.IntRange(int(r.Min), int(r.Max)))
+						}
+						profile := players.Profile{Player: nextPlayer, Position: q.Position, Attributes: attrs}
+						s.Profiles = append(s.Profiles, profile)
+						s.Assignments = append(s.Assignments, employment.Assignment{Player: nextPlayer, Club: clubID, Team: teamID})
+						// Drawn after the attributes, from the same player stream.
+						econ := defs.Economy
+						years := rng.IntRange(econ.ContractYears[0], econ.ContractYears[1])
+						variation := rng.IntRange(-econ.WageVariationPct, econ.WageVariationPct)
+						s.Contracts = append(s.Contracts, ContractTerms{
+							Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
+						})
+						// Version 3: drawn last, so the draws above are unchanged.
+						player.Born = -sim.GameInstant(rng.IntRange(birthDays(defs.Ages))) * sim.GameInstant(sim.Day)
+						s.Players = append(s.Players, player)
 					}
-					var attrs players.Attributes
-					for a, r := range profile.Ranges {
-						attrs[a] = players.Rating(rng.IntRange(int(r.Min), int(r.Max)))
-					}
-					profile := players.Profile{Player: nextPlayer, Position: q.Position, Attributes: attrs}
-					s.Profiles = append(s.Profiles, profile)
-					s.Assignments = append(s.Assignments, employment.Assignment{Player: nextPlayer, Club: clubID, Team: teamID})
-					// Drawn after the attributes, from the same player stream.
-					econ := defs.Economy
-					years := rng.IntRange(econ.ContractYears[0], econ.ContractYears[1])
-					variation := rng.IntRange(-econ.WageVariationPct, econ.WageVariationPct)
-					s.Contracts = append(s.Contracts, ContractTerms{
-						Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
-					})
-					// Version 3: drawn last, so the draws above are unchanged.
-					player.Born = -sim.GameInstant(rng.IntRange(birthDays(defs.Ages))) * sim.GameInstant(sim.Day)
-					s.Players = append(s.Players, player)
 				}
 			}
 		}

@@ -13,27 +13,38 @@ func TestDefaultIsValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if d.ClubCount() != 16 || len(d.Nations) != 2 || d.SquadSize() != 20 {
-		t.Fatalf("clubs=%d in %d nations, squad=%d; want 16, 2 and 20", d.ClubCount(), len(d.Nations), d.SquadSize())
+	if d.ClubCount() != 32 || len(d.Nations) != 2 || d.SquadSize() != 20 {
+		t.Fatalf("clubs=%d in %d nations, squad=%d; want 32, 2 and 20", d.ClubCount(), len(d.Nations), d.SquadSize())
 	}
 }
 
 func TestDefaultReturnsIndependentCopies(t *testing.T) {
 	a := Default()
-	a.Nations[1].Towns[0].Name = "Changed"
-	if Default().Nations[1].Towns[0].Name == "Changed" {
+	a.Nations[1].Divisions[1].Towns[0].Name = "Changed"
+	if Default().Nations[1].Divisions[1].Towns[0].Name == "Changed" {
 		t.Fatal("Default shares slices between calls")
 	}
 }
 
 func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 	cases := map[string]func(*Definitions){
-		"too few towns":    func(d *Definitions) { d.Nations[0].Towns = d.Nations[0].Towns[:3] },
-		"duplicate short":  func(d *Definitions) { d.Nations[0].Towns[1].Short = d.Nations[0].Towns[0].Short },
-		"short across":     func(d *Definitions) { d.Nations[1].Towns[0].Short = d.Nations[0].Towns[0].Short },
-		"town across":      func(d *Definitions) { d.Nations[1].Towns[0].Name = d.Nations[0].Towns[0].Name },
+		"too few towns": func(d *Definitions) { d.Nations[0].Divisions[0].Towns = d.Nations[0].Divisions[0].Towns[:3] },
+		"duplicate short": func(d *Definitions) {
+			d.Nations[0].Divisions[0].Towns[1].Short = d.Nations[0].Divisions[0].Towns[0].Short
+		},
+		"short across": func(d *Definitions) {
+			d.Nations[1].Divisions[0].Towns[0].Short = d.Nations[0].Divisions[0].Towns[0].Short
+		},
+		"short across tiers": func(d *Definitions) {
+			d.Nations[0].Divisions[1].Towns[0].Short = d.Nations[0].Divisions[0].Towns[0].Short
+		},
+		"town across": func(d *Definitions) {
+			d.Nations[1].Divisions[0].Towns[0].Name = d.Nations[0].Divisions[0].Towns[0].Name
+		},
+		"no divisions":     func(d *Definitions) { d.Nations[1].Divisions = nil },
+		"uneven divisions": func(d *Definitions) { d.Nations[1].Divisions = d.Nations[1].Divisions[:1] },
 		"no nations":       func(d *Definitions) { d.Nations = nil },
-		"no clubs":         func(d *Definitions) { d.Nations[1].Clubs = 0 },
+		"no clubs":         func(d *Definitions) { d.Nations[1].Divisions[1].Clubs = 0 },
 		"same nation":      func(d *Definitions) { d.Nations[1].Name = d.Nations[0].Name },
 		"empty names":      func(d *Definitions) { d.FirstNames = nil },
 		"bad quota":        func(d *Definitions) { d.Roster[0].Count = 0 },
@@ -169,5 +180,60 @@ func TestCupSeeding(t *testing.T) {
 	four := Cup{Qualifiers: []Qualifier{{League: 1, Places: 2}, {League: 2, Places: 1}, {League: 3, Places: 1}}}
 	if got := four.Seeding(); !slices.Equal(got, [][2]int{{0, 1}, {0, 2}, {1, 1}, {2, 1}}) {
 		t.Fatalf("four-team seeding %v", got)
+	}
+}
+
+func TestDefaultLeaguesFitTheDefaultWorld(t *testing.T) {
+	leagues := DefaultLeagues()
+	entrants := 0
+	for _, l := range leagues {
+		if err := l.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		entrants += l.Entrants
+	}
+	if entrants != Default().ClubCount() {
+		t.Fatalf("leagues take %d clubs, the world has %d", entrants, Default().ClubCount())
+	}
+	if err := ValidatePromotions(leagues, DefaultPromotions()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range DefaultCups() {
+		for _, q := range c.Qualifiers {
+			if q.League != 1 && q.League != 2 {
+				t.Errorf("cup %d takes places from league %d, want the first divisions only", c.ID, q.League)
+			}
+		}
+	}
+}
+
+func TestPromotionValidation(t *testing.T) {
+	leagues := DefaultLeagues()
+	small := DefaultLeague()
+	small.ID, small.Entrants = 6, 6
+	leagues = append(leagues, small)
+	cases := map[string][]Promotion{
+		"missing lower":  {{Upper: 1, Lower: 9, Places: 2}},
+		"missing upper":  {{Upper: 9, Lower: 1, Places: 2}},
+		"same league":    {{Upper: 1, Lower: 1, Places: 2}},
+		"unequal sizes":  {{Upper: 1, Lower: 6, Places: 2}},
+		"no places":      {{Upper: 1, Lower: 4}},
+		"over half":      {{Upper: 1, Lower: 4, Places: 5}},
+		"two lowers":     {{Upper: 1, Lower: 4, Places: 1}, {Upper: 1, Lower: 5, Places: 1}},
+		"two uppers":     {{Upper: 1, Lower: 4, Places: 1}, {Upper: 2, Lower: 4, Places: 1}},
+		"swapped ends":   {{Upper: 1, Lower: 4, Places: 1}, {Upper: 4, Lower: 1, Places: 1}},
+		"three-way loop": {{Upper: 1, Lower: 2, Places: 1}, {Upper: 2, Lower: 4, Places: 1}, {Upper: 4, Lower: 1, Places: 1}},
+	}
+	for name, links := range cases {
+		if err := ValidatePromotions(leagues, links); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	chain := []Promotion{{Upper: 1, Lower: 2, Places: 2}, {Upper: 2, Lower: 4, Places: 2}}
+	if err := ValidatePromotions(leagues, chain); err != nil {
+		t.Errorf("a chain of divisions rejected: %v", err)
+	}
+	if err := ValidatePromotions(leagues, nil); err != nil {
+		t.Errorf("no links rejected: %v", err)
 	}
 }

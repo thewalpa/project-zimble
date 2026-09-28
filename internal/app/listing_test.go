@@ -450,7 +450,9 @@ func TestAIMarketKeepsSquadsFullForDecades(t *testing.T) {
 	w := newWorld(t, 7)
 	offers := 0
 	for year := 1; year <= 30; year++ {
-		mustContinue(t, w, w.TransferWindow().Closes)
+		// Seasons start a day earlier each year (52 weeks), so from about
+		// year 28 the first round kicks off inside the window.
+		playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
 		completed := 0
 		for _, o := range w.transfers.Offers()[offers:] {
 			if o.Status == transfers.StatusCompleted {
@@ -471,7 +473,7 @@ func TestAIMarketKeepsSquadsFullForDecades(t *testing.T) {
 		if fees != 0 {
 			t.Fatalf("year %d: transfer fees sum to %s", year, fees)
 		}
-		if s := w.Summary(); s.Players < 300 || s.Players > 320+s.Clubs+s.FreeAgents {
+		if s := w.Summary(); s.Players < 600 || s.Players > 640+s.Clubs+s.FreeAgents {
 			t.Fatalf("year %d: %d active players, %d free agents", year, s.Players, s.FreeAgents)
 		}
 		if err := w.Validate(); err != nil {

@@ -26,13 +26,13 @@ import (
 // this value. Last changed by the transfer list and AI upgrades
 // (ai.TransfersVersion 2: AI clubs now trade in the first window).
 //
-// It covers the first league's season 1, which the second league and the
+// It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "942e76b96f2f7b008a562877ef1673207e0df8cc4b979a297a14bdab46207c8d"
-	goldenSecondLeagueSeed42 = "5e907ce2b60f8c9d90684a6559e042184932631309e17f452c3cb7cf4a935403"
-	goldenCupSeed42          = "850ad40089f3c8e7b355ddb8d819ef3efc1bc29a998011a010fddf03bae35a74"
+	goldenSeasonSeed42       = "85ac575a19dbf2b6f13d59a34159f1eef34138391c10ac5a4544ded34889626a"
+	goldenSecondLeagueSeed42 = "22aaff27118fa160f6b1571236cd3aafba729854aa0cac42733ca7a65abbbab2"
+	goldenCupSeed42          = "dc9b8ebb171a932548eb695fbcec4e8512a8790e3218b7dac2cf6bbc7f58d7ce"
 )
 
 // seasonEnd is one day after the last kickoff of every league.
@@ -150,8 +150,8 @@ func TestFullSeasonIntegrity(t *testing.T) {
 		t.Fatalf("%d batches resolved, want 14", len(resolved))
 	}
 	for i, r := range resolved {
-		// Both leagues' rounds kick off together: one batch.
-		if len(r.Matches) != 8 || len(r.Rounds) != 2 || r.Rounds[0].Round != competitions.Round(i+1) {
+		// All four leagues' rounds kick off together: one batch.
+		if len(r.Matches) != 16 || len(r.Rounds) != 4 || r.Rounds[0].Round != competitions.Round(i+1) {
 			t.Fatalf("batch %d: %d matches, rounds %v", i, len(r.Matches), r.Rounds)
 		}
 		if i > 0 && r.Revision <= resolved[i-1].Revision {
@@ -302,7 +302,7 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.
-	if a.Summary().Fingerprint != "cbc055bbf242f14f5491eabbdad165ee1e13e7c79663b7d8fcf7bfd85fa7f35d" {
+	if a.Summary().Fingerprint != "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123" {
 		t.Fatal("world fingerprint changed")
 	}
 	if !reflect.DeepEqual(a.competitions.Fixtures(competitions.SeasonRef{Competition: 1, Season: 1}), fixturesBefore) {
@@ -559,7 +559,7 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 		if !reflect.DeepEqual(snapshot(w), before) {
 			t.Fatalf("%s: failure changed the world", name)
 		}
-		if p := w.competitions.PendingRounds(); len(p) != 2 || len(w.competitions.Results(w.leagues[0].season)) != 0 || len(w.competitions.Results(w.leagues[1].season)) != 0 {
+		if p := w.competitions.PendingRounds(); len(p) != 4 || len(w.competitions.Results(w.leagues[0].season)) != 0 || len(w.competitions.Results(w.leagues[1].season)) != 0 {
 			t.Fatalf("%s: batch no longer pending or partial results recorded", name)
 		}
 		got, err := w.ResolveRounds(cmd)

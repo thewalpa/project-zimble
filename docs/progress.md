@@ -2197,6 +2197,41 @@ The rule is decided and the competitions-side function is built and tested. Wiri
 
 - Not yet wired: leagues still keep their entrants each season, and validation still requires it.
 
+## data: second divisions (done)
+
+Each nation now has a second division, and the default world has four leagues and 32 clubs. Delivers `competitions`' request; the movement between divisions is wired by `competitions`.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/content` | `Nation` holds `Divisions []Division{Clubs, Towns}` instead of `Clubs` and `Towns`; the default nations have a second division with eight new towns each. `DefaultLeagues()` returns leagues 1, 2, 4 and 5 (the cup is 3). `Promotion{Upper, Lower, Places}`, `DefaultPromotions()` and `ValidatePromotions`. `Version` 6, `LeagueVersion` 4 |
+| `internal/worldgen` | Generates division by division, nation by nation: every nation's top division first, then every second division. `Version` 5 |
+| `internal/storage` | `SchemaVersion` 16: the content in a save has a new shape |
+| tests | Goldens re-pinned; counts and seed-42 expectations updated in `internal/app` and `cmd/*` |
+
+### Decisions
+
+- **The top divisions are untouched.** Clubs 1-16 keep their names, players, contracts and birth dates for every seed: the new divisions come after them in ID order and draw from their own streams (`worldgen/clubs` keyed by nation and tier), and `streamVersion` did not change. `TestDivisionsAreGeneratedIndependently` proves a top-division-only world is a prefix of the full one. The generated world's fingerprint still moves (more clubs), and so do seeded careers: the AI market spans 32 clubs.
+- **Content shape.** A division carries its own towns, so adding a tier never changes how the tiers above pick their towns. Every nation must define the same number of tiers, so tier-major generation lines up with the leagues (which take clubs in league ID order).
+- **Links are validated in content.** Same size, at most half the places, one upper end and one lower end per league, no loops. A chain of divisions is allowed.
+- **The cup stays with the first divisions** (leagues 1 and 2, four places each).
+- **No rating gap yet.** Second-division squads are generated like first-division ones. A weaker profile is a possible content change once `balance` reports.
+
+### Verification
+
+- Content validates the default world and rejects uneven, missing and duplicated divisions and 10 broken promotion configurations; the default leagues take exactly the world's clubs.
+- A world of top divisions only, or of one nation, is a prefix of the full world for the same seed.
+- The full suite passes on the new world: 30-year AI market, several-season careers, save round trips and the CLI and web clients.
+
+### Handoffs
+
+[competitions](handoffs/competitions--second-divisions-delivered.md) (fields and two things to know), [ui](handoffs/ui--second-divisions.md), [squad](handoffs/squad--market-spans-32-clubs.md), [balance](handoffs/balance--rerun-baseline-32-clubs.md), [match](handoffs/match--goldens-32-clubs.md).
+
+### Limitations
+
+- The transfer window and the season calendar drift apart by one day a year (52-week seasons); from about year 28 a first round kicks off inside the window. Reported to `competitions`.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

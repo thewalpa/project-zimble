@@ -38,10 +38,9 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 	}
 	weeks := int(w.Now() / (7 * day)) // one wage run per elapsed week
 	want := map[events.Kind]int{
-		// Two leagues, then both leagues' second seasons and the first cup
-		// edition.
-		events.KindRoundStarted: 28, events.KindMatchCompleted: 112, events.KindLineupSubmitted: 14,
-		events.KindSeasonEnded: 2, events.KindSeasonStarted: 3, events.KindLedgerPosted: 14 + weeks,
+		// Four leagues, then their second seasons and the first cup edition.
+		events.KindRoundStarted: 56, events.KindMatchCompleted: 224, events.KindLineupSubmitted: 14,
+		events.KindSeasonEnded: 4, events.KindSeasonStarted: 5, events.KindLedgerPosted: 14 + weeks,
 	}
 	// The AI clubs' transfer market: one event per offer made, completed or
 	// closed, one ledger posting per run that moved fees, and the listings.
@@ -176,7 +175,7 @@ func TestInboxIsAProjectionOfTheJournal(t *testing.T) {
 			}
 		}
 	}
-	if want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 2, inbox.KindSeasonStarted: 3}; !reflect.DeepEqual(count, want) {
+	if want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 4, inbox.KindSeasonStarted: 5}; !reflect.DeepEqual(count, want) {
 		t.Fatalf("message counts %v, want %v", count, want)
 	}
 
@@ -230,7 +229,7 @@ func TestJournalRetention(t *testing.T) {
 	if len(j) != 30 || j[len(j)-1].ID != w.lastEvent || w.lastEvent < 100 || w.inbox.Offset() != w.lastEvent {
 		t.Fatalf("journal %d..%d (%d events), allocator %d", j[0].ID, j[len(j)-1].ID, len(j), w.lastEvent)
 	}
-	if len(w.Inbox()) != 14+14+2+3 { // matchdays, results, season ends and starts
+	if len(w.Inbox()) != 14+14+4+5 { // matchdays, results, season ends and starts
 		t.Fatalf("inbox lost messages when the journal was trimmed: %d", len(w.Inbox()))
 	}
 	roundTrip(t, w)

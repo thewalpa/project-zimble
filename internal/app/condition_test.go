@@ -67,7 +67,7 @@ func TestMatchExposureLowersCondition(t *testing.T) {
 			played++
 		}
 	}
-	if played != 8*2*11 { // two leagues of four fixtures
+	if played != 16*2*11 { // four leagues of four fixtures
 		t.Fatalf("%d participants", played)
 	}
 	if !reflect.DeepEqual(after, want) {
