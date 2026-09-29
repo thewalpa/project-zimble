@@ -225,6 +225,92 @@ func TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed(t *testing.T) {
 	contains(t, c.post("/continue", nil), "Lineup: Your saved team plan for this match")
 }
 
+// pitchZones reads the lineup pitch: the player IDs in each zone (a line's
+// slot, "bench" or "out"), in the order shown.
+func pitchZones(page string) map[string][]string {
+	zones := map[string][]string{}
+	slot := regexp.MustCompile(`^data-slot="(\w+)"`)
+	id := regexp.MustCompile(`class="chip[^"]*" data-id="(\d+)"`)
+	for _, part := range strings.Split(page, `<div class="zone `)[1:] {
+		part = part[strings.Index(part, "data-slot"):]
+		name := slot.FindStringSubmatch(part)[1]
+		for _, m := range id.FindAllStringSubmatch(part, -1) {
+			zones[name] = append(zones[name], m[1])
+		}
+	}
+	return zones
+}
+
+// The lineup page draws the team on a pitch, line by line in slot order,
+// with the bench and the unselected players beside it. The pitch posts its
+// left-to-right order with the form, and saving keeps it.
+func TestLineupPitch(t *testing.T) {
+	c := career(t)
+	plan, err := c.s.w.TeamPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := plan.Lineup
+	page := c.get("/lineup")
+	contains(t, page, `Formation <span data-formation>`+app.FormationLabel(l)+`</span>`, "11 of 11 starters", "Bench", "Not selected")
+	want := map[string][]string{}
+	var order []string
+	for _, st := range l.Starters {
+		want[slotName(st.Role)] = append(want[slotName(st.Role)], fmt.Sprint(st.Player))
+		order = append(order, fmt.Sprint(st.Player))
+	}
+	for _, p := range l.Bench {
+		want["bench"] = append(want["bench"], fmt.Sprint(p))
+		order = append(order, fmt.Sprint(p))
+	}
+	zones := pitchZones(page)
+	squad, _ := c.s.w.Squad(c.s.club())
+	if len(zones["out"]) != len(squad)-len(order) {
+		t.Fatalf("%d unselected players on the page, want %d", len(zones["out"]), len(squad)-len(order))
+	}
+	delete(zones, "out")
+	if !maps.EqualFunc(zones, want, slices.Equal) {
+		t.Fatalf("pitch %v, want %v", zones, want)
+	}
+	contains(t, page, `name="order" value="`+strings.Join(order, " ")+`"`)
+
+	// Reverse every line and the bench, as dragging would, and move a
+	// defender up front.
+	form := url.Values{"plan": {"1"}, "mentality": {"balanced"}}
+	for _, p := range squad {
+		form.Set(fmt.Sprintf("slot-%d", p.Player), "out")
+	}
+	for slot, ids := range want {
+		for _, id := range ids {
+			form.Set("slot-"+id, slot)
+		}
+	}
+	moved := want["df"][0]
+	form.Set("slot-"+moved, "fw")
+	slices.Reverse(order)
+	form.Set("order", strings.Join(order, " "))
+	page = c.post("/lineup", form)
+	contains(t, page, "Team plan saved.")
+	for _, ids := range want {
+		slices.Reverse(ids)
+	}
+	want["df"] = want["df"][:len(want["df"])-1]
+	want["fw"] = append(want["fw"], moved) // defenders come after forwards in the reversed order
+	zones = pitchZones(page)
+	delete(zones, "out")
+	if !maps.EqualFunc(zones, want, slices.Equal) {
+		t.Fatalf("saved pitch %v, want %v", zones, want)
+	}
+	if !regexp.MustCompile(`class="chip oop[^"]*" data-id="` + moved + `"`).MatchString(page) {
+		t.Fatalf("defender %s up front is not marked out of position", moved)
+	}
+	saved, _ := c.s.w.TeamPlan()
+	contains(t, page, "Formation <span data-formation>"+app.FormationLabel(saved.Lineup)+"</span>")
+	if app.FormationLabel(saved.Lineup) == app.FormationLabel(l) {
+		t.Fatalf("formation still %s after moving a defender up front", app.FormationLabel(l))
+	}
+}
+
 func TestLineupRejections(t *testing.T) {
 	c := career(t)
 	contains(t, c.get("/lineup"), "Team plan", "Starting point for matches without a submitted lineup", "Save team plan")

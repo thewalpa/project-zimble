@@ -2903,3 +2903,25 @@ Delivered the UI for `match`'s saved team plan. `lineup` opens the saved plan be
 
 - `TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed` in both client packages drives the editor as a player would, checks the saved plan and verifies the matchday source.
 - `go test ./cmd/play` and `go test ./cmd/web` pass.
+
+## ui: drag-and-drop formation editor on a pitch (done)
+
+A priority request from the user: edit the lineup by dragging players around a pitch. The lineup and team-plan pages now start with a pitch that shows the formation (for example "4-4-2"). Lines run from attack at the top down to goal, and the bench and unselected players sit beside the pitch (below it on a phone). The terminal draws the same pitch above its lineup table.
+
+- **Web.** The pitch is drawn on the server, and the lineup form is still what gets saved, so the page works without JavaScript through the Selection column. With JavaScript, the manager drags a player onto another to swap them, or into a gap in a line, the bench or the unselected shelf to move him there. Tap-to-pick then tap-to-place works for touch, and Enter/Space do the same from the keyboard. Drags use pointer events, so the mouse and touch share one path, and the page scrolls when a drag nears the top or bottom of the screen. Every move updates the players' Selection fields, the formation, the starter count and the out-of-position marks. Changing a Selection in the table moves the player on the pitch.
+- **Order within a line matters.** The tick engine spreads each line across the width in slot order, so the pitch posts a new `order` field (player IDs, space-separated). The server orders starters by role and then by `order`, and orders the bench by `order` too. Players missing from `order` fall back to ID order, as before. Without JavaScript the field carries the current order, so a table edit no longer resets each line to ID order.
+- **Terminal.** `lineup` and `teamplan` print `Formation 4-4-2, attacking upwards` and a text pitch with "ID Surname" cells in slot order, starred when out of position. The existing `swap` and `role` commands make every move a drag makes: swapping two players in a line swaps where they stand.
+- **Shared views.** `app.FormationLabel(selection.Lineup)` names the shape. `app.NaturalRole(players.Position)` exports the existing position-to-role mapping, and play's duplicate of it is gone.
+- **Decision:** the pitch draws the first slot on the left. Nothing yet says which flank `Y = 0` is. `match--line-slot-flank` asks `match` to pin it down, and the clients will mirror the pitch if needed.
+
+### Verification
+
+- `TestLineupPitch` (web) reads the pitch zones as a player sees them, reverses every line and the bench through `order`, moves a defender up front, and checks that the saved plan, the formation and the out-of-position mark come back.
+- `TestLineupPitch` (play) checks the formation line and the attack line after `role` and `swap`. `TestFormationLabel` checks the label.
+- A headless Chromium script (not committed: the repository uses the standard library only) drove the page with 18 checks: mouse drag into a gap and onto a player, tap-to-pick, keyboard swap, table-to-pitch sync, save and reload, a touch drag at 390 px with no horizontal scroll, the no-JS fallback and no script errors. Light, dark and phone screenshots were reviewed. They showed a four-player line wrapping over the next line on a phone, which was fixed.
+
+### Handoffs
+
+- `match--line-slot-flank`: which flank a line's first slot is on.
+- Closes `ui--team-plan-editor` (delivered in the previous ui session; the note had not been deleted).
+

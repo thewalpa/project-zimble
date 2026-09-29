@@ -20,10 +20,34 @@
   <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup{{if $d.Plan}}?plan=1{{end}}">
   {{if $d.Plan}}<input type="hidden" name="plan" value="1">{{else}}<input type="hidden" name="fixture" value="{{$d.Fixture}}">{{end}}
   {{range $d.HiddenSlots}}<input type="hidden" name="slot-{{.Player}}" value="{{.Slot}}">{{end}}
+  <input type="hidden" name="order" value="{{$d.Pitch.Order}}" data-order>
   <div class="panel">
     <label>Mentality
       <select name="mentality">{{range $d.Mentalities}}<option value="{{.}}" {{if eq . $d.Mentality}}selected{{end}}>{{.}}</option>{{end}}</select>
     </label>
+  </div>
+  <div class="panel lineup-board" data-board data-want="{{$d.Pitch.Want}}">
+    <div class="board-head">
+      <h2>Formation <span data-formation>{{$d.Pitch.Formation}}</span></h2>
+      <span class="{{if ne $d.Pitch.Starters $d.Pitch.Want}}out{{else}}muted{{end}}" data-count aria-live="polite">{{$d.Pitch.Starters}} of {{$d.Pitch.Want}} starters</span>
+    </div>
+    <p class="muted board-hint nojs-only">Change the lineup with the Selection column below.</p>
+    <p class="muted board-hint js-only">Drag a player onto another to swap them, or into a line, the bench or the unselected players to move him. You can also tap a player, then another player or a place. Each line's order is how its players spread across the pitch.</p>
+    <div class="board">
+      <div class="pitch" aria-label="The pitch, attacking upwards">
+        <div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>
+        {{range $d.Pitch.Lines}}
+        <div class="zone line" data-slot="{{.Slot}}" aria-label="{{.Label}}"><span class="line-label">{{.Label}}</span>{{range .Players}}{{template "pitchChip" .}}{{end}}</div>
+        {{end}}
+      </div>
+      <div>
+        <h3>Bench</h3>
+        <div class="zone shelf" data-slot="bench" aria-label="Bench">{{range $d.Pitch.Bench}}{{template "pitchChip" .}}{{end}}</div>
+        <h3>Not selected</h3>
+        <div class="zone shelf" data-slot="out" aria-label="Not selected">{{range $d.Pitch.Reserves}}{{template "pitchChip" .}}{{end}}</div>
+      </div>
+    </div>
+    <div class="actions"><button class="primary">{{if $d.Plan}}Save team plan{{else}}Save lineup{{end}}</button></div>
   </div>
   <div class="panel scroll">
   <table>
@@ -62,5 +86,174 @@
     {{end}}
   </div>
 </form>
+<script>
+// Drag and drop on the lineup pitch. The pitch only edits the form: each
+// move sets the moved players' Selection fields and the "order" field, and
+// saving posts the form as it does without JavaScript.
+(function () {
+  var board = document.querySelector('[data-board]');
+  if (!board || !window.PointerEvent) return;
+  var form = board.closest('form'), want = +board.dataset.want;
+  var lines = ['gk', 'df', 'mf', 'fw'];
+  var picked = null, drag = null, caret = document.createElement('div');
+  caret.className = 'caret';
+  board.classList.add('js');
+
+  function zone(slot) { return board.querySelector('.zone[data-slot="' + slot + '"]'); }
+  function chipsIn(z) { return Array.prototype.slice.call(z.querySelectorAll('.chip')); }
+
+  // sync writes the pitch back into the form and redraws the counts.
+  function sync() {
+    var order = [], count = {};
+    lines.concat(['bench', 'out']).forEach(function (slot) {
+      count[slot] = 0;
+      chipsIn(zone(slot)).forEach(function (c) {
+        var field = form.elements['slot-' + c.dataset.id];
+        if (field) field.value = slot;
+        count[slot]++;
+        if (slot !== 'out') order.push(c.dataset.id);
+        c.classList.toggle('oop', lines.indexOf(slot) >= 0 && slot !== c.dataset.natural);
+      });
+    });
+    form.querySelector('[data-order]').value = order.join(' ');
+    board.querySelector('[data-formation]').textContent = count.df + '-' + count.mf + '-' + count.fw;
+    var n = count.gk + count.df + count.mf + count.fw, el = board.querySelector('[data-count]');
+    el.textContent = n + ' of ' + want + ' starters';
+    el.className = n === want ? 'muted' : 'out';
+  }
+
+  // before is the chip a drop at (x, y) lands in front of, or null for the end.
+  function before(z, chip, x, y) {
+    var list = chipsIn(z);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === chip) continue;
+      var r = list[i].getBoundingClientRect();
+      if (y < r.top || (y <= r.bottom && x < r.left + r.width / 2)) return list[i];
+    }
+    return null;
+  }
+
+  // drop moves chip onto target: another chip swaps places with it, a zone
+  // takes it at (x, y), or at its end without a point.
+  function drop(chip, target, x, y) {
+    if (!target || target === chip) return;
+    if (target.classList.contains('chip')) {
+      var mark = document.createElement('i');
+      chip.replaceWith(mark);
+      target.replaceWith(chip);
+      mark.replaceWith(target);
+    } else {
+      target.insertBefore(chip, x == null ? null : before(target, chip, x, y));
+    }
+    sync();
+  }
+
+  function pick(c) {
+    if (picked) { picked.classList.remove('picked'); picked.setAttribute('aria-pressed', 'false'); }
+    picked = c;
+    if (c) { c.classList.add('picked'); c.setAttribute('aria-pressed', 'true'); }
+  }
+
+  // tap picks a player, then puts him on the next player or place tapped.
+  function tap(el) {
+    if (!picked) { if (el.classList.contains('chip')) pick(el); return; }
+    var c = picked;
+    pick(null);
+    if (el !== c) { drop(c, el, null, null); c.focus(); }
+  }
+
+  function targetAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    el = el && el.closest('.chip, .zone');
+    return el && board.contains(el) && !el.classList.contains('ghost') ? el : null;
+  }
+
+  function hover() {
+    board.querySelectorAll('.over').forEach(function (el) { el.classList.remove('over'); });
+    caret.remove();
+    var t = targetAt(drag.x, drag.y);
+    drag.target = t;
+    if (!t || t === drag.chip) return;
+    t.classList.add('over');
+    if (t.classList.contains('zone')) t.insertBefore(caret, before(t, drag.chip, drag.x, drag.y));
+  }
+
+  // scroll keeps dragging usable on a phone: holding a player near the top
+  // or bottom of the screen scrolls the page.
+  function scroll() {
+    if (!drag || !drag.ghost) return;
+    var edge = 56, dy = drag.y < edge ? -12 : drag.y > window.innerHeight - edge ? 12 : 0;
+    if (dy) { window.scrollBy(0, dy); hover(); }
+    requestAnimationFrame(scroll);
+  }
+
+  function end() {
+    if (!drag) return;
+    if (drag.ghost) drag.ghost.remove();
+    drag.chip.classList.remove('lifted');
+    board.querySelectorAll('.over').forEach(function (el) { el.classList.remove('over'); });
+    caret.remove();
+    drag = null;
+  }
+
+  chipsIn(board).forEach(function (c) {
+    c.tabIndex = 0;
+    c.setAttribute('role', 'button');
+    c.setAttribute('aria-pressed', 'false');
+    c.setAttribute('aria-label', c.title);
+  });
+  board.querySelectorAll('.zone').forEach(function (z) { z.tabIndex = 0; });
+
+  board.addEventListener('pointerdown', function (e) {
+    var c = e.target.closest('.chip');
+    if (!c || e.button !== 0 || drag) return;
+    e.preventDefault();
+    drag = { chip: c, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+    c.setPointerCapture(e.pointerId);
+  });
+  board.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (!drag.ghost) {
+      if (Math.abs(drag.x - drag.x0) + Math.abs(drag.y - drag.y0) < 6) return;
+      pick(null);
+      drag.ghost = drag.chip.cloneNode(true);
+      drag.ghost.classList.add('ghost');
+      drag.ghost.classList.remove('picked', 'over');
+      document.body.appendChild(drag.ghost);
+      drag.chip.classList.add('lifted');
+      requestAnimationFrame(scroll);
+    }
+    drag.ghost.style.left = drag.x + 'px';
+    drag.ghost.style.top = drag.y + 'px';
+    hover();
+  });
+  board.addEventListener('pointerup', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var d = drag;
+    end();
+    if (d.ghost) drop(d.chip, d.target, d.x, d.y); else { tap(d.chip); d.chip.focus(); }
+  });
+  board.addEventListener('pointercancel', end);
+  board.addEventListener('click', function (e) {
+    var z = e.target.closest('.zone');
+    if (z && picked && !e.target.closest('.chip')) tap(z);
+  });
+  board.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { pick(null); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && (e.target.matches('.chip') || e.target.matches('.zone'))) {
+      e.preventDefault();
+      tap(e.target);
+    }
+  });
+  // A Selection changed in the table moves the player on the pitch too.
+  form.addEventListener('change', function (e) {
+    var m = /^slot-(\d+)$/.exec(e.target.name || '');
+    var c = m && board.querySelector('.chip[data-id="' + m[1] + '"]'), z = m && zone(e.target.value);
+    if (c && z && c.parentNode !== z) { z.appendChild(c); sync(); }
+  });
+})();
+</script>
 {{end}}
 {{end}}
+{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}" data-id="{{.Player}}" data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm">{{.Short}}</span><span class="meta">{{.Position}} · {{.Condition}}%</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}

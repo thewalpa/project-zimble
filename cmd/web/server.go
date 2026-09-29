@@ -465,8 +465,10 @@ func (s *server) playSeason(url.Values) (string, error) {
 // --- lineup ------------------------------------------------------------------
 
 // Lineup form values: for each squad player "slot-ID" is a role (gk, df, mf,
-// fw) to start in, "bench" or "out". Starters are ordered goalkeeper,
-// defenders, midfielders, forwards, then by ID.
+// fw) to start in, "bench" or "out". "order" optionally lists player IDs,
+// space-separated, in the order the pitch shows them. Starters are ordered
+// goalkeeper, defenders, midfielders, forwards; within a line and on the
+// bench, players follow "order" and then ID.
 var slotRoles = map[string]matches.Role{"gk": matches.Goalkeeper, "df": matches.Defender, "mf": matches.Midfielder, "fw": matches.Forward}
 
 // slotName is the form value for starting in a role.
@@ -494,6 +496,21 @@ func (s *server) submitLineup(form url.Values) (string, error) {
 		return "", errors.New("choose a mentality")
 	}
 	l.Tactics.Mentality = mentality
+	rank := map[ids.PlayerID]int{}
+	for i, f := range strings.Fields(form.Get("order")) {
+		if id, err := strconv.ParseUint(f, 10, 64); err == nil {
+			if _, dup := rank[ids.PlayerID(id)]; !dup {
+				rank[ids.PlayerID(id)] = i
+			}
+		}
+	}
+	// ranked puts players missing from "order" after the listed ones.
+	ranked := func(p ids.PlayerID) int {
+		if i, ok := rank[p]; ok {
+			return i
+		}
+		return len(rank)
+	}
 	squad, _ := s.w.Squad(s.club())
 	for _, p := range squad {
 		v := form.Get(fmt.Sprintf("slot-%d", p.Player))
@@ -503,7 +520,10 @@ func (s *server) submitLineup(form url.Values) (string, error) {
 			l.Bench = append(l.Bench, p.Player)
 		}
 	}
-	slices.SortStableFunc(l.Starters, func(a, b selection.Slot) int { return cmp.Compare(a.Role, b.Role) })
+	slices.SortStableFunc(l.Starters, func(a, b selection.Slot) int {
+		return cmp.Or(cmp.Compare(a.Role, b.Role), cmp.Compare(ranked(a.Player), ranked(b.Player)))
+	})
+	slices.SortStableFunc(l.Bench, func(a, b ids.PlayerID) int { return cmp.Compare(ranked(a), ranked(b)) })
 	if n := len(l.Starters); n != matches.StartersPerTeam {
 		return "", fmt.Errorf("pick exactly %d starters (you picked %d)", matches.StartersPerTeam, n)
 	}

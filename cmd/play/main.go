@@ -24,6 +24,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/careers"
@@ -1093,18 +1094,50 @@ func roleName(r matches.Role) string {
 	return "?"
 }
 
-func naturalRole(p players.Position) matches.Role {
-	switch p {
-	case players.Goalkeeper:
-		return matches.Goalkeeper
-	case players.Defender:
-		return matches.Defender
-	case players.Midfielder:
-		return matches.Midfielder
-	case players.Forward:
-		return matches.Forward
+// pitchWidth is the inside width of the lineup pitch, in characters.
+const pitchWidth = 68
+
+// showPitch draws the starters line by line, attack at the top, each line in
+// slot order: the match spreads a line's players across the width in that
+// order. Cells are "ID Surname", starred when out of position.
+func (s *session) showPitch(l selection.Lineup, squad map[ids.PlayerID]app.SquadPlayer) {
+	s.printf("Formation %s, attacking upwards (swap two players in a line to change where they stand):\n", app.FormationLabel(l))
+	edge := "     +" + strings.Repeat("-", pitchWidth) + "+\n"
+	s.printf("%s", edge)
+	oop := false
+	for _, role := range []matches.Role{matches.Forward, matches.Midfielder, matches.Defender, matches.Goalkeeper} {
+		var cells []string
+		for _, sl := range l.Starters {
+			if sl.Role != role {
+				continue
+			}
+			name, _ := s.w.PlayerName(sl.Player)
+			if i := strings.LastIndex(name, " "); i >= 0 {
+				name = name[i+1:]
+			}
+			if r := []rune(name); len(r) > 10 {
+				name = string(r[:9]) + "."
+			}
+			cell := fmt.Sprintf("%d %s", sl.Player, name)
+			if p, ok := squad[sl.Player]; ok && app.NaturalRole(p.Position) != role {
+				cell += "*"
+				oop = true
+			}
+			cells = append(cells, cell)
+		}
+		row := ""
+		for _, cell := range cells {
+			col := pitchWidth / len(cells)
+			pad := max(col-utf8.RuneCountInString(cell), 0)
+			row += strings.Repeat(" ", pad/2) + cell + strings.Repeat(" ", pad-pad/2)
+		}
+		s.printf("  %-2s |%-*s|\n", roleName(role), pitchWidth, row)
 	}
-	return 0
+	s.printf("%s", edge)
+	if oop {
+		s.printf("* out of position\n")
+	}
+	s.printf("\n")
 }
 
 func (s *session) showLineup(onlyAvailable ...bool) error {
@@ -1169,6 +1202,7 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		}
 	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
+	s.showPitch(d.lineup, squad)
 	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %-12s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", attributeHeader)
 	for i, sl := range d.lineup.Starters {
 		p, ok := squad[sl.Player]
@@ -1181,7 +1215,7 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 			continue
 		}
 		note := ""
-		if naturalRole(p.Position) != sl.Role {
+		if app.NaturalRole(p.Position) != sl.Role {
 			note = "  (out of position)"
 		}
 		s.printf("%3d  %-4s %4d  %-24s %-3s %5d %-12s  %s%s\n", i+1, roleName(sl.Role), p.Player, p.Name, p.Position,

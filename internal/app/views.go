@@ -5,6 +5,9 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
 // OpponentName returns the name of the opponent club for the user team in fixture.
@@ -31,6 +34,22 @@ func (w *World) OpponentName(fixture ids.FixtureID) string {
 	}
 	return c.Name
 }
+
+// FormationLabel names a lineup's shape by its outfield starters per line,
+// defence first: "4-4-2". Read-only.
+func FormationLabel(l selection.Lineup) string {
+	var count [matches.Forward + 1]int
+	for _, s := range l.Starters {
+		if s.Role.Valid() {
+			count[s.Role]++
+		}
+	}
+	return fmt.Sprintf("%d-%d-%d", count[matches.Defender], count[matches.Midfielder], count[matches.Forward])
+}
+
+// NaturalRole is the role a player of the position plays in: a starter in
+// any other role plays out of position. Read-only.
+func NaturalRole(p players.Position) matches.Role { return roleOf(p) }
 
 // LineupSourceLabel returns the human-readable description of where ml came from,
 // e.g. "Your saved lineup for this match", "Carried over from the last match (vs Hollowick Town)",

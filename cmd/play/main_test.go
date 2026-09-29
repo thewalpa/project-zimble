@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,6 +116,26 @@ func TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed(t *testing.T) {
 	}
 	ready := play(t, []string{"-load", path}, "continue", "lineup", "quit", "quit")
 	contains(t, ready, "Lineup: your saved team plan", "Mentality: attacking")
+}
+
+// The lineup draws the starters on a pitch, attack at the top and each line
+// in slot order; role and swap redraw it.
+func TestLineupPitch(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "lineup", "role 45 FW", "swap 59 57", "quit")
+	contains(t, out, "Formation 4-4-2, attacking upwards", "Formation 3-4-3, attacking upwards", "* out of position")
+	var forwards []string
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "  FW |") {
+			forwards = append(forwards, strings.Join(strings.Fields(strings.Trim(line[6:], "|")), " "))
+		}
+	}
+	want := []string{"59 Bellamy 57 Haugen", "45 Rowntree* 59 Bellamy 57 Haugen", "45 Rowntree* 57 Haugen 59 Bellamy"}
+	if !slices.Equal(forwards, want) {
+		t.Fatalf("attack lines %q, want %q", forwards, want)
+	}
+	if !strings.Contains(out, "  GK |                            42 Aldridge ") {
+		t.Fatal("the goalkeeper is not centred in goal")
+	}
 }
 
 func TestMistakesAreReportedAndChangeNothing(t *testing.T) {

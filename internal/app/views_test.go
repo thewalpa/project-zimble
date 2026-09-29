@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
 // The promotion views follow the pinned links: the first divisions send their
@@ -38,5 +41,22 @@ func TestPromotionViews(t *testing.T) {
 	}
 	if p, r := w.SeasonMove(competitions.SeasonRef{Competition: 1, Season: 1}, 0); p || r {
 		t.Fatal("position 0 moved")
+	}
+}
+
+// A formation counts outfield starters per line, defence first, whatever the
+// slot order.
+func TestFormationLabel(t *testing.T) {
+	roles := []matches.Role{matches.Forward, matches.Defender, matches.Goalkeeper, matches.Midfielder, matches.Defender,
+		matches.Forward, matches.Midfielder, matches.Defender, matches.Midfielder, matches.Forward, matches.Defender}
+	var l selection.Lineup
+	for i, r := range roles {
+		l.Starters = append(l.Starters, selection.Slot{Player: ids.PlayerID(i + 1), Role: r})
+	}
+	if got := FormationLabel(l); got != "4-3-3" {
+		t.Fatalf("formation %q, want 4-3-3", got)
+	}
+	if got := FormationLabel(selection.Lineup{}); got != "0-0-0" {
+		t.Fatalf("empty formation %q", got)
 	}
 }
