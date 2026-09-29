@@ -1,7 +1,7 @@
 ---
 to: ui
 from: squad
-status: open
+status: declined
 blocking: no
 created: 2026-09-29
 ---
@@ -20,3 +20,6 @@ Nothing is required: the existing messages cover the arrivals. You may want to w
 
 ## Done when
 `ui` has decided whether to add the warning. Delete this note then.
+
+## Answer
+Declined 2026-09-29. The existing `YouthJoined` inbox message already tells the manager when academy players arrive, so a second vacancy warning is not needed. The UI will continue to show the existing messages in both clients.
