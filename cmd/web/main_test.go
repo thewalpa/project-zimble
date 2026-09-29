@@ -21,6 +21,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
@@ -559,6 +560,21 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, c.get("/inbox"), "Elias Gallo left for Eldhaven United for 1,200,000.00")
 	contains(t, c.get("/finances"), "transfer fee, offer 84")
 	contains(t, c.get("/squad?club=1"), "asking price")
+}
+
+func TestRefusedAcceptedOfferWording(t *testing.T) {
+	got := refusedOfferText(app.OfferView{PlayerName: "Elias Gallo", BuyerName: "Eldhaven United"})
+	contains(t, got, "Accepted, but Elias Gallo refused to join Eldhaven United.")
+}
+
+func TestRefusedOfferInboxWording(t *testing.T) {
+	c := career(t)
+	msg := app.InboxItem{
+		Message:    inbox.Message{Kind: inbox.KindOfferClosed, Outcome: uint8(transfers.StatusRefused), Selling: true},
+		PlayerName: "Elias Gallo",
+		ClubName:   "Eldhaven United",
+	}
+	contains(t, c.s.transferText(msg), "the player refused to join")
 }
 
 // The manager lists and unlists players through the squad page. The
@@ -1162,7 +1178,7 @@ func TestMarketRefusalsInTheBrowser(t *testing.T) {
 		t.Fatal("did not reach the last days of the window")
 	}
 	contains(t, c.get("/transfers"), "AI clubs now sell only listed players and players they can spare")
-	contains(t, c.get("/free"), "you may sign free agents first")
+	contains(t, c.get("/free"), "Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.")
 }
 
 // The season-end message says when the club goes up or down a division.

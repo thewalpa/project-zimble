@@ -430,11 +430,22 @@ func (s *session) answer(args []string, accept bool) error {
 		s.printf("Accepted: the transfer is complete.\n")
 	case transfers.StatusRejected:
 		s.printf("Rejected.\n")
+	case transfers.StatusRefused:
+		for _, offer := range s.w.Offers() {
+			if offer.ID == res.Offer {
+				s.printf("%s\n", refusedOfferText(offer))
+				break
+			}
+		}
 	default:
 		s.printf("Accepted, but the buying club can no longer complete the transfer: the offer collapsed.\n")
 	}
 	s.newMessages()
 	return nil
+}
+
+func refusedOfferText(offer app.OfferView) string {
+	return fmt.Sprintf("Accepted, but %s refused to join %s.", offer.PlayerName, offer.BuyerName)
 }
 
 // outcomeName says how a closed offer ended.
@@ -444,6 +455,8 @@ func outcomeName(outcome uint8) string {
 		return "was rejected"
 	case transfers.StatusExpired:
 		return "expired unanswered"
+	case transfers.StatusRefused:
+		return "was refused; the player refused to join"
 	}
 	return "fell through"
 }

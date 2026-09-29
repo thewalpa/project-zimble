@@ -11,6 +11,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
 // play runs the game with scripted input lines and returns its output.
@@ -308,6 +309,17 @@ func TestManagedCupRun(t *testing.T) {
 	)
 }
 
+func TestRefusedAcceptedOfferWording(t *testing.T) {
+	got := refusedOfferText(app.OfferView{PlayerName: "Elias Gallo", BuyerName: "Eldhaven United"})
+	contains(t, got, "Accepted, but Elias Gallo refused to join Eldhaven United.")
+}
+
+func TestRefusedOfferInboxWording(t *testing.T) {
+	if got := outcomeName(uint8(transfers.StatusRefused)); !strings.Contains(got, "the player refused to join") {
+		t.Fatalf("outcomeName(StatusRefused) = %q", got)
+	}
+}
+
 // In the transfer window: the manager bids (at and below the asking
 // price), the answers arrive at the next run, the manager lists a player,
 // an AI club bids for him, and the manager answers it before and after
@@ -319,7 +331,7 @@ func TestTransfers(t *testing.T) {
 		"market fw", "market", "bid 344", "bid 547", "bid 617", "bid 238 500000", "bid 238",
 		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "free", "save "+path, "accept 99", "q", "q")
 	contains(t, out, "9 free agents wait for a club (type free).",
-		"The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs.",
+		"Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
 		"  37  GRY Westmark    Jonas Gallo              Westmark     32    74     2027     410,000.00  (won't join a weaker club)",
 		"! usage: market GK|DF|MF|FW",

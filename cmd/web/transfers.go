@@ -269,10 +269,21 @@ func (s *server) answer(form url.Values) (string, error) {
 		s.say("Accepted: the transfer is complete.")
 	case transfers.StatusRejected:
 		s.say("Bid rejected.")
+	case transfers.StatusRefused:
+		for _, offer := range s.w.Offers() {
+			if offer.ID == res.Offer {
+				s.say("%s", refusedOfferText(offer))
+				break
+			}
+		}
 	default:
 		s.say("Accepted, but the buying club can no longer complete the transfer: the offer collapsed.")
 	}
 	return "/transfers", nil
+}
+
+func refusedOfferText(offer app.OfferView) string {
+	return fmt.Sprintf("Accepted, but %s refused to join %s.", offer.PlayerName, offer.BuyerName)
 }
 
 // transferText renders a transfer inbox message.
@@ -291,6 +302,8 @@ func (s *server) transferText(m app.InboxItem) string {
 			how = "was rejected"
 		case transfers.StatusExpired:
 			how = "expired unanswered"
+		case transfers.StatusRefused:
+			how = "was refused; the player refused to join"
 		}
 		if m.Selling {
 			return fmt.Sprintf("The bid of %s from %s for %s %s", m.Fee, m.ClubName, m.PlayerName, how)

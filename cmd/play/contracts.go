@@ -168,7 +168,8 @@ func (s *session) freeAgents(args []string) error {
 		s.printf("%4d  %-3s %-24s %-10s %3d %5d %-12s %12s\n", p.Player, p.Position, p.Name, p.Nationality, p.Age, p.Overall, fitness(p), p.Demand)
 	}
 	if s.w.TransferWindow().Open {
-		s.printf("The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs.\n")
+		win := s.w.TransferWindow()
+		s.printf("Until %s, only you may sign free agents; AI clubs can sign them from then.\n", s.w.Calendar().Format(win.FreeAgentsOpen))
 	}
 	s.printf("Free agents retire on the eve of %s once they are %d.\n", monthDay(s.w.Calendar().Epoch()), players.FreeAgentRetirementAge)
 	s.printf("sign ID [YEARS [WAGE]] signs a player; without YEARS and WAGE it offers the usual terms.\n")

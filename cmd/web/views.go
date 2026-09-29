@@ -520,7 +520,8 @@ func (s *server) free(r *http.Request) (string, any, error) {
 	sortState := newSortState(r, "ovr", "desc")
 	v := freeView{Locked: locked, RetireAge: players.FreeAgentRetirementAge, Sort: sortState}
 	if s.w.TransferWindow().Open {
-		v.WindowNote = "The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs."
+		win := s.w.TransferWindow()
+		v.WindowNote = fmt.Sprintf("Until %s, only you may sign free agents; AI clubs can sign them from then.", s.w.Calendar().Format(win.FreeAgentsOpen))
 	}
 	for y := defs.Economy.ContractYears[0]; y <= defs.Economy.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)

@@ -2684,8 +2684,6 @@ A player's consent to a transfer is now a shared rule checked when the transfer 
 ### Limitations
 
 - `TestSquadsStayLegalAndBalancedOverTheYears` now tolerates two missing AI players after a window (was one): the thin-market item, reproduced on a new path (seed 7, club 3 managed, year 7, club 14).
-- The clients still word a refusal as a collapse until `ui` answers its note.
-
 ## data: refused offers reviewed (done)
 
 Reviewed squad's widening of `OfferClosed.Outcome` to 3–6 in `internal/events` (`transfers.StatusRefused`). Accepted as is: no new kind, no snapshot field, so no `storage.SchemaVersion` bump; `journal` already checks the closure's status against the offer (`transfers.go` fact check), `inbox` passes the outcome through and `careers` ignores `OfferClosed`.
@@ -2714,3 +2712,17 @@ Delivered `ui`'s note `match--lineup-availability`: clients can filter the lineu
 
 - Delivered: `match--lineup-availability`. Accepted, with a proposed shape: `match--lineup-editing-outside-matchday` (next after the tick mentality note).
 - Filed: [ui--lineup-eligibility.md](handoffs/ui--lineup-eligibility.md).
+
+## UI: player refusal and free-agent date (done)
+
+The terminal and browser distinguish a player's refusal from a transfer that could not complete. Transfer inbox messages say the player refused to join, and accepting a refused bid names the player and buyer. Both free-agent views use `TransferWindow.FreeAgentsOpen` and the UTC game calendar to tell the manager when AI clubs may sign.
+
+### Changes
+
+- `cmd/play` and `cmd/web` show the refusal reason in bid answers and inbox messages.
+- Both clients display the app-provided free-agent opening date instead of saying “the middle of the window.”
+- Closed `ui--player-refuses-at-completion.md`.
+
+### Verification
+
+- Client tests cover refusal wording and the date in both clients.

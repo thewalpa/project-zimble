@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, `data--player-career-history.md` on both player profiles, and squad name selection in player comparison. See [progress](../progress.md). `squad--free-agent-reservation-instant.md` remains open. The season-review flow is already in both clients: play the current season through its final table, then review inbox and contract decisions while continuing toward the next season. The current task is lineup editing outside matchday; it needs an app contract from `match` first ([handoff](../handoffs/match--lineup-editing-outside-matchday.md)).
+Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, `data--player-career-history.md` on both player profiles, squad name selection in player comparison, and squad's player-refusal and free-agent-date handoff in both clients. See [progress](../progress.md). The season-review flow is already in both clients: play the current season through its final table, then review inbox and contract decisions while continuing toward the next season. The current task is lineup editing outside matchday; it needs an app contract from `match` first ([handoff](../handoffs/match--lineup-editing-outside-matchday.md)).
 
 ## Backlog
 
