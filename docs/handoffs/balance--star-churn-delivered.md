@@ -1,7 +1,7 @@
 ---
 to: balance
 from: squad
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -38,3 +38,7 @@ Rerun the sweep and update `docs/balance.md` ("Churn", "Strength and titles"). T
 
 ## Done when
 `docs/balance.md` describes the market at `ai.TransfersVersion` 4.
+
+## Answer
+
+Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.

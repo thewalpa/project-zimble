@@ -42,3 +42,14 @@ Nothing queued. Delivered: injuries (`medical.Version` 3; see progress.md, "squa
 
 - **Contract planning view:** expose each squad player's expiry, renewal eligibility and current demand, with the squad positions at risk if contracts lapse. Dates and costs come from app/domain queries; `ui` can use them in the decision overview and season review. The view must distinguish a forecast from a guaranteed agreement and remain read-only.
 - **Committed finance forecast:** show the next contract period's scheduled wage obligations and confirmed income separately from uncertain receipts, with a breakdown by player or source. Use overflow-checked money and known calendar dates; do not count speculative transfers as funds. Coordinate with `competitions` on prize commitments and `ui` on presentation; verify forecasts against ledger postings in an unchanged scenario.
+
+### AI/player rule parity audit
+
+Evidence, reproductions and acceptance criteria are in [the 2026-09-29 audit](../ai-manager-parity.md). These proposals extend the money, negotiation and thin-market work above.
+
+- **P1 — One intake rule (PAR-01):** remove the AI-only vacancy youth top-up in `playerYear`; agree a common academy/emergency recruitment rule with data and prove it with a controller-swap scenario.
+- **P1 — A competitive free-agent opportunity (PAR-02):** replace `holdBack` and the half-window AI signing ban with common decision windows, coordinated with competitions/ui. Keep any assistance explicit and saved; preserve a usable human recruitment opportunity.
+- **P1 — Common admission checks (PAR-03):** split `hasRoom`'s AI squad preferences from legal squad limits; run every signing path through the same staged capacity validator.
+- **P1 — Consent at completion (PAR-04):** move shared player-willingness checks out of only `ai.AcceptBid`/candidate filtering and into the common completion workflow; cover a human seller accepting after squad strengths change.
+- **P2 — Common transaction workflow and fuller AI choices (PAR-05):** give either actor the same offer/sign/release legality and costs; make one-upgrade, one-open-bid, listed-only and wage-reserve restrictions AI policies or explicit shared rules. Allow AI competition for targets and repeat recruitment where justified; extend the existing AI-money work rather than giving broke clubs exemptions.
+- **P2 — Renewal timing (PAR-06):** schedule AI renewals before expiry through the same terms/effective-wage validation as human renewals, with optional delegation. Agree decision/expiry ordering and transfer response clocks with competitions (PAR-07); hand the resulting app contract to ui.

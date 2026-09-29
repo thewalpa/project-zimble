@@ -1,7 +1,7 @@
 ---
 to: balance
 from: data
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -21,3 +21,7 @@ Rerun the baseline sweeps and update `docs/balance.md`. Report if the lower divi
 
 ## Done when
 `docs/balance.md` states its baseline on 32 clubs.
+
+## Answer
+
+Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.

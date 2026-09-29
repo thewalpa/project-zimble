@@ -2434,6 +2434,14 @@ Every club plays in a nation and every player has a nationality: the first of th
 - `TestNationalities` (worldgen): nations and club nations in content order, every nationality valid, the foreign share about `ForeignPct`, none at 0%, and every other draw the same with a different share. `TestYouth` covers the youth share and rejects an unknown home nation.
 - `TestNationalities` (app): summaries show the names, youth players joining in a player year have valid nationalities and are mostly their club's, and a restored world keeps them. `TestRestoreRejectsInvalidState` rejects a player or club of an unknown nation.
 
+## balance: AI/player rules audit (done)
+
+Reviewed architecture, progress, balance measurements, all lane backlogs and handoffs against the latest pulled code (`80ded24`). [The audit](ai-manager-parity.md) records ten findings with code evidence, priorities, ownership and acceptance criteria; all six lane backlogs now include their part.
+
+Present differences include AI-only vacancy youth, player-only free-agent grace/reservation, controller-dependent capacity validation, uneven consent revalidation, market-policy restrictions, renewal/response timing and missing AI in-match decisions. The planned mixed-engine setup and future scouting knowledge are preventive items, not claims of current engine or hidden-information advantages. Shared injury, condition, finance and match rules are recorded as already shared.
+
+Filed focused handoffs for intake, admission checks, consent and decision stops. Accepted the five pending balance measurement notes into the backlog without claiming their sweeps complete. No football behavior changed; two misformatted map entries in `cmd/simulate/main_test.go` were normalized to clear a pre-existing formatting failure, with an informational ui note. Verification: `gofmt -l .` is empty, `go vet ./...` and `go test ./...` pass, and new audit/handoff file links resolve.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

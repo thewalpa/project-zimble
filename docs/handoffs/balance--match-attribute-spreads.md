@@ -1,7 +1,7 @@
 ---
 to: balance
 from: data
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -25,3 +25,7 @@ Record the results in `docs/balance.md` and write to `data` if a range should mo
 
 ## Done when
 `docs/balance.md` has a section on the five attributes, and any range change is requested from `data`.
+
+## Answer
+
+Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.

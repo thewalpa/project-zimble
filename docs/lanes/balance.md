@@ -23,6 +23,8 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
+The user-requested [AI/player rule audit](../ai-manager-parity.md) is delivered; fixes are queued with their owners. The five incoming measurement requests are accepted below and remain pending.
+
 **A baseline.** The market part is done: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market) and its sweep in `internal/app/balance_test.go`. The match engines are profiled on synthetic teams: see ["Match engines: tick against simple"](../balance.md#match-engines-tick-against-simple) and `internal/matches/tick/balance_test.go`. Matches measured over career seasons, money over 10 seasons and the population remain.
 
 Measure the current game over a fixed seed set and record it in `docs/balance.md`:
@@ -36,12 +38,21 @@ Then add always-on bounds for the most important of these, and file notes for an
 
 ## Backlog
 
-- Rerun the market sweep when `squad` answers `squad--star-churn` or `squad--free-agent-pool`, then add an always-on churn bound (a few seeds, loose limits).
+- Rerun the market sweep for the delivered star-churn and free-agent changes (accepted notes below), then add an always-on churn bound if the new measurements justify it (a few seeds, loose limits).
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work, and after promotion and relegation lands.
 - Rerun `TestBalanceEngineComparison` when `match` answers `match--tick-mentality`, `match--tick-goals-by-level` or `match--shootout-favourite`. Then propose always-on bounds for mentality and shootouts (a few seeds, loose limits) to `match`, whose trend tests they would sit beside.
 - Once `app` can run a career on `tick` (`match` roadmap phase 2), compare the two engines over league seasons: goals, home and draw rates, upsets, final-table spread.
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.
 
-- **Compare manager decisions on matched seeds:** test concrete policies such as rotating tired players versus keeping the strongest XI, and renewing early versus replacing expiring players. Report points, availability and net spending across the same starting worlds, including spread across seeds. File dominant or pointless choices with the owning lane; add injury and training policies only after those systems exist.
+- **Compare manager decisions on matched seeds:** test concrete policies such as rotating tired players versus keeping the strongest XI, and renewing early versus replacing expiring players. Report points, availability and net spending across the same starting worlds, including spread across seeds. Include the delivered injury/rotation rules and file dominant or pointless choices with the owning lane; add training policies once that system exists.
 - **Career endurance with realistic saves:** run managed careers across repeated save/load, season reviews, transfer deadlines and, when available, promotion and injury recovery. Check that no decisions become unreachable and report save size, command-log growth and restore time at 1, 10 and 30 seasons. This complements simulation-speed measurements and gives `data` evidence for any future compaction policy.
+
+### AI/player rule parity audit
+
+The [2026-09-29 code/documentation audit](../ai-manager-parity.md) is complete against `80ded24`; proposed fixes are on each owner's backlog. It is not a new statistical baseline.
+
+- **Accepted incoming measurements:** rerun the [32-club baseline](../handoffs/balance--rerun-baseline-32-clubs.md), [star churn](../handoffs/balance--star-churn-delivered.md) and [free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) on the latest combined versions; report passive and recruiting managers separately.
+- **Accepted incoming measurements:** profile [injuries and emergency availability](../handoffs/balance--injuries-delivered.md) and the [five attribute spreads](../handoffs/balance--match-attribute-spreads.md). These sweeps remain pending; the parity audit does not provide their numbers.
+- **P1/P2 — Compare controller swaps before policy strength (PAR-01–08):** use matched starting snapshots and identical proposed actions to compare intake entitlement, legal squad capacity, player consent, costs and deadline opportunities. Then run the same recruitment/rotation policy with AI control and human delegation over multiple seeds; separate rule changes from different decisions. Domain lanes own focused rule regressions; balance records multi-season effects and sets loose regression bounds after fixes.
+- **P3 — Gate engine tiers on career evidence (PAR-09):** extend the planned career engine comparison to watch/skip, points, penalty outcomes, workload and injuries. Report model selection by controller as a rule change; synthetic equivalence alone is insufficient.

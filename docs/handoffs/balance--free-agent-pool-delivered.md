@@ -1,7 +1,7 @@
 ---
 to: balance
 from: squad
-status: open
+status: accepted
 blocking: no
 created: 2026-09-29
 ---
@@ -18,3 +18,7 @@ Your `squad--free-agent-pool` note is delivered (`ai.TransfersVersion` 5). Pleas
 
 ## What is needed
 Check the pool with the passive manager and with a manager who signs free agents: how long the good ones last, whether AI clubs stay short after he signs one (they refill at the next contract year), and whether 4 and the half-window grace are the right numbers. Tune `freeAgentReserve` and `freeAgentGrace` through a note to squad.
+
+## Answer
+
+Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.

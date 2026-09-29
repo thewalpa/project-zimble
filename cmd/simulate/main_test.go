@@ -288,8 +288,8 @@ func TestLoadAndSaveErrorsAreClear(t *testing.T) {
 	garbage := filepath.Join(dir, "garbage.json")
 	os.WriteFile(garbage, []byte(`{"Format": "project-zimble/save", "Sch`), 0o644)
 	for args, want := range map[string]string{
-		"-load " + filepath.Join(dir, "missing.json"):             "load " + filepath.Join(dir, "missing.json"),
-		"-load " + garbage:                                        "malformed save",
+		"-load " + filepath.Join(dir, "missing.json"): "load " + filepath.Join(dir, "missing.json"),
+		"-load " + garbage: "malformed save",
 		"-seed 42 -save " + filepath.Join(dir, "nodir", "x.json"): "save " + filepath.Join(dir, "nodir", "x.json"),
 	} {
 		_, err := runCLI(t, strings.Fields(args)...)
