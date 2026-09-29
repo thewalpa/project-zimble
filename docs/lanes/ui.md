@@ -33,7 +33,7 @@ Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Player career history** on the profile page (past clubs, transfers): needs a stored history from `squad` or `data`.
-- **Injured players in the lineup editors** stay selectable (`SubmitLineup` refuses them with an explanation). Consider an "available only" filter once `app` exposes the fit-player rule.
+- **Injured players in the lineup editors** stay selectable (`SubmitLineup` refuses them with an explanation). Waiting on the match lane to expose app-owned fit and emergency eligibility via [match--lineup-availability.md](../handoffs/match--lineup-availability.md); then add an "available only" filter in both clients.
 - **Play the rest of the season:** clicking the button should advance to the end of the season, but not go to the next season. this should give the option to finalize contract extensions and reading messages before switching to next season
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday.  
 
