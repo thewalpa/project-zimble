@@ -23,16 +23,15 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by sellers keeping their stars
-// (ai.TransfersVersion 4: selling prices, settling players and stars'
-// choice of club change the first window's trades).
+// this value. Last changed by injuries (medical.Version 3: matches hurt
+// players, who then miss selections).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "1f8629fbd4f7a3e5f6500d5e8349113e8bc47d0c4f5767b0b40e3dba724e87ba"
-	goldenSecondLeagueSeed42 = "5eb745975cbf186becac730ccad449b1da3fd97c6ff539e8e846f1a7d3cf9663"
+	goldenSeasonSeed42       = "b89e57ec290b7ad94f3188bda44e63b55c102f49aa112efd02638a436ad3d710"
+	goldenSecondLeagueSeed42 = "52f0c4a93d725b3e33ce6df2948d0d7d670edd4f1bb76d5f688c78edbeb9f04c"
 	goldenCupSeed42          = "57b765e77cdb236ab01cc83319d887ef57afce1cb17de1f756d7b2c6c1e4d791"
 )
 

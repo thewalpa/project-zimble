@@ -28,7 +28,7 @@ var allowedImports = map[string][]string{
 	"internal/employment": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// Finance owns club ledgers; balances are derived from its entries.
 	"internal/finance": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
-	"internal/medical": {"internal/core/ids"},
+	"internal/medical": {"internal/core/ids", "internal/core/random"},
 	// Transfers owns offers and their workflow; employment and money stay
 	// with their owners, and app completes accepted offers with them.
 	"internal/transfers": {"internal/core/ids", "internal/core/money", "internal/core/sim"},

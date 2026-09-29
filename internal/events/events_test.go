@@ -54,7 +54,11 @@ func valid() []Event {
 	rd := env(19, KindInboxRead)
 	rd.Cause.Kind = CauseCommand
 	rd.InboxRead = &InboxRead{Message: 2}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd}
+	inj := env(20, KindPlayerInjured)
+	inj.PlayerInjured = &PlayerInjured{Player: 9, Club: 1, Team: 1, Days: 12}
+	rec := env(21, KindPlayerRecovered)
+	rec.PlayerRecovered = &PlayerRecovered{Player: 9, Club: 1, Team: 1}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd, inj, rec}
 }
 
 func TestValidate(t *testing.T) {
@@ -64,60 +68,65 @@ func TestValidate(t *testing.T) {
 		}
 	}
 	cases := map[string]func([]Event) Event{
-		"read zero message": func(v []Event) Event { v[18].InboxRead.Message = 0; return v[18] },
-		"read itself":       func(v []Event) Event { v[18].InboxRead.Message = v[18].ID; return v[18] },
-		"read future":       func(v []Event) Event { v[18].InboxRead.Message = v[18].ID + 1; return v[18] },
-		"read from task":    func(v []Event) Event { v[18].Cause.Kind = CauseTask; return v[18] },
-		"zero ID":           func(v []Event) Event { v[0].ID = 0; return v[0] },
-		"zero revision":     func(v []Event) Event { v[0].Revision = 0; return v[0] },
-		"zero sequence":     func(v []Event) Event { v[0].Sequence = 0; return v[0] },
-		"other schema":      func(v []Event) Event { v[0].SchemaVersion = 2; return v[0] },
-		"no cause":          func(v []Event) Event { v[0].Cause = Cause{}; return v[0] },
-		"cause kind 3":      func(v []Event) Event { v[0].Cause.Kind = 3; return v[0] },
-		"kind mismatch":     func(v []Event) Event { v[0].Kind = KindMatchCompleted; return v[0] },
-		"no payload":        func(v []Event) Event { v[1].MatchCompleted = nil; return v[1] },
-		"two payloads":      func(v []Event) Event { v[1].LineupSubmitted = v[2].LineupSubmitted; return v[1] },
-		"unknown kind":      func(v []Event) Event { v[2].Kind = 99; return v[2] },
-		"no fixtures":       func(v []Event) Event { v[0].RoundStarted.Fixtures = nil; return v[0] },
-		"unordered fixture": func(v []Event) Event { v[0].RoundStarted.Fixtures[1].Fixture = 1; return v[0] },
-		"self match":        func(v []Event) Event { v[1].MatchCompleted.Away = 1; return v[1] },
-		"zero team":         func(v []Event) Event { v[2].LineupSubmitted.Team = 0; return v[2] },
-		"empty ranking":     func(v []Event) Event { v[3].SeasonEnded.Ranking = nil; return v[3] },
-		"zero entrant":      func(v []Event) Event { v[4].SeasonStarted.Entrants[0] = 0; return v[4] },
-		"no ledger entries": func(v []Event) Event { v[5].LedgerPosted.Entries = nil; return v[5] },
-		"entries unordered": func(v []Event) Event { v[5].LedgerPosted.Entries[1].Entry = 9; return v[5] },
-		"entry kind zero":   func(v []Event) Event { v[5].LedgerPosted.Entries[0].Kind = 0; return v[5] },
-		"renewal ended":     func(v []Event) Event { v[6].OccurredAt = 500; return v[6] },
-		"renewal unpaid":    func(v []Event) Event { v[6].ContractRenewed.WeeklyWage = 0; return v[6] },
-		"expiry zero team":  func(v []Event) Event { v[7].ContractExpired.Team = 0; return v[7] },
-		"signing no player": func(v []Event) Event { v[8].PlayerSigned.Player = 0; return v[8] },
-		"retired club only": func(v []Event) Event { v[9].PlayerRetired.Team = 0; return v[9] },
-		"retired no player": func(v []Event) Event { v[9].PlayerRetired.Player = 0; return v[9] },
-		"youth no team":     func(v []Event) Event { v[10].YouthJoined.Team = 0; return v[10] },
-		"youth unpaid":      func(v []Event) Event { v[10].YouthJoined.WeeklyWage = 0; return v[10] },
-		"nobody developed":  func(v []Event) Event { v[11].PlayersDeveloped.Players = nil; return v[11] },
-		"developed twice":   func(v []Event) Event { v[11].PlayersDeveloped.Players[1].Player = 1; return v[11] },
-		"overall zero":      func(v []Event) Event { v[11].PlayersDeveloped.Players[0].After = 0; return v[11] },
-		"overall above 100": func(v []Event) Event { v[11].PlayersDeveloped.Players[0].Before = 101; return v[11] },
-		"offer no offer":    func(v []Event) Event { v[12].TransferOffered.Offer = 0; return v[12] },
-		"offer to itself":   func(v []Event) Event { v[12].TransferOffered.Buyer = 1; return v[12] },
-		"offer same team":   func(v []Event) Event { v[12].TransferOffered.BuyerTeam = 1; return v[12] },
-		"offer for nothing": func(v []Event) Event { v[12].TransferOffered.Fee = 0; return v[12] },
-		"offer answered":    func(v []Event) Event { v[12].OccurredAt = 100; return v[12] },
-		"done no player":    func(v []Event) Event { v[13].TransferCompleted.Player = 0; return v[13] },
-		"done unpaid":       func(v []Event) Event { v[13].TransferCompleted.WeeklyWage = 0; return v[13] },
-		"done expired":      func(v []Event) Event { v[13].OccurredAt = 500; return v[13] },
-		"closed while open": func(v []Event) Event { v[14].OfferClosed.Outcome = 1; return v[14] },
-		"closed completed":  func(v []Event) Event { v[14].OfferClosed.Outcome = 2; return v[14] },
-		"closed as 6":       func(v []Event) Event { v[14].OfferClosed.Outcome = 6; return v[14] },
-		"closed no seller":  func(v []Event) Event { v[14].OfferClosed.SellerTeam = 0; return v[14] },
-		"released nobody":   func(v []Event) Event { v[15].PlayerReleased.Player = 0; return v[15] },
-		"released no team":  func(v []Event) Event { v[15].PlayerReleased.Team = 0; return v[15] },
-		"released refunded": func(v []Event) Event { v[15].PlayerReleased.Compensation = -1; return v[15] },
-		"listed no club":    func(v []Event) Event { v[16].PlayerListed.Club = 0; return v[16] },
-		"listed for free":   func(v []Event) Event { v[16].PlayerListed.Asking = 0; return v[16] },
-		"unlisted nobody":   func(v []Event) Event { v[17].PlayerUnlisted.Player = 0; return v[17] },
-		"unlisted no team":  func(v []Event) Event { v[17].PlayerUnlisted.Team = 0; return v[17] },
+		"read zero message":   func(v []Event) Event { v[18].InboxRead.Message = 0; return v[18] },
+		"read itself":         func(v []Event) Event { v[18].InboxRead.Message = v[18].ID; return v[18] },
+		"read future":         func(v []Event) Event { v[18].InboxRead.Message = v[18].ID + 1; return v[18] },
+		"read from task":      func(v []Event) Event { v[18].Cause.Kind = CauseTask; return v[18] },
+		"zero ID":             func(v []Event) Event { v[0].ID = 0; return v[0] },
+		"zero revision":       func(v []Event) Event { v[0].Revision = 0; return v[0] },
+		"zero sequence":       func(v []Event) Event { v[0].Sequence = 0; return v[0] },
+		"other schema":        func(v []Event) Event { v[0].SchemaVersion = 2; return v[0] },
+		"no cause":            func(v []Event) Event { v[0].Cause = Cause{}; return v[0] },
+		"cause kind 3":        func(v []Event) Event { v[0].Cause.Kind = 3; return v[0] },
+		"kind mismatch":       func(v []Event) Event { v[0].Kind = KindMatchCompleted; return v[0] },
+		"no payload":          func(v []Event) Event { v[1].MatchCompleted = nil; return v[1] },
+		"two payloads":        func(v []Event) Event { v[1].LineupSubmitted = v[2].LineupSubmitted; return v[1] },
+		"unknown kind":        func(v []Event) Event { v[2].Kind = 99; return v[2] },
+		"no fixtures":         func(v []Event) Event { v[0].RoundStarted.Fixtures = nil; return v[0] },
+		"unordered fixture":   func(v []Event) Event { v[0].RoundStarted.Fixtures[1].Fixture = 1; return v[0] },
+		"self match":          func(v []Event) Event { v[1].MatchCompleted.Away = 1; return v[1] },
+		"zero team":           func(v []Event) Event { v[2].LineupSubmitted.Team = 0; return v[2] },
+		"empty ranking":       func(v []Event) Event { v[3].SeasonEnded.Ranking = nil; return v[3] },
+		"zero entrant":        func(v []Event) Event { v[4].SeasonStarted.Entrants[0] = 0; return v[4] },
+		"no ledger entries":   func(v []Event) Event { v[5].LedgerPosted.Entries = nil; return v[5] },
+		"entries unordered":   func(v []Event) Event { v[5].LedgerPosted.Entries[1].Entry = 9; return v[5] },
+		"entry kind zero":     func(v []Event) Event { v[5].LedgerPosted.Entries[0].Kind = 0; return v[5] },
+		"renewal ended":       func(v []Event) Event { v[6].OccurredAt = 500; return v[6] },
+		"renewal unpaid":      func(v []Event) Event { v[6].ContractRenewed.WeeklyWage = 0; return v[6] },
+		"expiry zero team":    func(v []Event) Event { v[7].ContractExpired.Team = 0; return v[7] },
+		"signing no player":   func(v []Event) Event { v[8].PlayerSigned.Player = 0; return v[8] },
+		"retired club only":   func(v []Event) Event { v[9].PlayerRetired.Team = 0; return v[9] },
+		"retired no player":   func(v []Event) Event { v[9].PlayerRetired.Player = 0; return v[9] },
+		"youth no team":       func(v []Event) Event { v[10].YouthJoined.Team = 0; return v[10] },
+		"youth unpaid":        func(v []Event) Event { v[10].YouthJoined.WeeklyWage = 0; return v[10] },
+		"nobody developed":    func(v []Event) Event { v[11].PlayersDeveloped.Players = nil; return v[11] },
+		"developed twice":     func(v []Event) Event { v[11].PlayersDeveloped.Players[1].Player = 1; return v[11] },
+		"overall zero":        func(v []Event) Event { v[11].PlayersDeveloped.Players[0].After = 0; return v[11] },
+		"overall above 100":   func(v []Event) Event { v[11].PlayersDeveloped.Players[0].Before = 101; return v[11] },
+		"offer no offer":      func(v []Event) Event { v[12].TransferOffered.Offer = 0; return v[12] },
+		"offer to itself":     func(v []Event) Event { v[12].TransferOffered.Buyer = 1; return v[12] },
+		"offer same team":     func(v []Event) Event { v[12].TransferOffered.BuyerTeam = 1; return v[12] },
+		"offer for nothing":   func(v []Event) Event { v[12].TransferOffered.Fee = 0; return v[12] },
+		"offer answered":      func(v []Event) Event { v[12].OccurredAt = 100; return v[12] },
+		"done no player":      func(v []Event) Event { v[13].TransferCompleted.Player = 0; return v[13] },
+		"done unpaid":         func(v []Event) Event { v[13].TransferCompleted.WeeklyWage = 0; return v[13] },
+		"done expired":        func(v []Event) Event { v[13].OccurredAt = 500; return v[13] },
+		"closed while open":   func(v []Event) Event { v[14].OfferClosed.Outcome = 1; return v[14] },
+		"closed completed":    func(v []Event) Event { v[14].OfferClosed.Outcome = 2; return v[14] },
+		"closed as 6":         func(v []Event) Event { v[14].OfferClosed.Outcome = 6; return v[14] },
+		"closed no seller":    func(v []Event) Event { v[14].OfferClosed.SellerTeam = 0; return v[14] },
+		"released nobody":     func(v []Event) Event { v[15].PlayerReleased.Player = 0; return v[15] },
+		"released no team":    func(v []Event) Event { v[15].PlayerReleased.Team = 0; return v[15] },
+		"released refunded":   func(v []Event) Event { v[15].PlayerReleased.Compensation = -1; return v[15] },
+		"listed no club":      func(v []Event) Event { v[16].PlayerListed.Club = 0; return v[16] },
+		"listed for free":     func(v []Event) Event { v[16].PlayerListed.Asking = 0; return v[16] },
+		"unlisted nobody":     func(v []Event) Event { v[17].PlayerUnlisted.Player = 0; return v[17] },
+		"unlisted no team":    func(v []Event) Event { v[17].PlayerUnlisted.Team = 0; return v[17] },
+		"injured nobody":      func(v []Event) Event { v[19].PlayerInjured.Player = 0; return v[19] },
+		"injured no team":     func(v []Event) Event { v[19].PlayerInjured.Team = 0; return v[19] },
+		"injured no days":     func(v []Event) Event { v[19].PlayerInjured.Days = 0; return v[19] },
+		"recovered nobody":    func(v []Event) Event { v[20].PlayerRecovered.Player = 0; return v[20] },
+		"recovered club only": func(v []Event) Event { v[20].PlayerRecovered.Team = 0; return v[20] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -149,6 +158,8 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[16].PlayerListed.Asking = 9
 	c[17].PlayerUnlisted.Club = 9
 	c[18].InboxRead.Message = 9
+	c[19].PlayerInjured.Days = 9
+	c[20].PlayerRecovered.Club = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

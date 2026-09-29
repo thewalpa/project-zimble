@@ -17,6 +17,17 @@ import (
 
 // managedSeason plays season 1 with a submitted lineup for each user
 // fixture, through the season end.
+// injuredNow counts the players who are injured now.
+func injuredNow(w *World) int {
+	n := 0
+	for _, r := range w.medical.Records() {
+		if r.DaysOut > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 func managedSeason(t *testing.T) *World {
 	t.Helper()
 	w := userWorld(t, 42, userClub)
@@ -55,7 +66,12 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 		}
 	}
 	want[events.KindLedgerPosted] += len(feeRuns)
-	for _, k := range []events.Kind{events.KindPlayerListed, events.KindPlayerUnlisted} {
+	// Injuries: every layoff that has ended has its own recovery event, and
+	// the layoffs still running are the injured players.
+	if inj, rec := count[events.KindPlayerInjured], count[events.KindPlayerRecovered]; inj == 0 || rec > inj || inj-rec != injuredNow(w) {
+		t.Fatalf("%d injuries, %d recoveries, %d players injured", inj, rec, injuredNow(w))
+	}
+	for _, k := range []events.Kind{events.KindPlayerListed, events.KindPlayerUnlisted, events.KindPlayerInjured, events.KindPlayerRecovered} {
 		if n := count[k]; n > 0 {
 			want[k] = n
 		}
@@ -72,7 +88,8 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 
 	// Each ResolveRounds result corresponds to its MatchCompleted events
 	// (same command cause, revision and instant, in fixture order), followed
-	// by one LedgerPosted with a gate entry per match.
+	// by one LedgerPosted with a gate entry per match, then one PlayerInjured
+	// per player the matches hurt.
 	for _, rec := range w.Snapshot().ResolveCommands {
 		var got []ids.FixtureID
 		ledger := 0
@@ -91,6 +108,7 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 				if len(e.LedgerPosted.Entries) != len(rec.Result.Matches) {
 					t.Fatalf("command %d posted %d gate entries", rec.Request.ID, len(e.LedgerPosted.Entries))
 				}
+			case events.KindPlayerInjured:
 			default:
 				t.Fatalf("command %d caused a %s event", rec.Request.ID, e.Kind)
 			}
@@ -175,7 +193,20 @@ func TestInboxIsAProjectionOfTheJournal(t *testing.T) {
 			}
 		}
 	}
-	if want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 4, inbox.KindSeasonStarted: 5}; !reflect.DeepEqual(count, want) {
+	// The manager hears of every injury and recovery in the team.
+	want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 4, inbox.KindSeasonStarted: 5}
+	for _, e := range w.Events() {
+		if p := e.PlayerInjured; p != nil && p.Team == team {
+			want[inbox.KindInjured]++
+		}
+		if p := e.PlayerRecovered; p != nil && p.Team == team {
+			want[inbox.KindRecovered]++
+		}
+	}
+	if want[inbox.KindInjured] == 0 {
+		t.Fatal("the managed club had no injuries in a season")
+	}
+	if !reflect.DeepEqual(count, want) {
 		t.Fatalf("message counts %v, want %v", count, want)
 	}
 
@@ -229,7 +260,13 @@ func TestJournalRetention(t *testing.T) {
 	if len(j) != 30 || j[len(j)-1].ID != w.lastEvent || w.lastEvent < 100 || w.inbox.Offset() != w.lastEvent {
 		t.Fatalf("journal %d..%d (%d events), allocator %d", j[0].ID, j[len(j)-1].ID, len(j), w.lastEvent)
 	}
-	if len(w.Inbox()) != 14+14+4+5 { // matchdays, results, season ends and starts
+	injuries := 0
+	for _, m := range w.Inbox() {
+		if m.Kind == inbox.KindInjured || m.Kind == inbox.KindRecovered {
+			injuries++
+		}
+	}
+	if len(w.Inbox()) != 14+14+4+5+injuries { // matchdays, results, season ends and starts
 		t.Fatalf("inbox lost messages when the journal was trimmed: %d", len(w.Inbox()))
 	}
 	roundTrip(t, w)

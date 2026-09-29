@@ -337,3 +337,46 @@ func TestNewValidatesAndCopies(t *testing.T) {
 		t.Fatal("inbox shares memory with its snapshot or callers")
 	}
 }
+
+// Injuries and recoveries become messages for the managed team's players.
+func TestInjuryMessages(t *testing.T) {
+	j := journal()
+	add := func(k events.Kind, set func(*events.Event)) {
+		e := env(events.ID(len(j)+1), k)
+		set(&e)
+		j = append(j, e)
+	}
+	add(events.KindPlayerInjured, func(e *events.Event) {
+		e.PlayerInjured = &events.PlayerInjured{Player: 7, Club: 3, Team: 3, Days: 12}
+	})
+	add(events.KindPlayerInjured, func(e *events.Event) {
+		e.PlayerInjured = &events.PlayerInjured{Player: 8, Club: 4, Team: 4, Days: 5}
+	})
+	add(events.KindPlayerRecovered, func(e *events.Event) {
+		e.PlayerRecovered = &events.PlayerRecovered{Player: 7, Club: 3, Team: 3}
+	})
+	add(events.KindPlayerRecovered, func(e *events.Event) { // a free agent
+		e.PlayerRecovered = &events.PlayerRecovered{Player: 9}
+	})
+	b := mustNew(t, 3)
+	if _, err := b.Apply(j); err != nil {
+		t.Fatal(err)
+	}
+	want := []Message{
+		{Event: 7, At: 70, Kind: KindInjured, Player: 7, Days: 12},
+		{Event: 9, At: 90, Kind: KindRecovered, Player: 7},
+	}
+	if got := b.Messages()[4:]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("injury messages %+v", got)
+	}
+	for name, mutate := range map[string]func(*Message){
+		"injured for no days": func(m *Message) { m.Days = 0 },
+		"days on recovery":    func(m *Message) { m.Kind, m.Days = KindRecovered, 3 },
+	} {
+		snap := b.Snapshot()
+		mutate(&snap.Messages[4])
+		if _, err := New(3, snap); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

@@ -27,11 +27,12 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-Nothing queued. Delivered: the free-agent pool (`ai.TransfersVersion` 5; see progress.md, "squad: free agents wait for the manager"). `balance` reruns the sweep ([note](../handoffs/balance--free-agent-pool-delivered.md)).
+Nothing queued. Delivered: injuries (`medical.Version` 3; see progress.md, "squad: injuries"), after the free-agent pool (`ai.TransfersVersion` 5). `ui` shows them ([note](../handoffs/ui--injuries.md)); `balance` checks the rates ([note](../handoffs/balance--injuries-delivered.md)); `match` knows about eligibility ([note](../handoffs/match--injuries-eligibility.md)).
 
 ## Backlog
 
-- **Injuries** (the architecture's first sustainable career): `medical` state and recovery, availability, and a `match` note for selection eligibility.
+- **Injuries, next steps:** injury incidents from the engine (`Injuries` capability, forced substitutions) replacing the exposure roll; injury types and recurrence; AI transfers and renewals that allow for injured players; a medical view of the squad. The v1 rules are delivered.
+- **A thin market leaves a broke club short:** a club whose transfer budget is zero (balance below its wage reserve) cannot buy a listed surplus player and loses the race for the last free agent at a position to lower-numbered clubs (`aiActions` runs in club ID order), so it can end a window one player short while another club holds an unsold listed surplus. The next player year refills it with youth. Consider letting a vacancy club buy a listed player below its budget, or ordering the free-agent race by need. Reproduce: `userWorld(7, 0)`, year 5, club 14 (midfielders).
 - **Overall with the new attributes:** once data lands the five match attributes, decide with `balance` whether they enter `keyAttributes` (it moves wages, valuations and selection).
 - **AI money:** AI clubs use their balance in renewals and signings, sell to raise money, and list declining players. Balances diverge over decades because AI clubs spend at most one upgrade a year, and money has no sink: late in a career rich clubs meet any selling price, so stars move more (5-6 of the 16 best per window by year 30).
 - **Player potential** and development driven by minutes played. `MatchOutcome.Participants` already supplies minutes; agree with `match` and `data` how seasonal usage is retained and consumed without counting a retried result twice.

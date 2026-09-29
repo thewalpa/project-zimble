@@ -209,6 +209,17 @@ func (w *World) checkEventFacts(e events.Event) error {
 		return w.checkTransferEvent(e)
 	case events.KindPlayerListed, events.KindPlayerUnlisted:
 		return w.checkListingEvent(e)
+	case events.KindPlayerInjured:
+		p := e.PlayerInjured
+		return w.checkPlayerEvent(p.Player, p.Club, p.Team)
+	case events.KindPlayerRecovered:
+		p := e.PlayerRecovered
+		if p.Club.Valid() {
+			return w.checkPlayerEvent(p.Player, p.Club, p.Team)
+		}
+		if _, ok := w.registry.Player(p.Player); !ok {
+			return fmt.Errorf("unknown player %d", p.Player)
+		}
 	case events.KindSeasonStarted:
 		p := e.SeasonStarted
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}

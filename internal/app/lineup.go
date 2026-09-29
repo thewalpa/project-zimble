@@ -74,8 +74,8 @@ type MatchdayLineup struct {
 	Source  LineupSource
 	// Carried over only: the fixture the lineup was last played in, and the
 	// players of that lineup left out of this one, in lineup order. A
-	// player is left out when he is no longer in the squad (his starting
-	// place is refilled by the AI) or the bench is longer than this
+	// player is left out when he is no longer in the squad or is injured
+	// (his starting place is refilled by the AI) or the bench is longer than this
 	// competition allows.
 	From    ids.FixtureID
 	Dropped []ids.PlayerID
@@ -202,7 +202,7 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 //   - the lineup submitted for the fixture;
 //   - else the lineup the user club played in its latest earlier match
 //     that had one (by kickoff, then fixture ID), carried over with the
-//     same tactics. Players who left the squad are dropped and their
+//     same tactics. Players who left the squad or are injured are dropped and their
 //     starting places refilled by ai.RefillLineup; the bench is cut to the
 //     competition's limit;
 //   - else, or when the carried lineup cannot be refilled, the AI's
@@ -248,10 +248,8 @@ func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules mat
 		return MatchdayLineup{}, false, nil
 	}
 
-	inSquad := func(p ids.PlayerID) bool {
-		a, ok := w.employment.Assignment(p)
-		return ok && a.Team == team
-	}
+	available := w.availableSquad(team)
+	inSquad := func(p ids.PlayerID) bool { return slices.Contains(available, p) }
 	var slots []ai.Slot
 	for _, s := range last.Lineup.Starters {
 		if !inSquad(s.Player) {
@@ -266,7 +264,7 @@ func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules mat
 		}
 	}
 	var candidates []ai.Candidate
-	for _, id := range w.employment.Squad(team) {
+	for _, id := range available {
 		c, err := w.candidate(id)
 		if err != nil {
 			return MatchdayLineup{}, false, err
@@ -372,9 +370,13 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 	if len(l.Bench) > int(rules.MaxBench) {
 		return fail("bench of %d exceeds %d", len(l.Bench), rules.MaxBench)
 	}
+	available := w.availableSquad(team)
 	player := func(id ids.PlayerID) (ai.Candidate, error) {
 		if a, ok := w.employment.Assignment(id); !ok || a.Team != team {
 			return ai.Candidate{}, fmt.Errorf("player %d is not in the squad", id)
+		}
+		if !slices.Contains(available, id) {
+			return ai.Candidate{}, fmt.Errorf("player %d is injured", id)
 		}
 		return w.candidate(id)
 	}

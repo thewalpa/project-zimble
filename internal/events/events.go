@@ -48,6 +48,8 @@ const (
 	KindPlayerListed      Kind = 17
 	KindPlayerUnlisted    Kind = 18
 	KindInboxRead         Kind = 19
+	KindPlayerInjured     Kind = 20
+	KindPlayerRecovered   Kind = 21
 )
 
 func (k Kind) String() string {
@@ -90,6 +92,10 @@ func (k Kind) String() string {
 		return "player unlisted"
 	case KindInboxRead:
 		return "inbox read"
+	case KindPlayerInjured:
+		return "player injured"
+	case KindPlayerRecovered:
+		return "player recovered"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -308,6 +314,24 @@ type PlayerUnlisted struct {
 	Team   ids.TeamID
 }
 
+// PlayerInjured: a player of a club's Team was hurt in a match and is out for
+// Days recovery days (the daily recovery that takes the last one makes him
+// fit).
+type PlayerInjured struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+	Days   uint16
+}
+
+// PlayerRecovered: an injured player is fit again. Club and Team are the
+// employer he has now; both zero for a free agent.
+type PlayerRecovered struct {
+	Player ids.PlayerID
+	Club   ids.ClubID
+	Team   ids.TeamID
+}
+
 // InboxRead: the manager marked the inbox message identified by its source
 // event as read. It does not create another inbox message.
 type InboxRead struct {
@@ -345,6 +369,8 @@ type Event struct {
 	PlayerListed      *PlayerListed      `json:",omitempty"`
 	PlayerUnlisted    *PlayerUnlisted    `json:",omitempty"`
 	InboxRead         *InboxRead         `json:",omitempty"`
+	PlayerInjured     *PlayerInjured     `json:",omitempty"`
+	PlayerRecovered   *PlayerRecovered   `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -373,6 +399,8 @@ func (e Event) payloads() (set int, match bool) {
 		{KindPlayerListed, e.PlayerListed != nil},
 		{KindPlayerUnlisted, e.PlayerUnlisted != nil},
 		{KindInboxRead, e.InboxRead != nil},
+		{KindPlayerInjured, e.PlayerInjured != nil},
+		{KindPlayerRecovered, e.PlayerRecovered != nil},
 	} {
 		if p.set {
 			set++
@@ -493,6 +521,14 @@ func (e Event) Validate() error {
 		if p := e.PlayerUnlisted; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() {
 			return fail("invalid payload %+v", p)
 		}
+	case KindPlayerInjured:
+		if p := e.PlayerInjured; !p.Player.Valid() || !p.Club.Valid() || !p.Team.Valid() || p.Days == 0 {
+			return fail("invalid payload %+v", p)
+		}
+	case KindPlayerRecovered:
+		if p := e.PlayerRecovered; !p.Player.Valid() || p.Club.Valid() != p.Team.Valid() {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -579,6 +615,14 @@ func (e Event) Clone() Event {
 	if p := e.PlayerUnlisted; p != nil {
 		c := *p
 		e.PlayerUnlisted = &c
+	}
+	if p := e.PlayerInjured; p != nil {
+		c := *p
+		e.PlayerInjured = &c
+	}
+	if p := e.PlayerRecovered; p != nil {
+		c := *p
+		e.PlayerRecovered = &c
 	}
 	return e
 }

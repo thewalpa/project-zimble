@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/random"
 )
 
 func store(t *testing.T, conditions ...uint8) *Store {
@@ -54,7 +55,7 @@ func TestExposureRules(t *testing.T) {
 		{Player: 1, Minutes: 90, Stamina: 30},
 		{Player: 2, Minutes: 30, Stamina: 30},
 		{Player: 4, Minutes: 90, Stamina: 30},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestPlansValidateAndChangeNothingUntilApplied(t *testing.T) {
 		"no stamina":     {{Player: 1, Minutes: 90, Stamina: 0}},
 		"stamina 101":    {{Player: 1, Minutes: 90, Stamina: 101}},
 	} {
-		if _, err := s.PlanExposure(ex); err == nil {
+		if _, err := s.PlanExposure(ex, nil); err == nil {
 			t.Errorf("exposure %s: accepted", name)
 		}
 	}
@@ -119,7 +120,7 @@ func TestPlansValidateAndChangeNothingUntilApplied(t *testing.T) {
 			t.Errorf("recovery %s: accepted", name)
 		}
 	}
-	if _, err := s.PlanExposure([]Exposure{{Player: 1, Minutes: 90, Stamina: 10}}); err != nil {
+	if _, err := s.PlanExposure([]Exposure{{Player: 1, Minutes: 90, Stamina: 10}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(s.Snapshot(), want) {
@@ -129,8 +130,8 @@ func TestPlansValidateAndChangeNothingUntilApplied(t *testing.T) {
 
 func TestStalePlanIsRejected(t *testing.T) {
 	s := store(t, 80, 80)
-	a, _ := s.PlanExposure([]Exposure{{Player: 1, Minutes: 90, Stamina: 10}})
-	b, _ := s.PlanExposure([]Exposure{{Player: 2, Minutes: 90, Stamina: 10}})
+	a, _ := s.PlanExposure([]Exposure{{Player: 1, Minutes: 90, Stamina: 10}}, nil)
+	b, _ := s.PlanExposure([]Exposure{{Player: 2, Minutes: 90, Stamina: 10}}, nil)
 	if err := s.Apply(a); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestStoreSharesNoMemory(t *testing.T) {
 	s, _ := New(DefaultParams(), in)
 	in[0].Condition = 1
 	s.Records()[0].Condition = 2
-	plan, _ := s.PlanExposure([]Exposure{{Player: 1, Minutes: 10, Stamina: 50}})
+	plan, _ := s.PlanExposure([]Exposure{{Player: 1, Minutes: 10, Stamina: 50}}, nil)
 	plan.Changes()[0].Condition = 3
 	if c, _ := s.Condition(1); c != 70 {
 		t.Fatalf("condition %d; store shares memory", c)
@@ -204,7 +205,7 @@ func TestRosterAdmitsAndDischarges(t *testing.T) {
 	if err := s.Apply(plan); err != nil {
 		t.Fatal(err)
 	}
-	want := []Record{{1, 60}, {3, 80}, {4, MaxCondition}, {5, MaxCondition}}
+	want := []Record{{Player: 1, Condition: 60}, {Player: 3, Condition: 80}, {Player: 4, Condition: MaxCondition}, {Player: 5, Condition: MaxCondition}}
 	if got := s.Records(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("records %v, want %v", got, want)
 	}
@@ -226,5 +227,122 @@ func TestRosterAdmitsAndDischarges(t *testing.T) {
 	}
 	if err := s.Apply(stale); !errors.Is(err, ErrStalePlan) {
 		t.Fatalf("stale roster plan: %v", err)
+	}
+}
+
+func TestInjuryRollIsDeterministicAndBounded(t *testing.T) {
+	p := DefaultParams()
+	var recs []Record
+	var ex []Exposure
+	for i := 1; i <= 200; i++ {
+		recs = append(recs, Record{Player: ids.PlayerID(i), Condition: 60 + uint8(i%40)})
+		ex = append(ex, Exposure{Player: ids.PlayerID(i), Minutes: 90, Stamina: 50})
+	}
+	s, err := New(p, recs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roll := func(seed uint64) []Injury {
+		in, err := s.Roll(ex, random.NewStream(seed))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return in
+	}
+	if a, b := roll(7), roll(7); !reflect.DeepEqual(a, b) {
+		t.Fatal("the same stream rolled different injuries")
+	}
+	total, hurt := 0, 0
+	for seed := uint64(1); seed <= 50; seed++ {
+		for _, in := range roll(seed) {
+			hurt++
+			if in.Days < 1 || int(in.Days) > p.SeriousDays[1] || in.Player == 0 {
+				t.Fatalf("injury %+v out of range", in)
+			}
+		}
+		total += len(ex)
+	}
+	if rate := hurt * 1000 / total; rate < 5 || rate > 50 { // about 1.4% to 3.2% a match
+		t.Fatalf("%d injuries per 1000 matches", rate)
+	}
+	// The tired are hurt more often than the fit.
+	fit, _ := New(p, []Record{{Player: 1, Condition: MaxCondition}})
+	tired, _ := New(p, []Record{{Player: 1, Condition: p.MinCondition}})
+	count := func(s *Store) int {
+		n := 0
+		for seed := uint64(1); seed <= 4000; seed++ {
+			in, _ := s.Roll([]Exposure{{Player: 1, Minutes: 90, Stamina: 50}}, random.NewStream(seed))
+			n += len(in)
+		}
+		return n
+	}
+	if f, tr := count(fit), count(tired); tr <= f {
+		t.Fatalf("tired player hurt %d times, fit player %d", tr, f)
+	}
+}
+
+func TestInjuriesKeepPlayersOutUntilTheLastRecoveryDay(t *testing.T) {
+	s := store(t, 80, 80, 80)
+	ex := []Exposure{{Player: 1, Minutes: 90, Stamina: 50}, {Player: 2, Minutes: 90, Stamina: 50}}
+	plan, err := s.PlanExposure(ex, []Injury{{Player: 2, Days: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Injured(); !reflect.DeepEqual(got, []Injury{{Player: 2, Days: 2}}) {
+		t.Fatalf("plan injuries %v", got)
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	rest := []Rest{{Player: 1, Stamina: 50}, {Player: 2, Stamina: 50}, {Player: 3, Stamina: 50}}
+	for day, wantDays := range []uint16{1, 0} {
+		plan, err := s.PlanRecovery(rest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Apply(plan); err != nil {
+			t.Fatal(err)
+		}
+		d, injured := s.DaysOut(2)
+		if d != wantDays || injured != (wantDays > 0) {
+			t.Fatalf("day %d: %d days out (%t), want %d", day+1, d, injured, wantDays)
+		}
+		if got := plan.Recovered(); (len(got) == 1) != (wantDays == 0) {
+			t.Fatalf("day %d: recovered %v", day+1, got)
+		}
+	}
+	if _, injured := s.DaysOut(1); injured {
+		t.Fatal("an uninjured player is out")
+	}
+}
+
+func TestInjuryPlansValidate(t *testing.T) {
+	s := store(t, 80, 80)
+	ex := []Exposure{{Player: 1, Minutes: 90, Stamina: 50}}
+	for name, inj := range map[string][]Injury{
+		"unknown":      {{Player: 9, Days: 3}},
+		"twice":        {{Player: 1, Days: 3}, {Player: 1, Days: 4}},
+		"no days":      {{Player: 1}},
+		"too long":     {{Player: 1, Days: MaxInjuryDays + 1}},
+		"did not play": {{Player: 2, Days: 3}},
+	} {
+		if _, err := s.PlanExposure(ex, inj); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	plan, _ := s.PlanExposure(ex, []Injury{{Player: 1, Days: 3}})
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PlanExposure(ex, []Injury{{Player: 1, Days: 3}}); err == nil {
+		t.Error("an injured player was injured again")
+	}
+	if _, err := New(DefaultParams(), []Record{{Player: 1, Condition: 50, DaysOut: MaxInjuryDays + 1}}); err == nil {
+		t.Error("a restored layoff beyond the maximum was accepted")
+	}
+	bad := DefaultParams()
+	bad.MinorPermille, bad.ModeratePermille = 700, 400
+	if _, err := New(bad, nil); err == nil {
+		t.Error("injury classes above 1000 permille accepted")
 	}
 }

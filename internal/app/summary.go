@@ -99,6 +99,7 @@ type SquadPlayer struct {
 	Attributes players.Attributes
 	Overall    int
 	Condition  uint8
+	DaysOut    uint16 // injured: the recovery days he still misses; zero when fit
 	Contract   employment.Contract
 	Demand     money.Money
 	Value      money.Money // employed players: the fee his club sells for (see sellingPrice)
@@ -131,6 +132,7 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 		row.Demand = w.defs.Economy.Demand(row.Overall)
 	}
 	row.Condition, _ = w.medical.Condition(id)
+	row.DaysOut, _ = w.medical.DaysOut(id)
 	if a, ok := w.employment.Assignment(id); ok {
 		row.Contract = a.Contract
 		row.Value, _ = w.sellingPrice(id, w.Now())

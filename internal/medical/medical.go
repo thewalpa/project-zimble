@@ -1,7 +1,10 @@
 // Package medical owns players' physical condition: how fit each player is
-// to play, how matches wear it down and how rest restores it.
+// to play, how matches wear it down and how rest restores it, and their
+// injuries.
 //
-// Condition is an integer percentage, 0..MaxCondition (100 is fully fit). Rules take the players' stamina as detached input, because
+// Condition is an integer percentage, 0..MaxCondition (100 is fully fit). An
+// injured player has DaysOut > 0 recovery days left; each daily recovery
+// takes one off. Rules take the players' stamina as detached input, because
 // attributes belong to the players module; this package imports no other
 // domain module.
 //
@@ -18,11 +21,12 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/random"
 )
 
 // Version identifies DefaultParams and the rules below. Bump it whenever the
 // same condition, stamina and exposure would produce a different condition.
-const Version = 2
+const Version = 3
 
 // MaxCondition is full fitness.
 const MaxCondition uint8 = 100
@@ -37,6 +41,9 @@ const (
 // extra time later).
 const MaxMinutes = 150
 
+// MaxInjuryDays bounds one injury (the longest layoff, in recovery days).
+const MaxInjuryDays = 180
+
 // ErrStalePlan: the store changed after the plan was made.
 var ErrStalePlan = errors.New("medical: plan is stale")
 
@@ -47,6 +54,12 @@ var ErrStalePlan = errors.New("medical: plan is stale")
 //     ten-thousandths of a point, never taking condition below MinCondition.
 //   - A day of rest restores RecoveryBase + stamina*RecoveryStaminaStep
 //     hundredths of a point, never above MaxCondition.
+//   - A player exposed to a match for minutes is injured with probability
+//     minutes * (InjuryBase + (MaxCondition-condition)*InjuryFatigueStep)
+//     parts per million, before the match; the tired get hurt more. The
+//     layoff is drawn from three classes by permille: minor (MinorPermille,
+//     MinorDays), moderate (ModeratePermille, ModerateDays) and, for the
+//     rest, serious (SeriousDays); days are inclusive ranges.
 //
 // With DefaultParams a player of stamina about 45 who plays 90 minutes every
 // week holds level; fitter players recover fully and less fit ones decline.
@@ -54,6 +67,10 @@ type Params struct {
 	MinCondition                      uint8
 	DrainBase, DrainStaminaStep       int // per 10,000 of a point, per minute
 	RecoveryBase, RecoveryStaminaStep int // per 100 of a point, per day
+
+	InjuryBase, InjuryFatigueStep        int // ppm per minute; extra ppm per minute per point of missing condition
+	MinorPermille, ModeratePermille      int
+	MinorDays, ModerateDays, SeriousDays [2]int
 }
 
 func DefaultParams() Params {
@@ -61,6 +78,11 @@ func DefaultParams() Params {
 		MinCondition: 20,
 		DrainBase:    2_000, DrainStaminaStep: 20, // stamina 30: 31 per 90'; 90: 20
 		RecoveryBase: 300, RecoveryStaminaStep: 2, // stamina 30: 4 a day; 90: 5
+
+		// A fit player risks about 1.4% a match, one at condition 60 about 3.2%.
+		InjuryBase: 150, InjuryFatigueStep: 5,
+		MinorPermille: 600, ModeratePermille: 300, // 60% minor, 30% moderate, 10% serious
+		MinorDays: [2]int{2, 7}, ModerateDays: [2]int{8, 28}, SeriousDays: [2]int{29, 120},
 	}
 }
 
@@ -68,6 +90,15 @@ func (p Params) Validate() error {
 	if p.MinCondition == 0 || p.MinCondition > MaxCondition || p.DrainBase < 0 || p.DrainStaminaStep < 0 ||
 		p.RecoveryBase < 0 || p.RecoveryStaminaStep < 0 || p.RecoveryBase+MaxStamina*p.RecoveryStaminaStep > 100*int(MaxCondition) {
 		return fmt.Errorf("medical: invalid params %+v", p)
+	}
+	if p.InjuryBase < 0 || p.InjuryFatigueStep < 0 || MaxMinutes*(p.InjuryBase+int(MaxCondition)*p.InjuryFatigueStep) > 1_000_000 ||
+		p.MinorPermille < 0 || p.ModeratePermille < 0 || p.MinorPermille+p.ModeratePermille > 1000 {
+		return fmt.Errorf("medical: invalid injury params %+v", p)
+	}
+	for _, d := range [][2]int{p.MinorDays, p.ModerateDays, p.SeriousDays} {
+		if d[0] < 1 || d[1] < d[0] || d[1] > MaxInjuryDays {
+			return fmt.Errorf("medical: invalid injury days %v", d)
+		}
 	}
 	return nil
 }
@@ -84,10 +115,18 @@ func (p Params) Recovery(stamina uint8) int {
 	return (p.RecoveryBase + int(stamina)*p.RecoveryStaminaStep + 50) / 100
 }
 
-// Record is one player's condition.
+// Record is one player's condition and injury. DaysOut is the number of
+// daily recoveries until he is fit again; zero means not injured.
 type Record struct {
 	Player    ids.PlayerID
 	Condition uint8
+	DaysOut   uint16
+}
+
+// Injury is a new injury: the player is out for Days recovery days.
+type Injury struct {
+	Player ids.PlayerID
+	Days   uint16
 }
 
 // Exposure is the minutes a player played in one match.
@@ -108,10 +147,19 @@ type Plan struct {
 	generation uint64
 	rows       []Record // ascending player; only changed players, or every player if replace
 	replace    bool     // rows is the complete new record set (PlanRoster)
+	injured    []Injury
+	recovered  []ids.PlayerID
 }
 
-// Changes returns the planned conditions, ascending by player.
+// Changes returns the planned records, ascending by player.
 func (p Plan) Changes() []Record { return slices.Clone(p.rows) }
+
+// Injured returns the injuries the plan starts, ascending by player.
+func (p Plan) Injured() []Injury { return slices.Clone(p.injured) }
+
+// Recovered returns the players whose last injury day the plan takes,
+// ascending.
+func (p Plan) Recovered() []ids.PlayerID { return slices.Clone(p.recovered) }
 
 // Store holds every player's condition. Queries return copies.
 type Store struct {
@@ -136,6 +184,9 @@ func New(params Params, records []Record) (*Store, error) {
 		if r.Condition < params.MinCondition || r.Condition > MaxCondition {
 			return nil, fmt.Errorf("medical: player %d condition %d outside %d..%d", r.Player, r.Condition, params.MinCondition, MaxCondition)
 		}
+		if r.DaysOut > MaxInjuryDays {
+			return nil, fmt.Errorf("medical: player %d out for %d days, max %d", r.Player, r.DaysOut, MaxInjuryDays)
+		}
 	}
 	return &Store{params: params, rows: rows}, nil
 }
@@ -155,6 +206,16 @@ func (s *Store) Condition(player ids.PlayerID) (uint8, bool) {
 	return s.rows[i].Condition, true
 }
 
+// DaysOut returns the recovery days left of a player's injury, and whether he
+// is injured (false, with zero days, for a fit or unknown player).
+func (s *Store) DaysOut(player ids.PlayerID) (uint16, bool) {
+	i, ok := s.index(player)
+	if !ok || s.rows[i].DaysOut == 0 {
+		return 0, false
+	}
+	return s.rows[i].DaysOut, true
+}
+
 // Records returns every player's condition in ascending player order.
 func (s *Store) Records() []Record { return slices.Clone(s.rows) }
 
@@ -162,12 +223,66 @@ func (s *Store) Records() []Record { return slices.Clone(s.rows) }
 // New(params, Snapshot()) restores an equivalent store.
 func (s *Store) Snapshot() []Record { return s.Records() }
 
-// PlanExposure computes the conditions after matches. Each player may appear
-// once, must be known, and needs minutes 0..MaxMinutes and a valid stamina.
-func (s *Store) PlanExposure(exposures []Exposure) (Plan, error) {
+// Roll draws the injuries of one match from rng, which the caller derives
+// per match. Every exposure, in ascending player order, takes one draw for
+// whether he is hurt and, if so, more for the layoff, so the result depends
+// only on the store, the exposures and the stream. A player already injured
+// is not hurt again. Roll validates like PlanExposure and changes nothing.
+func (s *Store) Roll(exposures []Exposure, rng *random.Stream) ([]Injury, error) {
 	ex := slices.Clone(exposures)
 	slices.SortFunc(ex, func(a, b Exposure) int { return cmp.Compare(a.Player, b.Player) })
-	plan := Plan{generation: s.generation}
+	var out []Injury
+	for i, e := range ex {
+		if i > 0 && ex[i-1].Player == e.Player {
+			return nil, fmt.Errorf("medical: player %d exposed twice", e.Player)
+		}
+		if e.Minutes > MaxMinutes {
+			return nil, fmt.Errorf("medical: player %d exposure %+v out of range", e.Player, e)
+		}
+		j, ok := s.index(e.Player)
+		if !ok {
+			return nil, fmt.Errorf("medical: unknown player %d", e.Player)
+		}
+		r := s.rows[j]
+		ppm := int(e.Minutes) * (s.params.InjuryBase + int(MaxCondition-r.Condition)*s.params.InjuryFatigueStep)
+		if rng.IntN(1_000_000) >= ppm || r.DaysOut > 0 {
+			continue
+		}
+		days := s.params.SeriousDays
+		switch class := rng.IntN(1000); {
+		case class < s.params.MinorPermille:
+			days = s.params.MinorDays
+		case class < s.params.MinorPermille+s.params.ModeratePermille:
+			days = s.params.ModerateDays
+		}
+		out = append(out, Injury{Player: e.Player, Days: uint16(rng.IntRange(days[0], days[1]))})
+	}
+	return out, nil
+}
+
+// PlanExposure computes the records after matches. Each player may appear
+// once, must be known, and needs minutes 0..MaxMinutes and a valid stamina.
+// injuries (from Roll, possibly filtered) start layoffs: each player once,
+// known and not already injured, for 1..MaxInjuryDays days.
+func (s *Store) PlanExposure(exposures []Exposure, injuries []Injury) (Plan, error) {
+	ex := slices.Clone(exposures)
+	slices.SortFunc(ex, func(a, b Exposure) int { return cmp.Compare(a.Player, b.Player) })
+	inj := slices.Clone(injuries)
+	slices.SortFunc(inj, func(a, b Injury) int { return cmp.Compare(a.Player, b.Player) })
+	plan := Plan{generation: s.generation, injured: inj}
+	for i, x := range inj {
+		j, ok := s.index(x.Player)
+		switch {
+		case !ok:
+			return Plan{}, fmt.Errorf("medical: injury for unknown player %d", x.Player)
+		case i > 0 && inj[i-1].Player == x.Player:
+			return Plan{}, fmt.Errorf("medical: player %d injured twice", x.Player)
+		case s.rows[j].DaysOut > 0:
+			return Plan{}, fmt.Errorf("medical: player %d is already injured", x.Player)
+		case x.Days == 0 || x.Days > MaxInjuryDays:
+			return Plan{}, fmt.Errorf("medical: injury of %d days for player %d", x.Days, x.Player)
+		}
+	}
 	for i, e := range ex {
 		if i > 0 && ex[i-1].Player == e.Player {
 			return Plan{}, fmt.Errorf("medical: player %d exposed twice", e.Player)
@@ -175,17 +290,27 @@ func (s *Store) PlanExposure(exposures []Exposure) (Plan, error) {
 		if e.Minutes > MaxMinutes || e.Stamina < MinStamina || e.Stamina > MaxStamina {
 			return Plan{}, fmt.Errorf("medical: player %d exposure %+v out of range", e.Player, e)
 		}
-		cur, ok := s.Condition(e.Player)
+		j, ok := s.index(e.Player)
 		if !ok {
 			return Plan{}, fmt.Errorf("medical: unknown player %d", e.Player)
 		}
-		next := max(int(cur)-s.params.Drain(e.Minutes, e.Stamina), int(s.params.MinCondition))
-		plan.rows = append(plan.rows, Record{Player: e.Player, Condition: uint8(next)})
+		next := max(int(s.rows[j].Condition)-s.params.Drain(e.Minutes, e.Stamina), int(s.params.MinCondition))
+		row := Record{Player: e.Player, Condition: uint8(next), DaysOut: s.rows[j].DaysOut}
+		if k, hurt := slices.BinarySearchFunc(inj, e.Player, func(x Injury, p ids.PlayerID) int { return cmp.Compare(x.Player, p) }); hurt {
+			row.DaysOut = inj[k].Days
+		}
+		plan.rows = append(plan.rows, row)
+	}
+	for _, x := range inj {
+		if _, exposed := slices.BinarySearchFunc(ex, x.Player, func(e Exposure, p ids.PlayerID) int { return cmp.Compare(e.Player, p) }); !exposed {
+			return Plan{}, fmt.Errorf("medical: injury for player %d, who played no match", x.Player)
+		}
 	}
 	return plan, nil
 }
 
-// PlanRecovery computes one day of rest for every player. rest must cover
+// PlanRecovery computes one day of rest for every player, which is also a day
+// off every injury. rest must cover
 // exactly the store's players, each once, with a valid stamina.
 func (s *Store) PlanRecovery(rest []Rest) (Plan, error) {
 	rs := slices.Clone(rest)
@@ -202,7 +327,14 @@ func (s *Store) PlanRecovery(rest []Rest) (Plan, error) {
 			return Plan{}, fmt.Errorf("medical: player %d stamina %d out of range", r.Player, r.Stamina)
 		}
 		next := min(int(s.rows[i].Condition)+s.params.Recovery(r.Stamina), int(MaxCondition))
-		plan.rows = append(plan.rows, Record{Player: r.Player, Condition: uint8(next)})
+		days := s.rows[i].DaysOut
+		if days > 0 {
+			days--
+			if days == 0 {
+				plan.recovered = append(plan.recovered, r.Player)
+			}
+		}
+		plan.rows = append(plan.rows, Record{Player: r.Player, Condition: uint8(next), DaysOut: days})
 	}
 	return plan, nil
 }
@@ -253,7 +385,7 @@ func (s *Store) Apply(p Plan) error {
 	}
 	for _, r := range p.rows {
 		i, _ := s.index(r.Player) // plans only hold known players
-		s.rows[i].Condition = r.Condition
+		s.rows[i] = r
 	}
 	s.generation++
 	return nil

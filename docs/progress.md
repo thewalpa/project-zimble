@@ -2379,6 +2379,33 @@ Delivers `squad--free-agent-pool` (from `balance`): the pool was empty at every 
 - 10-seed, 30-year sweep: 4 free agents at every open, none at the close in years 1–20, 50 transfers a window, no negative balances.
 - The web and play transfer tests name a new bidder for the listed player (Eldhaven United, offer 87).
 
+## squad: injuries (done)
+
+The first backlog item of the squad lane: matches can hurt players, and injured players do not play.
+
+### Decisions
+
+- **`medical` owns injuries.** A `Record` gains `DaysOut`: the recovery days left, zero when fit. Each daily recovery takes one off; the day that takes the last one makes the player fit and emits `PlayerRecovered`. Days, not instants, so the store imports no calendar.
+- **Injuries are drawn from a match's exposure, not from the engine.** `simple` has no `Injuries` capability, so `ResolveRounds` rolls them after the outcome is checked (`medical.Store.Roll`, one stream per fixture: `random.Derive(seed, "medical/injury", medical.Version, fixture)`). Chance per player is `minutes * (InjuryBase + missing condition * InjuryFatigueStep)` ppm, so tired players are hurt more and rotation pays. Defaults: about 1.4% a match at full condition and 3.2% at 60. Layoffs: 60% minor (2–7 days), 30% moderate (8–28), 10% serious (29–120). About 70 injuries a season across four 8-team leagues. An injury does not stop the match being played, and there are no forced substitutions. When an engine reports injury incidents, `Roll` is replaced by them.
+- **Availability is app's rule (`injuries.go`).** `availableSquad(team)` is the squad without the injured. The AI selects from it, `lineupInput` rejects an injured player (`ErrInvalidLineup`), and a carried-over lineup drops him (`MatchdayLineup.Dropped`) and refills his place.
+- **A club can always field a team.** A rolled injury that would leave a club without a goalkeeper and ten outfield players fit is dropped. A squad already that short (a sale or a release does not look at injuries) fields its injured too, so `ResolveRounds` cannot fail for want of players.
+- **Events and messages.** `PlayerInjured` (20: player, club, team, days) and `PlayerRecovered` (21; club and team zero for a free agent); inbox `KindInjured` (16, `Days`) and `KindRecovered` (17) for the managed team.
+- `medical.Version` 3 (the world now has injuries), `storage.SchemaVersion` 19 (`medical.Record.DaysOut`, the new inbox field and events). The season goldens for seed 42 moved.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/medical` | `Record.DaysOut`, `Injury`, `Store.Roll`, `Store.DaysOut`, `PlanExposure(exposures, injuries)`, `Plan.Injured`, `Plan.Recovered`; injury params; imports `core/random` |
+| `internal/app` | `injuries.go` (`canField`, `availableSquad`, `injuryRolls`, `World.Injury`); `resolve.go` rolls and applies injuries and emits `PlayerInjured`; `continue.go`'s recovery emits `PlayerRecovered`; `lineup.go` uses `availableSquad`; `SquadPlayer.DaysOut`; journal fact checks |
+| `internal/events`, `internal/inbox` | the two kinds and messages above (hub files, additive) |
+
+### Verification
+
+- `medical`: the roll is deterministic and bounded, the tired are hurt more, layoffs count down and end with the last recovery day, plans reject bad injuries.
+- `TestInjuredPlayersAreNotSelected`, `TestInjuriesHealAndSurviveSaves`, `TestASquadTooHurtToFieldPlaysItsInjured`, `TestInjuriesOverSeasons` (two seeds, three seasons: no club left unable to field a team, everyone heals), `TestInjuriesAreDeterministic`; the journal and inbox tests count injuries and recoveries.
+- The squad-full tests now allow one AI club to be one player short at the close (`assertAISquadsFullBut(t, w, 1)`). Changed results change promotion and money, and the trajectory of seeds 7 and 42 then hits a market gap that was there before: a club with no transfer budget loses the race for the last free agent at a position to lower-numbered clubs, a surplus player of another club stays listed but unaffordable, and the next player year refills the club with youth. It is on the backlog.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

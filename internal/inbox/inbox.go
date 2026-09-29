@@ -37,9 +37,11 @@ const (
 	KindTransferOut   Kind = 13 // the team sold a player
 	KindOfferClosed   Kind = 14 // a bid by or for the team ended without a transfer (Outcome)
 	KindReleased      Kind = 15 // the team released one of its players (Compensation)
+	KindInjured       Kind = 16 // one of the team's players was hurt in a match (Days)
+	KindRecovered     Kind = 17 // one of the team's players is fit again
 )
 
-func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindReleased }
+func (k Kind) Valid() bool { return k >= KindMatchday && k <= KindRecovered }
 
 // transfer reports whether messages of this kind are about a transfer
 // offer.
@@ -89,6 +91,8 @@ type Message struct {
 	Selling  bool            `json:",omitempty"`
 	// Released: what the team paid to end the contract.
 	Compensation money.Money `json:",omitempty"`
+	// Injured: the recovery days he is out.
+	Days uint16 `json:",omitempty"`
 }
 
 // Snapshot is the inbox's persisted state.
@@ -126,6 +130,8 @@ func New(team ids.TeamID, snap Snapshot) (*Inbox, error) {
 			return nil, fmt.Errorf("inbox: transfer message %+v without an offer, club or fee", m)
 		case m.Compensation < 0 || (m.Compensation != 0 && m.Kind != KindReleased):
 			return nil, fmt.Errorf("inbox: message %+v with a compensation", m)
+		case (m.Kind == KindInjured) != (m.Days != 0):
+			return nil, fmt.Errorf("inbox: message %+v with the wrong injury days", m)
 		}
 	}
 	return &Inbox{team: team, offset: snap.Offset, messages: slices.Clone(snap.Messages)}, nil
@@ -288,6 +294,16 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 	case events.KindPlayerReleased:
 		if p := e.PlayerReleased; b.team != 0 && p.Team == b.team {
 			m.Kind, m.Player, m.Compensation = KindReleased, p.Player, p.Compensation
+			return m, true
+		}
+	case events.KindPlayerInjured:
+		if p := e.PlayerInjured; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player, m.Days = KindInjured, p.Player, p.Days
+			return m, true
+		}
+	case events.KindPlayerRecovered:
+		if p := e.PlayerRecovered; b.team != 0 && p.Team == b.team {
+			m.Kind, m.Player = KindRecovered, p.Player
 			return m, true
 		}
 	}

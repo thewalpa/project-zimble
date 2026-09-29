@@ -205,8 +205,8 @@ func (w *World) kickoff(at sim.GameInstant, cohort []sim.Task) error {
 	return nil
 }
 
-// recover gives every player one day of rest and queues the next day's
-// recovery. It plans first, then schedules (the only step that can fail
+// recover gives every player one day of rest (a day off every injury, and an
+// event for each player it makes fit) and queues the next day's recovery. It plans first, then schedules (the only step that can fail
 // after planning, and it changes nothing when it fails), then applies.
 func (w *World) recover(at sim.GameInstant, cohort []sim.Task) error {
 	if len(cohort) != 1 || cohort[0].PayloadID != 0 {
@@ -228,6 +228,13 @@ func (w *World) recover(at sim.GameInstant, cohort []sim.Task) error {
 		return err
 	}
 	w.applyMedical(plan)
+	for _, id := range plan.Recovered() {
+		ev := events.PlayerRecovered{Player: id}
+		if a, ok := w.employment.Assignment(id); ok {
+			ev.Club, ev.Team = a.Club, a.Team
+		}
+		w.emit(at, taskCause(cohort[0].ID), events.Event{Kind: events.KindPlayerRecovered, PlayerRecovered: &ev})
+	}
 	return nil
 }
 

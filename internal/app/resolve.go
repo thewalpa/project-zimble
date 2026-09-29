@@ -108,8 +108,8 @@ type plannedMatch struct {
 //     side's manager lineup (submitted or carried over, see
 //     MatchdayLineup) or else the AI selection, with current
 //     condition, build detached inputs) -> simulate every fixture with its
-//     own random stream -> validate every outcome -> plan every
-//     participant's condition loss -> record all results and complete all
+//     own random stream -> validate every outcome -> draw the injuries
+//     (see injuries.go) and plan every participant's condition loss -> record all results and complete all
 //     rounds in one competitions call -> apply the condition plan, store
 //     each carried-over lineup for the fixture it was played in, bump the
 //     revision and record the command.
@@ -168,7 +168,11 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 			exposures = append(exposures, medical.Exposure{Player: pt.Player, Minutes: pt.Minutes(), Stamina: p.stamina[pt.Player]})
 		}
 	}
-	wear, err := w.medical.PlanExposure(exposures)
+	injuries, err := w.injuryRolls(plan, outcomes)
+	if err != nil {
+		return RoundsResolved{}, err
+	}
+	wear, err := w.medical.PlanExposure(exposures, injuries)
 	if err != nil {
 		return RoundsResolved{}, fmt.Errorf("app: match exposure: %w", err)
 	}
@@ -216,6 +220,9 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		}})
 	}
 	w.emitLedger(w.Now(), commandCause(cmd.ID), receipts)
+	for _, in := range w.injuredEvents(injuries) {
+		w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
+	}
 	w.publish()
 	return res, nil
 }
@@ -351,15 +358,15 @@ func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules m
 	return in, SelectedByAI, nil, err
 }
 
-// selectTeam builds AI candidates from the team's current squad and picks a
-// lineup. The candidates are detached copies of module data.
+// selectTeam builds AI candidates from the team's available squad (see
+// availableSquad) and picks a lineup. The candidates are detached copies of module data.
 func (w *World) selectTeam(team ids.TeamID, rules matches.Rules) (matches.TeamInput, error) {
 	t, ok := w.registry.Team(team)
 	if !ok || t.Kind != registry.TeamSenior {
 		return matches.TeamInput{}, fmt.Errorf("app: team %d is not a registered senior team", team)
 	}
 	var candidates []ai.Candidate
-	for _, id := range w.employment.Squad(team) {
+	for _, id := range w.availableSquad(team) {
 		c, err := w.candidate(id)
 		if err != nil {
 			return matches.TeamInput{}, err
