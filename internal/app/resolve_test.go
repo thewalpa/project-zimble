@@ -23,16 +23,16 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by injuries (medical.Version 3: matches hurt
-// players, who then miss selections).
+// this value. Last changed by closer shootouts (simple.ModelVersion 4: the
+// version seeds every match's stream, so every result moved).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "b89e57ec290b7ad94f3188bda44e63b55c102f49aa112efd02638a436ad3d710"
-	goldenSecondLeagueSeed42 = "52f0c4a93d725b3e33ce6df2948d0d7d670edd4f1bb76d5f688c78edbeb9f04c"
-	goldenCupSeed42          = "57b765e77cdb236ab01cc83319d887ef57afce1cb17de1f756d7b2c6c1e4d791"
+	goldenSeasonSeed42       = "b4194c99f00a6cfcbed5862b3a71c285fd70136607693ca144bfad65d3904c57"
+	goldenSecondLeagueSeed42 = "8dcd85c5a65963311860729aa4136660000b880b7d8f8ebf6def7f7c5cb031ff"
+	goldenCupSeed42          = "b453f9adb67bde353c3f9148b6a5f83dd2580036b7dd7ba7e6be2c29e8d571cc"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

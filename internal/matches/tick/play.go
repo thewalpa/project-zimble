@@ -738,7 +738,7 @@ func (s *session) shootout() [2]uint16 {
 	var goals [2]uint16
 	kick := func(side, n int) {
 		taker := takers[side][n%matches.StartersPerTeam]
-		c := s.p.ShootoutConversionPPM * (taker.eff[effFinishing] + s.p.ShootoutOffset) / (keeper[1-side] + s.p.ShootoutOffset)
+		c := s.p.ShootoutConversionPPM + (taker.eff[effFinishing]-keeper[1-side])*s.p.ShootoutSkillPPM/pointUnits
 		if s.chance(min(max(c, s.p.MinShootoutPPM), s.p.MaxShootoutPPM)) {
 			goals[side]++
 		}

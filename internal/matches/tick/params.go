@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 2
+const ModelVersion uint32 = 3
 
 // The clock: a tick is one simulated instant.
 const (
@@ -132,9 +132,10 @@ type Params struct {
 	CelebrationTicks, RestartTicks, RestartTimeoutTicks uint32
 	RestartDistance                                     int64
 
-	// Penalty shootout: taker Finishing against keeper Goalkeeping.
+	// Penalty shootout: ShootoutConversion plus ShootoutSkill per point of
+	// taker Finishing above keeper Goalkeeping, clamped to a narrow range.
 	ShootoutConversionPPM, MinShootoutPPM, MaxShootoutPPM int64
-	ShootoutOffset                                        int64 // effective-rating units
+	ShootoutSkillPPM                                      int64 // per effective rating point
 }
 
 // DefaultParams returns the constants of ModelVersion.
@@ -222,10 +223,10 @@ func DefaultParams() Params {
 		RestartTimeoutTicks: 30 * TicksPerSecond,
 		RestartDistance:     915,
 
-		ShootoutConversionPPM: 760_000,
-		MinShootoutPPM:        500_000,
-		MaxShootoutPPM:        930_000,
-		ShootoutOffset:        5000,
+		ShootoutConversionPPM: 750_000,
+		MinShootoutPPM:        600_000,
+		MaxShootoutPPM:        900_000,
+		ShootoutSkillPPM:      1_500,
 	}
 }
 
@@ -272,7 +273,7 @@ func (p Params) Validate() error {
 	case p.TackleRadius <= 0 || p.RestartDistance < 0 || p.RestartTimeoutTicks == 0 || p.KickTicks == 0:
 		return bad("tackle or restart")
 	case !(0 < p.MinShootoutPPM && p.MinShootoutPPM <= p.MaxShootoutPPM && p.MaxShootoutPPM < ppm &&
-		0 < p.ShootoutConversionPPM && p.ShootoutConversionPPM <= ppm && p.ShootoutOffset > 0):
+		0 < p.ShootoutConversionPPM && p.ShootoutConversionPPM <= ppm && 0 <= p.ShootoutSkillPPM && p.ShootoutSkillPPM <= ppm/matches.MaxRating):
 		return bad("shootout")
 	}
 	for r := matches.Defender; r <= matches.Forward; r++ {

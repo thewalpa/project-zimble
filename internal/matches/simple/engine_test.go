@@ -125,6 +125,8 @@ func TestParamsValidation(t *testing.T) {
 		"no penalties":        func(p *Params) { p.MinShootoutPPM = 0 },
 		"penalty range":       func(p *Params) { p.MinShootoutPPM = p.MaxShootoutPPM + 1 },
 		"zero penalty base":   func(p *Params) { p.ShootoutConversionPPM = 0 },
+		"negative skill":      func(p *Params) { p.ShootoutSkillPPM = -1 },
+		"skill over range":    func(p *Params) { p.ShootoutSkillPPM = ppm },
 	}
 	for name, mutate := range cases {
 		p := DefaultParams()
@@ -176,6 +178,27 @@ func TestShootoutsFavourBetterTakers(t *testing.T) {
 	}
 	if level < 100 || wins*100 < level*65 {
 		t.Fatalf("the better side won %d of %d shootouts", wins, level)
+	}
+}
+
+// A shootout stays close to a coin toss between sides as far apart as career
+// squads get: the weaker side's chance is the point of reaching penalties.
+func TestShootoutsStayClose(t *testing.T) {
+	wins, level := 0, 0
+	for f := ids.FixtureID(1); f <= 3000; f++ {
+		in := input(f, 65, 55)
+		in.Rules.Knockout = true
+		o := playOut(t, in)
+		if o.Resolution != matches.ResolutionPenalties {
+			continue
+		}
+		level++
+		if o.Shootout[0] > o.Shootout[1] {
+			wins++
+		}
+	}
+	if level < 300 || wins*100 > level*62 {
+		t.Fatalf("the stronger side won %d of %d shootouts", wins, level)
 	}
 }
 

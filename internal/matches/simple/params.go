@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match.
-const ModelVersion uint32 = 3
+const ModelVersion uint32 = 4
 
 // Units: probabilities are parts per million (ppm), multipliers are permille
 // (1000 = x1), readiness is per 10,000 and fatigue per 100,000 of a rating.
@@ -48,9 +48,10 @@ func (w Weights) sum() int64 { return w.A + w.B + w.C }
 //   - Conversion = BaseConversion * (Finishing + ConversionOffset) /
 //     (opponent Goalkeeping + ConversionOffset), clamped.
 //   - A knockout match level after 90 minutes goes to a penalty shootout. A
-//     kick scores with ShootoutConversion * (taker Finishing +
-//     ConversionOffset) / (keeper Goalkeeping + ConversionOffset), clamped
-//     to [MinShootout, MaxShootout].
+//     kick scores with ShootoutConversion + ShootoutSkill per point of taker
+//     Finishing above keeper Goalkeeping, clamped to [MinShootout,
+//     MaxShootout]. The range is narrow: a shootout is close to a coin toss
+//     even between unequal sides.
 //
 // Arrays indexed by matches.Role (index 0 unused) or matches.Mentality.
 type Params struct {
@@ -73,6 +74,7 @@ type Params struct {
 	ShotShare      [5]int64
 
 	ShootoutConversionPPM, MinShootoutPPM, MaxShootoutPPM int64
+	ShootoutSkillPPM                                      int64 // per effective rating point
 }
 
 // DefaultParams returns the constants of ModelVersion. Equal teams produce
@@ -105,9 +107,10 @@ func DefaultParams() Params {
 		DefenseShare: [5]int64{0, 0, 5, 3, 1},
 		ShotShare:    [5]int64{0, 0, 1, 3, 6},
 
-		ShootoutConversionPPM: 760_000, // equal taker and keeper: about 3 in 4
-		MinShootoutPPM:        500_000,
-		MaxShootoutPPM:        930_000,
+		ShootoutConversionPPM: 750_000, // equal taker and keeper: 3 in 4
+		MinShootoutPPM:        600_000,
+		MaxShootoutPPM:        900_000,
+		ShootoutSkillPPM:      1_500, // 65 v 55: the stronger side wins about 56% of shootouts
 	}
 }
 
@@ -124,7 +127,8 @@ func (p Params) Validate() error {
 		return bad("conversion range")
 	case p.BaseChancePPM > ppm || p.BaseConversionPPM > ppm:
 		return bad("base probability above 1")
-	case !(0 < p.MinShootoutPPM && p.MinShootoutPPM <= p.MaxShootoutPPM && p.MaxShootoutPPM < ppm && 0 < p.ShootoutConversionPPM && p.ShootoutConversionPPM <= ppm):
+	case !(0 < p.MinShootoutPPM && p.MinShootoutPPM <= p.MaxShootoutPPM && p.MaxShootoutPPM < ppm && 0 < p.ShootoutConversionPPM && p.ShootoutConversionPPM <= ppm &&
+		0 <= p.ShootoutSkillPPM && p.ShootoutSkillPPM <= ppm/matches.MaxRating):
 		return bad("shootout range")
 	case p.ConversionOffset <= 0 || p.HomeAdvantagePermille <= 0 || p.HomeAdvantagePermille > 4*permille:
 		return bad("offset or home advantage")

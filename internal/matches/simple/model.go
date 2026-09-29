@@ -132,7 +132,7 @@ func (s *session) shootout() [2]uint16 {
 	var goals [2]uint16
 	kick := func(side, n int) {
 		taker := &s.teams[side].players[takers[side][n%matches.StartersPerTeam]]
-		c := s.p.ShootoutConversionPPM * (s.effective(taker, taker.r.Finishing) + s.p.ConversionOffset) / (keeper[1-side] + s.p.ConversionOffset)
+		c := s.p.ShootoutConversionPPM + (s.effective(taker, taker.r.Finishing)-keeper[1-side])*s.p.ShootoutSkillPPM/ratingUnits
 		if int64(s.rng.IntN(ppm)) < min(max(c, s.p.MinShootoutPPM), s.p.MaxShootoutPPM) {
 			goals[side]++
 		}

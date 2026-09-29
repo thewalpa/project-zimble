@@ -359,8 +359,8 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	if out != again {
 		t.Fatal("managed season is not reproducible")
 	}
-	if strings.Count(out, "  <- your lineup, attacking") != 14 {
-		t.Fatal("want 14 submitted attacking lineups")
+	if strings.Count(out, "  <- your lineup, attacking") != 17 { // 14 league matches and a cup run to the final
+		t.Fatal("want 17 submitted attacking lineups")
 	}
 	// The leagues' matches; the cup's depend on who qualified.
 	got, want := matchLines(t, out), matchLines(t, plain)

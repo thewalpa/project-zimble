@@ -150,6 +150,7 @@ func TestParamsValidation(t *testing.T) {
 		"zero mentality":     func(p *Params) { p.MentalityShotPermille[matches.Attacking] = 0 },
 		"too many pressers":  func(p *Params) { p.Pressers[matches.Attacking] = 11 },
 		"certain penalties":  func(p *Params) { p.MaxShootoutPPM = ppm },
+		"negative skill":     func(p *Params) { p.ShootoutSkillPPM = -1 },
 		"restart never ends": func(p *Params) { p.RestartTimeoutTicks = 0 },
 	}
 	for name, mutate := range cases {
@@ -163,7 +164,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "4ace18e230a7d6b5"
+const goldenHash = "d804cd432a297640"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()
