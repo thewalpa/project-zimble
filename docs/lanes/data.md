@@ -28,6 +28,8 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 **Per-nation name pools delivered:** each nation's own first and last names, drawn last from the nationality's pools, so only names moved (`worldgen.Version` 8, `YouthVersion` 4, `content.Version` 9, `storage.SchemaVersion` 24; [progress](../progress.md#data-per-nation-name-pools-done)). Note to `ui` (pinned names in its tests were updated; new pins after rebasing).
 
+**Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
+
 **Next:** save fixtures per schema version (see the backlog). The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 25.
 
 ## Backlog
@@ -42,6 +44,5 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ### AI/player rule parity audit
 
-- **P1 dependency — Controller-independent youth entitlement (PAR-01):** agree content/generation inputs with squad when it removes the AI-only vacancy refill. Keep identity allocation and intake contracts deterministic; version changed youth output and measure population effects. See [audit](../ai-manager-parity.md#par-01-youth-replenishment-depends-on-who-manages-the-club).
 - **P3 — Shared club knowledge (PAR-10):** before scouting hides facts, provide one club-scoped observation contract to human views and AI decisions. Both currently receive exact ratings; this is a preventive requirement, not a current hidden-information finding. Test equal knowledge for equal club state and separation from authoritative match inputs.
 - **P1–P3 support — Durable parity settings and provenance (PAR-02/06/08/09/10):** review actor/club identity, task/command event facts and restore validation as squad/match unify their workflows. Any assistance, delegation, observations or engine choice added as authoritative state must be pinned, versioned and restored; do not derive privileges merely from `userClub`. Rule owners retain their validation logic. See [audit](../ai-manager-parity.md).

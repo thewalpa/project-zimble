@@ -51,9 +51,10 @@ type Nation struct {
 }
 
 // Quota is how many players of a position a senior squad holds. Count is
-// what a generated squad contains and what AI clubs keep; Min is the fewest
-// any squad may hold (1..Count). A squad may hold more than Count up to the
-// total SquadLimit. The minimums must allow a legal lineup, which the
+// what a generated squad contains, what AI clubs keep in the contract and
+// transfer markets, and what every club's academy fills back to at the
+// player year, whoever manages it; Min is the fewest any squad may hold
+// (1..Count). A squad may hold more than Count up to the total SquadLimit. The minimums must allow a legal lineup, which the
 // application checks against the match rules.
 type Quota struct {
 	Position players.Position

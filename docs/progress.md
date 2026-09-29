@@ -2786,7 +2786,7 @@ The player year's youth intake no longer depends on who manages a club (audit PA
 
 - **Fill every club rather than no club.** Removing the top-up for everyone would starve the free-agent pool. Retirees are replaced one for one and free agents retire unreplaced, so nothing else refills the pool. The squad-limit section's deliberate-bug check showed it: without vacancy youth, an AI club ended a contract year with 5 midfielders. So the manager now gets the intake as well. This reverses the earlier "the user club gets no vacancy youth" decision (squad-limit section above). A manager who wants a position short keeps the squad at the limit, or releases the youth player.
 - **Bounded by the squad limit.** AI squads never reach it, so AI-only careers are unchanged bit for bit and no golden moved. A managed club at 25 players with a positional vacancy gets no extra youth.
-- **No version or schema bump.** `worldgen.Youth` is called the same way, and no saved field changed. Managed careers whose club ends a season short now draw extra youth, which shifts later player IDs. No golden covers managed multi-year careers. `data` was asked to confirm ([note](handoffs/data--academy-intake-rule.md)).
+- **No version or schema bump.** `worldgen.Youth` is called the same way, and no saved field changed. Managed careers whose club ends a season short now draw extra youth, which shifts later player IDs. No golden covers managed multi-year careers. `data` confirmed: youth generation, content and the `YouthJoined` event keep their meaning, so no generation, content or event version moves; the `content.Quota` comment now names the academy target.
 
 ### Verification
 
