@@ -2691,3 +2691,26 @@ A player's consent to a transfer is now a shared rule checked when the transfer 
 Reviewed squad's widening of `OfferClosed.Outcome` to 3–6 in `internal/events` (`transfers.StatusRefused`). Accepted as is: no new kind, no snapshot field, so no `storage.SchemaVersion` bump; `journal` already checks the closure's status against the offer (`transfers.go` fact check), `inbox` passes the outcome through and `careers` ignores `OfferClosed`.
 
 - `TestValidate` now accepts every outcome 3–6, and `TestTransferMessages` covers an outcome-6 message for the buyer.
+## match: lineup eligibility query (done)
+
+Delivered `ui`'s note `match--lineup-availability`: clients can filter the lineup editors by the app's selection rule instead of inferring it from injuries.
+
+### Changes
+
+- `World.SquadEligibility(fixture)` returns every player of the user club's squad for a pending user fixture with a durable `Eligibility`: `EligibleFit` (1), `EligibleInjured` (2: injured, but selectable because the fit players cannot field a legal eleven) or `IneligibleInjured` (3), and his days out. `Eligibility.Selectable()` says whether he may be named.
+- `lineupInput`, which `SubmitLineup` and `validateSelections` use, checks players through the same `eligibility` helper, so preview and submission cannot disagree. A rejected injured player's message now says for how many more days.
+
+### Decisions
+
+- **Keyed by fixture, though the rule doesn't depend on it yet.** Suspensions per competition, when they arrive, will. The saved team plan outside matchday (accepted note `match--lineup-editing-outside-matchday`) will need a fixture-less variant.
+- **No schema or version change.** The query is derived; no seeded output moved.
+
+### Verification
+
+- `TestSquadEligibilityAgreesWithSubmission`: a fit squad lists everyone fit in `Squad` order; a player injured after the preview is listed ineligible with his days and rejected at submission with the reason; the AI suggestion names only selectable players; unknown and played fixtures are refused.
+- `TestSquadEligibilityShowsTheEmergencyRule`: with every goalkeeper injured, they are `EligibleInjured` and a lineup naming one is accepted.
+
+### Handoffs
+
+- Delivered: `match--lineup-availability`. Accepted, with a proposed shape: `match--lineup-editing-outside-matchday` (next after the tick mentality note).
+- Filed: [ui--lineup-eligibility.md](handoffs/ui--lineup-eligibility.md).

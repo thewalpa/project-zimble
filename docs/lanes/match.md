@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Next are balance's two accepted notes: [mentality as a real trade-off](../handoffs/match--tick-mentality.md), then [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
+**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Next are balance's accepted note on [mentality as a real trade-off](../handoffs/match--tick-mentality.md), then ui's accepted note on [editing the lineup outside matchday](../handoffs/match--lineup-editing-outside-matchday.md) (the saved team plan below), then balance's note on [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
 
 ## Tick engine roadmap
 
@@ -67,8 +67,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.
 - **Formations and roles** beyond GK/DF/MF/FW, when selection needs them (roadmap phase 4 for `tick`).
 
-- **A saved team plan outside matchday:** let the manager edit preferred starters, bench and mentality without a ready fixture. Keep the plan separate from fixture submissions; use it to prepare the next lineup, then revalidate employment and availability at kickoff and report dropped players. Coordinate with `ui`'s always-available lineup editor and `squad`'s injuries. Save/load must preserve the plan, and editing it must not rewrite past lineups or a live match.
-- **Explain lineup readiness:** expose structured reasons a player or lineup cannot be selected, such as an unavailable player, duplicate selection or missing role. Reuse command validation so the preview and submission agree; `ui` renders the explanation, while `squad` and `competitions` supply availability and eligibility facts. Include a test that availability changing after preview causes a clear rejection at submission.
+- **A saved team plan outside matchday** (accepted ui note, proposed shape in its answer): let the manager edit preferred starters, bench and mentality without a ready fixture. Keep the plan separate from fixture submissions; use it to prepare the next lineup, then revalidate employment and availability at kickoff and report dropped players. Coordinate with `ui`'s always-available lineup editor and `squad`'s injuries. Save/load must preserve the plan, and editing it must not rewrite past lineups or a live match.
+- **Explain lineup readiness:** player eligibility is done (`World.SquadEligibility`, shared with `SubmitLineup`, tested for an injury after the preview). Left: structured reasons a whole lineup is rejected (duplicate selection, missing goalkeeper, bench too long) as typed errors rather than messages, so `ui` can render them; suspensions from `competitions` will add an `Eligibility` value.
 
 ### AI/player rule parity audit
 

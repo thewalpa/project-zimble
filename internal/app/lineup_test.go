@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -745,4 +746,104 @@ func TestCandidateCopiesEveryAttribute(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no active players")
 	}
+}
+
+// SquadEligibility lists the whole squad, and a lineup of the players it
+// calls selectable is accepted. A player injured after the preview is
+// rejected at submission with the reason.
+func TestSquadEligibilityAgreesWithSubmission(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	team := mustUserTeam(t, w)
+	fixture := readyBatch(t, w).UserFixtures[0]
+	got, err := w.SquadEligibility(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var listed []ids.PlayerID
+	for _, e := range got {
+		listed = append(listed, e.Player)
+		if e.Eligibility != EligibleFit || e.DaysOut != 0 {
+			t.Fatalf("player %d in a fit squad: %+v", e.Player, e)
+		}
+	}
+	if !slices.Equal(listed, w.employment.Squad(team)) {
+		t.Fatalf("eligibility lists %v, squad is %v", listed, w.employment.Squad(team))
+	}
+
+	l, err := w.SuggestLineup(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hurt := l.Starters[3].Player
+	injure(t, w, hurt, 5)
+	got, err = w.SquadEligibility(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got {
+		want := LineupEligibility{Player: e.Player, Eligibility: EligibleFit}
+		if e.Player == hurt {
+			want = LineupEligibility{Player: hurt, Eligibility: IneligibleInjured, DaysOut: 5}
+		}
+		if e != want {
+			t.Fatalf("eligibility %+v, want %+v", e, want)
+		}
+	}
+	cmd := SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: fixture, Lineup: l}
+	if _, err := w.SubmitLineup(cmd); !errors.Is(err, ErrInvalidLineup) || !strings.Contains(err.Error(), "injured") {
+		t.Fatalf("submitting a player injured since the preview: %v", err)
+	}
+	if l, err = w.SuggestLineup(fixture); err != nil {
+		t.Fatal(err)
+	}
+	selectable := map[ids.PlayerID]bool{}
+	for _, e := range got {
+		selectable[e.Player] = e.Eligibility.Selectable()
+	}
+	for _, p := range l.Players() {
+		if !selectable[p] {
+			t.Fatalf("the AI suggests unselectable player %d", p)
+		}
+	}
+	submit(t, w, fixture, l)
+
+	if _, err := w.SquadEligibility(0); !errors.Is(err, ErrNotUserFixture) {
+		t.Fatalf("fixture 0: %v", err)
+	}
+	resolveNow(t, w)
+	if _, err := w.SquadEligibility(fixture); !errors.Is(err, ErrFixtureNotPending) {
+		t.Fatalf("a played fixture: %v", err)
+	}
+}
+
+// When the fit players cannot field a lineup, the injured are selectable
+// too, and SquadEligibility says so.
+func TestSquadEligibilityShowsTheEmergencyRule(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	fixture := readyBatch(t, w).UserFixtures[0]
+	var keepers []ids.PlayerID
+	for _, id := range w.employment.Squad(mustUserTeam(t, w)) {
+		if p, _ := w.players.Profile(id); p.Position == players.Goalkeeper {
+			injure(t, w, id, 10)
+			keepers = append(keepers, id)
+		}
+	}
+	got, err := w.SquadEligibility(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got {
+		want := EligibleFit
+		if slices.Contains(keepers, e.Player) {
+			want = EligibleInjured
+		}
+		if e.Eligibility != want || !e.Eligibility.Selectable() {
+			t.Fatalf("player %d: %s, want %s", e.Player, e.Eligibility, want)
+		}
+	}
+	l, err := w.SuggestLineup(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	submit(t, w, fixture, l)
 }

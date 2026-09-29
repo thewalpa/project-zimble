@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -292,6 +293,74 @@ func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules mat
 	return m, true, nil
 }
 
+// Eligibility says whether a squad player may be named in the user club's
+// lineup. Values are durable.
+type Eligibility uint8
+
+const (
+	EligibleFit       Eligibility = 1 // fit to play
+	EligibleInjured   Eligibility = 2 // injured, but the fit players cannot field a legal lineup, so the whole squad may play
+	IneligibleInjured Eligibility = 3 // injured, and the fit players can field a lineup without him
+)
+
+func (e Eligibility) Valid() bool { return e >= EligibleFit && e <= IneligibleInjured }
+
+// Selectable reports whether a player with this eligibility may be named.
+func (e Eligibility) Selectable() bool { return e == EligibleFit || e == EligibleInjured }
+
+func (e Eligibility) String() string {
+	switch e {
+	case EligibleFit:
+		return "fit"
+	case EligibleInjured:
+		return "injured, selectable: the fit players cannot field a team"
+	case IneligibleInjured:
+		return "injured"
+	}
+	return fmt.Sprintf("Eligibility(%d)", uint8(e))
+}
+
+// LineupEligibility is one squad player's eligibility for a lineup.
+type LineupEligibility struct {
+	Player      ids.PlayerID
+	Eligibility Eligibility
+	DaysOut     uint16 // injured: the recovery days he still misses; zero when fit
+}
+
+// SquadEligibility returns, for a pending fixture of the user club, every
+// player of its squad in ascending ID order and whether he may be named in
+// its lineup. SubmitLineup applies the same rule: a lineup naming only
+// selectable players is accepted as long as nothing changes in between.
+// Read-only.
+func (w *World) SquadEligibility(fixture ids.FixtureID) ([]LineupEligibility, error) {
+	team, _, err := w.pendingUserFixture(fixture)
+	if err != nil {
+		return nil, err
+	}
+	return w.eligibility(team), nil
+}
+
+// eligibility returns every player of team's squad in ascending ID order
+// with his eligibility (see availableSquad). Read-only.
+func (w *World) eligibility(team ids.TeamID) []LineupEligibility {
+	squad := w.employment.Squad(team)
+	available := w.availableSquad(team)
+	emergency := len(available) == len(squad)
+	out := make([]LineupEligibility, 0, len(squad))
+	for _, id := range squad {
+		e := LineupEligibility{Player: id, Eligibility: EligibleFit}
+		if days, injured := w.medical.DaysOut(id); injured {
+			e.DaysOut = days
+			e.Eligibility = IneligibleInjured
+			if emergency {
+				e.Eligibility = EligibleInjured
+			}
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // SubmittedLineup returns the lineup the user club submitted for fixture, if
 // any. Read-only.
 func (w *World) SubmittedLineup(fixture ids.FixtureID) (selection.Lineup, bool) {
@@ -311,8 +380,9 @@ func (w *World) SubmittedLineup(fixture ids.FixtureID) (selection.Lineup, bool) 
 //   - ExpectedRevision must equal Revision.
 //   - The fixture must be the user club's and await results; the lineup
 //     must have a valid shape (selection.Lineup.Validate), a bench within the
-//     competition's MaxBench, and only available players of the user club's
-//     squad (see availableSquad: injured players are not).
+//     competition's MaxBench, and only selectable players of the user club's
+//     squad (see SquadEligibility: injured players are not, unless the fit
+//     ones cannot field a lineup).
 //
 // On success the lineup replaces any earlier one for the fixture and the
 // revision increments. On error nothing changes.
@@ -371,13 +441,14 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 	if len(l.Bench) > int(rules.MaxBench) {
 		return fail("bench of %d exceeds %d", len(l.Bench), rules.MaxBench)
 	}
-	available := w.availableSquad(team)
+	squad := w.eligibility(team)
 	player := func(id ids.PlayerID) (ai.Candidate, error) {
-		if a, ok := w.employment.Assignment(id); !ok || a.Team != team {
+		i, ok := slices.BinarySearchFunc(squad, id, func(e LineupEligibility, id ids.PlayerID) int { return cmp.Compare(e.Player, id) })
+		if !ok {
 			return ai.Candidate{}, fmt.Errorf("player %d is not in the squad", id)
 		}
-		if !slices.Contains(available, id) {
-			return ai.Candidate{}, fmt.Errorf("player %d is injured", id)
+		if e := squad[i]; !e.Eligibility.Selectable() {
+			return ai.Candidate{}, fmt.Errorf("player %d is %s for %d more days", id, e.Eligibility, e.DaysOut)
 		}
 		return w.candidate(id)
 	}
