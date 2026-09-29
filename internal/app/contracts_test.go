@@ -166,15 +166,15 @@ func TestContractYearRenewsReleasesAndSigns(t *testing.T) {
 			t.Fatalf("signing %+v, assignment %+v, offer %+v", p, a, offer)
 		}
 	}
-	// Without a user club, every AI club refills to the full roster, which
-	// takes every free agent.
+	// Without a user club, every AI club refills to the full roster except
+	// for the vacancies of the best free agents held back for the window.
+	short := 0
 	for _, row := range w.Summary().ClubRows {
-		if row.Players != w.defs.SquadSize() {
-			t.Fatalf("club %d has %d players after the contract year", row.ID, row.Players)
-		}
+		short += w.defs.SquadSize() - row.Players
 	}
-	if len(eventsAt[events.KindPlayerSigned]) != left || len(w.FreeAgents()) != 0 {
-		t.Fatalf("%d signings for %d departures, %d free agents", len(eventsAt[events.KindPlayerSigned]), left, len(w.FreeAgents()))
+	if got := len(w.FreeAgents()); short != got || got != freeAgentReserve || len(eventsAt[events.KindPlayerSigned])+got != left {
+		t.Fatalf("%d vacancies, %d free agents, %d signings for %d departures (held back %d)",
+			short, got, len(eventsAt[events.KindPlayerSigned]), left, freeAgentReserve)
 	}
 	assertEveryPlayerOnce(t, w, registry)
 	if next := w.ContractYearEnd(); next != mustAddYears(t, w, end, 1) {
@@ -594,5 +594,27 @@ func TestRestoreRejectsInvalidContracts(t *testing.T) {
 	}
 	if _, err := Restore(build()); err != nil {
 		t.Fatalf("unmodified snapshot rejected: %v", err)
+	}
+}
+
+// Every year the contract-year end leaves the best free agents AI clubs
+// would sign in the pool, near the average player, for the manager (and,
+// after the first half of the window, for the AI clubs).
+func TestFreeAgentPoolAtTheWindowsOpen(t *testing.T) {
+	w := userWorld(t, 7, 0)
+	for year := 1; year <= 8; year++ {
+		playSeason(t, w)
+		mustContinue(t, w, w.ContractYearEnd())
+		pool := w.FreeAgents()
+		if len(pool) < freeAgentReserve {
+			t.Fatalf("year %d: %d free agents at the window's open", year, len(pool))
+		}
+		best := 0
+		for _, p := range pool {
+			best = max(best, p.Overall)
+		}
+		if avg := averageOverall(w); best < avg-10 {
+			t.Fatalf("year %d: best free agent %d, average %d", year, best, avg)
+		}
 	}
 }

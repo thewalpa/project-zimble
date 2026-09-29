@@ -300,6 +300,7 @@ func TestManagerSquadGrowsToTheLimit(t *testing.T) {
 		t.Fatal("no youth joined the sellers")
 	}
 	mustContinue(t, w, w.ContractYearEnd())
+	playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
 	assertAISquadsFull(t, w)
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)
@@ -336,6 +337,14 @@ func cheapestForSale(t *testing.T, w *World) SquadPlayer {
 // upgrade replaced, listed until another club buys him (see hasRoom).
 func assertAISquadsFull(t *testing.T, w *World) {
 	t.Helper()
+	assertAISquadsFullBut(t, w, 0)
+}
+
+// assertAISquadsFullBut allows AI clubs to lack up to missing players in
+// all, as when the manager signed free agents that clubs held back for
+// vacancies (see holdBack).
+func assertAISquadsFullBut(t *testing.T, w *World, missing int) {
+	t.Helper()
 	for _, c := range w.registry.Clubs() {
 		if c.ID == w.userClub {
 			continue
@@ -343,8 +352,10 @@ func assertAISquadsFull(t *testing.T, w *World) {
 		team, _ := w.registry.SeniorTeam(c.ID)
 		counts := w.squadCounts(team)
 		for _, q := range w.defs.Roster {
-			if counts[q.Position] < q.Count {
-				t.Fatalf("AI club %d has %d %s, want %d", c.ID, counts[q.Position], q.Position, q.Count)
+			if n := q.Count - counts[q.Position]; n > 0 {
+				if missing -= n; missing < 0 {
+					t.Fatalf("AI club %d has %d %s, want %d", c.ID, counts[q.Position], q.Position, q.Count)
+				}
 			}
 		}
 		if n := squadSize(counts); n > w.defs.SquadSize()+1 {
@@ -371,6 +382,24 @@ func biddable(w *World, player ids.PlayerID) bool {
 func TestSquadsSurviveAHoardingManager(t *testing.T) {
 	w := userWorld(t, 7, userClub3)
 	releases, purchases := 0, 0
+	// After each window closes, every AI squad is full and the world valid.
+	checkWindow := func(year int) {
+		t.Helper()
+		playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
+		if err := w.Validate(); err != nil {
+			t.Fatalf("year %d: %v", year, err)
+		}
+		assertAISquadsFullBut(t, w, freeAgentReserve)
+		var fees money.Money
+		for _, e := range w.finance.All() {
+			if e.Kind == finance.KindTransfer {
+				fees += e.Amount
+			}
+		}
+		if fees != 0 {
+			t.Fatalf("year %d: transfer fees sum to %s", year, fees)
+		}
+	}
 	for year := 1; year <= 30; year++ {
 		for range 2 {
 			if p, ok := oldestReleasable(t, w); ok && p.Payoff <= balance(t, w, userClub3) {
@@ -395,22 +424,13 @@ func TestSquadsSurviveAHoardingManager(t *testing.T) {
 				purchases++
 			}
 		}
+		if year > 1 {
+			checkWindow(year)
+		}
 		playSeason(t, w)
 		mustContinue(t, w, w.ContractYearEnd())
-		if err := w.Validate(); err != nil {
-			t.Fatalf("year %d: %v", year, err)
-		}
-		assertAISquadsFull(t, w)
-		var fees money.Money
-		for _, e := range w.finance.All() {
-			if e.Kind == finance.KindTransfer {
-				fees += e.Amount
-			}
-		}
-		if fees != 0 {
-			t.Fatalf("year %d: transfer fees sum to %s", year, fees)
-		}
 	}
+	checkWindow(31)
 	if releases < 20 || purchases < 30 {
 		t.Fatalf("only %d releases and %d purchases in thirty years", releases, purchases)
 	}

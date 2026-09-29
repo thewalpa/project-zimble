@@ -471,6 +471,13 @@ func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
 	return nil
 }
 
+// freeAgentGrace is how long after the window opens the manager has the
+// free-agent pool to himself: AI clubs sign free agents for vacancies above
+// their roster minimum only after it (and at the close, see fillSquads).
+func freeAgentGrace(windowDays int) sim.GameInstant {
+	return sim.GameInstant(windowDays/2) * sim.GameInstant(sim.Day)
+}
+
 // needs lists a club's vacancies: positions below the roster count.
 func (m *market) needs(club ids.ClubID) []ai.RoleCount {
 	var out []ai.RoleCount
@@ -803,7 +810,7 @@ func (m *market) aiActions() error {
 				continue
 			}
 		}
-		if best >= 0 {
+		if best >= 0 && m.at >= m.open+freeAgentGrace(w.defs.Transfers.WindowDays) {
 			if err := m.sign(c.ID, m.pool[best].Player); err != nil {
 				return err
 			}

@@ -289,6 +289,7 @@ func TestSquadsStayLegalAndBalancedOverTheYears(t *testing.T) {
 			if err := w.Validate(); err != nil {
 				t.Fatalf("club %d year %d: %v", club, year, err)
 			}
+			playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
 			assertAISquadsFull(t, w)
 			s := w.Summary()
 			if s.Players < 600 || s.Players > 640+s.Clubs+s.FreeAgents {

@@ -2354,6 +2354,31 @@ Found reviewing the second-divisions wiring: `WorldSnapshot.Promotions` is pinne
 
 - `TestRestoreRejectsInvalidState` "promotions changed": one place fewer on the first link, three rounds into season 1. It is rejected by the fingerprint, and it loads once re-signed, which is how every save loaded before this change.
 
+## squad: free agents wait for the manager (done)
+
+Delivers `squad--free-agent-pool` (from `balance`): the pool was empty at every window's open and best about 40 at the close, so the manager had nobody to sign.
+
+### Decisions
+
+- **The best free agents are held back.** At the contract-year end AI clubs still fill their rosters with `ai.Signings`, but `holdBack` then drops up to `freeAgentReserve` (4) of the best-rated signings that only fill a vacancy above a club's roster minimum (never the user club's, never one below the minimum). Those players stay in the pool and their clubs stay short.
+- **The manager has the first half of the window.** In the window's daily runs an AI club signs a free agent for a vacancy only from `freeAgentGrace` (`WindowDays / 2`) after the opening. It can still bid for another club's player earlier. At the close `fillSquads` signs whatever is left, as before.
+- **A manager who takes free agents leaves AI clubs short.** Supply equals demand, so a club stays short until the next contract year refills it. Squads never fall below their minimums.
+- `ai.TransfersVersion` 5. `ai.ContractsVersion` stays 2: renewals, contract lengths and the `ai.Signings` allocation are unchanged.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/app` | `holdBack` and `freeAgentReserve` in `contracts.go` (called by `contractYear`); `freeAgentGrace` in `transfers.go`, applied to the window's AI signings |
+| `internal/ai` | `TransfersVersion` 5 |
+
+### Verification
+
+- `TestFreeAgentPoolAtTheWindowsOpen`: eight seasons, the pool holds at least 4 players at every open and the best is within 10 points of the average player.
+- `TestContractYearRenewsReleasesAndSigns` expects exactly the reserve in the pool and matching vacancies. The squad-full tests (`TestSquadsStayLegalAndBalancedOverTheYears`, `TestManagerSquadGrowsToTheLimit`, `TestAIMarketKeepsSquadsFullForDecades`, `TestSquadsSurviveAHoardingManager`) now check after the window closes; the hoarding manager may leave up to the reserve missing.
+- 10-seed, 30-year sweep: 4 free agents at every open, none at the close in years 1–20, 50 transfers a window, no negative balances.
+- The web and play transfer tests name a new bidder for the listed player (Eldhaven United, offer 87).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

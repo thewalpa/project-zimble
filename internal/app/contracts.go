@@ -178,6 +178,8 @@ func (w *World) squadCounts(team ids.TeamID) map[players.Position]int {
 //     left) with ai.Signings: AI clubs fill every position up to the roster
 //     count, the user club only up to the roster minimum (the safety net that
 //     keeps a legal squad; the manager signs the rest). Terms are aiOffer's.
+//     The best signings above a club's minimum are held back (see holdBack):
+//     those players stay in the pool for the manager.
 //  3. The changes are planned as one employment change and checked against
 //     the squad minimums, next year's task is queued, then the plan is
 //     applied and one event per change is emitted.
@@ -252,6 +254,7 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 	if err != nil {
 		return err
 	}
+	signings = w.holdBack(signings, counts)
 	for _, s := range signings {
 		offer, err := w.aiOffer(s.Player, year)
 		if err != nil {
@@ -311,6 +314,58 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 		}})
 	}
 	return nil
+}
+
+// freeAgentReserve is how many free agents AI clubs leave in the pool at
+// the contract-year end, so that the manager has some to choose from.
+const freeAgentReserve = 4
+
+// holdBack drops from the contract-year signings up to freeAgentReserve of
+// the best-rated ones (ties: lower player ID) that only fill an AI club's
+// vacancy above its roster minimum, and returns the rest in order. counts
+// holds each club's players by position, the signings not included. The
+// clubs stay short until AI clubs sign free agents in the window, after the
+// manager's first days (see freeAgentGrace), or at its close.
+func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[players.Position]int) []ai.Signing {
+	type pick struct {
+		i       int
+		overall int
+	}
+	added := map[ids.ClubID]map[players.Position]int{}
+	var eligible []pick
+	for i, s := range signings {
+		p, _ := w.players.Profile(s.Player)
+		if added[s.Club] == nil {
+			added[s.Club] = map[players.Position]int{}
+		}
+		added[s.Club][p.Position]++
+		if s.Club != w.userClub {
+			eligible = append(eligible, pick{i, p.Overall()})
+		}
+	}
+	slices.SortFunc(eligible, func(a, b pick) int {
+		return cmp.Or(cmp.Compare(b.overall, a.overall), cmp.Compare(signings[a.i].Player, signings[b.i].Player))
+	})
+	dropped := map[int]bool{}
+	for _, e := range eligible {
+		if len(dropped) == freeAgentReserve {
+			break
+		}
+		s := signings[e.i]
+		p, _ := w.players.Profile(s.Player)
+		if counts[s.Club][p.Position]+added[s.Club][p.Position]-1 < w.defs.Quota(p.Position).Min {
+			continue
+		}
+		added[s.Club][p.Position]--
+		dropped[e.i] = true
+	}
+	var out []ai.Signing
+	for i, s := range signings {
+		if !dropped[i] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // freeAgentPool lists every active player without an employer.

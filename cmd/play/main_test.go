@@ -330,22 +330,22 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Elias Gallo              DF   18    75   1,200,000.00",
 		"transfer: Aaron Farrow joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
 		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
-		"bid: Dunmarrow Albion bid 1,200,000.00 for Elias Gallo (offer 93); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
+		"bid: Eldhaven United bid 1,200,000.00 for Elias Gallo (offer 87); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Aaron Farrow             Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 93", "finances 2", "list", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 87", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Elias Gallo left for Dunmarrow Albion for 1,200,000.00", "transfer fee O93")
+		"transfer: Elias Gallo left for Eldhaven United for 1,200,000.00", "transfer fee O87")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
-	rejected := play(t, []string{"-load", path}, "reject 93", "unlist 44", "unlist 44", "continue", "q", "q")
+	rejected := play(t, []string{"-load", path}, "reject 87", "unlist 44", "unlist 44", "continue", "q", "q")
 	contains(t, rejected, "Rejected.", "Elias Gallo is off the transfer list.", "! app: the player is not on the transfer list: player 44",
-		"transfer: the bid of 1,200,000.00 from Dunmarrow Albion for Elias Gallo was rejected")
+		"transfer: the bid of 1,200,000.00 from Eldhaven United for Elias Gallo was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {
 		t.Fatal("a rejected bid moved the player")
 	}

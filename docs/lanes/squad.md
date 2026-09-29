@@ -27,9 +27,7 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-**The free-agent pool** ([squad--free-agent-pool.md](../handoffs/squad--free-agent-pool.md)): some free agents should reach the pool and stay long enough for the manager to act.
-
-Done: sellers keep their stars and needed players (`ai.TransfersVersion` 4; see progress.md, "squad: sellers keep needed players late in the window" and "squad: sellers keep their stars"). `balance` reruns the sweep ([note](../handoffs/balance--star-churn-delivered.md)). Answered: the five new attributes (`squad--match-attributes.md`, accepted with growth rules; data delivers).
+Nothing queued. Delivered: the free-agent pool (`ai.TransfersVersion` 5; see progress.md, "squad: free agents wait for the manager"). `balance` reruns the sweep ([note](../handoffs/balance--free-agent-pool-delivered.md)).
 
 ## Backlog
 

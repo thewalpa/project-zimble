@@ -14,7 +14,7 @@ import (
 // the answer to a bid, the choice of a bid's target, and which players a
 // club lists and at what price. Bump it whenever the same squads, balances
 // and offers would produce different decisions.
-const TransfersVersion = 4
+const TransfersVersion = 5
 
 const (
 	// ValueAt60Units is a 60-overall player's value, in currency units, in

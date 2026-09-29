@@ -551,13 +551,13 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
 		"Elias Gallo is on the transfer list")
 	page = c.post("/continue", nil)
-	contains(t, page, "Dunmarrow Albion bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
+	contains(t, page, "Eldhaven United bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"93"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
-	contains(t, c.get("/inbox"), "Elias Gallo left for Dunmarrow Albion for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 93")
+	contains(t, c.post("/answer", url.Values{"offer": {"87"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.get("/inbox"), "Elias Gallo left for Eldhaven United for 1,200,000.00")
+	contains(t, c.get("/finances"), "transfer fee, offer 87")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
