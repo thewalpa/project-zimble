@@ -1,10 +1,12 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-29
 ---
+
+Accepted by squad: PAR-01 in docs/lanes/squad.md: next, with a data note on the common intake rule.
 
 # Use the same youth intake entitlement for either controller
 

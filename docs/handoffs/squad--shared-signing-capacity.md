@@ -1,10 +1,12 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-29
 ---
+
+Accepted by squad: PAR-03 in docs/lanes/squad.md: after PAR-01.
 
 # Separate AI squad preferences from shared admission rules
 
