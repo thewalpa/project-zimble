@@ -2470,6 +2470,16 @@ Both clients now show what the last four feature lanes added: injuries, the five
 
 Web and terminal tests drive the pages as a player does: `TestAttributesAndNationalities`, `TestInjuriesInTheBrowser`, `TestPromotionAndRelegationMarks`, `TestMarketRefusalsInTheBrowser` and `TestSeasonEndSaysRelegation` for the web; `TestNationalitiesAndAttributes`, `TestPromotionMarksAndHistory`, `TestInjuriesInTheTerminal` and `TestSeasonEndSaysRelegation` for `cmd/play`; `TestPromotionViews` for the new queries. `TestTableRowsMatchTheirHeaders` now covers the table, transfers and history pages too.
 
+## ui: all league tables in the terminal (done)
+
+Added a `tables` command to `cmd/play`; it displays every league standings table with the same promotion/relegation marks and managed-club marker as `table`. During the off-season it shows each league's final table from the preceding season. The web client already exposed all four leagues.
+
+### Verification
+
+- `TestTablesShowsEveryLeague` drives the terminal command, checks all four league names and headers, verifies the managed-club marker, and checks invalid arguments.
+- `go test ./cmd/play` passes.
+- Match report polish needs ordered match events to survive resolution and saves; filed [match--report-events.md](handoffs/match--report-events.md) for the match lane.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

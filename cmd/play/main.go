@@ -221,6 +221,8 @@ func (s *session) loop() {
 			err = s.player(args)
 		case "table", "t":
 			err = s.table(args)
+		case "tables":
+			err = s.tables(args)
 		case "history":
 			err = s.history(args)
 		case "cup":
@@ -310,6 +312,7 @@ func (s *session) help() {
   squad                 your players: ID, position, rating, condition
   player ID             one player of any club: attributes, contract, status
   table (t)             the league table
+  tables                every league table
   cup                   the Continental Cup: this edition's bracket and results
   history [COMP SEASON] every season's champion; one season's final table or bracket
   fixtures (f)          your club's fixtures and results this season
@@ -656,6 +659,27 @@ func (s *session) table(args []string) error {
 		return cmp.Or(diff, cmp.Compare(a.Rank, b.Rank))
 	})
 	s.printTable(t, rows)
+	return nil
+}
+
+// tables prints every league's current table. During an off-season, show each
+// league's completed table from the season that just ended.
+func (s *session) tables(args []string) error {
+	if len(args) != 0 {
+		return errors.New("usage: tables")
+	}
+	tables := s.w.Tables()
+	if len(tables) == 0 {
+		return errors.New("no league tables are available")
+	}
+	for _, t := range tables {
+		if t.RoundsCompleted == 0 && t.Season > 1 {
+			if previous, ok := s.w.Table(competitions.SeasonRef{Competition: t.Competition, Season: t.Season - 1}); ok {
+				t = previous
+			}
+		}
+		s.printTable(t, t.Rows)
+	}
 	return nil
 }
 

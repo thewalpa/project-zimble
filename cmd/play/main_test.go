@@ -439,6 +439,24 @@ func TestPlayerProfileCommand(t *testing.T) {
 		"no player 99999", "usage: player ID")
 }
 
+// tables lists every league with a heading and marks the manager's club.
+func TestTablesShowsEveryLeague(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "tables", "tables extra", "quit", "quit")
+	contains(t, out,
+		"Founders League season 1 (0/14 rounds)",
+		"Harbour League season 1 (0/14 rounds)",
+		"Founders Second Division season 1 (0/14 rounds)",
+		"Harbour Second Division season 1 (0/14 rounds)",
+		"usage: tables",
+	)
+	if strings.Count(out, "POS  ABB  CLUB") != 4 {
+		t.Fatalf("tables should print four league headers:\n%s", out)
+	}
+	if !strings.Contains(out, "* QUI") {
+		t.Fatalf("managed club was not marked in its table:\n%s", out)
+	}
+}
+
 // history lists every season's champion and shows a past season's final
 // table or bracket.
 func TestHistory(t *testing.T) {
