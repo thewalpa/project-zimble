@@ -311,7 +311,8 @@ func (w *World) SubmittedLineup(fixture ids.FixtureID) (selection.Lineup, bool) 
 //   - ExpectedRevision must equal Revision.
 //   - The fixture must be the user club's and await results; the lineup
 //     must have a valid shape (selection.Lineup.Validate), a bench within the
-//     competition's MaxBench, and only players of the user club's squad.
+//     competition's MaxBench, and only available players of the user club's
+//     squad (see availableSquad: injured players are not).
 //
 // On success the lineup replaces any earlier one for the fixture and the
 // revision increments. On error nothing changes.

@@ -1,7 +1,7 @@
 ---
 to: match
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -27,6 +27,8 @@ ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v -count=1
 | 70 v 50 | 4.27 | 1.4 | 61.1 | 2.90 |
 
 Win rates by gap look reasonable in the career's range: 72% for a home side 10 points stronger. The problem is the goal count. The stronger side scores much more, and the weaker side scores only a little less.
+
+Accepted 2026-09-29: next in the match lane after the attribute, shootout and report-event notes, before tick phase 2.
 
 ## What is needed
 Make goals per match depend mainly on the difference between the sides, not on their absolute level. For example, attack and defence (and finishing and goalkeeping) could scale together with rating. Also make a mismatch show more in who scores than in how many goals there are. Bump `tick.ModelVersion`.

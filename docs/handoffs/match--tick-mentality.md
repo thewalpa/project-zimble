@@ -1,7 +1,7 @@
 ---
 to: match
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-28
 ---
@@ -33,6 +33,8 @@ ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v -count=1
 Mentality enters at the line depth (`MentalityDepth`, [play.go:106](../../internal/matches/tick/play.go#L106)), which the attackers' cap `min(d, max(lastLine, ballDepth))` then ties to the opponent's line. It also sets pressers (play.go:145), shot willingness (play.go:274) and pass progress (play.go:340). A mismatch between the two sides' line depths seems the likely place to look, but that is a guess.
 
 `simple` behaves as expected: attacking gives +2–3 points of wins with more goals at both ends, and defensive gives fewer goals, more draws and 2–4 points fewer wins.
+
+Accepted 2026-09-29: next in the match lane after the attribute, shootout and report-event notes, before tick phase 2.
 
 ## What is needed
 Rework mentality in `tick` so it is a trade-off.
