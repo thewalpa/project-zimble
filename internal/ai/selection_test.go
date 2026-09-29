@@ -13,7 +13,10 @@ import (
 var rules = matches.Rules{MaxSubstitutions: 3, MaxBench: 7}
 
 func rating(v uint8) matches.Ratings {
-	return matches.Ratings{Goalkeeping: v, Defending: v, Passing: v, Finishing: v, Pace: v, Stamina: v}
+	return matches.Ratings{
+		Goalkeeping: v, Defending: v, Passing: v, Finishing: v, Pace: v, Stamina: v,
+		Dribbling: v, Heading: v, Strength: v, Acceleration: v, Positioning: v,
+	}
 }
 
 // squad builds 3 GK, 7 DF, 6 MF, 4 FW with ratings varying by ID.

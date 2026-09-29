@@ -109,6 +109,7 @@ const (
 	effPassing
 	effFinishing
 	effPace
+	effDribbling
 	nEff
 )
 
@@ -455,7 +456,7 @@ func (s *session) rate(side, i int) {
 	if side == matches.Home.Index() {
 		home = s.p.HomeAdvantagePermille
 	}
-	for k, v := range [nEff]uint8{p.r.Goalkeeping, p.r.Defending, p.r.Passing, p.r.Finishing, p.r.Pace} {
+	for k, v := range [nEff]uint8{p.r.Goalkeeping, p.r.Defending, p.r.Passing, p.r.Finishing, p.r.Pace, p.r.Dribbling} {
 		p.eff[k] = int64(v) * pointUnits * p.ready / per10k * (per100k - fatigue) / per100k * home / permille
 	}
 	p.sprint = s.p.MinSprint + (s.p.MaxSprint-s.p.MinSprint)*min(p.eff[effPace], per10k)/per10k

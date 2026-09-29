@@ -716,3 +716,33 @@ func TestCarriedLineupReplacesPlayersWhoLeft(t *testing.T) {
 	}
 	roundTrip(t, w)
 }
+
+// The match contract carries every player attribute: matches.Ratings has one
+// field per players.Attribute, in the same order, and candidate copies them.
+func TestCandidateCopiesEveryAttribute(t *testing.T) {
+	w := newWorld(t, 42)
+	if n := reflect.TypeFor[matches.Ratings]().NumField(); n != players.NumAttributes {
+		t.Fatalf("matches.Ratings has %d fields, players have %d attributes", n, players.NumAttributes)
+	}
+	checked := 0
+	for _, id := range w.players.PlayerIDs() {
+		if _, ok := w.medical.Condition(id); !ok {
+			continue // retired
+		}
+		c, err := w.candidate(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, _ := w.players.Profile(id)
+		r := reflect.ValueOf(c.Ratings)
+		for a := range players.NumAttributes {
+			if got, want := r.Field(int(a)).Uint(), uint64(p.Attributes[a]); got != want {
+				t.Fatalf("player %d: %s is %d in the match input, %d in the profile", id, r.Type().Field(int(a)).Name, got, want)
+			}
+		}
+		checked++
+	}
+	if checked == 0 {
+		t.Fatal("no active players")
+	}
+}

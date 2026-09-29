@@ -394,6 +394,9 @@ func (w *World) candidate(id ids.PlayerID) (ai.Candidate, error) {
 			Goalkeeping: uint8(a[players.Goalkeeping]), Defending: uint8(a[players.Defending]),
 			Passing: uint8(a[players.Passing]), Finishing: uint8(a[players.Finishing]),
 			Pace: uint8(a[players.Pace]), Stamina: uint8(a[players.Stamina]),
+			Dribbling: uint8(a[players.Dribbling]), Heading: uint8(a[players.Heading]),
+			Strength: uint8(a[players.Strength]), Acceleration: uint8(a[players.Acceleration]),
+			Positioning: uint8(a[players.Positioning]),
 		},
 		Condition: condition,
 	}, nil

@@ -73,12 +73,19 @@ const (
 func (r Role) Valid() bool { return r >= Goalkeeper && r <= Forward }
 
 // Ratings are a detached copy of a player's attributes on the 1..100 scale.
+// Dribbling is keeping the ball in a duel and first touch; Pace is top speed
+// and Acceleration the first steps of a sprint; Positioning is off-ball runs
+// for attackers and marking for defenders.
 type Ratings struct {
 	Goalkeeping, Defending, Passing, Finishing, Pace, Stamina uint8
+	Dribbling, Heading, Strength, Acceleration, Positioning   uint8
 }
 
 func (r Ratings) valid() bool {
-	for _, v := range [...]uint8{r.Goalkeeping, r.Defending, r.Passing, r.Finishing, r.Pace, r.Stamina} {
+	for _, v := range [...]uint8{
+		r.Goalkeeping, r.Defending, r.Passing, r.Finishing, r.Pace, r.Stamina,
+		r.Dribbling, r.Heading, r.Strength, r.Acceleration, r.Positioning,
+	} {
 		if v < MinRating || v > MaxRating {
 			return false
 		}

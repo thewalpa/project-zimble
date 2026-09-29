@@ -52,14 +52,16 @@ func Ratings(role matches.Role, strength, i int) matches.Ratings {
 	r := matches.Ratings{
 		Goalkeeping: low, Defending: clamp(strength + v), Passing: clamp(strength - v),
 		Finishing: clamp(strength + v), Pace: clamp(strength - v), Stamina: clamp(strength + 2*v),
+		Dribbling: clamp(strength - v), Heading: clamp(strength + v), Strength: clamp(strength + v),
+		Acceleration: clamp(strength - v), Positioning: clamp(strength + v),
 	}
 	switch role {
 	case matches.Goalkeeper:
-		r.Goalkeeping, r.Finishing = clamp(strength+v), low
+		r.Goalkeeping, r.Finishing, r.Dribbling = clamp(strength+v), low, low
 	case matches.Defender:
-		r.Finishing = clamp(strength - 20 + v)
+		r.Finishing, r.Dribbling = clamp(strength-20+v), clamp(strength-10-v)
 	case matches.Forward:
-		r.Defending = clamp(strength - 20 + v)
+		r.Defending, r.Heading = clamp(strength-20+v), clamp(strength-10+v)
 	}
 	return r
 }
@@ -570,6 +572,8 @@ func (c contract) startValidates(t *testing.T) {
 		"zero player":       func(in *matches.MatchInput) { in.Away.Bench[2].Player = 0 },
 		"rating 0":          func(in *matches.MatchInput) { in.Home.Starters[5].Ratings.Pace = 0 },
 		"rating 101":        func(in *matches.MatchInput) { in.Away.Bench[6].Ratings.Stamina = 101 },
+		"dribbling 0":       func(in *matches.MatchInput) { in.Home.Starters[9].Ratings.Dribbling = 0 },
+		"positioning 101":   func(in *matches.MatchInput) { in.Away.Starters[2].Ratings.Positioning = 101 },
 		"condition 0":       func(in *matches.MatchInput) { in.Home.Starters[2].Condition = 0 },
 		"condition 101":     func(in *matches.MatchInput) { in.Away.Starters[2].Condition = 101 },
 		"invalid role":      func(in *matches.MatchInput) { in.Home.Starters[5].Role = 9 },
@@ -608,7 +612,7 @@ func (c contract) inputNotRetained(t *testing.T) {
 		t.Fatal("Start modified its input")
 	}
 	for i := range in.Home.Starters {
-		in.Home.Starters[i].Ratings = matches.Ratings{Goalkeeping: 1, Defending: 1, Passing: 1, Finishing: 1, Pace: 1, Stamina: 1}
+		in.Home.Starters[i].Ratings = Ratings(matches.Midfielder, 1, 0)
 		in.Away.Starters[i].Player += 1000
 	}
 	in.Home.Bench[0].Role = matches.Forward

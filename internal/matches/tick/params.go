@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 1
+const ModelVersion uint32 = 2
 
 // The clock: a tick is one simulated instant.
 const (
@@ -68,7 +68,7 @@ const (
 //     and any other failed control may deflect the ball. Players arriving
 //     on a ball at the same instant contest it evenly.
 //   - A defender within TackleRadius of the carrier may tackle: Defending
-//     against the carrier's Passing and Pace.
+//     against the carrier's Dribbling.
 //   - The ball leaving the pitch gives a throw-in, corner or goal kick; a
 //     goal gives a kickoff. Set pieces are taken by a pass.
 //

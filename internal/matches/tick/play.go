@@ -414,7 +414,7 @@ func (s *session) challenge() {
 		if s.tick < d.busy || !within(d.pos, c.pos, s.p.TackleRadius) || !s.chance(s.p.TackleAttemptPPM) {
 			continue
 		}
-		tackle, dribble := d.eff[effDefending], (c.eff[effPassing]+c.eff[effPace])/2
+		tackle, dribble := d.eff[effDefending], c.eff[effDribbling]
 		p := s.p.TacklePPM * 2 * tackle / max(tackle+dribble, 1)
 		if !s.chance(min(max(p, s.p.MinControlPPM), s.p.MaxControlPPM)) {
 			d.busy = s.tick + s.p.BeatenTicks
