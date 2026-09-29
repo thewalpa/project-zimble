@@ -33,6 +33,7 @@ Delivered the drag-and-drop formation editor (priority user request). The web li
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
+- **Formation View:** following the squad formation editor we should show the same visual also for other clubs and in match reports
 
 ### AI/player rule parity audit
 
