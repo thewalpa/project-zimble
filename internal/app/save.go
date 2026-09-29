@@ -569,6 +569,9 @@ func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 		if goals != m.Score {
 			return fmt.Errorf("fixture %d goals %v disagree with score %v", m.Fixture, goals, m.Score)
 		}
+		if err := checkMatchEvents(m.Events, m.Goals); err != nil {
+			return fmt.Errorf("fixture %d: %w", m.Fixture, err)
+		}
 		for i, team := range []ids.TeamID{official.Home, official.Away} {
 			_, submitted := w.selections.Lineup(m.Fixture, team)
 			if by := m.Selected[i]; !by.Valid() || (by == SelectedByManager) != submitted {

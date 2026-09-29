@@ -345,3 +345,95 @@ func TestRestoreRejectsInvalidLiveMatch(t *testing.T) {
 		t.Fatalf("unmodified snapshot rejected: %v", err)
 	}
 }
+
+// A completed report keeps every match event in order, the live match's
+// substitution included, through the command result, the MatchReport query
+// and a save, and never hands out its stored slices.
+func TestMatchReportKeepsEvents(t *testing.T) {
+	w, fixture := liveReady(t)
+	ht := playTo(t, w, fixture, 45)
+	sub := forwardSub(ht)
+	decide(t, w, fixture, sub)
+	final := playTo(t, w, fixture, 90)
+	res := resolveNow(t, w)
+
+	var report MatchReport
+	for _, m := range res.Matches {
+		if m.Fixture == fixture {
+			report = m
+		} else if len(m.Events) < 2 { // at least the two period ends
+			t.Fatalf("fixture %d report has events %v", m.Fixture, m.Events)
+		}
+	}
+	if !reflect.DeepEqual(report.Events, final.Events) {
+		t.Fatalf("report events %v, the live match had %v", report.Events, final.Events)
+	}
+	if !slices.ContainsFunc(report.Events, func(e matches.MatchEvent) bool {
+		return e.Kind == matches.EventSubstitution && e.Minute == 45 && e.Player == sub.In && e.Other == sub.Out
+	}) {
+		t.Fatalf("no substitution in %v", report.Events)
+	}
+
+	got, ok := w.MatchReport(fixture)
+	if !ok || !reflect.DeepEqual(got, report) {
+		t.Fatal("MatchReport differs from the command result")
+	}
+	got.Events[0].Minute = 99
+	res.Matches[0].Events[0].Minute = 99
+	if again, _ := w.MatchReport(fixture); !reflect.DeepEqual(again, report) {
+		t.Fatal("a returned report aliases stored events")
+	}
+	if again, _ := w.MatchReport(res.Matches[0].Fixture); again.Events[0].Minute == 99 {
+		t.Fatal("the command result aliases stored events")
+	}
+
+	loaded := roundTrip(t, w)
+	if after, ok := loaded.MatchReport(fixture); !ok || !reflect.DeepEqual(after, report) {
+		t.Fatal("the report's events differ after load")
+	}
+}
+
+func TestRestoreRejectsInvalidReportEvents(t *testing.T) {
+	build := func() WorldSnapshot {
+		w, _ := liveReady(t)
+		return w.Snapshot()
+	}
+	// The first report of the latest resolve with a goal.
+	report := func(s *WorldSnapshot) *MatchReport {
+		ms := s.ResolveCommands[len(s.ResolveCommands)-1].Result.Matches
+		for i := range ms {
+			if len(ms[i].Goals) > 0 {
+				return &ms[i]
+			}
+		}
+		t.Fatal("no goals in the batch")
+		return nil
+	}
+	goal := func(m *MatchReport) *matches.MatchEvent {
+		i := slices.IndexFunc(m.Events, func(e matches.MatchEvent) bool { return e.Kind == matches.EventGoal })
+		return &m.Events[i]
+	}
+	cases := map[string]func(*WorldSnapshot){
+		"no events":        func(s *WorldSnapshot) { report(s).Events = nil },
+		"sequence gap":     func(s *WorldSnapshot) { m := report(s); m.Events[len(m.Events)-1].Seq++ },
+		"unknown kind":     func(s *WorldSnapshot) { report(s).Events[0].Kind = 9 },
+		"goal by another":  func(s *WorldSnapshot) { m := report(s); goal(m).Player++ },
+		"goal for nobody":  func(s *WorldSnapshot) { m := report(s); goal(m).Side = 0 },
+		"after full time":  func(s *WorldSnapshot) { m := report(s); m.Events[len(m.Events)-1].Minute = 91 },
+		"no half time end": func(s *WorldSnapshot) { m := report(s); m.Events = slices.DeleteFunc(m.Events, isHalfTime) },
+	}
+	for name, mutate := range cases {
+		snap := build()
+		mutate(&snap)
+		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
+			t.Errorf("%s: Restore = %v", name, err)
+		}
+	}
+	if _, err := Restore(build()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func isHalfTime(e matches.MatchEvent) bool {
+	return e.Kind == matches.EventPeriodEnd && e.Period == matches.FirstHalf
+}

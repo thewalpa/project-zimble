@@ -47,7 +47,7 @@ func TestMatchExposureLowersCondition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outcomes, err := w.simulateBatch(plan)
+	outcomes, _, err := w.simulateBatch(plan)
 	if err != nil {
 		t.Fatal(err)
 	}

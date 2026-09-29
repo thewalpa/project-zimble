@@ -46,8 +46,8 @@ type ResolveRounds struct {
 	Rounds           []competitions.RoundRef // the whole pending batch, any order
 }
 
-// MatchReport summarizes one resolved fixture. Goals are match detail
-// returned to the caller; only the score becomes the official result.
+// MatchReport summarizes one resolved fixture. Goals and Events are match
+// detail kept with the report; only the score becomes the official result.
 // Selected says, per side (home, away), whether a submitted lineup or the AI
 // default was played.
 type MatchReport struct {
@@ -59,6 +59,10 @@ type MatchReport struct {
 	Score    [2]uint16
 	Shootout [2]uint16 // a knockout match level after regulation: penalties scored
 	Goals    []matches.Goal
+	// Events are every match event in order (Seq 1..n): goals,
+	// substitutions, mentality changes and the two period ends, including
+	// those of a live match before ResolveRounds.
+	Events []matches.MatchEvent
 }
 
 // RoundsResolved is the recorded result of a ResolveRounds command.
@@ -152,7 +156,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	if err != nil {
 		return RoundsResolved{}, err
 	}
-	outcomes, err := w.simulateBatch(plan)
+	outcomes, played, err := w.simulateBatch(plan)
 	if err != nil {
 		return RoundsResolved{}, err
 	}
@@ -160,6 +164,9 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	var exposures []medical.Exposure
 	for i, p := range plan {
 		if err := w.checkOutcome(p, outcomes[i]); err != nil {
+			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
+		}
+		if err := checkMatchEvents(played[i], outcomes[i].Goals); err != nil {
 			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
 		o := outcomes[i]
@@ -207,6 +214,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 			Fixture: p.fixture.ID, Round: p.round,
 			Home: w.teamLabel(p.fixture.Home), Away: w.teamLabel(p.fixture.Away),
 			Selected: p.selected, Score: outcomes[i].Score, Shootout: outcomes[i].Shootout, Goals: outcomes[i].Goals,
+			Events: played[i],
 		})
 	}
 	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
@@ -420,8 +428,9 @@ func roleOf(p players.Position) matches.Role {
 // each with its own random stream. The manager's live match, if any, is
 // replayed from its stops and continued from there. It never touches world state; outcomes
 // are copied out of the reused step buffer.
-func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, error) {
+func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, [][]matches.MatchEvent, error) {
 	outcomes := make([]matches.MatchOutcome, len(plan))
+	played := make([][]matches.MatchEvent, len(plan))
 	var dst matches.MatchStepResult
 	for i := range plan {
 		p := &plan[i]
@@ -430,13 +439,13 @@ func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, erro
 			// The manager's live match continues from its recorded stops.
 			r, err := w.replay(*p, w.live.stops)
 			if err != nil {
-				return nil, fmt.Errorf("app: resume fixture %d: %w", p.fixture.ID, err)
+				return nil, nil, fmt.Errorf("app: resume fixture %d: %w", p.fixture.ID, err)
 			}
-			session = r.session
+			session, played[i] = r.session, r.events
 		} else {
 			var err error
 			if session, err = w.engine.Start(&p.input, matchRandom(w, p.fixture.ID)); err != nil {
-				return nil, fmt.Errorf("app: start fixture %d: %w", p.fixture.ID, err)
+				return nil, nil, fmt.Errorf("app: start fixture %d: %w", p.fixture.ID, err)
 			}
 		}
 		finished := false
@@ -444,21 +453,56 @@ func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, erro
 		// bound guards against an engine that never finishes.
 		for range 4 {
 			if err := session.Advance(matches.AdvanceRequest{ToMinute: matches.RegulationMinutes}, &dst); err != nil {
-				return nil, fmt.Errorf("app: simulate fixture %d: %w", p.fixture.ID, err)
+				return nil, nil, fmt.Errorf("app: simulate fixture %d: %w", p.fixture.ID, err)
 			}
+			played[i] = append(played[i], dst.Events...)
 			if dst.Status == matches.MatchFinished {
 				finished = true
 				break
 			}
 		}
 		if !finished {
-			return nil, fmt.Errorf("app: fixture %d did not reach full time", p.fixture.ID)
+			return nil, nil, fmt.Errorf("app: fixture %d did not reach full time", p.fixture.ID)
 		}
 		o := dst.Outcome
 		o.Goals, o.Participants = slices.Clone(o.Goals), slices.Clone(o.Participants)
 		outcomes[i] = o
 	}
-	return outcomes, nil
+	return outcomes, played, nil
+}
+
+// checkMatchEvents verifies a completed match's events against its goals, as
+// the engine contract promises: Seq 1..n in minute order within regulation,
+// known kinds with a valid side where one is needed, goal events equal to
+// the goals, and the two period ends at 45 and 90.
+func checkMatchEvents(evs []matches.MatchEvent, goals []matches.Goal) error {
+	var fromEvents []matches.Goal
+	var periodEnds []uint16
+	for i, e := range evs {
+		if e.Seq != uint32(i+1) || e.Minute > matches.RegulationMinutes || (i > 0 && e.Minute < evs[i-1].Minute) {
+			return fmt.Errorf("event %d (seq %d, minute %d) out of order", i, e.Seq, e.Minute)
+		}
+		switch e.Kind {
+		case matches.EventGoal, matches.EventSubstitution, matches.EventMentalityChange:
+			if !e.Side.Valid() {
+				return fmt.Errorf("event %d has side %d", e.Seq, e.Side)
+			}
+			if e.Kind == matches.EventGoal {
+				fromEvents = append(fromEvents, matches.Goal{Minute: e.Minute, Side: e.Side, Scorer: e.Player})
+			}
+		case matches.EventPeriodEnd:
+			periodEnds = append(periodEnds, e.Minute)
+		default:
+			return fmt.Errorf("event %d has kind %d", e.Seq, e.Kind)
+		}
+	}
+	if !slices.Equal(fromEvents, goals) {
+		return fmt.Errorf("goal events %v disagree with goals %v", fromEvents, goals)
+	}
+	if !slices.Equal(periodEnds, []uint16{matches.HalfTimeMinute, matches.RegulationMinutes}) {
+		return fmt.Errorf("periods end at %v", periodEnds)
+	}
+	return nil
 }
 
 // checkOutcome verifies an outcome against its input before anything is
@@ -527,6 +571,7 @@ func cloneResolved(r RoundsResolved) RoundsResolved {
 	r.Matches = slices.Clone(r.Matches)
 	for i := range r.Matches {
 		r.Matches[i].Goals = slices.Clone(r.Matches[i].Goals)
+		r.Matches[i].Events = slices.Clone(r.Matches[i].Events)
 	}
 	return r
 }
@@ -540,7 +585,7 @@ func (w *World) MatchReport(fixture ids.FixtureID) (MatchReport, bool) {
 		}
 		for _, m := range rec.resolve.Result.Matches {
 			if m.Fixture == fixture {
-				m.Goals = slices.Clone(m.Goals)
+				m.Goals, m.Events = slices.Clone(m.Goals), slices.Clone(m.Events)
 				return m, true
 			}
 		}
