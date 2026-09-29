@@ -2,6 +2,7 @@
 {{$d := .Data}}
 {{if $d.Missing}}<h1>Player</h1><p class="muted">{{$d.Missing}}</p>{{else}}
 <h1>{{$d.Name}}</h1>
+<p><a class="button" href="/compare?a={{$d.Player}}">Compare players</a></p>
 <p class="muted">{{$d.Position}} · age {{$d.Age}}{{if $d.Nationality}} · {{$d.Nationality}}{{end}}{{if $d.Retired}} · retired{{else if not $d.Club}} · free agent{{else}} · <a href="/squad?club={{$d.Club}}">{{$d.ClubName}}</a>{{if $d.IsMine}} (You){{end}}{{end}}</p>
 <div class="panel scroll">
 <table>

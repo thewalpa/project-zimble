@@ -219,6 +219,8 @@ func (s *session) loop() {
 			err = s.squad(args)
 		case "player", "p":
 			err = s.player(args)
+		case "compare":
+			err = s.comparePlayers(args)
 		case "table", "t":
 			err = s.table(args)
 		case "tables":

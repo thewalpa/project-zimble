@@ -1,0 +1,28 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Compare players</h1>
+<p class="muted">Compare attributes, condition, contract wage and asking price using the current career data.</p>
+{{if $d.Missing}}<div class="note error">{{$d.Missing}}</div>{{end}}
+<form method="get" action="/compare" class="panel actions">
+  <label>First player ID <input name="a" inputmode="numeric" value="{{$d.AID}}" required></label>
+  <label>Second player ID <input name="b" inputmode="numeric" value="{{$d.BID}}" required></label>
+  <button class="primary">Compare</button>
+</form>
+{{if and $d.HasA $d.HasB}}
+<div class="panel scroll">
+<table>
+  <tr><th>Player</th><th><a href="/player?id={{$d.A.Player}}">{{$d.A.Name}}</a></th><th><a href="/player?id={{$d.B.Player}}">{{$d.B.Name}}</a></th></tr>
+  <tr><th>Club</th><td>{{if $d.A.Retired}}Retired{{else if not $d.A.Club}}Free agent{{else}}{{$d.A.ClubName}}{{end}}</td><td>{{if $d.B.Retired}}Retired{{else if not $d.B.Club}}Free agent{{else}}{{$d.B.ClubName}}{{end}}</td></tr>
+  <tr><th>Position</th><td>{{$d.A.Position}}</td><td>{{$d.B.Position}}</td></tr>
+  <tr><th>Age</th><td>{{$d.A.Age}}</td><td>{{$d.B.Age}}</td></tr>
+  <tr><th>Overall</th><td><b>{{$d.A.Overall}}</b></td><td><b>{{$d.B.Overall}}</b></td></tr>
+  <tr><th>Condition</th><td>{{if $d.A.Retired}}n/a{{else}}{{template "cond" $d.A}}{{end}}</td><td>{{if $d.B.Retired}}n/a{{else}}{{template "cond" $d.B}}{{end}}</td></tr>
+  <tr><th>Weekly wage</th><td>{{if or $d.A.Retired (not $d.A.Club)}}n/a{{else}}{{$d.A.Contract.WeeklyWage}}{{end}}</td><td>{{if or $d.B.Retired (not $d.B.Club)}}n/a{{else}}{{$d.B.Contract.WeeklyWage}}{{end}}</td></tr>
+  <tr><th>Asking price</th><td>{{if or $d.A.Retired (not $d.A.Club)}}n/a{{else}}{{$d.A.Value}}{{end}}</td><td>{{if or $d.B.Retired (not $d.B.Club)}}n/a{{else}}{{$d.B.Value}}{{end}}</td></tr>
+  <tr><th>Wage demand</th><td>{{if and (not $d.A.Retired) (not $d.A.Club)}}{{$d.A.Demand}}{{else}}n/a{{end}}</td><td>{{if and (not $d.B.Retired) (not $d.B.Club)}}{{$d.B.Demand}}{{else}}n/a{{end}}</td></tr>
+  <tr><th>Attributes</th><td>{{range ratings $d.A.Attributes}}{{.}} {{end}}</td><td>{{range ratings $d.B.Attributes}}{{.}} {{end}}</td></tr>
+</table>
+</div>
+<p class="muted">Attribute order: GK, DEF, PAS, FIN, PAC, STA, DRI, HEA, STR, ACC, PSN. Ratings use the 1–100 scale.</p>
+{{end}}
+{{end}}

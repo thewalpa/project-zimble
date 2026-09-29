@@ -2480,6 +2480,18 @@ Added a `tables` command to `cmd/play`; it displays every league standings table
 - `go test ./cmd/play` passes.
 - Match report polish needs ordered match events to survive resolution and saves; filed [match--report-events.md](handoffs/match--report-events.md) for the match lane.
 
+## ui: player comparison (done)
+
+Added side-by-side comparison to the terminal (`compare ID ID`) and browser (`/compare`), with a link from each player profile. Both use the existing `PlayerProfile` query and show position, age, overall, all attributes, condition, weekly wage, asking price and wage demand. Wage and price fields show `n/a` when they do not apply to free agents or retired players. No suitability score is calculated.
+
+### Verification
+
+- `TestComparePlayersCommand` checks the terminal output, unknown players and invalid arguments.
+- `TestComparePlayersPage` checks the browser comparison, profile link and unknown IDs.
+- Targeted `go test ./cmd/play ./cmd/web` passes.
+
+The next UI backlog item, durable player career history, needs the data archive. Filed blocking request [data--player-career-history.md](handoffs/data--player-career-history.md) for a save/load-safe app query.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

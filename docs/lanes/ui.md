@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Answered all eight prior handoffs (injuries, attributes, nationalities, second divisions, promotion and relegation, seller refusals, free agents, the formatting audit): see [progress](../progress.md). Two notes are out: `competitions--cup-qualifiers.md` and `squad--free-agent-reservation-instant.md`. Added `tables` to `cmd/play` for every league. Match report polish needs persisted match events; see [match--report-events.md](../handoffs/match--report-events.md).
+Answered all eight prior handoffs (injuries, attributes, nationalities, second divisions, promotion and relegation, seller refusals, free agents, the formatting audit): see [progress](../progress.md). Added `tables` to `cmd/play` for every league and player comparison to both clients. Two notes remain out: `competitions--cup-qualifiers.md` and `squad--free-agent-reservation-instant.md`. Durable player career history needs the data archive; see [data--player-career-history.md](../handoffs/data--player-career-history.md). Match report polish needs persisted match events; see [match--report-events.md](../handoffs/match--report-events.md).
 
 ## Backlog
 
@@ -39,7 +39,6 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday.  
 
 - **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
-- **Player comparison:** compare two players side by side using the existing squad/profile queries, including attributes, condition, wage and asking price. Keep unknown or inapplicable values explicit; do not invent a client-side suitability score. Support comparing a transfer target with a current squad player in both clients.
 
 ### AI/player rule parity audit
 

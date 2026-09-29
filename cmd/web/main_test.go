@@ -919,7 +919,7 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 func TestPlayerProfilePage(t *testing.T) {
 	c := career(t)
 	contains(t, c.get("/squad"), `href="/player?id=56"`)
-	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond")
+	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond", `/compare?a=56`)
 	// A player of another club shows that club, not "(You)".
 	other := c.get("/player?id=1")
 	contains(t, other, "</html>")
@@ -928,6 +928,13 @@ func TestPlayerProfilePage(t *testing.T) {
 	}
 	contains(t, c.get("/player?id=99999"), "There is no player 99999")
 	contains(t, c.get("/player?id=x"), "is not a player ID")
+}
+
+func TestComparePlayersPage(t *testing.T) {
+	c := career(t)
+	contains(t, c.get("/compare?a=56&b=1"), "Compare players", "Callum Ibsen", "Weekly wage", "Asking price", "Wage demand", "Attribute order")
+	contains(t, c.get("/compare?a=56&b=99999"), "There is no player 99999")
+	contains(t, c.get("/compare?a=x&b=1"), "is not a player ID")
 }
 
 // History lists the champions of past seasons and shows any season's final
