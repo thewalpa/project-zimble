@@ -39,6 +39,7 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday.  
 
 - **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
+- **Improved Player compare:** Player compare should allow to select players of the own team without needing to enter an id
 
 ### AI/player rule parity audit
 
