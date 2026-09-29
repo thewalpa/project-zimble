@@ -242,11 +242,11 @@ func TestContracts(t *testing.T) {
 		"contract: Callum Ibsen renewed until 1 July 2028 at 2,570.00 a week",
 		"contract: Oscar Bellamy left the club as a free agent",
 		"signing: Aaron Abbott joined until 1 July 2029 at 1,340.00 a week",
-		" 168  DF  Tomas Grady               23    46  100%       940.00",
+		" 168  DF  Tomas Grady              Eastmarch   23    46 100%               940.00",
 		"Free agents retire on the eve of 1 July once they are 31.",
 		"! player 44 is not a free agent; type free for the list",
 		"! app: squads cannot change while rounds await results",
-		"  56  MF  Callum Ibsen              27    76  100%     2,570.00  to 2028",
+		"  56  MF  Callum Ibsen             Westmark    27    76 100%             2,570.00  to 2028",
 		"Tomas Grady joined until 1 July 2027 at 940.00 a week.",
 	)
 	if strings.Count(out, "Tomas Grady joined until 1 July 2027 at 940.00 a week.") != 1 {
@@ -317,17 +317,18 @@ func TestTransfers(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "continue", // the cup run
 		"market fw", "market", "bid 344", "bid 547", "bid 617", "bid 238 500000", "bid 238",
-		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "save "+path, "accept 99", "q", "q")
-	contains(t, out,
+		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "free", "save "+path, "accept 99", "q", "q")
+	contains(t, out, "9 free agents wait for a club (type free).",
+		"The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
-		"  37  GRY Jonas Gallo               32    74     2027     410,000.00",
+		"  37  GRY Westmark    Jonas Gallo              Westmark     32    74     2027     410,000.00  (won't join a weaker club)",
 		"! usage: market GK|DF|MF|FW",
 		"You bid 400,000.00 for Aaron Farrow (offer 58), offering 1 year at 2,000.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
 		"! app: your club has already bid for the player in this window: player 238",
 		"! player 44 is not at another club; type market POS for the list",
 		"! app: the squad would fall below its minimum at that position: 5 DF, minimum 5", // before the bought defenders arrive
 		"Elias Gallo is on the transfer list at 1,200,000.00 until the window closes; clubs that need a defender may bid.",
-		"  44  Quillford FC           Elias Gallo              DF   18    75   1,200,000.00",
+		"  44  Quillford FC           Elias Gallo              Westmark   DF   18    75   1,200,000.00",
 		"transfer: Aaron Farrow joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
 		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
 		"bid: Eldhaven United bid 1,200,000.00 for Elias Gallo (offer 87); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
@@ -499,4 +500,50 @@ func TestInboxReadState(t *testing.T) {
 	if got := w.UnreadInboxCount(); got != 0 {
 		t.Fatalf("%d unread after read and save", got)
 	}
+}
+
+// The club chooser lists the clubs by league with their nations; the squad,
+// lineup and player pages show nationalities and all eleven attributes.
+func TestNationalitiesAndAttributes(t *testing.T) {
+	out := play(t, []string{"-seed", "42"}, "3", "squad", "continue", "lineup", "player 56", "quit", "quit")
+	contains(t, out, "Founders League\n  ID  ABB  CLUB", "Harbour Second Division\n", "NATION", "Westmark",
+		"POS NAME                     NATION", "GK DEF PAS FIN PAC STA DRI HEA STR ACC PSN",
+		"Callum Ibsen (player 56), MF, age 26, Westmark", "dribbling, heading, strength, acceleration, positioning")
+	first, second := strings.Index(out, "Founders League\n"), strings.Index(out, "Harbour Second Division\n")
+	if first < 0 || second < first {
+		t.Fatal("the leagues are not listed in order")
+	}
+}
+
+// Tables mark the promotion and relegation places; the history's name column
+// fits the longest competition name.
+func TestPromotionMarksAndHistory(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "table", "season", "history", "quit", "quit")
+	contains(t, out, "down: the bottom 2 are relegated to the division below.")
+	if strings.Count(out, "  down\n") < 2 {
+		t.Fatalf("want two relegation places marked:\n%s", out)
+	}
+	contains(t, out, "down: the bottom 2 were relegated to the division below.")
+	contains(t, out, fmt.Sprintf("COMP %-24s SEASON  CHAMPION", "NAME"), "Harbour Second Division")
+}
+
+// Matches hurt players: the inbox and squad say who is out, and the client
+// prints the recovery days.
+func TestInjuriesInTheTerminal(t *testing.T) {
+	script := []string{"season"}
+	for range 12 {
+		script = append(script, "continue")
+	}
+	script = append(script, "squad", "inbox 40", "quit", "quit")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, script...)
+	contains(t, out, "injury: ", " is out for ", "out ")
+	if !strings.Contains(out, "d  ") && !strings.Contains(out, "d\n") {
+		t.Fatalf("no recovery days shown:\n%s", out)
+	}
+}
+
+// The season-end message says when the club goes up or down a division.
+func TestSeasonEndSaysRelegation(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "7"}, "season", "continue", "continue", "inbox 20", "quit", "quit")
+	contains(t, out, "you finished 8th: relegated to the division below")
 }

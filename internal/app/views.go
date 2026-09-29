@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 )
 
@@ -129,4 +130,31 @@ func (w *World) PlayerProfile(id ids.PlayerID) (PlayerProfile, bool) {
 		}
 	}
 	return out, true
+}
+
+// PromotionPlaces returns how many places at the top of the league's table go
+// up to the division above at the season's end, and how many at the bottom go
+// down to the division below (zero when the league has no such link). Read-only.
+func (w *World) PromotionPlaces(league ids.CompetitionID) (up, down int) {
+	for _, l := range w.Promotions() {
+		switch league {
+		case l.Lower:
+			up = l.Places
+		case l.Upper:
+			down = l.Places
+		}
+	}
+	return up, down
+}
+
+// SeasonMove says whether finishing a league season at the position gets a
+// club promoted to the division above or relegated to the division below.
+// Read-only.
+func (w *World) SeasonMove(ref competitions.SeasonRef, position int) (promoted, relegated bool) {
+	up, down := w.PromotionPlaces(ref.Competition)
+	if position < 1 {
+		return false, false
+	}
+	t, ok := w.Table(ref)
+	return position <= up, ok && down > 0 && position > len(t.Rows)-down
 }

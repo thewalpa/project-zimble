@@ -163,9 +163,12 @@ func (s *session) freeAgents(args []string) error {
 		}
 		return cmp.Or(diff, cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
 	})
-	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "ASKS FOR")
+	s.printf("\n%4s  %-3s %-24s %-10s %3s %5s %-12s %12s\n", "ID", "POS", "NAME", "NATION", "AGE", "OVR", "COND", "ASKS FOR")
 	for _, p := range agents {
-		s.printf("%4d  %-3s %-24s %3d %5d %5s %12s\n", p.Player, p.Position, p.Name, p.Age, p.Overall, condition(p.Condition), p.Demand)
+		s.printf("%4d  %-3s %-24s %-10s %3d %5d %-12s %12s\n", p.Player, p.Position, p.Name, p.Nationality, p.Age, p.Overall, fitness(p), p.Demand)
+	}
+	if s.w.TransferWindow().Open {
+		s.printf("The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs.\n")
 	}
 	s.printf("Free agents retire on the eve of %s once they are %d.\n", monthDay(s.w.Calendar().Epoch()), players.FreeAgentRetirementAge)
 	s.printf("sign ID [YEARS [WAGE]] signs a player; without YEARS and WAGE it offers the usual terms.\n")

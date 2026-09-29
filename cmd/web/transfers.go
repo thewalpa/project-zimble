@@ -27,19 +27,23 @@ type offerRow struct {
 
 type marketRow struct {
 	app.SquadPlayer
-	Club  string
-	Ends  int
-	Offer app.ContractOffer
+	Club    string
+	Nation  string // the nation the club plays in
+	Ends    int
+	Offer   app.ContractOffer
+	Refusal string // why the club would refuse a bid at its price now; empty when it sells
 }
 
 type listedRow struct {
 	app.ListedPlayer
-	Ours  bool
-	Offer app.ContractOffer
+	Ours    bool
+	Offer   app.ContractOffer
+	Refusal string
 }
 
 type transfersView struct {
 	Window       string
+	NeededNote   string // from the days before the close: what AI clubs still sell
 	Open         bool
 	CanBid       bool // the window takes bids and no matchday is waiting
 	Room         bool // the squad has room for more players
@@ -68,6 +72,28 @@ func (s *server) windowText() string {
 	return fmt.Sprintf("The transfer window is open until %s; clubs answer bids made before %s.", cal.Format(win.Closes), cal.Format(win.BidsClose))
 }
 
+// refusalText says why an AI club would refuse a bid at its price, or "".
+func refusalText(r app.BidRefusal) string {
+	switch r {
+	case app.RefusalStar:
+		return "won't join a weaker club"
+	case app.RefusalSettling:
+		return "just signed"
+	case app.RefusalNeeded:
+		return "needed until the window closes"
+	}
+	return ""
+}
+
+// neededNote is the notice from the day AI clubs stop selling the players they need.
+func (s *server) neededNote() string {
+	win := s.w.TransferWindow()
+	if !win.Open || s.w.Now() < win.NeededClose || s.w.Now() >= win.Closes {
+		return ""
+	}
+	return "The window is about to close: AI clubs now sell only listed players and players they can spare."
+}
+
 // openBidsForUs counts the bids for the club's players awaiting an answer.
 func (s *server) openBidsForUs() int {
 	n := 0
@@ -92,6 +118,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 	squad, _ := s.w.Squad(s.club())
 	v := transfersView{
 		Window:     s.windowText(),
+		NeededNote: s.neededNote(),
 		Open:       win.Open,
 		CanBid:     win.Open && s.w.Now() < win.BidsClose && !locked,
 		Room:       len(squad) < defs.SquadLimit,
@@ -119,6 +146,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 		row := listedRow{ListedPlayer: l, Ours: l.Club == s.club()}
 		if !row.Ours {
 			row.Offer, _ = s.w.SuggestContract(l.Player)
+			row.Refusal = refusalText(s.w.BidRefusal(l.Player))
 		}
 		v.Listed = append(v.Listed, row)
 	}
@@ -133,7 +161,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 			}
 			ends, _ := cal.Civil(p.Contract.Expires)
 			o, _ := s.w.SuggestContract(p.Player)
-			v.Market = append(v.Market, marketRow{SquadPlayer: p, Club: c.ShortName, Ends: ends.Year, Offer: o})
+			v.Market = append(v.Market, marketRow{SquadPlayer: p, Club: c.ShortName, Nation: c.Nation, Ends: ends.Year, Offer: o, Refusal: refusalText(s.w.BidRefusal(p.Player))})
 		}
 	}
 	v.SortMarket = newSortStatePrefixed(r, "m_", "ovr", "desc")

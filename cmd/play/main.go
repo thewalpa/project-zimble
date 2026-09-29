@@ -153,9 +153,17 @@ func (s *session) newCareer(seed random.Seed, club ids.ClubID) (*app.World, erro
 			return nil, err
 		}
 		s.printf("New career (seed %d). Choose your club:\n\n", seed)
-		s.printf("%4s  %-3s  %-22s %5s\n", "ID", "ABB", "CLUB", "OVR")
+		summary := map[ids.ClubID]app.ClubSummary{}
 		for _, c := range preview.Summary().ClubRows {
-			s.printf("%4d  %-3s  %-22s %5d\n", c.ID, c.ShortName, c.Name, c.AverageOverall)
+			summary[c.ID] = c
+		}
+		for _, t := range preview.Tables() {
+			s.printf("%s\n%4s  %-3s  %-22s %-10s %5s\n", t.CompetitionName, "ID", "ABB", "CLUB", "NATION", "OVR")
+			for _, row := range t.Rows {
+				c := summary[row.Label.Club]
+				s.printf("%4d  %-3s  %-22s %-10s %5d\n", c.ID, c.ShortName, c.Name, c.Nation, c.AverageOverall)
+			}
+			s.printf("\n")
 		}
 		for club == 0 {
 			line, ok := s.prompt("\nclub ID> ")
@@ -452,6 +460,9 @@ func (s *session) status() {
 			s.printf(" %d bids for your players await your answer.", n)
 		}
 		s.printf(" (type transfers)\n")
+		if n := len(s.w.FreeAgents()); n > 0 {
+			s.printf("%d free agents wait for a club (type free).\n", n)
+		}
 	}
 	if l, live := s.w.LiveMatch(); live {
 		s.printf("LIVE %d'  %s %d-%d %s. watch to play on, sub/mentality to change, continue to finish.\n",
@@ -545,13 +556,13 @@ func (s *session) squad(args []string) error {
 		return cmp.Or(diff, cmp.Compare(a.Player, b.Player))
 	})
 	cal := s.w.Calendar()
-	s.printf("\n%4s  %-3s %-24s %3s %5s %5s %12s %8s  %s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND", "WAGE/WEEK", "CONTRACT", "PICK")
+	s.printf("\n%4s  %-3s %-24s %-10s %3s %5s %-12s %12s %8s  %s\n", "ID", "POS", "NAME", "NATION", "AGE", "OVR", "COND", "WAGE/WEEK", "CONTRACT", "PICK")
 	for _, p := range players {
 		ends, _ := cal.Civil(p.Contract.Expires)
-		s.printf("%4d  %-3s %-24s %3d %5d %5s %12s %8s  %s\n", p.Player, p.Position, p.Name, p.Age,
-			p.Overall, condition(p.Condition), p.Contract.WeeklyWage, fmt.Sprintf("to %d", ends.Year), marks[p.Player])
+		s.printf("%4d  %-3s %-24s %-10s %3d %5d %-12s %12s %8s  %s\n", p.Player, p.Position, p.Name, p.Nationality, p.Age,
+			p.Overall, fitness(p), p.Contract.WeeklyWage, fmt.Sprintf("to %d", ends.Year), marks[p.Player])
 	}
-	s.printf("Ratings are 1-100. COND is fitness (100%% = fully fit). Contracts end on %s of the year shown.\n",
+	s.printf("Ratings are 1-100. COND is fitness (100%% = fully fit); \"out 12d\" is an injury with 12 recovery days to go. Contracts end on %s of the year shown.\n",
 		monthDay(cal.Epoch()))
 	s.printf("Every year on the eve of that date, young players improve, older ones decline, and some retire.\n")
 	defs := s.w.Content()
@@ -565,6 +576,14 @@ func (s *session) squad(args []string) error {
 }
 
 func condition(c uint8) string { return fmt.Sprintf("%d%%", c) }
+
+// fitness is a player's condition, with the recovery days left when he is injured.
+func fitness(p app.SquadPlayer) string {
+	if p.DaysOut > 0 {
+		return fmt.Sprintf("%d%% out %dd", p.Condition, p.DaysOut)
+	}
+	return condition(p.Condition)
+}
 
 func (s *session) table(args []string) error {
 	col := "rank"
@@ -645,14 +664,48 @@ func (s *session) table(args []string) error {
 func (s *session) printTable(t app.Table, rows []app.TableRow) {
 	s.printf("\n%s season %d (%d/%d rounds)\n", t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	s.printf("%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
+	moves, legend := s.promotionMoves(t)
 	for _, r := range rows {
 		mark := " "
 		if r.Label.Club == s.club() {
 			mark = "*"
 		}
-		s.printf("%3d%s %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d\n", r.Rank, mark, r.Label.ShortName, r.Label.ClubName,
-			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points)
+		move := moves(r.Rank)
+		if move != "" {
+			move = "  " + move
+		}
+		s.printf("%3d%s %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d%s\n", r.Rank, mark, r.Label.ShortName, r.Label.ClubName,
+			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points, move)
 	}
+	if legend != "" {
+		s.printf("%s\n", legend)
+	}
+}
+
+// promotionMoves returns each rank's mark in a league table ("up", "down" or
+// "") for the places the promotion links move at the season end, and a legend.
+func (s *session) promotionMoves(t app.Table) (mark func(rank int) string, legend string) {
+	up, down := s.w.PromotionPlaces(t.Competition)
+	are := "are"
+	if t.Complete {
+		are = "were"
+	}
+	mark = func(rank int) string {
+		switch {
+		case rank >= 1 && rank <= up:
+			return "up"
+		case down > 0 && rank > len(t.Rows)-down:
+			return "down"
+		}
+		return ""
+	}
+	switch {
+	case up > 0:
+		legend = fmt.Sprintf("up: the top %d %s promoted to the division above.", up, are)
+	case down > 0:
+		legend = fmt.Sprintf("down: the bottom %d %s relegated to the division below.", down, are)
+	}
+	return mark, legend
 }
 
 func (s *session) fixtures(args []string) error {
@@ -838,6 +891,12 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 		if m.Position > 0 {
 			s.printf("; you finished %s", ordinal(m.Position))
+			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
+			case up:
+				s.printf(": promoted to the division above")
+			case down:
+				s.printf(": relegated to the division below")
+			}
 		}
 		s.printf("\n")
 	case inbox.KindSeasonStarted:
@@ -860,6 +919,10 @@ func (s *session) printMessage(m app.InboxItem) {
 		s.printf("development: %d of your players improved and %d declined over the year (type squad)\n", m.Improved, m.Declined)
 	case inbox.KindReleased:
 		s.printf("release: %s left the club as a free agent; you paid %s\n", m.PlayerName, m.Compensation)
+	case inbox.KindInjured:
+		s.printf("injury: %s is out for %d days\n", m.PlayerName, m.Days)
+	case inbox.KindRecovered:
+		s.printf("injury: %s is fit again\n", m.PlayerName)
 	default:
 		s.printTransferMessage(m)
 	}
@@ -997,31 +1060,37 @@ func (s *session) showLineup() error {
 		s.printf("%s\n", msg)
 	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
-	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %5s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", " GK DEF PAS FIN PAC STA")
+	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %-12s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", attributeHeader)
 	for i, sl := range d.lineup.Starters {
 		p := squad[sl.Player]
 		note := ""
 		if naturalRole(p.Position) != sl.Role {
 			note = "  (out of position)"
 		}
-		s.printf("%3d  %-4s %4d  %-24s %-3s %5d %5s  %s%s\n", i+1, roleName(sl.Role), p.Player, p.Name, p.Position,
-			p.Overall, condition(p.Condition), ratings(p.Attributes), note)
+		s.printf("%3d  %-4s %4d  %-24s %-3s %5d %-12s  %s%s\n", i+1, roleName(sl.Role), p.Player, p.Name, p.Position,
+			p.Overall, fitness(p), ratings(p.Attributes), note)
 	}
 	s.printf("\nBench:\n")
 	for _, id := range d.lineup.Bench {
 		p := squad[id]
-		s.printf("     %-4s %4d  %-24s %-3s %5d %5s  %s\n", "", p.Player, p.Name, p.Position,
-			p.Overall, condition(p.Condition), ratings(p.Attributes))
+		s.printf("     %-4s %4d  %-24s %-3s %5d %-12s  %s\n", "", p.Player, p.Name, p.Position,
+			p.Overall, fitness(p), ratings(p.Attributes))
 	}
-	s.printf("\nRatings are 1-100: goalkeeping, defending, passing, finishing, pace, stamina.\n")
+	s.printf("\n%s\n", ratingsLegend)
 	s.printf("Edit with swap/role/mentality; continue plays the match.\n")
 	return nil
 }
 
-// ratings formats attributes (1..100) in the column order GK DEF PAS FIN PAC STA.
+const (
+	attributeHeader = " GK DEF PAS FIN PAC STA DRI HEA STR ACC PSN"
+	ratingsLegend   = "Ratings are 1-100: goalkeeping, defending, passing, finishing, pace, stamina, dribbling, heading, strength, acceleration, positioning. \"out 12d\" is an injury with 12 recovery days to go."
+)
+
+// ratings formats attributes (1..100) in the column order of attributeHeader.
 func ratings(r players.Attributes) string {
-	return fmt.Sprintf("%3d %3d %3d %3d %3d %3d", r[players.Goalkeeping], r[players.Defending], r[players.Passing],
-		r[players.Finishing], r[players.Pace], r[players.Stamina])
+	return fmt.Sprintf("%3d %3d %3d %3d %3d %3d %3d %3d %3d %3d %3d", r[players.Goalkeeping], r[players.Defending], r[players.Passing],
+		r[players.Finishing], r[players.Pace], r[players.Stamina], r[players.Dribbling], r[players.Heading],
+		r[players.Strength], r[players.Acceleration], r[players.Positioning])
 }
 
 func (s *session) squadByID() map[ids.PlayerID]app.SquadPlayer {
@@ -1847,7 +1916,7 @@ func (s *session) player(args []string) error {
 	if !ok {
 		return fmt.Errorf("no player %d", id)
 	}
-	s.printf("\n%s (player %d), %s, age %d\n", p.Name, p.Player, p.Position, p.Age)
+	s.printf("\n%s (player %d), %s, age %d, %s\n", p.Name, p.Player, p.Position, p.Age, p.Nationality)
 	switch {
 	case p.Retired:
 		s.printf("Status:    retired\n")
@@ -1864,9 +1933,9 @@ func (s *session) player(args []string) error {
 		}
 	}
 	if !p.Retired {
-		s.printf("Condition: %s\n", condition(p.Condition))
+		s.printf("Condition: %s\n", fitness(p.SquadPlayer))
 	}
 	s.printf("Overall:   %d\n", p.Overall)
-	s.printf("%s\n%s\n", " GK DEF PAS FIN PAC STA", ratings(p.Attributes))
+	s.printf("%s\n%s\n", attributeHeader, ratings(p.Attributes))
 	return nil
 }

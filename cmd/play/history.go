@@ -17,7 +17,11 @@ func (s *session) history(args []string) error {
 	}
 	records := s.w.History()
 	if len(args) == 0 {
-		s.printf("\n%-4s %-20s %6s  %s\n", "COMP", "NAME", "SEASON", "CHAMPION")
+		width := len("NAME")
+		for _, h := range records {
+			width = max(width, len(h.CompetitionName))
+		}
+		s.printf("\n%-4s %-*s %6s  %s\n", "COMP", width, "NAME", "SEASON", "CHAMPION")
 		for _, h := range records {
 			champion := "in progress"
 			switch {
@@ -29,7 +33,7 @@ func (s *session) history(args []string) error {
 			case h.Complete:
 				champion = "none"
 			}
-			s.printf("%-4d %-20s %6d  %s\n", h.Season.Competition, h.CompetitionName, h.Season.Season, champion)
+			s.printf("%-4d %-*s %6d  %s\n", h.Season.Competition, width, h.CompetitionName, h.Season.Season, champion)
 		}
 		s.printf("\nType history COMP SEASON for a season's final table or bracket.\n")
 		return nil

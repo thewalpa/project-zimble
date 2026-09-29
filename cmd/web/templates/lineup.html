@@ -19,25 +19,22 @@
       <th>{{sortHeader $d.Sort "selection" "Selection" "asc"}}</th>
       <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
       <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
+      <th>{{sortHeader $d.Sort "nat" "Nat" "asc"}}</th>
       <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
       <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
       <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "gk" "GK" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "def" "DEF" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "pas" "PAS" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "fin" "FIN" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "pac" "PAC" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "sta" "STA" "desc"}}</th>
+      {{template "attrHeads" $d.Sort}}
     </tr>
     {{range $d.Rows}}{{$slot := .Slot}}
     <tr>
       <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>
-      <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Condition}}%</td>
+      <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>
       {{range ratings .Attributes}}<td class="n">{{.}}</td>{{end}}
     </tr>
     {{end}}
   </table>
   </div>
+  <p class="muted">{{template "attrLegend"}}</p>
   <div class="actions">
     <button class="primary">Save lineup</button>
     {{if $d.IsSuggested}}

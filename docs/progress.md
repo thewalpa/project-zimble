@@ -2442,6 +2442,34 @@ Present differences include AI-only vacancy youth, player-only free-agent grace/
 
 Filed focused handoffs for intake, admission checks, consent and decision stops. Accepted the five pending balance measurement notes into the backlog without claiming their sweeps complete. No football behavior changed; two misformatted map entries in `cmd/simulate/main_test.go` were normalized to clear a pre-existing formatting failure, with an informational ui note. Verification: `gofmt -l .` is empty, `go vet ./...` and `go test ./...` pass, and new audit/handoff file links resolve.
 
+## ui: eight handoffs answered (done)
+
+Both clients now show what the last four feature lanes added: injuries, the five new attributes, nationalities, second divisions with promotion and relegation, the AI sellers' refusals and the free-agent pool.
+
+### Changes
+
+| Area | Change |
+| --- | --- |
+| `internal/app/views.go` | Read-only `PromotionPlaces(league)` (top places that go up, bottom places that go down, from the pinned links) and `SeasonMove(ref, position)`. They only read `Promotions()` and `Table()` |
+| Attributes | Squad, lineup and player pages show all eleven (`DRI HEA STR ACC PSN` after the old six), sortable in the web; a legend from one template/constant in each client. `cmd/play` lineup and player use the wider `ratings()` |
+| Nationality | A `Nat` column in the squad, lineup, free-agent, transfer-list and market tables (sortable in the web), on the player page, the club's nation next to a club in the market and on the club pickers. The club chooser lists clubs by league (grouped in `cmd/play`, a sortable League column in the web) |
+| Injuries | "out 12 d" beside condition on every page that shows condition; inbox kinds `KindInjured` and `KindRecovered` rendered; `cmd/simulate`'s squad shows them too. The lineup editors still list injured players: `SubmitLineup` refuses one and the error is shown (the "too few fit players" exception is `app`'s, not a client rule) |
+| Promotion and relegation | Tables (both clients, and the web history page) mark the places (▲/▼ in the web, `up`/`down` in the terminal) with a legend, in the current table as "would go" and in a finished season's as "were"; the season-end inbox message says "promoted to the division above" or "relegated to the division below"; `cmd/simulate` marks its tables |
+| Second divisions | `cmd/play` history sizes its name column from the names; only the first divisions say "the top four play in the Continental Cup" |
+| Transfers | Market and list rows say why `BidRefusal` refuses a bid; from `TransferWindow().NeededClose` both clients say AI clubs sell only listed players and players they can spare |
+| Free agents | The window notice (status, home, the free-agent page) points at the pool and says the best free agents may go to AI clubs from the middle of the window, without computing a date |
+
+### Decisions
+
+- **Marks come from `app`.** Clients only turn `PromotionPlaces` and a table's ranks into marks; nothing computes who goes up.
+- **One stand-in.** "Only the first divisions send their top four to the cup" is derived from "a league with no promotion places". It is wrong as soon as a second division qualifies for a cup: `competitions--cup-qualifiers.md` asks for the qualifiers.
+- **The exact instant** from which AI clubs may sign free agents is not shown: `squad--free-agent-reservation-instant.md` asks for it.
+- **`cmd/play` `table`** still shows only the managed club's league (the web shows all four); listed in the lane backlog.
+
+### Verification
+
+Web and terminal tests drive the pages as a player does: `TestAttributesAndNationalities`, `TestInjuriesInTheBrowser`, `TestPromotionAndRelegationMarks`, `TestMarketRefusalsInTheBrowser` and `TestSeasonEndSaysRelegation` for the web; `TestNationalitiesAndAttributes`, `TestPromotionMarksAndHistory`, `TestInjuriesInTheTerminal` and `TestSeasonEndSaysRelegation` for `cmd/play`; `TestPromotionViews` for the new queries. `TestTableRowsMatchTheirHeaders` now covers the table, transfers and history pages too.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

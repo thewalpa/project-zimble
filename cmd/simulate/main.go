@@ -226,7 +226,7 @@ func printStatus(out io.Writer, w *app.World) error {
 		}
 	}
 	for _, t := range w.Tables() {
-		if err := printTable(out, t); err != nil {
+		if err := printTable(out, w, t); err != nil {
 			return err
 		}
 	}
@@ -290,11 +290,15 @@ func printSquad(out io.Writer, w *app.World) error {
 		return nil
 	}
 	squad, _ := w.Squad(club)
-	fmt.Fprintf(out, "\nSquad (condition: 100%% is fully fit)\n")
-	fmt.Fprintf(out, "%4s  %-3s %-24s %3s %5s %6s\n", "ID", "POS", "NAME", "AGE", "OVR", "COND")
+	fmt.Fprintf(out, "\nSquad (condition: 100%% is fully fit; \"out 12d\" is an injury with 12 recovery days to go)\n")
+	fmt.Fprintf(out, "%4s  %-3s %-24s %-10s %3s %5s %6s\n", "ID", "POS", "NAME", "NATION", "AGE", "OVR", "COND")
 	for _, p := range squad {
-		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %3d %5d %5d%%\n", p.Player, p.Position, p.Name, p.Age,
-			p.Overall, p.Condition)
+		injured := ""
+		if p.DaysOut > 0 {
+			injured = fmt.Sprintf("  out %dd", p.DaysOut)
+		}
+		_, err := fmt.Fprintf(out, "%4d  %-3s %-24s %-10s %3d %5d %5d%%%s\n", p.Player, p.Position, p.Name, p.Nationality, p.Age,
+			p.Overall, p.Condition, injured)
 		if err != nil {
 			return err
 		}
@@ -419,7 +423,7 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 	}
 	for _, ref := range seasons {
 		t, _ := w.Table(ref)
-		if err := printTable(out, t); err != nil {
+		if err := printTable(out, w, t); err != nil {
 			return err
 		}
 	}
@@ -520,16 +524,24 @@ func firstFixture(res app.RoundsResolved, r competitions.RoundRef) ids.FixtureID
 	return 0
 }
 
-func printTable(out io.Writer, t app.Table) error {
+func printTable(out io.Writer, w *app.World, t app.Table) error {
 	title := "Table"
 	if t.Complete {
 		title = "Final table"
 	}
 	fmt.Fprintf(out, "\n%s: %s season %d (%d/%d rounds)\n", title, t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	fmt.Fprintf(out, "%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
+	up, down := w.PromotionPlaces(t.Competition)
 	for _, r := range t.Rows {
-		fmt.Fprintf(out, "%3d  %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d\n", r.Rank, r.Label.ShortName, r.Label.ClubName,
-			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points)
+		move := ""
+		switch {
+		case r.Rank <= up:
+			move = "  up"
+		case down > 0 && r.Rank > len(t.Rows)-down:
+			move = "  down"
+		}
+		fmt.Fprintf(out, "%3d  %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d%s\n", r.Rank, r.Label.ShortName, r.Label.ClubName,
+			r.Played, r.Won, r.Drawn, r.Lost, r.GoalsFor, r.GoalsAgainst, r.GoalDifference(), r.Points, move)
 	}
 	if t.Complete && len(t.Rows) > 0 {
 		fmt.Fprintf(out, "Champion: %s (%s)\n", t.Rows[0].Label.ClubName, t.Rows[0].Label.ShortName)

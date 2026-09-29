@@ -29,7 +29,24 @@ func (s *session) windowLine() string {
 	if !win.Open {
 		return fmt.Sprintf("The transfer window opens on %s.", cal.Format(win.Opens))
 	}
-	return fmt.Sprintf("The transfer window is open until %s; clubs answer bids made before %s.", cal.Format(win.Closes), cal.Format(win.BidsClose))
+	line := fmt.Sprintf("The transfer window is open until %s; clubs answer bids made before %s.", cal.Format(win.Closes), cal.Format(win.BidsClose))
+	if s.w.Now() >= win.NeededClose && s.w.Now() < win.Closes {
+		line += " The window is about to close: AI clubs now sell only listed players and players they can spare."
+	}
+	return line
+}
+
+// refusalText says why an AI club would refuse a bid at its price, or "".
+func refusalText(r app.BidRefusal) string {
+	switch r {
+	case app.RefusalStar:
+		return "won't join a weaker club"
+	case app.RefusalSettling:
+		return "just signed"
+	case app.RefusalNeeded:
+		return "needed until the window closes"
+	}
+	return ""
 }
 
 // bidsReceived returns the open bids for the club's players.
@@ -207,7 +224,8 @@ func (s *session) market(args []string) error {
 	}
 	type row struct {
 		app.SquadPlayer
-		club string
+		club   string
+		nation string
 	}
 	var rows []row
 	for _, c := range s.w.Summary().ClubRows {
@@ -217,7 +235,7 @@ func (s *session) market(args []string) error {
 		squad, _ := s.w.Squad(c.ID)
 		for _, p := range squad {
 			if p.Position == pos {
-				rows = append(rows, row{p, c.ShortName})
+				rows = append(rows, row{p, c.ShortName, c.Nation})
 			}
 		}
 	}
@@ -245,14 +263,17 @@ func (s *session) market(args []string) error {
 		return cmp.Or(diff, cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
 	})
 	cal := s.w.Calendar()
-	s.printf("\n%4s  %-3s %-24s %3s %5s %8s %14s\n", "ID", "CLB", "NAME", "AGE", "OVR", "ENDS", "ASKING PRICE")
+	s.printf("\n%4s  %-3s %-10s %-24s %-10s %3s %5s %8s %14s\n", "ID", "CLB", "CLUB NATION", "NAME", "NATIONALITY", "AGE", "OVR", "ENDS", "ASKING PRICE")
 	for _, r := range rows[:min(len(rows), 20)] {
 		ends, _ := cal.Civil(r.Contract.Expires)
-		listed := ""
+		note := ""
 		if r.Listed {
-			listed = "  listed"
+			note = "  listed"
 		}
-		s.printf("%4d  %-3s %-24s %3d %5d %8d %14s%s\n", r.Player, r.club, r.Name, r.Age, r.Overall, ends.Year, r.Value, listed)
+		if why := refusalText(s.w.BidRefusal(r.Player)); why != "" {
+			note += "  (" + why + ")"
+		}
+		s.printf("%4d  %-3s %-11s %-24s %-11s %3d %5d %8d %14s%s\n", r.Player, r.club, r.nation, r.Name, r.Nationality, r.Age, r.Overall, ends.Year, r.Value, note)
 	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		s.printf("Your balance is %s. %s\n", fin.Balance, s.windowLine())
@@ -273,9 +294,15 @@ func (s *session) list(args []string) error {
 			s.printf("No one is on the transfer list. %s\n", s.windowLine())
 			return nil
 		}
-		s.printf("\n%4s  %-22s %-24s %-3s %3s %5s %14s\n", "ID", "CLUB", "NAME", "POS", "AGE", "OVR", "ASKING PRICE")
+		s.printf("\n%4s  %-22s %-24s %-10s %-3s %3s %5s %14s\n", "ID", "CLUB", "NAME", "NATION", "POS", "AGE", "OVR", "ASKING PRICE")
 		for _, l := range list {
-			s.printf("%4d  %-22s %-24s %-3s %3d %5d %14s\n", l.Player, l.ClubName, l.Name, l.Position, l.Age, l.Overall, l.Value)
+			note := ""
+			if l.Club != s.club() {
+				if why := refusalText(s.w.BidRefusal(l.Player)); why != "" {
+					note = "  (" + why + ")"
+				}
+			}
+			s.printf("%4d  %-22s %-24s %-10s %-3s %3d %5d %14s%s\n", l.Player, l.ClubName, l.Name, l.Nationality, l.Position, l.Age, l.Overall, l.Value, note)
 		}
 		s.printf("bid ID buys another club's player at his asking price; list ID [PRICE] and unlist ID manage yours.\n")
 		return nil

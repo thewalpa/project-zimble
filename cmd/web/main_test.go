@@ -949,7 +949,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "Quarter-finals", "Won by <b>Brightwater Albion</b>", "← All seasons")
+	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Brightwater Albion</b>", "← All seasons")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
 	if err != nil {
 		t.Fatal(err)
@@ -1033,9 +1033,134 @@ func TestTableRowsMatchTheirHeaders(t *testing.T) {
 			}
 		}
 	}
-	for _, path := range []string{"/squad", "/player?id=56"} {
+	for _, path := range []string{"/squad", "/player?id=56", "/table", "/transfers", "/transfers?pos=GK", "/history"} {
 		check(path, c.get(path))
 	}
 	contains(t, c.post("/continue", nil), "Pick lineup")
 	check("/lineup", c.get("/lineup"))
+}
+
+// The squad, lineup, free-agent and profile pages show all eleven attributes
+// and every player's nationality; the sort links take the new columns.
+func TestAttributesAndNationalities(t *testing.T) {
+	c := career(t)
+	for _, path := range []string{"/squad", "/player?id=56"} {
+		contains(t, c.get(path), "DRI", "HEA", "STR", "ACC", "PSN", "Westmark")
+	}
+	contains(t, c.get("/player?id=56"), "· Westmark ·")
+	contains(t, c.get("/free"), "Nat")
+	contains(t, c.get("/transfers"), "Nat", "(Eastmarch)") // the clubs' nations in the market
+	squad, _ := c.s.w.Squad(c.s.club())
+	firstPlayer := regexp.MustCompile(`<td><a href="/player\?id=(\d+)">`)
+	for col, attr := range attributeColumns {
+		page := c.get("/squad?sort=" + col + "&dir=desc")
+		m := firstPlayer.FindStringSubmatch(page)
+		if m == nil {
+			t.Fatalf("sort %s: no rows", col)
+		}
+		id, _ := strconv.Atoi(m[1])
+		best, got := 0, -1
+		for _, p := range squad {
+			best = max(best, int(p.Attributes[attr]))
+			if int(p.Player) == id {
+				got = int(p.Attributes[attr])
+			}
+		}
+		if got != best {
+			t.Errorf("sort %s desc starts with %d, the best is %d", col, got, best)
+		}
+	}
+	contains(t, c.get("/squad?sort=nat&dir=asc"), "Eastmarch")
+	// The club chooser groups the 32 clubs by league, in competition order.
+	page := newClient(t, config{seed: 42, savePath: filepath.Join(t.TempDir(), "c.json")}).get("/")
+	if i, j := strings.Index(page, "Founders League"), strings.Index(page, "Harbour Second Division"); i < 0 || j < i {
+		t.Fatal("the club chooser doesn't list the leagues in order")
+	}
+}
+
+// A managed season hurts players: the inbox tells, the squad and lineup mark
+// who is out, and a lineup that starts an injured player is explained.
+func TestInjuriesInTheBrowser(t *testing.T) {
+	c := career(t)
+	var out app.SquadPlayer
+	for i := 0; i < 120 && out.Player == 0; i++ {
+		c.post("/continue", nil)
+		if _, pending := c.s.pendingFixture(); !pending {
+			continue
+		}
+		squad, _ := c.s.w.Squad(c.s.club())
+		for _, p := range squad {
+			if p.DaysOut > 0 {
+				out = p
+			}
+		}
+	}
+	if out.Player == 0 {
+		t.Fatal("nobody was injured on a matchday in 120 continues")
+	}
+	mark := fmt.Sprintf(`<span class="out" title="Injured: misses matches until he recovers">out %d d</span>`, out.DaysOut)
+	contains(t, c.get("/squad"), mark)
+	contains(t, c.get("/lineup"), mark)
+	contains(t, c.get("/inbox"), out.Name+" is out for ")
+	contains(t, c.get("/player?id="+strconv.Itoa(int(out.Player))), fmt.Sprintf("out %d d", out.DaysOut))
+	fixture, _ := c.s.pendingFixture()
+	form := lineupForm(c, fixture, "balanced")
+	form.Set(fmt.Sprintf("slot-%d", out.Player), "bench")
+	contains(t, c.post("/lineup", form), fmt.Sprintf("player %d is injured", out.Player))
+}
+
+// Tables mark the places that change division: the current table says who
+// would move, a finished season's who did.
+func TestPromotionAndRelegationMarks(t *testing.T) {
+	c := career(t)
+	page := c.get("/table")
+	contains(t, page, "▼ the bottom 2 are relegated", "▲ the top 2 are promoted", "Harbour Second Division")
+	if up, down := strings.Count(page, `class="up"`), strings.Count(page, `class="out"`); up != 4 || down != 4 {
+		t.Fatalf("%d promotion and %d relegation marks in four leagues, want 4 and 4", up, down)
+	}
+	if strings.Count(page, "play in the Continental Cup") != 2 {
+		t.Fatal("only the first divisions send their top four to the cup")
+	}
+	c.post("/season", nil)
+	for range 7 {
+		c.post("/continue", nil)
+	}
+	contains(t, c.get("/table"), "▼ the bottom 2 were relegated", "▲ the top 2 were promoted", "final table", `title="Relegated"`, `title="Promoted"`)
+}
+
+// The market says which clubs will not sell at their price, and the window's
+// last days say that AI clubs sell only what they can spare.
+func TestMarketRefusalsInTheBrowser(t *testing.T) {
+	c := career(t)
+	c.post("/season", nil)
+	for range 8 {
+		c.post("/continue", nil)
+	}
+	if !c.s.w.TransferWindow().Open {
+		t.Fatal("the transfer window is not open")
+	}
+	var refused string
+	for _, pos := range []string{"GK", "DF", "MF", "FW"} {
+		refused += c.get("/transfers?pos=" + pos)
+	}
+	contains(t, refused, `<span class="refused">won&#39;t join a weaker club</span>`)
+	if strings.Contains(refused, "AI clubs now sell only") {
+		t.Fatal("the closing notice is shown at the start of the window")
+	}
+	if _, err := c.s.w.Continue(c.s.w.TransferWindow().NeededClose); err != nil {
+		t.Fatal(err)
+	}
+	if c.s.w.Now() < c.s.w.TransferWindow().NeededClose {
+		t.Fatal("did not reach the last days of the window")
+	}
+	contains(t, c.get("/transfers"), "AI clubs now sell only listed players and players they can spare")
+	contains(t, c.get("/free"), "you may sign free agents first")
+}
+
+// The season-end message says when the club goes up or down a division.
+func TestSeasonEndSaysRelegation(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 7, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c.post("/season", nil)
+	c.post("/continue", nil)
+	contains(t, c.get("/inbox"), "you finished 8: relegated to the division below.")
 }

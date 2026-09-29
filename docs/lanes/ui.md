@@ -26,13 +26,15 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-No open handoff. Next up is match report polish.
+Answered all eight handoffs (injuries, attributes, nationalities, second divisions, promotion and relegation, seller refusals, free agents, the formatting audit): see [progress](../progress.md). Two notes are out: `competitions--cup-qualifiers.md` and `squad--free-agent-reservation-instant.md`. Next up is match report polish.
 
 ## Backlog
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Player career history** on the profile page (past clubs, transfers): needs a stored history from `squad` or `data`.
+- **All leagues in `cmd/play`:** `table` shows only the managed club's league; the web shows all four. Add a way to see the others (an argument, or a `tables` command) with the same marks.
+- **Injured players in the lineup editors** stay selectable (`SubmitLineup` refuses them with an explanation). Consider an "available only" filter once `app` exposes the fit-player rule.
 - **Match report polish:** incidents timeline and substitutions in both clients.
 - **Play the rest of the season:** clicking the button should advance to the end of the season, but not go to the next season. this should give the option to finalize contract extensions and reading messages before switching to next season
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday.  

@@ -65,6 +65,9 @@ th.n .sort-link { justify-content: flex-end; }
 .sort-icon { font-size: 11px; line-height: 1; }
 .sort-icon.asc, .sort-icon.desc { color: var(--accent); font-weight: 700; }
 .sort-link.active { color: var(--ink); font-weight: 700; }
+.out { color: var(--bad); font-weight: 600; font-size: 12px; }
+.up { color: var(--good); font-weight: 600; font-size: 12px; }
+.refused { color: var(--even); font-size: 12px; }
 details.save-details > summary::-webkit-details-marker { display: none; }
 details.save-details > summary { list-style: none; }
 </style>
@@ -207,3 +210,6 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 </html>
+{{define "cond"}}{{.Condition}}%{{if .DaysOut}} <span class="out" title="Injured: misses matches until he recovers">out {{.DaysOut}} d</span>{{end}}{{end}}
+{{define "attrHeads"}}<th class="n">{{sortHeader . "gk" "GK" "desc"}}</th><th class="n">{{sortHeader . "def" "DEF" "desc"}}</th><th class="n">{{sortHeader . "pas" "PAS" "desc"}}</th><th class="n">{{sortHeader . "fin" "FIN" "desc"}}</th><th class="n">{{sortHeader . "pac" "PAC" "desc"}}</th><th class="n">{{sortHeader . "sta" "STA" "desc"}}</th><th class="n">{{sortHeader . "dri" "DRI" "desc"}}</th><th class="n">{{sortHeader . "hea" "HEA" "desc"}}</th><th class="n">{{sortHeader . "str" "STR" "desc"}}</th><th class="n">{{sortHeader . "acc" "ACC" "desc"}}</th><th class="n">{{sortHeader . "psn" "PSN" "desc"}}</th>{{end}}
+{{define "attrLegend"}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina, DRI dribbling, HEA heading, STR strength, ACC acceleration, PSN positioning. COND is fitness; "out 12 d" is an injury with 12 recovery days to go.{{end}}

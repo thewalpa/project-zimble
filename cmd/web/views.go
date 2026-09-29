@@ -32,8 +32,8 @@ var funcs = template.FuncMap{
 	"sortHeader": func(s SortState, col, label, defaultDir string) template.HTML {
 		return s.Header(col, label, defaultDir)
 	},
-	// ratings returns the attributes the tables show: goalkeeping to stamina.
-	"ratings": func(a players.Attributes) []players.Rating { return a[:players.Dribbling] },
+	// ratings returns every attribute, in the order of the tables' columns.
+	"ratings": func(a players.Attributes) []players.Rating { return a[:] },
 }
 
 // layout is what every page gets: the career header, notes and the page's
@@ -260,6 +260,7 @@ type homeView struct {
 	ContractEnd string
 	Window      string // while a transfer window is open
 	Bids        int    // bids for the club's players awaiting an answer
+	FreeAgents  int    // players without a club, while a transfer window is open
 	Live        string
 	Matchday    *fixtureView
 	Next        *fixtureView
@@ -269,9 +270,15 @@ type homeView struct {
 	OtherSaves  []saveInfo
 }
 
+type chooseClubRow struct {
+	app.ClubSummary
+	League      string
+	leagueOrder ids.CompetitionID
+}
+
 type chooseView struct {
 	Seed  uint64
-	Clubs []app.ClubSummary
+	Clubs []chooseClubRow
 	Sort  SortState
 	Saves []saveInfo
 }
@@ -282,9 +289,19 @@ func (s *server) home(r *http.Request) (string, any, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		sortState := newSortState(r, "name", "asc")
-		clubs := append([]app.ClubSummary(nil), preview.Summary().ClubRows...)
-		sortClubSummaryRows(clubs, sortState.Col, sortState.Dir)
+		sortState := newSortState(r, "league", "asc")
+		leagueOf := map[ids.ClubID]app.Table{}
+		for _, t := range preview.Tables() {
+			for _, row := range t.Rows {
+				leagueOf[row.Label.Club] = t
+			}
+		}
+		var clubs []chooseClubRow
+		for _, c := range preview.Summary().ClubRows {
+			t := leagueOf[c.ID]
+			clubs = append(clubs, chooseClubRow{ClubSummary: c, League: t.CompetitionName, leagueOrder: t.Competition})
+		}
+		sortChooseRows(clubs, sortState.Col, sortState.Dir)
 		return "choose", chooseView{
 			Seed:  uint64(s.seed),
 			Clubs: clubs,
@@ -295,7 +312,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
 	if s.w.TransferWindow().Open {
-		v.Window, v.Bids = s.windowText(), s.openBidsForUs()
+		v.Window, v.Bids, v.FreeAgents = s.windowText(), s.openBidsForUs(), len(s.w.FreeAgents())
 	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		v.WeeklyWage = fin.WeeklyWage
@@ -403,6 +420,7 @@ type clubOption struct {
 	ID        ids.ClubID
 	Name      string
 	ShortName string
+	Nation    string
 	Selected  bool
 	IsUser    bool
 }
@@ -461,6 +479,7 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 			ID:        c.ID,
 			Name:      c.Name,
 			ShortName: c.ShortName,
+			Nation:    c.Nation,
 			Selected:  c.ID == viewClub,
 			IsUser:    c.ID == s.club(),
 		})
@@ -488,6 +507,7 @@ type freeView struct {
 	Locked      bool // a matchday is waiting: squads cannot change
 	YearOptions []int
 	RetireAge   int
+	WindowNote  string // while a transfer window is open
 	Sort        SortState
 }
 
@@ -498,6 +518,9 @@ func (s *server) free(r *http.Request) (string, any, error) {
 	_, locked := s.w.Pending()
 	sortState := newSortState(r, "ovr", "desc")
 	v := freeView{Locked: locked, RetireAge: players.FreeAgentRetirementAge, Sort: sortState}
+	if s.w.TransferWindow().Open {
+		v.WindowNote = "The transfer window is open: you may sign free agents first, and from the middle of the window the best of them may go to AI clubs."
+	}
 	for y := defs.Economy.ContractYears[0]; y <= defs.Economy.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
 	}
@@ -593,10 +616,50 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 
 // --- league -----------------------------------------------------------------
 
+// leagueTable is one league's standings with the promotion and relegation
+// places marked.
+type leagueTable struct {
+	app.Table
+	Marked []markedRow
+	Cup    bool   // the league's top places play in the Continental Cup
+	Legend string // what the marks mean; empty when the league has none
+}
+
+type markedRow struct {
+	app.TableRow
+	Mark string // "up", "down" or ""
+}
+
 type tableView struct {
-	Tables []app.Table // the club's league first
+	Tables []leagueTable // the club's league first
 	Club   ids.ClubID
 	Sort   SortState
+}
+
+// promotionMarks marks the places the promotion links move at the season end
+// ("up" or "down") by rank, and gives a legend for the league.
+func (s *server) promotionMarks(t app.Table) (mark func(rank int) string, legend string) {
+	up, down := s.w.PromotionPlaces(t.Competition)
+	are := "are"
+	if t.Complete {
+		are = "were"
+	}
+	mark = func(rank int) string {
+		switch {
+		case rank >= 1 && rank <= up:
+			return "up"
+		case down > 0 && rank > len(t.Rows)-down:
+			return "down"
+		}
+		return ""
+	}
+	switch {
+	case up > 0:
+		legend = fmt.Sprintf("▲ the top %d %s promoted", up, are)
+	case down > 0:
+		legend = fmt.Sprintf("▼ the bottom %d %s relegated", down, are)
+	}
+	return mark, legend
 }
 
 func (s *server) table(r *http.Request) (string, any, error) {
@@ -613,10 +676,16 @@ func (s *server) table(r *http.Request) (string, any, error) {
 		}
 		t.Rows = append([]app.TableRow(nil), t.Rows...)
 		sortTableRows(t.Rows, sortState.Col, sortState.Dir)
+		mark, legend := s.promotionMarks(t)
+		promoted, _ := s.w.PromotionPlaces(t.Competition)
+		lt := leagueTable{Table: t, Legend: legend, Cup: promoted == 0} // second divisions send no one to the cup
+		for _, row := range t.Rows {
+			lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
+		}
 		if t.Competition == sc.Competition {
-			v.Tables = append([]app.Table{t}, v.Tables...)
+			v.Tables = append([]leagueTable{lt}, v.Tables...)
 		} else {
-			v.Tables = append(v.Tables, t)
+			v.Tables = append(v.Tables, lt)
 		}
 	}
 	return "table", v, nil
@@ -890,7 +959,14 @@ func (s *server) messageText(m app.InboxItem) string {
 		}
 		text := fmt.Sprintf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 		if m.Position > 0 {
-			text += fmt.Sprintf("; you finished %d.", m.Position)
+			text += fmt.Sprintf("; you finished %d", m.Position)
+			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
+			case up:
+				text += ": promoted to the division above"
+			case down:
+				text += ": relegated to the division below"
+			}
+			text += "."
 		}
 		return text
 	case inbox.KindSeasonStarted:
@@ -912,6 +988,10 @@ func (s *server) messageText(m app.InboxItem) string {
 		return fmt.Sprintf("Development: %d of your players improved and %d declined over the year", m.Improved, m.Declined)
 	case inbox.KindReleased:
 		return fmt.Sprintf("%s left the club as a free agent; you paid %s", m.PlayerName, m.Compensation)
+	case inbox.KindInjured:
+		return fmt.Sprintf("%s is out for %d days", m.PlayerName, m.Days)
+	case inbox.KindRecovered:
+		return fmt.Sprintf("%s is fit again", m.PlayerName)
 	}
 	return s.transferText(m)
 }
@@ -1048,7 +1128,7 @@ type historyView struct {
 	// Detail is set when one season is chosen: a league's table or a cup's
 	// bracket.
 	Title string
-	Table *app.Table
+	Table *leagueTable
 	Cup   *cupView
 	Club  ids.ClubID
 }
@@ -1082,7 +1162,12 @@ func (s *server) history(r *http.Request) (string, any, error) {
 				v.Cup = &cv
 			}
 		} else if t, ok := s.w.Table(ref); ok {
-			v.Table = &t
+			mark, legend := s.promotionMarks(t)
+			lt := leagueTable{Table: t, Legend: legend}
+			for _, row := range t.Rows {
+				lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
+			}
+			v.Table = &lt
 		}
 		return "history", v, nil
 	}

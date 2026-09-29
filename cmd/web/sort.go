@@ -10,7 +10,15 @@ import (
 	"strings"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/players"
 )
+
+// attributeColumns maps a sort column to the attribute it orders by.
+var attributeColumns = map[string]players.Attribute{
+	"gk": players.Goalkeeping, "def": players.Defending, "pas": players.Passing, "fin": players.Finishing,
+	"pac": players.Pace, "sta": players.Stamina, "dri": players.Dribbling, "hea": players.Heading,
+	"str": players.Strength, "acc": players.Acceleration, "psn": players.Positioning,
+}
 
 // SortState tracks the sorting column and direction for a table view,
 // preserving all query parameters for navigation without JavaScript.
@@ -119,18 +127,11 @@ func sortSquadRows(rows []squadRow, col, dir string) {
 			diff = cmp.Compare(a.Overall, b.Overall)
 		case "cond":
 			diff = cmp.Compare(a.Condition, b.Condition)
-		case "gk":
-			diff = cmp.Compare(a.Attributes[0], b.Attributes[0])
-		case "def":
-			diff = cmp.Compare(a.Attributes[1], b.Attributes[1])
-		case "pas":
-			diff = cmp.Compare(a.Attributes[2], b.Attributes[2])
-		case "fin":
-			diff = cmp.Compare(a.Attributes[3], b.Attributes[3])
-		case "pac":
-			diff = cmp.Compare(a.Attributes[4], b.Attributes[4])
-		case "sta":
-			diff = cmp.Compare(a.Attributes[5], b.Attributes[5])
+		case "gk", "def", "pas", "fin", "pac", "sta", "dri", "hea", "str", "acc", "psn":
+			at := attributeColumns[col]
+			diff = cmp.Compare(a.Attributes[at], b.Attributes[at])
+		case "nat":
+			diff = strings.Compare(strings.ToLower(a.Nationality), strings.ToLower(b.Nationality))
 		case "wage":
 			diff = cmp.Compare(a.Contract.WeeklyWage, b.Contract.WeeklyWage)
 		case "until":
@@ -170,6 +171,8 @@ func sortFreeRows(rows []freeRow, col, dir string) {
 			diff = cmp.Compare(a.Condition, b.Condition)
 		case "asks":
 			diff = cmp.Compare(a.Demand, b.Demand)
+		case "nat":
+			diff = strings.Compare(strings.ToLower(a.Nationality), strings.ToLower(b.Nationality))
 		default:
 			diff = cmp.Compare(b.Overall, a.Overall)
 			return cmp.Or(diff, cmp.Compare(a.Player, b.Player))
@@ -283,6 +286,8 @@ func sortMarketRows(rows []marketRow, col, dir string) {
 			diff = cmp.Compare(a.Overall, b.Overall)
 		case "until", "ends":
 			diff = cmp.Compare(a.Ends, b.Ends)
+		case "nat":
+			diff = strings.Compare(strings.ToLower(a.Nationality), strings.ToLower(b.Nationality))
 		case "price", "value":
 			diff = cmp.Compare(a.Value, b.Value)
 		default:
@@ -324,12 +329,20 @@ func sortOfferRows(rows []offerRow, col, dir string) {
 	})
 }
 
-// sortClubSummaryRows sorts a slice of app.ClubSummary in place.
-func sortClubSummaryRows(rows []app.ClubSummary, col, dir string) {
+// sortChooseRows sorts the clubs of the club chooser in place. The default
+// column groups clubs by league, in competition order.
+func sortChooseRows(rows []chooseClubRow, col, dir string) {
 	desc := dir == "desc"
-	slices.SortStableFunc(rows, func(a, b app.ClubSummary) int {
+	slices.SortStableFunc(rows, func(a, b chooseClubRow) int {
 		var diff int
 		switch col {
+		case "league":
+			diff = cmp.Compare(a.leagueOrder, b.leagueOrder)
+			if diff == 0 {
+				diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
+			}
+		case "nation":
+			diff = strings.Compare(strings.ToLower(a.Nation), strings.ToLower(b.Nation))
 		case "name", "club":
 			diff = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
 		case "short":
@@ -367,18 +380,11 @@ func sortLineupRows(rows []lineupRow, col, dir string) {
 			diff = cmp.Compare(a.Overall, b.Overall)
 		case "cond":
 			diff = cmp.Compare(a.Condition, b.Condition)
-		case "gk":
-			diff = cmp.Compare(a.Attributes[0], b.Attributes[0])
-		case "def":
-			diff = cmp.Compare(a.Attributes[1], b.Attributes[1])
-		case "pas":
-			diff = cmp.Compare(a.Attributes[2], b.Attributes[2])
-		case "fin":
-			diff = cmp.Compare(a.Attributes[3], b.Attributes[3])
-		case "pac":
-			diff = cmp.Compare(a.Attributes[4], b.Attributes[4])
-		case "sta":
-			diff = cmp.Compare(a.Attributes[5], b.Attributes[5])
+		case "gk", "def", "pas", "fin", "pac", "sta", "dri", "hea", "str", "acc", "psn":
+			at := attributeColumns[col]
+			diff = cmp.Compare(a.Attributes[at], b.Attributes[at])
+		case "nat":
+			diff = strings.Compare(strings.ToLower(a.Nationality), strings.ToLower(b.Nationality))
 		default:
 			diff = cmp.Compare(order[a.Slot], order[b.Slot])
 		}

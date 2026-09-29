@@ -1,6 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}{{$rev := .Rev}}
 <h1>Transfers</h1>
+{{if $d.NeededNote}}<div class="note">{{$d.NeededNote}}</div>{{end}}
 <p class="muted">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. You receive bids only for players you put on the transfer list. Continue takes you to the next transfer news while the window is open.</p>
 {{if $d.Received}}
 <div class="panel scroll">
@@ -43,9 +44,9 @@
 <h2>Transfer list</h2>
 {{if $d.Listed}}
 <table>
-  <tr><th>Club</th><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Asking price</th><th>Action</th></tr>
+  <tr><th>Club</th><th>Pos</th><th>Name</th><th>Nat</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Asking price</th><th>Action</th></tr>
   {{range $d.Listed}}
-  <tr {{if .Ours}}class="me"{{end}}><td>{{.ClubName}}{{if .Ours}} (You){{end}}</td><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td>
+  <tr {{if .Ours}}class="me"{{end}}><td>{{.ClubName}}{{if .Ours}} (You){{end}}</td><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a>{{if .Refusal}} <span class="refused">{{.Refusal}}</span>{{end}}</td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td>
     <td>{{if .Ours}}
       <form class="inline" method="post" action="/list"><input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers"><input type="hidden" name="player" value="{{.Player}}"><input type="hidden" name="unlist" value="yes"><button>Unlist</button></form>
     {{else}}
@@ -72,6 +73,7 @@
   <tr>
     <th>{{sortHeader $d.SortMarket "club" "Club" "asc"}}</th>
     <th>{{sortHeader $d.SortMarket "name" "Name" "asc"}}</th>
+    <th>{{sortHeader $d.SortMarket "nat" "Nat" "asc"}}</th>
     <th class="n">{{sortHeader $d.SortMarket "age" "Age" "asc"}}</th>
     <th class="n">{{sortHeader $d.SortMarket "ovr" "OVR" "desc"}}</th>
     <th class="n">{{sortHeader $d.SortMarket "until" "Until" "asc"}}</th>
@@ -79,7 +81,7 @@
     <th>Bid</th>
   </tr>
   {{range $d.Market}}
-  <tr><td>{{.Club}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a>{{if .Listed}} <span class="muted">listed</span>{{end}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
+  <tr><td>{{.Club}}{{if .Nation}} <span class="muted">({{.Nation}})</span>{{end}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a>{{if .Listed}} <span class="muted">listed</span>{{end}}{{if .Refusal}} <span class="refused">{{.Refusal}}</span>{{end}}</td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Ends}}</td><td class="n">{{.Value}}</td>
     <td>
       <form class="inline" method="post" action="/bid">
         <input type="hidden" name="rev" value="{{$rev}}"><input type="hidden" name="back" value="/transfers?pos={{$d.Position}}"><input type="hidden" name="player" value="{{.Player}}">

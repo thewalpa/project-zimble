@@ -37,7 +37,9 @@
 <div class="panel scroll">
 <table>
   <tr>
+    <th>{{sortHeader $d.Sort "league" "League" "asc"}}</th>
     <th>{{sortHeader $d.Sort "name" "Club" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "nation" "Nation" "asc"}}</th>
     <th>{{sortHeader $d.Sort "short" "Code" "asc"}}</th>
     <th class="n">{{sortHeader $d.Sort "players" "Players" "desc"}}</th>
     <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
@@ -45,7 +47,7 @@
   </tr>
   {{range $d.Clubs}}
   <tr>
-    <td>{{.Name}}</td><td class="muted">{{.ShortName}}</td><td class="n">{{.Players}}</td><td class="n">{{.AverageOverall}}</td>
+    <td class="muted">{{.League}}</td><td>{{.Name}}</td><td>{{.Nation}}</td><td class="muted">{{.ShortName}}</td><td class="n">{{.Players}}</td><td class="n">{{.AverageOverall}}</td>
     <td><form class="inline" method="post" action="/new"><input type="hidden" name="club" value="{{.ID}}"><button class="primary">Manage</button></form></td>
   </tr>
   {{end}}
