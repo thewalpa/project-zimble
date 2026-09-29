@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, and `data--player-career-history.md` on both player profiles. See [progress](../progress.md). `squad--free-agent-reservation-instant.md` remains open. The season-review flow is already in both clients: play the current season through its final table, then review inbox and contract decisions while continuing toward the next season. The current task is lineup editing outside matchday; it needs an app contract from `match` first ([handoff](../handoffs/match--lineup-editing-outside-matchday.md)).
+Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, `data--player-career-history.md` on both player profiles, and squad name selection in player comparison. See [progress](../progress.md). `squad--free-agent-reservation-instant.md` remains open. The season-review flow is already in both clients: play the current season through its final table, then review inbox and contract decisions while continuing toward the next season. The current task is lineup editing outside matchday; it needs an app contract from `match` first ([handoff](../handoffs/match--lineup-editing-outside-matchday.md)).
 
 ## Backlog
 
@@ -36,7 +36,6 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday. Waiting on the match lane's app-owned query and command for editing the saved lineup outside a pending matchday.
 
 - **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
-- **Improved Player compare:** Player compare should allow to select players of the own team without needing to enter an id
 
 ### AI/player rule parity audit
 

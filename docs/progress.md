@@ -2639,3 +2639,17 @@ Player profiles in the terminal and browser now show a player's club spells from
 ### Verification
 
 - Terminal and web profile tests assert the career history section, including the initial spell's before-date wording and current-club status.
+
+## UI: compare squad players by name (done)
+
+The terminal and browser compare screens let the manager choose players from their own squad by name. The terminal accepts quoted full names (for example, `compare "Callum Ibsen" 1`); the browser suggests squad names while still accepting IDs for players at other clubs. Ambiguous first names ask for a full name or ID.
+
+### Changes
+
+- `cmd/play`: player comparison resolves a squad player's full name or unique first name and accepts quoted names.
+- `cmd/web`: compare inputs suggest the managed squad through a native datalist and resolve names to app-owned squad records.
+- Both clients keep direct player ID comparisons for all players.
+
+### Verification
+
+- Client interaction tests cover quoted terminal full-name selection and browser name lookup alongside existing ID comparisons.

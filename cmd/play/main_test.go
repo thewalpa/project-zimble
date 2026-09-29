@@ -440,8 +440,11 @@ func TestPlayerProfileCommand(t *testing.T) {
 }
 
 func TestComparePlayersCommand(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "compare 56 1", "compare 56 99999", "compare 56", "quit", "quit")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "compare 56 1", `compare "Callum Ibsen" 1`, "compare 56 99999", "compare 56", "quit", "quit")
 	contains(t, out, "Callum Ibsen (#56)", "Weekly wage", "Asking price", "Wage demand", "DEF", "no player 99999", "usage: compare PLAYER PLAYER")
+	if strings.Count(out, "Callum Ibsen (#56)") < 2 {
+		t.Fatalf("compare should resolve a managed squad player by name:\n%s", out)
+	}
 }
 
 // tables lists every league with a heading and marks the manager's club.

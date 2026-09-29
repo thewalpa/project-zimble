@@ -221,7 +221,12 @@ func (s *session) loop() {
 		case "player", "p":
 			err = s.player(args)
 		case "compare":
-			err = s.comparePlayers(args)
+			compareArgs, parseErr := compareArgs(strings.TrimSpace(strings.TrimPrefix(line, fields[0])))
+			if parseErr != nil {
+				err = parseErr
+			} else {
+				err = s.comparePlayers(compareArgs)
+			}
 		case "table", "t":
 			err = s.table(args)
 		case "tables":
@@ -314,6 +319,7 @@ func (s *session) help() {
   status (s)            date, season progress and your next match
   squad                 your players: ID, position, rating, condition
   player ID             one player of any club: attributes, contract, status
+  compare PLAYER PLAYER  compare players (quote squad names with spaces; others by ID)
   table (t)             the league table
   tables                every league table
   cup                   the Continental Cup: this edition's bracket and results

@@ -932,7 +932,8 @@ func TestPlayerProfilePage(t *testing.T) {
 
 func TestComparePlayersPage(t *testing.T) {
 	c := career(t)
-	contains(t, c.get("/compare?a=56&b=1"), "Compare players", "Callum Ibsen", "Weekly wage", "Asking price", "Wage demand", "Attribute order")
+	contains(t, c.get("/compare?a=56&b=1"), "Compare players", "Callum Ibsen", "Weekly wage", "Asking price", "Wage demand", "Attribute order", "id=\"my-squad\"")
+	contains(t, c.get("/compare?a=Callum+Ibsen&b=1"), "Callum Ibsen", "Weekly wage")
 	contains(t, c.get("/compare?a=56&b=99999"), "There is no player 99999")
 	contains(t, c.get("/compare?a=x&b=1"), "is not a player ID")
 }
