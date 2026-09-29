@@ -2769,3 +2769,7 @@ A player's names now fit their nationality: each nation has its own first and la
 - `TestNationalities` and `TestYouth`: every generated and youth player is named from their nationality's pools; the pinned youth players keep their v3 birth dates, all eleven attributes and nationalities. A foreign share changes nothing but the foreign players' nationalities and names.
 - `TestValidateRejectsBrokenDefinitions`: a missing first or last name pool, an empty or repeated name and no club suffixes are refused; `Clone` does not share the pools.
 - Every season, second-league and cup golden in `internal/app` is unchanged.
+
+### UI handoff
+
+Rebased the UI lane onto this commit. The pinned player names in both client test suites match the new generated names, and name-based comparison continues to handle duplicate names. `gofmt -l .`, `go vet ./...` and `go test ./...` pass; closed `ui--per-nation-names.md`.
