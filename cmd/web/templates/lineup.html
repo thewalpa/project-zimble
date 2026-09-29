@@ -6,8 +6,17 @@
 {{else}}
 <p><b>{{$d.Title}}</b><br><span class="muted">{{$d.State}}. Pick eleven starters with exactly one goalkeeper; a player may start out of position. Up to seven on the bench.</span></p>
 {{range $d.DroppedNotes}}<div class="note">{{.}}</div>{{end}}
+{{if $d.AvailabilityNote}}<div class="note">{{$d.AvailabilityNote}}</div>{{end}}
+<div class="panel">
+  <form method="get" action="/lineup">
+    {{if $d.IsSuggested}}<input type="hidden" name="suggest" value="1">{{end}}
+    <label><input type="checkbox" name="available" value="1" {{if $d.AvailableOnly}}checked{{end}}> Available only</label>
+    <button>Apply filter</button>
+  </form>
+</div>
 <form method="post" action="/lineup">
   <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup"><input type="hidden" name="fixture" value="{{$d.Fixture}}">
+  {{range $d.HiddenSlots}}<input type="hidden" name="slot-{{.Player}}" value="{{.Slot}}">{{end}}
   <div class="panel">
     <label>Mentality
       <select name="mentality">{{range $d.Mentalities}}<option value="{{.}}" {{if eq . $d.Mentality}}selected{{end}}>{{.}}</option>{{end}}</select>
@@ -23,12 +32,13 @@
       <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
       <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
       <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+      <th>Availability</th>
       {{template "attrHeads" $d.Sort}}
     </tr>
     {{range $d.Rows}}{{$slot := .Slot}}
     <tr>
       <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>
-      <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>
+      <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td><td>{{.Availability}}</td>
       {{range ratings .Attributes}}<td class="n">{{.}}</td>{{end}}
     </tr>
     {{end}}

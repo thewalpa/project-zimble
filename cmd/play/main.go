@@ -268,8 +268,12 @@ func (s *session) loop() {
 		case "lineup", "l":
 			if _, live := s.w.LiveMatch(); live {
 				err = s.showLive()
-			} else {
+			} else if len(args) == 0 {
 				err = s.showLineup()
+			} else if len(args) == 1 && strings.EqualFold(args[0], "available") {
+				err = s.showLineup(true)
+			} else {
+				err = errors.New("usage: lineup [available]")
 			}
 		case "swap", "role", "reset", "assistant":
 			if _, live := s.w.LiveMatch(); live {
@@ -340,7 +344,7 @@ func (s *session) help() {
   unlist ID             take one of your players off the transfer list
   bid ID [FEE [YEARS [WAGE]]]  bid for another club's player (default: the asking price and usual terms)
   accept OFFER, reject OFFER   answer a bid for one of your players
-  lineup (l)            your lineup for the match waiting to be played
+  lineup (l) [available] your lineup and squad eligibility for the waiting match
   swap A B              swap two players (IDs) between XI, bench and squad
   role P GK|DF|MF|FW    play starter P in another role
   mentality (m) M       defensive, balanced or attacking (during your match: a live change)
@@ -1080,13 +1084,30 @@ func naturalRole(p players.Position) matches.Role {
 	return 0
 }
 
-func (s *session) showLineup() error {
+func (s *session) showLineup(onlyAvailable ...bool) error {
 	d, err := s.currentDraft()
 	if err != nil {
 		return err
 	}
 	info := s.fixtureInfo(d.fixture)
 	squad := s.squadByID()
+	squadRows, _ := s.w.Squad(s.club())
+	eligibility, err := s.w.SquadEligibility(d.fixture)
+	if err != nil {
+		return err
+	}
+	byPlayer := make(map[ids.PlayerID]app.LineupEligibility, len(eligibility))
+	available := 0
+	emergency := false
+	for _, e := range eligibility {
+		byPlayer[e.Player] = e
+		if e.Eligibility.Selectable() {
+			available++
+		}
+		if e.Eligibility == app.EligibleInjured {
+			emergency = true
+		}
+	}
 	state := s.lineupSourceLabel(d.matchday)
 	if d.edited {
 		state = "your changes (used when you continue)"
@@ -1111,6 +1132,27 @@ func (s *session) showLineup() error {
 		p := squad[id]
 		s.printf("     %-4s %4d  %-24s %-3s %5d %-12s  %s\n", "", p.Player, p.Name, p.Position,
 			p.Overall, fitness(p), ratings(p.Attributes))
+	}
+	s.printf("\nSquad availability (%d selectable; use lineup available to hide unavailable players):\n", available)
+	s.printf("%4s  %-24s %-3s %5s  %s\n", "ID", "NAME", "POS", "OVR", "AVAILABILITY")
+	filterAvailable := len(onlyAvailable) > 0 && onlyAvailable[0]
+	for _, p := range squadRows {
+		id := p.Player
+		e := byPlayer[id]
+		if filterAvailable && !e.Eligibility.Selectable() {
+			continue
+		}
+		status := "available"
+		switch e.Eligibility {
+		case app.EligibleInjured:
+			status = "injured, selectable: not enough fit players"
+		case app.IneligibleInjured:
+			status = fmt.Sprintf("injured, %d days out", e.DaysOut)
+		}
+		s.printf("%4d  %-24s %-3s %5d  %s\n", id, p.Name, p.Position, p.Overall, status)
+	}
+	if emergency {
+		s.printf("Not enough fit players for a legal eleven; injured players are selectable under the emergency rule.\n")
 	}
 	s.printf("\n%s\n", ratingsLegend)
 	s.printf("Edit with swap/role/mentality; continue plays the match.\n")

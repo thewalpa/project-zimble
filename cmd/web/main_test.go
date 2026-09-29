@@ -1124,7 +1124,12 @@ func TestInjuriesInTheBrowser(t *testing.T) {
 	}
 	mark := fmt.Sprintf(`<span class="out" title="Injured: misses matches until he recovers">out %d d</span>`, out.DaysOut)
 	contains(t, c.get("/squad"), mark)
-	contains(t, c.get("/lineup"), mark)
+	contains(t, c.get("/lineup"), mark, fmt.Sprintf("Injured: %d days out", out.DaysOut))
+	filtered := c.get("/lineup?available=1")
+	contains(t, filtered, "Available only", "checked")
+	if strings.Contains(filtered, fmt.Sprintf(`href="/player?id=%d"`, out.Player)) {
+		t.Fatalf("unavailable injured player %d is visible in the filtered editor", out.Player)
+	}
 	contains(t, c.get("/inbox"), out.Name+" is out for ")
 	contains(t, c.get("/player?id="+strconv.Itoa(int(out.Player))), fmt.Sprintf("out %d d", out.DaysOut))
 	fixture, _ := c.s.pendingFixture()

@@ -548,20 +548,30 @@ var slotOptions = []slotOption{
 
 type lineupRow struct {
 	app.SquadPlayer
-	Slot string
+	Slot         string
+	Availability string
+	Selectable   bool
+}
+
+type hiddenLineupSlot struct {
+	Player ids.PlayerID
+	Slot   string
 }
 
 type lineupView struct {
-	Fixture      ids.FixtureID
-	Title        string
-	State        string
-	Mentality    string
-	Mentalities  []string
-	Rows         []lineupRow
-	Slots        []slotOption
-	Sort         SortState
-	DroppedNotes []string
-	IsSuggested  bool
+	Fixture          ids.FixtureID
+	Title            string
+	State            string
+	Mentality        string
+	Mentalities      []string
+	Rows             []lineupRow
+	HiddenSlots      []hiddenLineupSlot
+	Slots            []slotOption
+	Sort             SortState
+	DroppedNotes     []string
+	IsSuggested      bool
+	AvailableOnly    bool
+	AvailabilityNote string
 }
 
 func (s *server) lineup(r *http.Request) (string, any, error) {
@@ -588,14 +598,30 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 		state = s.w.LineupSourceLabel(ml)
 		droppedNotes = s.w.LineupDroppedMessages(ml)
 	}
+	eligibility, err := s.w.SquadEligibility(fixture)
+	if err != nil {
+		return "", nil, err
+	}
+	byPlayer := make(map[ids.PlayerID]app.LineupEligibility, len(eligibility))
+	emergency := false
+	for _, e := range eligibility {
+		byPlayer[e.Player] = e
+		if e.Eligibility == app.EligibleInjured {
+			emergency = true
+		}
+	}
 	info, _ := s.fixtureInfo(fixture)
 	sortState := newSortState(r, "selection", "asc")
 	v := lineupView{
 		Fixture: fixture, State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
-		Title:        fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
-		Sort:         sortState,
-		DroppedNotes: droppedNotes,
-		IsSuggested:  suggest,
+		Title:         fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
+		Sort:          sortState,
+		DroppedNotes:  droppedNotes,
+		IsSuggested:   suggest,
+		AvailableOnly: r.URL.Query().Get("available") == "1",
+	}
+	if emergency {
+		v.AvailabilityNote = "Not enough fit players for a legal eleven; injured players are selectable under the emergency rule."
 	}
 	for m := matches.Defensive; m <= matches.Attacking; m++ {
 		v.Mentalities = append(v.Mentalities, m.String())
@@ -609,7 +635,20 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 	}
 	squad, _ := s.w.Squad(s.club())
 	for _, p := range squad {
-		row := lineupRow{SquadPlayer: p, Slot: cmp.Or(slot[p.Player], "out")}
+		e := byPlayer[p.Player]
+		if v.AvailableOnly && !e.Eligibility.Selectable() {
+			v.HiddenSlots = append(v.HiddenSlots, hiddenLineupSlot{Player: p.Player, Slot: cmp.Or(slot[p.Player], "out")})
+			continue
+		}
+		row := lineupRow{SquadPlayer: p, Slot: cmp.Or(slot[p.Player], "out"), Selectable: e.Eligibility.Selectable()}
+		switch e.Eligibility {
+		case app.EligibleFit:
+			row.Availability = "Available"
+		case app.EligibleInjured:
+			row.Availability = "Injured, selectable: not enough fit players"
+		case app.IneligibleInjured:
+			row.Availability = fmt.Sprintf("Injured: %d days out", e.DaysOut)
+		}
 		v.Rows = append(v.Rows, row)
 	}
 	sortLineupRows(v.Rows, sortState.Col, sortState.Dir)

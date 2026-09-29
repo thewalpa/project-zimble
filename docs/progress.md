@@ -2726,3 +2726,17 @@ The terminal and browser distinguish a player's refusal from a transfer that cou
 ### Verification
 
 - Client tests cover refusal wording and the date in both clients.
+
+## UI: lineup availability filter (done)
+
+Both lineup editors use `World.SquadEligibility` to show which squad players can be named for the pending fixture. Managers can filter to selectable players, and both clients explain when the emergency rule makes injured players selectable because there are not enough fit players for a legal eleven.
+
+### Changes
+
+- `cmd/play`: `lineup available` hides players the app marks unselectable and prints the eligibility for the squad.
+- `cmd/web`: the lineup page has an accessible GET filter and an availability column. Hidden rows keep their current form values when the manager saves.
+- Closed `ui--lineup-eligibility.md`.
+
+### Verification
+
+- Terminal interaction tests cover the available-only lineup command. Browser tests verify an injured, unselectable player is hidden while his injury days remain explained in the full editor.
