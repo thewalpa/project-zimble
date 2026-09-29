@@ -50,6 +50,7 @@ const (
 	KindInboxRead         Kind = 19
 	KindPlayerInjured     Kind = 20
 	KindPlayerRecovered   Kind = 21
+	KindTeamPlanSaved     Kind = 22
 )
 
 func (k Kind) String() string {
@@ -96,6 +97,8 @@ func (k Kind) String() string {
 		return "player injured"
 	case KindPlayerRecovered:
 		return "player recovered"
+	case KindTeamPlanSaved:
+		return "team plan saved"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -333,6 +336,12 @@ type PlayerRecovered struct {
 	Team   ids.TeamID
 }
 
+// TeamPlanSaved: a team's manager saved its team plan, the lineup it
+// prefers when none is submitted for a fixture.
+type TeamPlanSaved struct {
+	Team ids.TeamID
+}
+
 // InboxRead: the manager marked the inbox message identified by its source
 // event as read. It does not create another inbox message.
 type InboxRead struct {
@@ -372,6 +381,7 @@ type Event struct {
 	InboxRead         *InboxRead         `json:",omitempty"`
 	PlayerInjured     *PlayerInjured     `json:",omitempty"`
 	PlayerRecovered   *PlayerRecovered   `json:",omitempty"`
+	TeamPlanSaved     *TeamPlanSaved     `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -402,6 +412,7 @@ func (e Event) payloads() (set int, match bool) {
 		{KindInboxRead, e.InboxRead != nil},
 		{KindPlayerInjured, e.PlayerInjured != nil},
 		{KindPlayerRecovered, e.PlayerRecovered != nil},
+		{KindTeamPlanSaved, e.TeamPlanSaved != nil},
 	} {
 		if p.set {
 			set++
@@ -530,6 +541,10 @@ func (e Event) Validate() error {
 		if p := e.PlayerRecovered; !p.Player.Valid() || p.Club.Valid() != p.Team.Valid() {
 			return fail("invalid payload %+v", p)
 		}
+	case KindTeamPlanSaved:
+		if p := e.TeamPlanSaved; !p.Team.Valid() {
+			return fail("invalid payload %+v", p)
+		}
 	}
 	return nil
 }
@@ -624,6 +639,10 @@ func (e Event) Clone() Event {
 	if p := e.PlayerRecovered; p != nil {
 		c := *p
 		e.PlayerRecovered = &c
+	}
+	if p := e.TeamPlanSaved; p != nil {
+		c := *p
+		e.TeamPlanSaved = &c
 	}
 	return e
 }

@@ -58,7 +58,10 @@ func valid() []Event {
 	inj.PlayerInjured = &PlayerInjured{Player: 9, Club: 1, Team: 1, Days: 12}
 	rec := env(21, KindPlayerRecovered)
 	rec.PlayerRecovered = &PlayerRecovered{Player: 9, Club: 1, Team: 1}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd, inj, rec}
+	plan := env(22, KindTeamPlanSaved)
+	plan.Cause.Kind = CauseCommand
+	plan.TeamPlanSaved = &TeamPlanSaved{Team: 1}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd, inj, rec, plan}
 }
 
 func TestValidate(t *testing.T) {
@@ -136,6 +139,7 @@ func TestValidate(t *testing.T) {
 		"injured no days":     func(v []Event) Event { v[19].PlayerInjured.Days = 0; return v[19] },
 		"recovered nobody":    func(v []Event) Event { v[20].PlayerRecovered.Player = 0; return v[20] },
 		"recovered club only": func(v []Event) Event { v[20].PlayerRecovered.Team = 0; return v[20] },
+		"plan of no team":     func(v []Event) Event { v[21].TeamPlanSaved.Team = 0; return v[21] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -169,6 +173,7 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[18].InboxRead.Message = 9
 	c[19].PlayerInjured.Days = 9
 	c[20].PlayerRecovered.Club = 9
+	c[21].TeamPlanSaved.Team = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

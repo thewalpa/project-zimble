@@ -97,6 +97,7 @@ type WorldSnapshot struct {
 	Transfers    transfers.Snapshot
 	Competitions competitions.Snapshot
 	Lineups      []selection.Entry // by fixture, team
+	TeamPlans    []selection.Plan  // by team
 	Scheduler    sim.SchedulerSnapshot
 	// Task payload records, one list per task kind, each ascending by ID.
 	// IDs are unique across both and come from one allocator.
@@ -117,6 +118,7 @@ type WorldSnapshot struct {
 	ReleaseCommands   []ReleaseRecord
 	ListingCommands   []ListingRecord
 	InboxReadCommands []InboxReadRecord
+	TeamPlanCommands  []TeamPlanRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -187,7 +189,8 @@ func (w *World) Snapshot() WorldSnapshot {
 		Finance:            w.finance.Snapshot(),
 		Transfers:          w.transfers.Snapshot(),
 		Competitions:       w.competitions.Snapshot(),
-		Lineups:            w.selections.Snapshot(),
+		Lineups:            w.selections.Entries(),
+		TeamPlans:          w.selections.Plans(),
 		Scheduler:          w.scheduler.Snapshot(),
 		LastPayload:        w.lastPayload,
 		Events:             events.CloneAll(w.journal),
@@ -233,6 +236,8 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.InboxReadCommands = append(snap.InboxReadCommands, *rec.inboxRead)
 		case rec.listing != nil:
 			snap.ListingCommands = append(snap.ListingCommands, *rec.listing)
+		case rec.teamPlan != nil:
+			snap.TeamPlanCommands = append(snap.TeamPlanCommands, rec.teamPlan.clone())
 		}
 	}
 	if w.live != nil {
@@ -302,7 +307,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	if err != nil {
 		return invalid("%v", err)
 	}
-	selections, err := selection.New(snap.Lineups)
+	selections, err := selection.New(selection.Snapshot{Entries: snap.Lineups, Plans: snap.TeamPlans})
 	if err != nil {
 		return invalid("%v", err)
 	}
@@ -488,6 +493,11 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		}
 		rec := c
 		w.commands[c.Request.ID] = commandRecord{inboxRead: &rec}
+	}
+	for _, c := range snap.TeamPlanCommands {
+		if err := w.restoreTeamPlan(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
 	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}

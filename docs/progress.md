@@ -2860,3 +2860,33 @@ Old saves are now tested, not just promised. `internal/storage/testdata` keeps, 
 
 - Deliberate-bug checks: a field added to `transfers.Listing` fails the shape check; a top-level snapshot field fails both guards (the excerpt shows `"Extra": null`); a new Restore invariant the fixture breaks fails ("no longer loads"); a moved `ai.TransfersVersion` passes, logged as an explicit refusal; bumping `SchemaVersion` to 25 fails until `-fixture` writes schema 25, after which schema 24 is refused with `ErrUnsupportedSave`.
 - Writing the fixture twice gives identical bytes.
+
+## match: a saved team plan outside matchday (done)
+
+Delivered `ui`'s note `match--lineup-editing-outside-matchday`. The manager can save a team plan at any time, matchday or not: starters with roles, a bench and tactics, with no fixture. Every user match without a submitted lineup plays the plan, fitted to that match. `storage.SchemaVersion` 25. No seeded output changes, so no version or golden moved.
+
+### Changes
+
+- **`selection`** keeps one `Plan{Team, Lineup}` per team beside the fixture entries. `Store.SetPlan`, `Plan` and `Plans`; the constructor takes a `selection.Snapshot{Entries, Plans}`.
+- **Query** `World.TeamPlan() (TeamPlan, error)`: the plan (`Saved`), or when none is saved a starting point to edit (the lineup the club last fielded or had submitted, fitted to the squad, else the AI's selection, under the rules of the club's current league). `Unavailable` lists the plan's players who could not be named today (left the squad, or injured and not selectable), and `Squad` is the whole squad with `LineupEligibility`. `ErrNoUserClub` without a user club.
+- **Command** `SetTeamPlan{ID, ExpectedRevision, Lineup}` → `TeamPlanSaved{Command, Revision, Team}`, with the usual retry rules. The lineup needs a valid shape and only players of the user club's squad; injured players may be named and the bench has no competition limit. Refused with `ErrMatchInProgress` while the manager's match is live. It emits the new event `events.KindTeamPlanSaved` (22), which no read model shows.
+- **Order at a user fixture** (`MatchdayLineup`, `ResolveRounds`, `PlayMatch`): submitted for the fixture, else the plan (new `LineupSource` value `LineupFromPlan` = 4), else carried over from the last match, else the AI. The plan and a carried-over lineup are fitted the same way (`fitLineup`, factored out of the carry-over): unavailable players are dropped and reported in `Dropped`, their starting places refilled by `ai.RefillLineup`, and the bench cut to the competition's limit. The fitted lineup is stored for the fixture once it is played, as a carried-over one is, so `SelectedByManager` always has a stored lineup behind it.
+- **Saves:** `WorldSnapshot.TeamPlans` and `TeamPlanCommands`, with the save fixture `internal/storage/testdata/schema-25.*`. The fixture career (`data`'s `fixtures_test.go`) now also saves a team plan, so it keeps using every command kind. Restore validates each plan's shape, that it is the user team's, and that it names registered players. Players who have since left are allowed: the plan is a preference, and matches leave them out.
+
+### Decisions
+
+- **The plan beats the carry-over.** A plan keeps its players while they are away: an injured starter misses the matches he cannot play and returns to his place when fit. A carried-over lineup replaces him for good. A lineup submitted for one fixture is a one-off, so the next fixture goes back to the plan.
+- **Validate for shape when saved, fit at kickoff.** Squad membership is checked when the plan is saved, but not injuries or a competition's bench limit, since a league and a cup may allow different benches. Nothing is repaired in the stored plan.
+- **Refused while live**, because a live match is replayed from world state and its lineup must not change under it.
+- **No way to clear a plan yet.** Going back to the carry-over or to the AI belongs with the backlog item "Delegate lineups to the assistant again".
+
+### Verification
+
+- `TestTeamPlanIsPlayedWithoutAMatchday`: a plan saved before the first matchday is played in five rounds exactly as if it had been submitted each time, survives a save, and stays unchanged.
+- `TestTeamPlanPrecedence`: a submission beats the plan, the plan beats a carried-over lineup, and saving a plan on matchday changes the pending lineup but no submitted or played lineup.
+- `TestTeamPlanKeepsUnavailablePlayers`: an injured and a released player stay in the plan and are listed as unavailable, each match drops them and cuts a squad-long bench to the league's 7, and the injured player returns to his slot once fit.
+- `TestSetTeamPlanRejections` (zero ID, stale revision, shape, a foreign player, reused ID, live match, no user club; retries before and after a save) and `TestRestoreRejectsInvalidTeamPlans`. `selection` tests cover plan storage, rejections and copies.
+
+### Handoffs
+
+- `ui--team-plan-editor`: the editor between matchdays in both clients, and the `LineupFromPlan` label and dropped-player messages in `views.go`.

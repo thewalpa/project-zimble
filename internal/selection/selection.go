@@ -1,7 +1,9 @@
 // Package selection owns managers' match selections: the starting eleven,
 // bench and tactics a team will field in one fixture. The application
 // stores a submitted lineup, and also a lineup carried over from the
-// previous match once it has been played.
+// previous match once it has been played. Apart from fixtures, a team may
+// keep one saved plan: the lineup its manager prefers when none is
+// submitted for a fixture.
 //
 // It validates each lineup's own shape. Whether the players belong to the
 // team's squad, the bench fits the competition's rules and the fixture may
@@ -126,16 +128,50 @@ func cloneEntry(e Entry) Entry {
 	return e
 }
 
-// Store holds at most one lineup per (fixture, team). Queries return copies.
-type Store struct {
-	entries []Entry // sorted by (Fixture, Team)
+// Plan is a team's saved team plan: the lineup its manager prefers for
+// the next match when none is submitted for it. It names no fixture, so
+// the application fits it to each match when it is used.
+type Plan struct {
+	Team   ids.TeamID
+	Lineup Lineup
 }
 
-// New validates the entries and returns a store holding its own copy.
+func (p Plan) validate() error {
+	if !p.Team.Valid() {
+		return fmt.Errorf("selection: plan for team %d has an invalid ID", p.Team)
+	}
+	if err := p.Lineup.Validate(); err != nil {
+		return fmt.Errorf("plan of team %d: %w", p.Team, err)
+	}
+	return nil
+}
+
+func comparePlans(a, b Plan) int { return cmp.Compare(a.Team, b.Team) }
+
+func clonePlan(p Plan) Plan {
+	p.Lineup = p.Lineup.Clone()
+	return p
+}
+
+// Snapshot is the store's authoritative state: fixture lineups by
+// (fixture, team) and saved plans by team.
+type Snapshot struct {
+	Entries []Entry
+	Plans   []Plan
+}
+
+// Store holds at most one lineup per (fixture, team) and one plan per team.
+// Queries return copies.
+type Store struct {
+	entries []Entry // sorted by (Fixture, Team)
+	plans   []Plan  // sorted by Team
+}
+
+// New validates the snapshot and returns a store holding its own copy.
 // New(Snapshot()) restores an equivalent store.
-func New(entries []Entry) (*Store, error) {
-	rows := make([]Entry, 0, len(entries))
-	for _, e := range entries {
+func New(snap Snapshot) (*Store, error) {
+	rows := make([]Entry, 0, len(snap.Entries))
+	for _, e := range snap.Entries {
 		if err := e.validate(); err != nil {
 			return nil, err
 		}
@@ -147,7 +183,20 @@ func New(entries []Entry) (*Store, error) {
 			return nil, fmt.Errorf("selection: two lineups for fixture %d team %d", rows[i].Fixture, rows[i].Team)
 		}
 	}
-	return &Store{entries: rows}, nil
+	plans := make([]Plan, 0, len(snap.Plans))
+	for _, p := range snap.Plans {
+		if err := p.validate(); err != nil {
+			return nil, err
+		}
+		plans = append(plans, clonePlan(p))
+	}
+	slices.SortFunc(plans, comparePlans)
+	for i := 1; i < len(plans); i++ {
+		if plans[i-1].Team == plans[i].Team {
+			return nil, fmt.Errorf("selection: two plans for team %d", plans[i].Team)
+		}
+	}
+	return &Store{entries: rows, plans: plans}, nil
 }
 
 // Submit validates e and stores a copy, replacing any earlier lineup for the
@@ -183,5 +232,38 @@ func (s *Store) Entries() []Entry {
 	return out
 }
 
+// SetPlan validates p and stores a copy, replacing the team's earlier plan.
+// On error the store is unchanged.
+func (s *Store) SetPlan(p Plan) error {
+	if err := p.validate(); err != nil {
+		return err
+	}
+	i, found := slices.BinarySearchFunc(s.plans, p, comparePlans)
+	if found {
+		s.plans[i] = clonePlan(p)
+	} else {
+		s.plans = slices.Insert(s.plans, i, clonePlan(p))
+	}
+	return nil
+}
+
+// Plan returns a copy of team's saved plan.
+func (s *Store) Plan(team ids.TeamID) (Lineup, bool) {
+	i, found := slices.BinarySearchFunc(s.plans, Plan{Team: team}, comparePlans)
+	if !found {
+		return Lineup{}, false
+	}
+	return s.plans[i].Lineup.Clone(), true
+}
+
+// Plans returns copies of every plan in team order.
+func (s *Store) Plans() []Plan {
+	out := make([]Plan, len(s.plans))
+	for i, p := range s.plans {
+		out[i] = clonePlan(p)
+	}
+	return out
+}
+
 // Snapshot exports the store's authoritative state as a fresh copy.
-func (s *Store) Snapshot() []Entry { return s.Entries() }
+func (s *Store) Snapshot() Snapshot { return Snapshot{Entries: s.Entries(), Plans: s.Plans()} }

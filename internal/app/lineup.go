@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/ai"
@@ -28,7 +29,7 @@ type SelectedBy uint8
 
 const (
 	SelectedByAI      SelectedBy = 1 // the AI default: no lineup was submitted
-	SelectedByManager SelectedBy = 2 // the manager's lineup: submitted for the fixture or carried over
+	SelectedByManager SelectedBy = 2 // the manager's lineup: submitted for the fixture, from the team plan or carried over
 )
 
 func (s SelectedBy) Valid() bool { return s == SelectedByAI || s == SelectedByManager }
@@ -51,9 +52,10 @@ const (
 	LineupFromSubmission LineupSource = 1 // submitted for this fixture
 	LineupCarriedOver    LineupSource = 2 // the lineup the user club last played, carried over
 	LineupSuggested      LineupSource = 3 // the AI selection: the manager has never picked one
+	LineupFromPlan       LineupSource = 4 // the manager's saved team plan
 )
 
-func (s LineupSource) Valid() bool { return s >= LineupFromSubmission && s <= LineupSuggested }
+func (s LineupSource) Valid() bool { return s >= LineupFromSubmission && s <= LineupFromPlan }
 
 func (s LineupSource) String() string {
 	switch s {
@@ -63,6 +65,8 @@ func (s LineupSource) String() string {
 		return "carried over"
 	case LineupSuggested:
 		return "suggested"
+	case LineupFromPlan:
+		return "team plan"
 	}
 	return fmt.Sprintf("LineupSource(%d)", uint8(s))
 }
@@ -73,12 +77,13 @@ type MatchdayLineup struct {
 	Fixture ids.FixtureID
 	Lineup  selection.Lineup
 	Source  LineupSource
-	// Carried over only: the fixture the lineup was last played in, and the
-	// players of that lineup left out of this one, in lineup order. A
-	// player is left out when he is no longer in the squad or is injured
-	// (his starting place is refilled by the AI) or the bench is longer than this
+	// Carried over only: the fixture the lineup was last played in.
+	From ids.FixtureID
+	// Carried over or from the plan: the players of the lineup it started
+	// from who are left out of this one, in lineup order. A player is left
+	// out when he is no longer in the squad or is injured (his starting
+	// place is refilled by the AI) or the bench is longer than this
 	// competition allows.
-	From    ids.FixtureID
 	Dropped []ids.PlayerID
 }
 
@@ -90,8 +95,9 @@ func (m MatchdayLineup) clone() MatchdayLineup {
 
 // SubmitLineup asks for the user club's lineup in a fixture of the pending
 // batch. Resubmitting replaces the earlier lineup. A fixture with no
-// submitted lineup is played with the lineup the user club last played,
-// carried over (see MatchdayLineup), or else the AI selection.
+// submitted lineup is played with the team plan, else the lineup the user
+// club last played, carried over (see MatchdayLineup), or else the AI
+// selection.
 type SubmitLineup struct {
 	ID               CommandID
 	ExpectedRevision Revision
@@ -119,7 +125,7 @@ func (r LineupRecord) clone() LineupRecord {
 }
 
 func mustEmptySelections() *selection.Store {
-	s, err := selection.New(nil)
+	s, err := selection.New(selection.Snapshot{})
 	if err != nil {
 		panic(err) // an empty store is always valid
 	}
@@ -187,6 +193,11 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 	if err != nil {
 		return selection.Lineup{}, err
 	}
+	return lineupOf(in), nil
+}
+
+// lineupOf returns the lineup a team input fields.
+func lineupOf(in matches.TeamInput) selection.Lineup {
 	l := selection.Lineup{Tactics: in.Tactics}
 	for _, p := range in.Starters {
 		l.Starters = append(l.Starters, selection.Slot{Player: p.Player, Role: p.Role})
@@ -194,20 +205,23 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 	for _, p := range in.Bench {
 		l.Bench = append(l.Bench, p.Player)
 	}
-	return l, nil
+	return l
 }
 
 // MatchdayLineup returns the lineup the user club plays in a pending
 // fixture if the manager submits nothing more, and where it comes from:
 //
 //   - the lineup submitted for the fixture;
+//   - else the saved team plan (see TeamPlan);
 //   - else the lineup the user club played in its latest earlier match
 //     that had one (by kickoff, then fixture ID), carried over with the
-//     same tactics. Players who left the squad or are injured are dropped and their
-//     starting places refilled by ai.RefillLineup; the bench is cut to the
-//     competition's limit;
-//   - else, or when the carried lineup cannot be refilled, the AI's
-//     selection (SuggestLineup).
+//     same tactics;
+//   - else, or when the plan or carried lineup cannot be refilled, the
+//     AI's selection (SuggestLineup).
+//
+// A plan or carried lineup is fitted to the match: players who left the
+// squad or are injured are dropped and their starting places refilled by
+// ai.RefillLineup, and the bench is cut to the competition's limit.
 //
 // ResolveRounds and PlayMatch field exactly this lineup. Read-only.
 func (w *World) MatchdayLineup(fixture ids.FixtureID) (MatchdayLineup, error) {
@@ -228,38 +242,66 @@ func (w *World) MatchdayLineup(fixture ids.FixtureID) (MatchdayLineup, error) {
 }
 
 // managerLineup returns team's lineup for fixture f if the manager has one:
-// submitted for f, or carried over from the latest earlier fixture with a
-// stored lineup. ok is false when the AI selects instead. Read-only.
+// submitted for f, else the saved plan, else carried over from the latest
+// earlier fixture with a stored lineup. ok is false when the AI selects
+// instead. Read-only.
 func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules matches.Rules) (MatchdayLineup, bool, error) {
 	if l, ok := w.selections.Lineup(f.ID, team); ok {
 		return MatchdayLineup{Fixture: f.ID, Lineup: l, Source: LineupFromSubmission}, true, nil
 	}
+	m := MatchdayLineup{Fixture: f.ID, Source: LineupFromPlan}
+	base, ok := w.selections.Plan(team)
+	if !ok {
+		last, ok := w.latestLineup(team, f.Kickoff, f.ID)
+		if !ok {
+			return MatchdayLineup{}, false, nil
+		}
+		base, m.Source, m.From = last.Lineup, LineupCarriedOver, last.Fixture
+	}
+	l, dropped, ok, err := w.fitLineup(team, base, rules)
+	if err != nil || !ok {
+		return MatchdayLineup{}, false, err
+	}
+	m.Lineup, m.Dropped = l, dropped
+	return m, true, nil
+}
+
+// latestLineup returns team's stored lineup for its latest fixture kicking
+// off no later than before (by kickoff, then fixture ID), other than
+// exclude. Read-only.
+func (w *World) latestLineup(team ids.TeamID, before sim.GameInstant, exclude ids.FixtureID) (selection.Entry, bool) {
 	var last selection.Entry
 	var lastKickoff sim.GameInstant
 	for _, e := range w.selections.Entries() {
 		prev, ok := w.competitions.Fixture(e.Fixture)
-		if e.Team != team || !ok || prev.Kickoff > f.Kickoff || e.Fixture == f.ID {
+		if e.Team != team || !ok || prev.Kickoff > before || e.Fixture == exclude {
 			continue
 		}
 		if last.Fixture == 0 || prev.Kickoff > lastKickoff || (prev.Kickoff == lastKickoff && e.Fixture > last.Fixture) {
 			last, lastKickoff = e, prev.Kickoff
 		}
 	}
-	if last.Fixture == 0 {
-		return MatchdayLineup{}, false, nil
-	}
+	return last, last.Fixture != 0
+}
 
+// fitLineup fits a saved lineup to a match of team under rules: players
+// not in its available squad are dropped, their starting places refilled by
+// ai.RefillLineup, and the bench is cut to the rules' limit. It returns the
+// fitted lineup, with the same tactics, and the dropped players in the
+// saved lineup's order. ok is false when nobody can fill a vacancy.
+// Read-only.
+func (w *World) fitLineup(team ids.TeamID, saved selection.Lineup, rules matches.Rules) (selection.Lineup, []ids.PlayerID, bool, error) {
 	available := w.availableSquad(team)
 	inSquad := func(p ids.PlayerID) bool { return slices.Contains(available, p) }
 	var slots []ai.Slot
-	for _, s := range last.Lineup.Starters {
+	for _, s := range saved.Starters {
 		if !inSquad(s.Player) {
 			s.Player = 0
 		}
 		slots = append(slots, ai.Slot{Player: s.Player, Role: s.Role})
 	}
 	var bench []ids.PlayerID
-	for _, p := range last.Lineup.Bench {
+	for _, p := range saved.Bench {
 		if inSquad(p) {
 			bench = append(bench, p)
 		}
@@ -268,29 +310,229 @@ func (w *World) managerLineup(f competitions.Fixture, team ids.TeamID, rules mat
 	for _, id := range available {
 		c, err := w.candidate(id)
 		if err != nil {
-			return MatchdayLineup{}, false, err
+			return selection.Lineup{}, nil, false, err
 		}
 		candidates = append(candidates, c)
 	}
 	slots, bench, err := ai.RefillLineup(team, slots, bench, candidates, rules)
 	if errors.Is(err, ai.ErrNoLegalLineup) {
-		return MatchdayLineup{}, false, nil // the AI selects instead
+		return selection.Lineup{}, nil, false, nil
 	}
 	if err != nil {
-		return MatchdayLineup{}, false, err
+		return selection.Lineup{}, nil, false, err
 	}
-	l := selection.Lineup{Bench: bench, Tactics: last.Lineup.Tactics}
+	l := selection.Lineup{Bench: bench, Tactics: saved.Tactics}
 	for _, s := range slots {
 		l.Starters = append(l.Starters, selection.Slot{Player: s.Player, Role: s.Role})
 	}
-	m := MatchdayLineup{Fixture: f.ID, Lineup: l, Source: LineupCarriedOver, From: last.Fixture}
+	var dropped []ids.PlayerID
 	kept := l.Players()
-	for _, p := range last.Lineup.Players() {
+	for _, p := range saved.Players() {
 		if !slices.Contains(kept, p) {
-			m.Dropped = append(m.Dropped, p)
+			dropped = append(dropped, p)
 		}
 	}
-	return m, true, nil
+	return l, dropped, true, nil
+}
+
+// TeamPlan is the user club's team plan as a lineup editor shows it. The
+// plan is the lineup the club fields in every fixture without a submitted
+// lineup, fitted to each match (see MatchdayLineup).
+type TeamPlan struct {
+	// Saved is false when the manager has saved no plan. Lineup is then a
+	// starting point to edit: the lineup the club last fielded or had
+	// submitted (by kickoff, then fixture ID), fitted to the squad as if
+	// carried over, else the AI's selection, both under the rules of the
+	// club's current league.
+	Saved  bool
+	Lineup selection.Lineup
+	// The players of Lineup who could not be named in a match today, in
+	// lineup order: no longer in the squad, or injured and not selectable.
+	// They stay in a saved plan; each match leaves them out while they
+	// cannot play and refills their places.
+	Unavailable []ids.PlayerID
+	// Every player of the squad in ascending ID order, with whether he
+	// could be named today. Any of them may be named in the plan.
+	Squad []LineupEligibility
+}
+
+func (p TeamPlan) clone() TeamPlan {
+	p.Lineup = p.Lineup.Clone()
+	p.Unavailable = slices.Clone(p.Unavailable)
+	p.Squad = slices.Clone(p.Squad)
+	return p
+}
+
+// TeamPlan returns the user club's team plan, matchday or not. Read-only.
+func (w *World) TeamPlan() (TeamPlan, error) {
+	team, ok := w.userTeam()
+	if !ok {
+		return TeamPlan{}, ErrNoUserClub
+	}
+	p := TeamPlan{Squad: w.eligibility(team)}
+	if l, ok := w.selections.Plan(team); ok {
+		p.Saved, p.Lineup = true, l
+	} else {
+		l, err := w.planStart(team)
+		if err != nil {
+			return TeamPlan{}, err
+		}
+		p.Lineup = l
+	}
+	for _, id := range p.Lineup.Players() {
+		i, ok := slices.BinarySearchFunc(p.Squad, id, func(e LineupEligibility, id ids.PlayerID) int { return cmp.Compare(e.Player, id) })
+		if !ok || !p.Squad[i].Eligibility.Selectable() {
+			p.Unavailable = append(p.Unavailable, id)
+		}
+	}
+	return p, nil
+}
+
+// planStart returns the starting point of an unsaved team plan (see
+// TeamPlan.Saved). Read-only.
+func (w *World) planStart(team ids.TeamID) (selection.Lineup, error) {
+	rules, err := w.leagueRules(team)
+	if err != nil {
+		return selection.Lineup{}, err
+	}
+	if last, ok := w.latestLineup(team, math.MaxInt64, 0); ok {
+		l, _, ok, err := w.fitLineup(team, last.Lineup, rules)
+		if err != nil || ok {
+			return l, err
+		}
+	}
+	in, err := w.selectTeam(team, rules)
+	if err != nil {
+		return selection.Lineup{}, err
+	}
+	return lineupOf(in), nil
+}
+
+// leagueRules returns the match rules of the league team plays in this
+// season.
+func (w *World) leagueRules(team ids.TeamID) (matches.Rules, error) {
+	for _, l := range w.leagues {
+		if entrants, ok := w.competitions.Entrants(l.season); ok && slices.Contains(entrants, team) {
+			return w.matchRules(l.def.ID)
+		}
+	}
+	return matches.Rules{}, fmt.Errorf("app: team %d plays in no current league", team)
+}
+
+// SetTeamPlan saves the user club's team plan, replacing any earlier one.
+// It names no fixture and can be saved on matchday or between matches.
+type SetTeamPlan struct {
+	ID               CommandID
+	ExpectedRevision Revision
+	Lineup           selection.Lineup
+}
+
+// TeamPlanSaved is the recorded result of a SetTeamPlan command.
+type TeamPlanSaved struct {
+	Command  CommandID
+	Revision Revision // world revision after the change
+	Team     ids.TeamID
+}
+
+// TeamPlanRecord is a successful SetTeamPlan and its result.
+type TeamPlanRecord struct {
+	Request SetTeamPlan
+	Result  TeamPlanSaved
+}
+
+func (r TeamPlanRecord) clone() TeamPlanRecord {
+	r.Request.Lineup = r.Request.Lineup.Clone()
+	return r
+}
+
+// SetTeamPlan saves the user club's team plan: the lineup it fields in
+// every fixture without a submitted lineup, fitted to each match (see
+// MatchdayLineup).
+//
+//   - Retries follow ResolveRounds: a recorded ID with the same content
+//     returns the recorded result, different content is ErrCommandIDReused,
+//     and failed attempts are not recorded.
+//   - ExpectedRevision must equal Revision.
+//   - The career must have a user club, and its match must not be live: a
+//     live match's lineup changes through MatchDecision.
+//   - The lineup must have a valid shape (selection.Lineup.Validate) and
+//     name only players of the user club's squad. Injured players may be
+//     named, and the bench is not held to a competition's limit: each
+//     match leaves out whoever cannot play and cuts the bench to fit.
+//
+// It changes no submitted or played lineup. On success the revision
+// increments. On error nothing changes.
+func (w *World) SetTeamPlan(cmd SetTeamPlan) (TeamPlanSaved, error) {
+	if !validCommandID(cmd.ID) {
+		return TeamPlanSaved{}, fmt.Errorf("%w: zero command ID", ErrInvalidCommand)
+	}
+	if rec, ok := w.commands[cmd.ID]; ok {
+		if rec.teamPlan == nil || !sameTeamPlan(rec.teamPlan.Request, cmd) {
+			return TeamPlanSaved{}, fmt.Errorf("%w: command %d", ErrCommandIDReused, cmd.ID)
+		}
+		return rec.teamPlan.Result, nil
+	}
+	if cmd.ExpectedRevision != w.revision {
+		return TeamPlanSaved{}, fmt.Errorf("%w: expected %d, world is at %d", ErrStaleRevision, cmd.ExpectedRevision, w.revision)
+	}
+	team, ok := w.userTeam()
+	if !ok {
+		return TeamPlanSaved{}, ErrNoUserClub
+	}
+	if w.live != nil {
+		return TeamPlanSaved{}, fmt.Errorf("%w: fixture %d is live; use MatchDecision", ErrMatchInProgress, w.live.fixture)
+	}
+	if err := cmd.Lineup.Validate(); err != nil {
+		return TeamPlanSaved{}, fmt.Errorf("%w for team %d: %v", ErrInvalidLineup, team, err)
+	}
+	squad := w.employment.Squad(team)
+	for _, id := range cmd.Lineup.Players() {
+		if _, ok := slices.BinarySearch(squad, id); !ok {
+			return TeamPlanSaved{}, fmt.Errorf("%w for team %d: player %d is not in the squad", ErrInvalidLineup, team, id)
+		}
+	}
+	if err := w.selections.SetPlan(selection.Plan{Team: team, Lineup: cmd.Lineup}); err != nil {
+		return TeamPlanSaved{}, fmt.Errorf("%w: %v", ErrInvalidLineup, err)
+	}
+
+	// Committed. Nothing below can fail.
+	w.revision++
+	res := TeamPlanSaved{Command: cmd.ID, Revision: w.revision, Team: team}
+	rec := TeamPlanRecord{Request: cmd, Result: res}.clone()
+	w.commands[cmd.ID] = commandRecord{teamPlan: &rec}
+	w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindTeamPlanSaved, TeamPlanSaved: &events.TeamPlanSaved{Team: team}})
+	w.publish()
+	return res, nil
+}
+
+func sameTeamPlan(a, b SetTeamPlan) bool {
+	return a.ID == b.ID && a.ExpectedRevision == b.ExpectedRevision && a.Lineup.Equal(b.Lineup)
+}
+
+// restoreTeamPlan validates a recorded SetTeamPlan and adds it to the
+// command log. The user team must still have a plan (possibly a later
+// one).
+func (w *World) restoreTeamPlan(c TeamPlanRecord, revision Revision) error {
+	req, res := c.Request, c.Result
+	if err := w.checkRecordID(req.ID, res.Command); err != nil {
+		return err
+	}
+	if err := req.Lineup.Validate(); err != nil {
+		return err
+	}
+	team, ok := w.userTeam()
+	if !ok || res.Team != team {
+		return fmt.Errorf("team plan for team %d is not the user team's", res.Team)
+	}
+	if _, ok := w.selections.Plan(team); !ok {
+		return fmt.Errorf("no team plan stored for team %d", team)
+	}
+	if res.Revision <= req.ExpectedRevision || res.Revision > revision {
+		return fmt.Errorf("result revision %d outside (%d, %d]", res.Revision, req.ExpectedRevision, revision)
+	}
+	rec := c.clone()
+	w.commands[req.ID] = commandRecord{teamPlan: &rec}
+	return nil
 }
 
 // Eligibility says whether a squad player may be named in the user club's
@@ -470,11 +712,12 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 	return in, nil
 }
 
-// validateSelections checks submitted lineups against the other modules:
-// the user club exists; each lineup is the user team's, for a fixture it
-// plays that has kicked off (lineups are only accepted for the pending
-// batch), with a bench within the league's rules; and a lineup still
-// awaiting its match selects only current squad players.
+// validateSelections checks submitted lineups and team plans against the
+// other modules: the user club exists; each lineup is the user team's, for
+// a fixture it plays that has kicked off (lineups are only accepted for the
+// pending batch), with a bench within the league's rules; a lineup still
+// awaiting its match selects only current squad players; and a team plan is
+// the user team's and names registered players (who may have left since).
 func (w *World) validateSelections() []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("app: "+format, args...)) }
@@ -509,6 +752,17 @@ func (w *World) validateSelections() []error {
 		if _, done := w.competitions.Result(e.Fixture); !done {
 			if _, err := w.lineupInput(e.Team, e.Lineup, rules); err != nil {
 				fail("fixture %d: %v", e.Fixture, err)
+			}
+		}
+	}
+	for _, p := range w.selections.Plans() {
+		if !hasUser || p.Team != team {
+			fail("team plan of team %d, not the user team", p.Team)
+			continue
+		}
+		for _, id := range p.Lineup.Players() {
+			if _, ok := w.registry.Player(id); !ok {
+				fail("team plan names unregistered player %d", id)
 			}
 		}
 	}

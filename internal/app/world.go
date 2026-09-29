@@ -62,6 +62,7 @@ type commandRecord struct {
 	release   *ReleaseRecord
 	listing   *ListingRecord
 	inboxRead *InboxReadRecord
+	teamPlan  *TeamPlanRecord
 }
 
 // World holds the authoritative module state of one career.

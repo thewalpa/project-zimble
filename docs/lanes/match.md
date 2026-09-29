@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Mentality is a trade-off since `tick.ModelVersion` 4: drift in possession and gradual marking make results continuous in the line depths, and a mentality moves both lines. Next is ui's accepted note on [editing the lineup outside matchday](../handoffs/match--lineup-editing-outside-matchday.md) (the saved team plan below), then balance's note on [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
+**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Mentality is a trade-off since `tick.ModelVersion` 4: drift in possession and gradual marking make results continuous in the line depths, and a mentality moves both lines. The saved team plan is done (`World.TeamPlan`, `SetTeamPlan`; the editor is with `ui` in [its note](../handoffs/ui--team-plan-editor.md)). Next is balance's note on [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
 
 ## Tick engine roadmap
 
@@ -61,13 +61,11 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## Backlog
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
-- **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup (today a submitted lineup carries over until replaced). Needs a stored "delegated" choice, so a save schema bump.
+- **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.
 - **Match statistics** in the outcome (shots, possession share), with a `ui` note for reports. `tick` counts them already; see roadmap phase 3. Reports already keep every match event (`MatchReport.Events`); statistics would sit beside them and need another schema bump.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.
 - **Formations and roles** beyond GK/DF/MF/FW, when selection needs them (roadmap phase 4 for `tick`).
-
-- **A saved team plan outside matchday** (accepted ui note, proposed shape in its answer): let the manager edit preferred starters, bench and mentality without a ready fixture. Keep the plan separate from fixture submissions; use it to prepare the next lineup, then revalidate employment and availability at kickoff and report dropped players. Coordinate with `ui`'s always-available lineup editor and `squad`'s injuries. Save/load must preserve the plan, and editing it must not rewrite past lineups or a live match.
 - **Explain lineup readiness:** player eligibility is done (`World.SquadEligibility`, shared with `SubmitLineup`, tested for an injury after the preview). Left: structured reasons a whole lineup is rejected (duplicate selection, missing goalkeeper, bench too long) as typed errors rather than messages, so `ui` can render them; suspensions from `competitions` will add an `Eligibility` value.
 
 ### AI/player rule parity audit

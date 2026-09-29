@@ -9,6 +9,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/selection"
@@ -846,4 +847,320 @@ func TestSquadEligibilityShowsTheEmergencyRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	submit(t, w, fixture, l)
+}
+
+func setPlan(t *testing.T, w *World, l selection.Lineup) TeamPlanSaved {
+	t.Helper()
+	res, err := w.SetTeamPlan(SetTeamPlan{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Lineup: l})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+func mustTeamPlan(t *testing.T, w *World) TeamPlan {
+	t.Helper()
+	p, err := w.TeamPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// attackingPlan is the plan's starting point made attacking, with the last
+// starting forward swapped for the first outfield substitute.
+func attackingPlan(t *testing.T, w *World) selection.Lineup {
+	t.Helper()
+	l := mustTeamPlan(t, w).Lineup
+	l.Tactics.Mentality = matches.Attacking
+	for i, id := range l.Bench {
+		if p, _ := w.players.Profile(id); p.Position != players.Goalkeeper {
+			l.Starters[10].Player, l.Bench[i] = id, l.Starters[10].Player
+			return l
+		}
+	}
+	t.Fatal("no outfield substitute")
+	return l
+}
+
+// The manager saves a plan before the first matchday. Every user match
+// then plays the plan, exactly as if it had been submitted each time, and
+// the plan never becomes a carry-over.
+func TestTeamPlanIsPlayedWithoutAMatchday(t *testing.T) {
+	planned, explicit := userWorld(t, 42, userClub), userWorld(t, 42, userClub)
+	team := mustUserTeam(t, planned)
+	if _, ok := planned.Pending(); ok {
+		t.Fatal("setup: a matchday is pending")
+	}
+	start := mustTeamPlan(t, planned)
+	if start.Saved || len(start.Unavailable) != 0 || len(start.Squad) != len(planned.employment.Squad(team)) {
+		t.Fatalf("unsaved plan: saved %t, unavailable %v, squad of %d", start.Saved, start.Unavailable, len(start.Squad))
+	}
+	if err := start.Lineup.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	plan := attackingPlan(t, planned)
+	rev := planned.Revision()
+	res := setPlan(t, planned, plan)
+	if res.Revision != rev+1 || res.Team != team {
+		t.Fatalf("result %+v", res)
+	}
+	evs := planned.Events()
+	if last := evs[len(evs)-1]; last.Kind != events.KindTeamPlanSaved || last.TeamPlanSaved.Team != team {
+		t.Fatalf("last event %s", last.Kind)
+	}
+	if got := mustTeamPlan(t, planned); !got.Saved || !got.Lineup.Equal(plan) {
+		t.Fatal("the saved plan is not returned")
+	}
+	planned = roundTrip(t, planned)
+
+	for batch := 0; batch < 5; batch++ {
+		ready := mustContinue(t, planned, seasonEnd(planned)).(FixtureRoundReady)
+		mustContinue(t, explicit, seasonEnd(explicit))
+		for _, f := range ready.UserFixtures {
+			m, err := planned.MatchdayLineup(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.Source != LineupFromPlan || m.From != 0 {
+				t.Fatalf("batch %d: source %s from %d, want the plan", batch, m.Source, m.From)
+			}
+			if len(m.Dropped) == 0 && !m.Lineup.Equal(plan) {
+				t.Fatalf("batch %d: nobody dropped, but the lineup differs from the plan", batch)
+			}
+			submit(t, explicit, f, m.Lineup)
+		}
+		got, want := resolveNow(t, planned), resolveNow(t, explicit)
+		if !reflect.DeepEqual(got.Matches, want.Matches) {
+			t.Fatalf("batch %d: playing the plan differs from submitting it", batch)
+		}
+		for _, m := range got.Matches {
+			if side := userSide(m, team); side >= 0 && m.Selected[side] != SelectedByManager {
+				t.Fatalf("fixture %d: user side selected by %s", m.Fixture, m.Selected[side])
+			}
+		}
+	}
+	if got := mustTeamPlan(t, planned); !got.Lineup.Equal(plan) {
+		t.Fatal("playing matches changed the plan")
+	}
+	roundTrip(t, planned)
+}
+
+// A lineup submitted for a fixture beats the plan, the plan beats a
+// carried-over lineup, and saving a plan changes no stored lineup.
+func TestTeamPlanPrecedence(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	ready := readyBatch(t, w)
+	first := ready.UserFixtures[0]
+	submitted := changedLineup(t, w, first)
+	submit(t, w, first, submitted)
+	plan := attackingPlan(t, w)
+	plan.Tactics.Mentality = matches.Defensive
+	setPlan(t, w, plan)
+	if m, _ := w.MatchdayLineup(first); m.Source != LineupFromSubmission || !m.Lineup.Equal(submitted) {
+		t.Fatalf("source %s, want the submission", m.Source)
+	}
+	resolveNow(t, w)
+	if stored, _ := w.SubmittedLineup(first); !stored.Equal(submitted) {
+		t.Fatal("the plan changed a played lineup")
+	}
+
+	ready = readyBatch(t, w)
+	next := ready.UserFixtures[0]
+	if m, _ := w.MatchdayLineup(next); m.Source != LineupFromPlan || m.Lineup.Tactics.Mentality != matches.Defensive {
+		t.Fatalf("source %s, want the plan over the carried-over lineup", m.Source)
+	}
+	// Saving another plan on matchday changes the pending lineup, but not a
+	// lineup submitted for the fixture.
+	plan.Tactics.Mentality = matches.Balanced
+	setPlan(t, w, plan)
+	if m, _ := w.MatchdayLineup(next); m.Source != LineupFromPlan || m.Lineup.Tactics.Mentality != matches.Balanced {
+		t.Fatal("the new plan does not apply on matchday")
+	}
+	submit(t, w, next, submitted)
+	setPlan(t, w, attackingPlan(t, w))
+	if got, _ := w.SubmittedLineup(next); !got.Equal(submitted) {
+		t.Fatal("saving a plan changed a submitted lineup")
+	}
+	roundTrip(t, w)
+}
+
+// A plan keeps players who cannot play today. Each match leaves them out,
+// refills their places and cuts the bench, and they return when they can
+// play again.
+func TestTeamPlanKeepsUnavailablePlayers(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	team := mustUserTeam(t, w)
+	playBatches(t, w, 1) // later rounds are a week apart: the injury lasts
+	plan := mustTeamPlan(t, w).Lineup
+	for _, id := range w.employment.Squad(team) { // the whole squad on the bench
+		if !slices.Contains(plan.Players(), id) {
+			plan.Bench = append(plan.Bench, id)
+		}
+	}
+	hurt, gone := plan.Starters[6].Player, plan.Starters[7].Player
+	injure(t, w, hurt, 30)
+	setPlan(t, w, plan) // injured players may be planned
+	if _, err := w.ReleasePlayer(ReleasePlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: gone}); err != nil {
+		t.Fatal(err)
+	}
+	p := mustTeamPlan(t, w)
+	if !p.Lineup.Equal(plan) || !slices.Equal(p.Unavailable, []ids.PlayerID{hurt, gone}) {
+		t.Fatalf("unavailable %v, want %d (injured) and %d (released)", p.Unavailable, hurt, gone)
+	}
+
+	ready := readyBatch(t, w)
+	rules, err := w.leagueRules(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := w.MatchdayLineup(ready.UserFixtures[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Source != LineupFromPlan || len(m.Lineup.Bench) != int(rules.MaxBench) {
+		t.Fatalf("source %s, bench of %d; want the plan with a bench of %d", m.Source, len(m.Lineup.Bench), rules.MaxBench)
+	}
+	if !slices.Contains(m.Dropped, hurt) || !slices.Contains(m.Dropped, gone) || slices.Contains(m.Lineup.Players(), hurt) {
+		t.Fatalf("dropped %v, want %d and %d among them", m.Dropped, hurt, gone)
+	}
+	for i, s := range m.Lineup.Starters {
+		if i != 6 && i != 7 && s != plan.Starters[i] {
+			t.Fatalf("slot %d moved: %+v, was %+v", i, s, plan.Starters[i])
+		}
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	w = roundTrip(t, w)
+	resolveNow(t, w)
+	if stored, _ := w.SubmittedLineup(ready.UserFixtures[0]); !stored.Equal(m.Lineup) {
+		t.Fatal("the fitted plan was not stored for its fixture")
+	}
+
+	for range 40 { // the injury heals within the season
+		if _, injured := w.medical.DaysOut(hurt); !injured {
+			break
+		}
+		readyBatch(t, w)
+		resolveNow(t, w)
+	}
+	if _, injured := w.medical.DaysOut(hurt); injured {
+		t.Fatal("setup: the injury never healed")
+	}
+	if p := mustTeamPlan(t, w); slices.Contains(p.Unavailable, hurt) {
+		t.Fatal("a recovered player is still unavailable")
+	}
+	ready = readyBatch(t, w)
+	if m, _ := w.MatchdayLineup(ready.UserFixtures[0]); m.Lineup.Starters[6].Player != hurt {
+		t.Fatal("the recovered player did not return to his planned place")
+	}
+}
+
+func TestSetTeamPlanRejections(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	team := mustUserTeam(t, w)
+	plan := mustTeamPlan(t, w).Lineup
+	var foreigner ids.PlayerID
+	for _, a := range w.employment.Snapshot() {
+		if a.Team != team {
+			foreigner = a.Player
+			break
+		}
+	}
+	twoKeepers := plan.Clone()
+	twoKeepers.Starters[1].Role = matches.Goalkeeper
+	stranger := plan.Clone()
+	stranger.Bench = append(stranger.Bench, foreigner)
+	id := w.NextCommandID()
+	cases := map[string]struct {
+		cmd  SetTeamPlan
+		want error
+	}{
+		"zero ID":        {SetTeamPlan{ExpectedRevision: w.Revision(), Lineup: plan}, ErrInvalidCommand},
+		"stale revision": {SetTeamPlan{ID: id, ExpectedRevision: w.Revision() + 1, Lineup: plan}, ErrStaleRevision},
+		"invalid shape":  {SetTeamPlan{ID: id, ExpectedRevision: w.Revision(), Lineup: twoKeepers}, ErrInvalidLineup},
+		"foreign player": {SetTeamPlan{ID: id, ExpectedRevision: w.Revision(), Lineup: stranger}, ErrInvalidLineup},
+	}
+	before := w.Snapshot()
+	for name, c := range cases {
+		if _, err := w.SetTeamPlan(c.cmd); !errors.Is(err, c.want) {
+			t.Errorf("%s: err = %v, want %v", name, err, c.want)
+		}
+	}
+	if !reflect.DeepEqual(w.Snapshot(), before) {
+		t.Fatal("a rejected plan changed the world")
+	}
+
+	cmd := SetTeamPlan{ID: id, ExpectedRevision: w.Revision(), Lineup: plan}
+	res := setPlan(t, w, plan)
+	if again, err := w.SetTeamPlan(cmd); err != nil || again != res {
+		t.Fatalf("retry: %+v, %v", again, err)
+	}
+	loaded := roundTrip(t, w)
+	if again, err := loaded.SetTeamPlan(cmd); err != nil || again != res {
+		t.Fatalf("retry after load: %+v, %v", again, err)
+	}
+	cmd.Lineup = twoKeepers
+	if _, err := w.SetTeamPlan(cmd); !errors.Is(err, ErrCommandIDReused) {
+		t.Fatalf("reused ID: %v", err)
+	}
+
+	// A live match keeps its lineup until it is over.
+	fixture := readyBatch(t, w).UserFixtures[0]
+	playTo(t, w, fixture, 45)
+	if _, err := w.SetTeamPlan(SetTeamPlan{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Lineup: plan}); !errors.Is(err, ErrMatchInProgress) {
+		t.Fatalf("during a live match: %v", err)
+	}
+
+	unmanaged := userWorld(t, 42, 0)
+	if _, err := unmanaged.TeamPlan(); !errors.Is(err, ErrNoUserClub) {
+		t.Fatalf("TeamPlan without a user club: %v", err)
+	}
+	if _, err := unmanaged.SetTeamPlan(SetTeamPlan{ID: 1, ExpectedRevision: unmanaged.Revision(), Lineup: plan}); !errors.Is(err, ErrNoUserClub) {
+		t.Fatalf("SetTeamPlan without a user club: %v", err)
+	}
+}
+
+func TestRestoreRejectsInvalidTeamPlans(t *testing.T) {
+	var team, otherTeam ids.TeamID
+	build := func() WorldSnapshot {
+		w := userWorld(t, 42, userClub)
+		team = mustUserTeam(t, w)
+		setPlan(t, w, mustTeamPlan(t, w).Lineup)
+		setPlan(t, w, attackingPlan(t, w))
+		return w.Snapshot()
+	}
+	base := build()
+	if len(base.TeamPlans) != 1 || len(base.TeamPlanCommands) != 2 {
+		t.Fatalf("setup: %d plans, %d plan commands", len(base.TeamPlans), len(base.TeamPlanCommands))
+	}
+	for _, a := range base.Employment {
+		if a.Team != team {
+			otherTeam = a.Team
+			break
+		}
+	}
+	cases := map[string]func(*WorldSnapshot){
+		"plan without user club":    func(s *WorldSnapshot) { s.UserClub = 0 },
+		"plan of another team":      func(s *WorldSnapshot) { s.TeamPlans[0].Team = otherTeam },
+		"two plans":                 func(s *WorldSnapshot) { s.TeamPlans = append(s.TeamPlans, s.TeamPlans[0]) },
+		"plan two goalkeepers":      func(s *WorldSnapshot) { s.TeamPlans[0].Lineup.Starters[2].Role = matches.Goalkeeper },
+		"plan unregistered player":  func(s *WorldSnapshot) { s.TeamPlans[0].Lineup.Bench[0] = 99999 },
+		"plan removed":              func(s *WorldSnapshot) { s.TeamPlans = nil },
+		"plan command other team":   func(s *WorldSnapshot) { s.TeamPlanCommands[0].Result.Team = otherTeam },
+		"plan command invalid":      func(s *WorldSnapshot) { s.TeamPlanCommands[0].Request.Lineup.Starters = nil },
+		"plan command future":       func(s *WorldSnapshot) { s.TeamPlanCommands[1].Result.Revision = s.Revision + 1 },
+		"plan command duplicate ID": func(s *WorldSnapshot) { s.TeamPlanCommands[1] = s.TeamPlanCommands[0] },
+	}
+	for name, mutate := range cases {
+		snap := build()
+		mutate(&snap)
+		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
+			t.Errorf("%s: Restore = %v", name, err)
+		}
+	}
+	if _, err := Restore(base); err != nil {
+		t.Fatalf("unmodified snapshot rejected: %v", err)
+	}
 }

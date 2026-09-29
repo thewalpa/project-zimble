@@ -109,14 +109,14 @@ type plannedMatch struct {
 //   - ExpectedRevision must equal Revision, and Rounds must equal the
 //     pending batch exactly.
 //   - Steps: prepare (validate fixtures, reject overlapping teams, take each
-//     side's manager lineup (submitted or carried over, see
-//     MatchdayLineup) or else the AI selection, with current
+//     side's manager lineup (submitted, from the team plan or carried
+//     over, see MatchdayLineup) or else the AI selection, with current
 //     condition, build detached inputs) -> simulate every fixture with its
 //     own random stream -> validate every outcome -> draw the injuries
 //     (see injuries.go) and plan every participant's condition loss -> record all results and complete all
 //     rounds in one competitions call -> apply the condition plan, store
-//     each carried-over lineup for the fixture it was played in, bump the
-//     revision and record the command.
+//     each lineup fitted from the plan or carried over for the fixture it
+//     was played in, bump the revision and record the command.
 //
 // Any failure before the competitions call leaves the world exactly as it
 // was; that call is itself all-or-nothing, and nothing after it can fail
@@ -337,11 +337,11 @@ func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 }
 
 // sideSelection returns the lineup a side plays: the manager's (submitted
-// for the fixture, or carried over; see MatchdayLineup), revalidated against
-// the current squad, or else the AI selection. A carried-over lineup is also
-// returned as the entry to store for the fixture once it is played, so the
-// next match carries it on and the report's SelectedByManager always has a
-// stored lineup behind it.
+// for the fixture, from the team plan or carried over; see MatchdayLineup),
+// revalidated against the current squad, or else the AI selection. A lineup
+// fitted from the plan or carried over is also returned as the entry to
+// store for the fixture once it is played, so a later match can carry it on
+// and the report's SelectedByManager always has a stored lineup behind it.
 func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules matches.Rules) (matches.TeamInput, SelectedBy, *selection.Entry, error) {
 	team := f.Home
 	if side == matches.Away {
@@ -357,7 +357,7 @@ func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules m
 			return matches.TeamInput{}, 0, nil, fmt.Errorf("app: fixture %d: %w", f.ID, err)
 		}
 		var carried *selection.Entry
-		if m.Source == LineupCarriedOver {
+		if m.Source != LineupFromSubmission {
 			carried = &selection.Entry{Fixture: f.ID, Team: team, Lineup: m.Lineup}
 		}
 		return in, SelectedByManager, carried, nil

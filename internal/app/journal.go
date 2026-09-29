@@ -183,6 +183,13 @@ func (w *World) checkEventFacts(e events.Event) error {
 		if !ok || (f.Home != p.Team && f.Away != p.Team) {
 			return errors.New("team does not play the fixture")
 		}
+	case events.KindTeamPlanSaved:
+		if team, ok := w.userTeam(); !ok || e.TeamPlanSaved.Team != team {
+			return errors.New("team is not the user team")
+		}
+		if _, ok := w.selections.Plan(e.TeamPlanSaved.Team); !ok {
+			return errors.New("no team plan is stored")
+		}
 	case events.KindSeasonEnded:
 		p := e.SeasonEnded
 		ref := competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}

@@ -369,6 +369,13 @@ func fixtureCareer(t *testing.T) *app.World {
 	if _, err := w.MarkInboxRead(app.MarkInboxRead{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Message: w.Inbox()[0].Event}); err != nil {
 		t.Fatal(err)
 	}
+	plan, err := w.TeamPlan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.SetTeamPlan(app.SetTeamPlan{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Lineup: plan.Lineup}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Day by day to the second window, answering every bid for the club's
 	// players and playing every batch with submitted lineups.

@@ -60,7 +60,7 @@ func TestLineupValidateRejectsBadShapes(t *testing.T) {
 }
 
 func TestSubmitInsertsReplacesAndKeepsOrder(t *testing.T) {
-	s, err := New(nil)
+	s, err := New(Snapshot{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestSubmitInsertsReplacesAndKeepsOrder(t *testing.T) {
 }
 
 func TestSubmitRejectsWithoutChange(t *testing.T) {
-	s, _ := New([]Entry{{Fixture: 1, Team: 1, Lineup: lineup(0)}})
+	s, _ := New(Snapshot{Entries: []Entry{{Fixture: 1, Team: 1, Lineup: lineup(0)}}, Plans: []Plan{{Team: 1, Lineup: lineup(30)}}})
 	want := s.Snapshot()
 	bad := lineup(0)
 	bad.Starters[1].Role = matches.Goalkeeper
@@ -100,6 +100,14 @@ func TestSubmitRejectsWithoutChange(t *testing.T) {
 		"zero team":      {Fixture: 1, Team: 0, Lineup: lineup(0)},
 	} {
 		if err := s.Submit(e); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	for name, p := range map[string]Plan{
+		"invalid plan":   {Team: 1, Lineup: bad},
+		"zero plan team": {Lineup: lineup(0)},
+	} {
+		if err := s.SetPlan(p); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -116,21 +124,66 @@ func TestNewRejectsInvalidEntries(t *testing.T) {
 		"invalid lineup": {{Fixture: 1, Team: 1, Lineup: bad}},
 		"zero IDs":       {{Lineup: lineup(0)}},
 	} {
-		if _, err := New(entries); err == nil {
+		if _, err := New(Snapshot{Entries: entries}); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	for name, plans := range map[string][]Plan{
+		"two plans for a team": {{Team: 1, Lineup: lineup(0)}, {Team: 1, Lineup: lineup(20)}},
+		"invalid plan":         {{Team: 1, Lineup: bad}},
+		"zero team":            {{Lineup: lineup(0)}},
+	} {
+		if _, err := New(Snapshot{Plans: plans}); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 }
 
+func TestPlanIsSeparateFromFixtureLineups(t *testing.T) {
+	s, err := New(Snapshot{Entries: []Entry{{Fixture: 4, Team: 2, Lineup: lineup(0)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Plan(2); ok {
+		t.Fatal("a plan exists before one was set")
+	}
+	for _, base := range []ids.PlayerID{20, 40} { // the second replaces the first
+		if err := s.SetPlan(Plan{Team: 2, Lineup: lineup(base)}); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := s.Plan(2); !ok || !got.Equal(lineup(base)) {
+			t.Fatalf("Plan(2) = %+v, %v; want lineup(%d)", got, ok, base)
+		}
+	}
+	if err := s.SetPlan(Plan{Team: 1, Lineup: lineup(60)}); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.Lineup(4, 2); !ok || !got.Equal(lineup(0)) {
+		t.Fatal("setting a plan changed a fixture lineup")
+	}
+	if plans := s.Plans(); len(plans) != 2 || plans[0].Team != 1 || plans[1].Team != 2 {
+		t.Fatalf("Plans() = %+v, want teams 1 and 2 in order", plans)
+	}
+	restored, err := New(s.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Snapshot(), s.Snapshot()) {
+		t.Fatal("New(Snapshot()) is not equivalent")
+	}
+}
+
 func TestStoreSharesNoMemory(t *testing.T) {
 	input := []Entry{{Fixture: 1, Team: 1, Lineup: lineup(0)}}
-	s, err := New(input)
+	plans := []Plan{{Team: 1, Lineup: lineup(40)}}
+	s, err := New(Snapshot{Entries: input, Plans: plans})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := s.Snapshot()
 	input[0].Lineup.Starters[0].Player = 77
 	input[0].Lineup.Bench[0] = 77
+	plans[0].Lineup.Starters[0].Player = 77
 
 	out := s.Entries()
 	out[0].Lineup.Starters[1].Player = 78
@@ -142,8 +195,18 @@ func TestStoreSharesNoMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.Lineup.Starters[2].Player = 79
+	plan, _ := s.Plan(1)
+	plan.Bench[0] = 80
+	s.Plans()[0].Lineup.Bench[1] = 80
+	p := Plan{Team: 2, Lineup: lineup(60)}
+	if err := s.SetPlan(p); err != nil {
+		t.Fatal(err)
+	}
+	p.Lineup.Starters[3].Player = 81
 
-	if snap := s.Snapshot(); !reflect.DeepEqual(snap[0], want[0]) || snap[1].Lineup.Starters[2].Player == 79 {
+	snap := s.Snapshot()
+	if !reflect.DeepEqual(snap.Entries[0], want.Entries[0]) || snap.Entries[1].Lineup.Starters[2].Player == 79 ||
+		!reflect.DeepEqual(snap.Plans[0], want.Plans[0]) || snap.Plans[1].Lineup.Starters[3].Player == 81 {
 		t.Fatal("store shares memory with its callers")
 	}
 }
