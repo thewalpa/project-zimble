@@ -2589,6 +2589,27 @@ Every player's clubs since the career began: how and when he joined each (with t
 - `TestRestoreRejectsInvalidCareers`: an offset behind the journal, a missing career, a wrong current club, an edited fee, a forgotten transfer and an unknown club.
 - A seed-42 run of two seasons with save/load in between: 665 careers, 810 spells (104 transfers, 41 free signings, 25 youth), offset 1515 with the journal trimmed.
 
+## data: `SeasonInterval` dropped (done)
+
+Answers `competitions`' note `data--season-interval-unused`. Since seasons follow the civil calendar (`competitions.SeasonKickoff`), `League.SeasonInterval` no longer set anything, and its comments described the old 52-week rule.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/content` | `League.SeasonInterval` removed. `MaxSeasonSpan` (51 weeks): `League.Validate` requires the last kickoff within it of the first (and a round interval no longer than it, which keeps the product from overflowing). The `League` comment points at `SeasonKickoff`. `LeagueVersion` 5 |
+| `internal/app` | `checkPromotions` compares linked leagues' `FirstKickoff` and `RoundInterval` only |
+| `internal/storage` | `SchemaVersion` 23 (pinned league definitions lost a field). Schema 22 saves are refused |
+
+### Decisions
+
+- **Dropped, not kept as a bound.** A field nothing reads for its meaning invites someone to change it and expect seasons to move. The bound it stood for is now a constant beside the rule it follows: seasons start within three days of the anniversary, so at least 359 days apart, and a 357-day season ends before the next one.
+- **No generated or scheduled output changed:** the default leagues run 13 weeks, and no seed-dependent golden moved.
+
+### Verification
+
+`TestLeagueValidation` rejects a season a minute too long, a round interval beyond a season and one that would overflow, and accepts exactly `MaxSeasonSpan`. `TestRestoreRejectsInvalidSeasonState` still refuses an edited league timing (its round interval).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/money"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
 
@@ -93,8 +94,9 @@ func TestLeagueValidation(t *testing.T) {
 		"one entrant":            func(l *League) { l.Entrants = 1 },
 		"no round interval":      func(l *League) { l.RoundInterval = 0 },
 		"too many substitutions": func(l *League) { l.MaxSubstitutions = l.MaxBench + 1 },
-		"no season interval":     func(l *League) { l.SeasonInterval = 0 },
-		"seasons overlap":        func(l *League) { l.SeasonInterval = 13 * l.RoundInterval },
+		"season too long":        func(l *League) { l.RoundInterval = MaxSeasonSpan/13 + 1 },
+		"round beyond a season":  func(l *League) { l.Entrants, l.RoundInterval = 2, MaxSeasonSpan+1 },
+		"overflowing interval":   func(l *League) { l.RoundInterval = sim.Duration(1) << 62 },
 	} {
 		l := DefaultLeague()
 		mutate(&l)
@@ -103,9 +105,9 @@ func TestLeagueValidation(t *testing.T) {
 		}
 	}
 	l := DefaultLeague()
-	l.SeasonInterval = 13*l.RoundInterval + 1
+	l.RoundInterval = MaxSeasonSpan / 13
 	if err := l.Validate(); err != nil {
-		t.Fatalf("season starting a minute after the last kickoff interval rejected: %v", err)
+		t.Fatalf("season of the longest span rejected: %v", err)
 	}
 }
 

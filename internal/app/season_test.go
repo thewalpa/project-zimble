@@ -290,8 +290,8 @@ func TestRestoreRejectsInvalidSeasonState(t *testing.T) {
 		"league back in season 1": func(s *WorldSnapshot) {
 			s.Leagues[0].Season = seasonRef(1, 1)
 		},
-		"season interval edited": func(s *WorldSnapshot) {
-			s.Leagues[0].Definition.SeasonInterval += sim.Day
+		"round interval edited": func(s *WorldSnapshot) {
+			s.Leagues[0].Definition.RoundInterval += sim.Day
 			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
 	}

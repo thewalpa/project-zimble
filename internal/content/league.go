@@ -12,21 +12,27 @@ import (
 // DefaultLeagues and DefaultCups. It is separate from Version so competition
 // changes do not alter generated worlds. Version 3 added a second league and
 // the continental cup; version 4 added a second division for each league and
-// the promotion links between them.
-const LeagueVersion = 4
+// the promotion links between them; version 5 dropped League.SeasonInterval.
+const LeagueVersion = 5
+
+// MaxSeasonSpan is the longest a league season may run, from its first
+// kickoff to its last. Seasons start within three days of their first
+// kickoff's anniversary, so consecutive seasons are at least 359 days apart;
+// a season up to 51 weeks (357 days) long ends before the next one starts.
+const MaxSeasonSpan = 51 * sim.Week
 
 // League defines a double round-robin league competition and its seasons'
 // scheduling inputs. FirstKickoff is the first season's first kickoff in UTC
 // civil time; the career calendar converts it to a game instant. Each later
-// season's first kickoff is SeasonInterval after the previous season's, so
-// with 52 weeks every season starts on the same weekday and time.
+// season kicks off on its weekday and time in the week nearest its
+// anniversary (competitions.SeasonKickoff), and its rounds follow
+// RoundInterval apart.
 type League struct {
-	ID             ids.CompetitionID
-	Name           string
-	Entrants       int
-	FirstKickoff   sim.CivilTime
-	RoundInterval  sim.Duration
-	SeasonInterval sim.Duration
+	ID            ids.CompetitionID
+	Name          string
+	Entrants      int
+	FirstKickoff  sim.CivilTime
+	RoundInterval sim.Duration
 
 	// Match rules for the league's fixtures.
 	MaxSubstitutions uint8
@@ -36,14 +42,17 @@ type League struct {
 // Rounds is the number of rounds in one double round-robin season.
 func (l League) Rounds() int { return 2 * (l.Entrants - 1) }
 
-// Validate checks the definition. A season's last kickoff must come before
-// the next season's first.
+// Validate checks the definition. A season's last kickoff must come within
+// MaxSeasonSpan of its first, so that it ends before the next season starts.
 func (l League) Validate() error {
 	if !l.ID.Valid() || l.Name == "" || l.Entrants < 2 || l.RoundInterval <= 0 || l.MaxSubstitutions > l.MaxBench {
 		return fmt.Errorf("content: invalid league definition %+v", l)
 	}
-	if lastOffset := sim.Duration(l.Rounds()-1) * l.RoundInterval; l.SeasonInterval <= lastOffset {
-		return fmt.Errorf("content: league %d season interval %d does not exceed its last kickoff offset %d", l.ID, l.SeasonInterval, lastOffset)
+	if l.RoundInterval > MaxSeasonSpan {
+		return fmt.Errorf("content: league %d round interval %d exceeds a season", l.ID, l.RoundInterval)
+	}
+	if lastOffset := sim.Duration(l.Rounds()-1) * l.RoundInterval; lastOffset > MaxSeasonSpan {
+		return fmt.Errorf("content: league %d last kickoff offset %d exceeds the longest season %d", l.ID, lastOffset, MaxSeasonSpan)
 	}
 	return nil
 }
@@ -128,8 +137,6 @@ func DefaultLeague() League {
 		Entrants:      8,
 		FirstKickoff:  sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, // a Saturday
 		RoundInterval: sim.Week,
-		// 364 days: the next season starts on the same weekday, a year on.
-		SeasonInterval: 52 * sim.Week,
 
 		MaxSubstitutions: 3,
 		MaxBench:         7,

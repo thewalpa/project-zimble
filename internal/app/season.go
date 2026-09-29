@@ -216,7 +216,7 @@ func checkPromotions(leagues []content.League, links []content.Promotion) error 
 	}
 	for _, p := range links {
 		u, l := byID[p.Upper], byID[p.Lower]
-		if u.FirstKickoff != l.FirstKickoff || u.RoundInterval != l.RoundInterval || u.SeasonInterval != l.SeasonInterval {
+		if u.FirstKickoff != l.FirstKickoff || u.RoundInterval != l.RoundInterval {
 			return fmt.Errorf("app: linked leagues %d and %d must share their calendar", p.Upper, p.Lower)
 		}
 	}

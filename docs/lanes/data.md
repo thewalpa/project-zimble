@@ -28,7 +28,9 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 **Player careers delivered:** `internal/careers`, a read model of every player's clubs built from the employment events, saved and validated against employment; `app.PlayerCareer` for the profile ([progress](../progress.md#data-player-careers-done)). Notes to `ui` (the profile history) and `squad` (every employment change must emit its event). Match's report events in `save.go` were reviewed and accepted.
 
-**Next:** answer `data--season-interval-unused`, then per-nation name pools (see the backlog) or save fixtures per schema version. The next free version numbers are `worldgen.Version` 8, `content.Version` 9, `worldgen.YouthVersion` 4 and `storage.SchemaVersion` 23.
+**`SeasonInterval` dropped** for `content.MaxSeasonSpan` (`LeagueVersion` 5), answering `competitions` ([progress](../progress.md#data-seasoninterval-dropped-done)).
+
+**Next:** per-nation name pools (see the backlog), or save fixtures per schema version. The next free version numbers are `worldgen.Version` 8, `content.Version` 9, `worldgen.YouthVersion` 4, `content.LeagueVersion` 6 and `storage.SchemaVersion` 24.
 
 ## Backlog
 
