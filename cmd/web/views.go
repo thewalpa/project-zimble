@@ -560,6 +560,9 @@ type hiddenLineupSlot struct {
 
 type lineupView struct {
 	Fixture          ids.FixtureID
+	Plan             bool
+	HasFixture       bool
+	Unavailable      []string
 	Title            string
 	State            string
 	Mentality        string
@@ -575,32 +578,46 @@ type lineupView struct {
 }
 
 func (s *server) lineup(r *http.Request) (string, any, error) {
-	fixture, ok := s.pendingFixture()
-	if !ok {
-		return "lineup", lineupView{}, nil
-	}
+	fixture, hasFixture := s.pendingFixture()
+	planMode := r.URL.Query().Get("plan") == "1" || !hasFixture
 	suggest := r.URL.Query().Get("suggest") == "1"
 	var l selection.Lineup
 	var state string
 	var droppedNotes []string
-	if suggest {
+	var eligibility []app.LineupEligibility
+	var plan app.TeamPlan
+	if planMode {
 		var err error
-		if l, err = s.w.SuggestLineup(fixture); err != nil {
-			return "", nil, err
-		}
-		state = "The assistant's suggestion (used unless you save changes)"
-	} else {
-		ml, err := s.w.MatchdayLineup(fixture)
+		plan, err = s.w.TeamPlan()
 		if err != nil {
 			return "", nil, err
 		}
-		l = ml.Lineup
-		state = s.w.LineupSourceLabel(ml)
-		droppedNotes = s.w.LineupDroppedMessages(ml)
-	}
-	eligibility, err := s.w.SquadEligibility(fixture)
-	if err != nil {
-		return "", nil, err
+		l, eligibility = plan.Lineup, plan.Squad
+		state = "Starting point for matches without a submitted lineup"
+		if plan.Saved {
+			state = "Saved team plan; used for matches without a submitted lineup"
+		}
+	} else {
+		if suggest {
+			var err error
+			if l, err = s.w.SuggestLineup(fixture); err != nil {
+				return "", nil, err
+			}
+			state = "The assistant's suggestion (used unless you save changes)"
+		} else {
+			ml, err := s.w.MatchdayLineup(fixture)
+			if err != nil {
+				return "", nil, err
+			}
+			l = ml.Lineup
+			state = s.w.LineupSourceLabel(ml)
+			droppedNotes = s.w.LineupDroppedMessages(ml)
+		}
+		var err error
+		eligibility, err = s.w.SquadEligibility(fixture)
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	byPlayer := make(map[ids.PlayerID]app.LineupEligibility, len(eligibility))
 	emergency := false
@@ -610,15 +627,24 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 			emergency = true
 		}
 	}
-	info, _ := s.fixtureInfo(fixture)
 	sortState := newSortState(r, "selection", "asc")
 	v := lineupView{
-		Fixture: fixture, State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
-		Title:         fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff)),
+		Fixture: fixture, Plan: planMode, HasFixture: hasFixture,
+		State: state, Mentality: l.Tactics.Mentality.String(), Slots: slotOptions,
+		Title:         "Team plan",
 		Sort:          sortState,
 		DroppedNotes:  droppedNotes,
 		IsSuggested:   suggest,
 		AvailableOnly: r.URL.Query().Get("available") == "1",
+	}
+	if !planMode {
+		info, _ := s.fixtureInfo(fixture)
+		v.Title = fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff))
+	}
+	for _, id := range plan.Unavailable {
+		if name, ok := s.w.PlayerName(id); ok {
+			v.Unavailable = append(v.Unavailable, name)
+		}
 	}
 	if emergency {
 		v.AvailabilityNote = "Not enough fit players for a legal eleven; injured players are selectable under the emergency rule."

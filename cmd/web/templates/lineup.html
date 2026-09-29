@@ -1,21 +1,24 @@
 {{define "content"}}
 {{$d := .Data}}
 <h1>Lineup</h1>
-{{if not $d.Fixture}}
+{{if and (not $d.Fixture) (not $d.Plan)}}
 <div class="panel"><p class="muted">No match is waiting. Continue to your next matchday to pick a lineup.</p></div>
 {{else}}
 <p><b>{{$d.Title}}</b><br><span class="muted">{{$d.State}}. Pick eleven starters with exactly one goalkeeper; a player may start out of position. Up to seven on the bench.</span></p>
+{{if $d.Plan}}<p class="muted">Save this lineup as your team plan. It is fitted to each match and used when you have not submitted a matchday lineup.</p>{{range $d.Unavailable}}<div class="note">{{.}} is unavailable today and will be left out until fit.</div>{{end}}{{end}}
 {{range $d.DroppedNotes}}<div class="note">{{.}}</div>{{end}}
 {{if $d.AvailabilityNote}}<div class="note">{{$d.AvailabilityNote}}</div>{{end}}
 <div class="panel">
   <form method="get" action="/lineup">
     {{if $d.IsSuggested}}<input type="hidden" name="suggest" value="1">{{end}}
+    {{if $d.Plan}}<input type="hidden" name="plan" value="1">{{end}}
     <label><input type="checkbox" name="available" value="1" {{if $d.AvailableOnly}}checked{{end}}> Available only</label>
     <button>Apply filter</button>
   </form>
 </div>
 <form method="post" action="/lineup">
-  <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup"><input type="hidden" name="fixture" value="{{$d.Fixture}}">
+  <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/lineup{{if $d.Plan}}?plan=1{{end}}">
+  {{if $d.Plan}}<input type="hidden" name="plan" value="1">{{else}}<input type="hidden" name="fixture" value="{{$d.Fixture}}">{{end}}
   {{range $d.HiddenSlots}}<input type="hidden" name="slot-{{.Player}}" value="{{.Slot}}">{{end}}
   <div class="panel">
     <label>Mentality
@@ -46,11 +49,16 @@
   </div>
   <p class="muted">{{template "attrLegend"}}</p>
   <div class="actions">
-    <button class="primary">Save lineup</button>
+    <button class="primary">{{if $d.Plan}}Save team plan{{else}}Save lineup{{end}}</button>
+    {{if $d.Plan}}
+      {{if $d.HasFixture}}<a class="button" href="/lineup">Matchday lineup</a>{{end}}
+    {{else}}
     {{if $d.IsSuggested}}
       <a class="button" href="/lineup">Your saved lineup</a>
     {{else}}
       <a class="button" href="/lineup?suggest=1">Ask the assistant</a>
+    {{end}}
+    <a class="button" href="/lineup?plan=1">Edit team plan</a>
     {{end}}
   </div>
 </form>

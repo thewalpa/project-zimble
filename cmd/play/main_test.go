@@ -97,12 +97,32 @@ func TestUneditedMatchUsesTheAISelection(t *testing.T) {
 	}
 }
 
+func TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.json")
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"lineup", "swap 57 58", "mentality attacking", "save "+path, "quit")
+	contains(t, out, "Team plan: starting point; each edit saves automatically", "Team plan saved.", "Team plan: saved team plan")
+	w, err := storage.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := w.TeamPlan()
+	if err != nil || !plan.Saved || plan.Lineup.Tactics.Mentality != matches.Attacking {
+		t.Fatalf("team plan %+v, %v", plan, err)
+	}
+	if plan.Lineup.Starters[9].Player != 58 && plan.Lineup.Starters[10].Player != 58 {
+		t.Fatalf("starter 58 was not saved: %+v", plan.Lineup.Starters)
+	}
+	ready := play(t, []string{"-load", path}, "continue", "lineup", "quit", "quit")
+	contains(t, ready, "Lineup: your saved team plan", "Mentality: attacking")
+}
+
 func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"lineup", "swap 1 2", "dance", "continue",
 		"swap 43 999", "swap 46 51", "swap 43", "role 44 gk", "role 46 df", "role 49 xx", "mentality reckless", "inbox 0", "lineup", "q", "q")
 	contains(t, out,
-		"! no match is waiting; type continue to go to your next matchday",
+		"! player 1 is not in your squad",
 		`! unknown command "dance"; type help`,
 		"! player 999 is not in your squad",
 		"! neither player is in the lineup",

@@ -483,8 +483,9 @@ func (s *server) submitLineup(form url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
-	fixture, ok := s.pendingFixture()
-	if !ok || form.Get("fixture") != strconv.FormatUint(uint64(fixture), 10) {
+	planMode := form.Get("plan") == "1"
+	fixture, hasFixture := s.pendingFixture()
+	if !planMode && (!hasFixture || form.Get("fixture") != strconv.FormatUint(uint64(fixture), 10)) {
 		return "/", errors.New("that match is no longer waiting")
 	}
 	var l selection.Lineup
@@ -505,6 +506,13 @@ func (s *server) submitLineup(form url.Values) (string, error) {
 	slices.SortStableFunc(l.Starters, func(a, b selection.Slot) int { return cmp.Compare(a.Role, b.Role) })
 	if n := len(l.Starters); n != matches.StartersPerTeam {
 		return "", fmt.Errorf("pick exactly %d starters (you picked %d)", matches.StartersPerTeam, n)
+	}
+	if planMode {
+		if _, err := s.w.SetTeamPlan(app.SetTeamPlan{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Lineup: l}); err != nil {
+			return "", err
+		}
+		s.say("Team plan saved. It will be used for matches without a submitted lineup.")
+		return "/lineup?plan=1", nil
 	}
 	if _, err := s.w.SubmitLineup(app.SubmitLineup{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: fixture, Lineup: l}); err != nil {
 		return "", err

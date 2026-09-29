@@ -2890,3 +2890,16 @@ Delivered `ui`'s note `match--lineup-editing-outside-matchday`. The manager can 
 ### Handoffs
 
 - `ui--team-plan-editor`: the editor between matchdays in both clients, and the `LineupFromPlan` label and dropped-player messages in `views.go`.
+
+## ui: saved team-plan editor in both clients (done)
+
+Delivered the UI for `match`'s saved team plan. `lineup` opens the saved plan between matchdays; `teamplan` opens it on matchday too. The web lineup page has a team-plan mode alongside the one-off matchday editor. Both clients identify when a match uses the saved plan.
+
+- The terminal saves each plan edit with `World.SetTeamPlan`; the browser submits its lineup form to the same command. Both show unavailable plan members and keep the app's fitting and eligibility rules.
+- The team plan survives save/load and is used at the next user match without a submitted lineup.
+- Added the missing `LineupFromPlan` display label to `World.LineupSourceLabel`.
+
+### Verification
+
+- `TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed` in both client packages drives the editor as a player would, checks the saved plan and verifies the matchday source.
+- `go test ./cmd/play` and `go test ./cmd/web` pass.

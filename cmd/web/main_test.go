@@ -192,9 +192,42 @@ func lineupForm(c *client, fixture any, mentality string) url.Values {
 	return form
 }
 
+func TestTeamPlanCanBeEditedBetweenMatchesAndIsUsed(t *testing.T) {
+	c := career(t)
+	page := c.get("/lineup")
+	contains(t, page, "Team plan", "Save team plan", "Save this lineup as your team plan")
+	plan, err := c.s.w.TeamPlan()
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	form := url.Values{"plan": {"1"}, "mentality": {"attacking"}}
+	squad, _ := c.s.w.Squad(c.s.club())
+	for _, p := range squad {
+		form.Set(fmt.Sprintf("slot-%d", p.Player), "out")
+	}
+	for _, slot := range plan.Lineup.Starters {
+		form.Set(fmt.Sprintf("slot-%d", slot.Player), slotName(slot.Role))
+	}
+	for _, player := range plan.Lineup.Bench {
+		form.Set(fmt.Sprintf("slot-%d", player), "bench")
+	}
+	form.Set("slot-57", "bench")
+	form.Set("slot-58", "fw")
+	page = c.post("/lineup", form)
+	contains(t, page, "Team plan saved.", "Saved team plan; used for matches without a submitted lineup")
+	saved, err := c.s.w.TeamPlan()
+	if err != nil || !saved.Saved || saved.Lineup.Tactics.Mentality.String() != "attacking" {
+		c.t.Fatalf("team plan %+v, %v", saved, err)
+	}
+	if saved.Lineup.Starters[9].Player != 58 && saved.Lineup.Starters[10].Player != 58 {
+		c.t.Fatalf("starter 58 was not saved: %+v", saved.Lineup.Starters)
+	}
+	contains(t, c.post("/continue", nil), "Lineup: Your saved team plan for this match")
+}
+
 func TestLineupRejections(t *testing.T) {
 	c := career(t)
-	contains(t, c.get("/lineup"), "No match is waiting")
+	contains(t, c.get("/lineup"), "Team plan", "Starting point for matches without a submitted lineup", "Save team plan")
 	contains(t, c.post("/lineup", url.Values{"fixture": {"1"}}), "that match is no longer waiting")
 	c.post("/continue", nil)
 	fixture, _ := c.s.pendingFixture()

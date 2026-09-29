@@ -39,6 +39,8 @@ func (w *World) LineupSourceLabel(ml MatchdayLineup) string {
 	switch ml.Source {
 	case LineupFromSubmission:
 		return "Your saved lineup for this match"
+	case LineupFromPlan:
+		return "Your saved team plan for this match"
 	case LineupCarriedOver:
 		if opp := w.OpponentName(ml.From); opp != "" {
 			return fmt.Sprintf("Carried over from the last match (vs %s)", opp)

@@ -116,6 +116,8 @@ type session struct {
 	saved         bool         // the career exists on disk...
 	savedRevision app.Revision // ...at this revision
 	draft         *draft
+	planDraft     *draft
+	planMode      bool
 	liveShown     int // live match events already printed
 	quitWarned    bool
 	warnedYearEnd sim.GameInstant // contract-year end already warned about
@@ -127,6 +129,7 @@ type draft struct {
 	fixture  ids.FixtureID
 	lineup   selection.Lineup
 	matchday app.MatchdayLineup
+	plan     bool
 	edited   bool
 }
 
@@ -266,6 +269,7 @@ func (s *session) loop() {
 		case "read":
 			err = s.readInbox()
 		case "lineup", "l":
+			s.planMode = false
 			if _, live := s.w.LiveMatch(); live {
 				err = s.showLive()
 			} else if len(args) == 0 {
@@ -275,6 +279,9 @@ func (s *session) loop() {
 			} else {
 				err = errors.New("usage: lineup [available]")
 			}
+		case "teamplan":
+			s.planMode = true
+			err = s.showLineup()
 		case "swap", "role", "reset", "assistant":
 			if _, live := s.w.LiveMatch(); live {
 				err = errors.New("the match has kicked off: use sub OUT IN or mentality M")
@@ -344,7 +351,8 @@ func (s *session) help() {
   unlist ID             take one of your players off the transfer list
   bid ID [FEE [YEARS [WAGE]]]  bid for another club's player (default: the asking price and usual terms)
   accept OFFER, reject OFFER   answer a bid for one of your players
-  lineup (l) [available] your lineup and squad eligibility for the waiting match
+  lineup (l) [available] edit the waiting match, or your team plan between matches
+  teamplan              edit the saved team plan (also available on matchday)
   swap A B              swap two players (IDs) between XI, bench and squad
   role P GK|DF|MF|FW    play starter P in another role
   mentality (m) M       defensive, balanced or attacking (during your match: a live change)
@@ -1046,7 +1054,10 @@ func (s *session) pendingFixture() (ids.FixtureID, bool) {
 func (s *session) currentDraft() (*draft, error) {
 	fixture, ok := s.pendingFixture()
 	if !ok {
-		return nil, errors.New("no match is waiting; type continue to go to your next matchday")
+		return s.currentPlanDraft()
+	}
+	if s.planMode {
+		return s.currentPlanDraft()
 	}
 	if s.draft != nil && s.draft.fixture == fixture {
 		return s.draft, nil
@@ -1057,6 +1068,18 @@ func (s *session) currentDraft() (*draft, error) {
 	}
 	s.draft = &draft{fixture: fixture, lineup: ml.Lineup, matchday: ml}
 	return s.draft, nil
+}
+
+func (s *session) currentPlanDraft() (*draft, error) {
+	if s.planDraft != nil {
+		return s.planDraft, nil
+	}
+	plan, err := s.w.TeamPlan()
+	if err != nil {
+		return nil, err
+	}
+	s.planDraft = &draft{lineup: plan.Lineup, plan: true}
+	return s.planDraft, nil
 }
 
 var roleNames = map[string]matches.Role{"gk": matches.Goalkeeper, "df": matches.Defender, "mf": matches.Midfielder, "fw": matches.Forward}
@@ -1089,13 +1112,25 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 	if err != nil {
 		return err
 	}
-	info := s.fixtureInfo(d.fixture)
+	planMode := d.plan
+	var info app.FixtureInfo
+	var eligibility []app.LineupEligibility
+	var unavailable []ids.PlayerID
+	if planMode {
+		plan, err := s.w.TeamPlan()
+		if err != nil {
+			return err
+		}
+		eligibility, unavailable = plan.Squad, plan.Unavailable
+	} else {
+		info = s.fixtureInfo(d.fixture)
+		eligibility, err = s.w.SquadEligibility(d.fixture)
+		if err != nil {
+			return err
+		}
+	}
 	squad := s.squadByID()
 	squadRows, _ := s.w.Squad(s.club())
-	eligibility, err := s.w.SquadEligibility(d.fixture)
-	if err != nil {
-		return err
-	}
 	byPlayer := make(map[ids.PlayerID]app.LineupEligibility, len(eligibility))
 	available := 0
 	emergency := false
@@ -1108,18 +1143,43 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 			emergency = true
 		}
 	}
-	state := s.lineupSourceLabel(d.matchday)
-	if d.edited {
-		state = "your changes (used when you continue)"
-	}
-	s.printf("\n%s v %s, %s: %s\n", capitalize(matchName(info)), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
-	for _, msg := range s.w.LineupDroppedMessages(d.matchday) {
-		s.printf("%s\n", msg)
+	if planMode {
+		state := "starting point; each edit saves automatically"
+		if !d.edited {
+			if plan, err := s.w.TeamPlan(); err == nil && plan.Saved {
+				state = "saved team plan; used when a match has no submitted lineup"
+			}
+		}
+		s.printf("\nTeam plan: %s\n", state)
+		for _, id := range unavailable {
+			name, ok := s.w.PlayerName(id)
+			if !ok {
+				name = fmt.Sprintf("player %d", id)
+			}
+			s.printf("%s is unavailable today and will be left out of the next match.\n", name)
+		}
+	} else {
+		state := s.lineupSourceLabel(d.matchday)
+		if d.edited {
+			state = "your changes (used when you continue)"
+		}
+		s.printf("\n%s v %s, %s: %s\n", capitalize(matchName(info)), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
+		for _, msg := range s.w.LineupDroppedMessages(d.matchday) {
+			s.printf("%s\n", msg)
+		}
 	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
 	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %-12s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", attributeHeader)
 	for i, sl := range d.lineup.Starters {
-		p := squad[sl.Player]
+		p, ok := squad[sl.Player]
+		if !ok {
+			name, exists := s.w.PlayerName(sl.Player)
+			if !exists {
+				name = fmt.Sprintf("player %d", sl.Player)
+			}
+			s.printf("%3d  %-4s %4d  %-24s %-3s %-5s %-12s  unavailable\n", i+1, roleName(sl.Role), sl.Player, name, "", "", "")
+			continue
+		}
 		note := ""
 		if naturalRole(p.Position) != sl.Role {
 			note = "  (out of position)"
@@ -1129,7 +1189,15 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 	}
 	s.printf("\nBench:\n")
 	for _, id := range d.lineup.Bench {
-		p := squad[id]
+		p, ok := squad[id]
+		if !ok {
+			name, exists := s.w.PlayerName(id)
+			if !exists {
+				name = fmt.Sprintf("player %d", id)
+			}
+			s.printf("     %-4s %4d  %-24s unavailable\n", "", id, name)
+			continue
+		}
 		s.printf("     %-4s %4d  %-24s %-3s %5d %-12s  %s\n", "", p.Player, p.Name, p.Position,
 			p.Overall, fitness(p), ratings(p.Attributes))
 	}
@@ -1155,7 +1223,11 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		s.printf("Not enough fit players for a legal eleven; injured players are selectable under the emergency rule.\n")
 	}
 	s.printf("\n%s\n", ratingsLegend)
-	s.printf("Edit with swap/role/mentality; continue plays the match.\n")
+	if planMode {
+		s.printf("Edit with swap/role/mentality; team plan changes save immediately and apply to future matches.\n")
+	} else {
+		s.printf("Edit with swap/role/mentality; continue plays the match.\n")
+	}
 	return nil
 }
 
@@ -1203,6 +1275,13 @@ func (s *session) edit(change func(l *selection.Lineup) error) error {
 		return err
 	}
 	d.lineup, d.edited = l, true
+	if d.plan {
+		if _, err := s.w.SetTeamPlan(app.SetTeamPlan{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Lineup: d.lineup}); err != nil {
+			return err
+		}
+		d.edited = false
+		s.printf("Team plan saved.\n")
+	}
 	return s.showLineup()
 }
 
@@ -1221,8 +1300,14 @@ func (s *session) swap(args []string) error {
 		return err
 	}
 	squad := s.squadByID()
+	d, err := s.currentDraft()
+	if err != nil {
+		return err
+	}
 	for _, id := range []ids.PlayerID{a, b} {
-		if _, ok := squad[id]; !ok {
+		_, inSquad := squad[id]
+		inPlan := d.plan && slices.Contains(d.lineup.Players(), id)
+		if !inSquad && !inPlan {
 			return fmt.Errorf("player %d is not in your squad", id)
 		}
 	}
@@ -1294,6 +1379,8 @@ func (s *session) lineupSourceLabel(ml app.MatchdayLineup) string {
 	switch ml.Source {
 	case app.LineupFromSubmission:
 		return "your lineup for this match"
+	case app.LineupFromPlan:
+		return "your saved team plan"
 	case app.LineupCarriedOver:
 		if opp := s.w.OpponentName(ml.From); opp != "" {
 			return fmt.Sprintf("carried over from the last match (vs %s)", opp)
@@ -1314,6 +1401,14 @@ func (s *session) reset() error {
 	l, err := s.w.SuggestLineup(fixture)
 	if err != nil {
 		return err
+	}
+	if s.planMode {
+		if _, err := s.w.SetTeamPlan(app.SetTeamPlan{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Lineup: l}); err != nil {
+			return err
+		}
+		s.planDraft = &draft{lineup: l, plan: true}
+		s.printf("Team plan reset to the assistant's suggestion and saved.\n")
+		return s.showLineup()
 	}
 	s.draft = &draft{
 		fixture:  fixture,
