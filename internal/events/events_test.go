@@ -113,7 +113,7 @@ func TestValidate(t *testing.T) {
 		"done expired":        func(v []Event) Event { v[13].OccurredAt = 500; return v[13] },
 		"closed while open":   func(v []Event) Event { v[14].OfferClosed.Outcome = 1; return v[14] },
 		"closed completed":    func(v []Event) Event { v[14].OfferClosed.Outcome = 2; return v[14] },
-		"closed as 6":         func(v []Event) Event { v[14].OfferClosed.Outcome = 6; return v[14] },
+		"closed as 7":         func(v []Event) Event { v[14].OfferClosed.Outcome = 7; return v[14] },
 		"closed no seller":    func(v []Event) Event { v[14].OfferClosed.SellerTeam = 0; return v[14] },
 		"released nobody":     func(v []Event) Event { v[15].PlayerReleased.Player = 0; return v[15] },
 		"released no team":    func(v []Event) Event { v[15].PlayerReleased.Team = 0; return v[15] },

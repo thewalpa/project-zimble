@@ -34,9 +34,12 @@ const (
 	// StatusCollapsed: accepted, but the transfer could no longer complete
 	// (the player had moved, a squad limit, the buyer's funds).
 	StatusCollapsed Status = 5
+	// StatusRefused: accepted, but the player refused to join the buyer at
+	// completion.
+	StatusRefused Status = 6
 )
 
-func (s Status) Valid() bool { return s >= StatusOpen && s <= StatusCollapsed }
+func (s Status) Valid() bool { return s >= StatusOpen && s <= StatusRefused }
 
 func (s Status) String() string {
 	switch s {
@@ -50,6 +53,8 @@ func (s Status) String() string {
 		return "expired"
 	case StatusCollapsed:
 		return "collapsed"
+	case StatusRefused:
+		return "refused"
 	}
 	return fmt.Sprintf("Status(%d)", uint8(s))
 }

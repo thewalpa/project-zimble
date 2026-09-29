@@ -598,10 +598,11 @@ func TestRestoreRejectsInvalidContracts(t *testing.T) {
 }
 
 // Every year the contract-year end leaves the best free agents AI clubs
-// would sign in the pool, near the average player, for the manager (and,
-// after the first half of the window, for the AI clubs).
+// would sign in the pool, near the average player, for the manager until
+// the window's FreeAgentsOpen, and for the AI clubs from then on.
 func TestFreeAgentPoolAtTheWindowsOpen(t *testing.T) {
 	w := userWorld(t, 7, 0)
+	signed := 0
 	for year := 1; year <= 8; year++ {
 		playSeason(t, w)
 		mustContinue(t, w, w.ContractYearEnd())
@@ -616,5 +617,20 @@ func TestFreeAgentPoolAtTheWindowsOpen(t *testing.T) {
 		if avg := averageOverall(w); best < avg-10 {
 			t.Fatalf("year %d: best free agent %d, average %d", year, best, avg)
 		}
+		// Nothing else joins or leaves the pool in the window of an
+		// AI-only world.
+		win := w.TransferWindow()
+		if win.FreeAgentsOpen != w.Now()+freeAgentGrace(w.defs.Transfers.WindowDays) {
+			t.Fatalf("year %d: window %+v at %d", year, win, w.Now())
+		}
+		mustContinue(t, w, win.FreeAgentsOpen-1)
+		if n := len(w.FreeAgents()); n != len(pool) {
+			t.Fatalf("year %d: AI clubs signed %d free agents before FreeAgentsOpen", year, len(pool)-n)
+		}
+		mustContinue(t, w, win.Closes)
+		signed += len(pool) - len(w.FreeAgents())
+	}
+	if signed == 0 {
+		t.Fatal("AI clubs never signed a free agent in a window")
 	}
 }

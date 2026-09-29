@@ -286,9 +286,10 @@ func TestSquadsStayLegalAndBalancedOverTheYears(t *testing.T) {
 				t.Fatalf("club %d year %d: %v", club, year, err)
 			}
 			playUntil(t, w, func(w *World) sim.GameInstant { return w.TransferWindow().Closes })
-			// A broke club can lose the race for the last free agent at a position, and
-			// the next player year refills it with youth: at most one player is missing.
-			assertAISquadsFullBut(t, w, 1)
+			// A broke club can lose the race for the last free agents, and the next
+			// player year refills it with youth: at most two players are missing
+			// (the thin-market item in docs/lanes/squad.md).
+			assertAISquadsFullBut(t, w, 2)
 			s := w.Summary()
 			if s.Players < 600 || s.Players > 640+s.Clubs+s.FreeAgents {
 				t.Fatalf("club %d year %d: %d active players, %d free agents", club, year, s.Players, s.FreeAgents)

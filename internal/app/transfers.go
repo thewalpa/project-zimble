@@ -34,6 +34,7 @@ var (
 	ErrSquadMinimum    = errors.New("app: the squad would fall below its minimum at that position")
 	ErrNotListed       = errors.New("app: the player is not on the transfer list")
 	ErrInvalidPrice    = errors.New("app: an asking price must be positive")
+	ErrPlayerRefuses   = errors.New("app: the player refuses to join the buying club")
 )
 
 // Transfer windows. A window opens at each contract-year end and closes
@@ -209,6 +210,7 @@ type market struct {
 	moved    map[ids.PlayerID]bool               // completed a transfer in this window
 	settling map[ids.PlayerID]bool               // joined his club by transfer in the previous window
 	averages map[ids.ClubID]int                  // squad averages before the staged changes
+	overalls map[ids.ClubID]int                  // sums of the staged squads' overalls
 	bought   map[ids.ClubID]bool                 // bought a player in this window
 	bidFor   map[[2]uint64]bool                  // (buyer, player) offers made in this window
 	offers   map[ids.OfferID]transfers.Offer     // open offers
@@ -247,7 +249,7 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 		employer: map[ids.PlayerID]ids.ClubID{}, position: map[ids.PlayerID]players.Position{},
 		counts: map[ids.ClubID]map[players.Position]int{}, balances: map[ids.ClubID]money.Money{},
 		wages: map[ids.ClubID]money.Money{}, moved: map[ids.PlayerID]bool{}, settling: map[ids.PlayerID]bool{}, averages: map[ids.ClubID]int{},
-		bought: map[ids.ClubID]bool{}, bidFor: map[[2]uint64]bool{},
+		overalls: map[ids.ClubID]int{}, bought: map[ids.ClubID]bool{}, bidFor: map[[2]uint64]bool{},
 		offers: map[ids.OfferID]transfers.Offer{}, openBids: map[ids.ClubID]int{}, openFor: map[ids.PlayerID]int{},
 		terms: map[ids.OfferID]employment.Contract{}, listings: map[ids.PlayerID]transfers.Listing{},
 		values: map[ids.PlayerID]money.Money{},
@@ -268,6 +270,7 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 		p, _ := w.players.Profile(a.Player)
 		m.employer[a.Player], m.position[a.Player] = a.Club, p.Position
 		m.counts[a.Club][p.Position]++
+		m.overalls[a.Club] += p.Overall()
 	}
 	for _, o := range w.transfers.Offers() {
 		if o.MadeAt >= open {
@@ -309,6 +312,22 @@ func (m *market) value(player ids.PlayerID) (money.Money, error) {
 func (m *market) overall(player ids.PlayerID) int {
 	p, _ := m.w.players.Profile(player)
 	return p.Overall()
+}
+
+// average is a club's squad average as staged, rounded half up like
+// squadAverage; 0 for an empty squad.
+func (m *market) average(club ids.ClubID) int {
+	n := squadSize(m.counts[club])
+	if n == 0 {
+		return 0
+	}
+	return (2*m.overalls[club] + n) / (2 * n)
+}
+
+// joins reports whether a player agrees to move from his staged club to
+// buyer (ai.Joins), against the squads as staged: his consent.
+func (m *market) joins(player ids.PlayerID, buyer ids.ClubID) bool {
+	return ai.Joins(m.overall(player), m.average(m.employer[player]), m.average(buyer))
 }
 
 // price is the fee at which a player's club sells him (see sellingPrice),
@@ -355,20 +374,31 @@ func (m *market) unlist(player ids.PlayerID, announce bool) {
 
 // ruleErrors are the reasons an accepted offer can fail to complete; any
 // other error from complete is a broken invariant.
-var ruleErrors = []error{ErrWindowClosed, ErrNotTransferable, ErrSquadMinimum, ErrSquadFull, ErrCannotAfford}
+var ruleErrors = []error{ErrWindowClosed, ErrNotTransferable, ErrSquadMinimum, ErrPlayerRefuses, ErrSquadFull, ErrCannotAfford}
 
 func isRuleError(err error) bool {
 	return slices.ContainsFunc(ruleErrors, func(r error) bool { return errors.Is(err, r) })
 }
 
+// failedStatus is how an accepted offer closes when complete fails with a
+// rule error: refused if the player refused to join, else collapsed.
+func failedStatus(err error) transfers.Status {
+	if errors.Is(err, ErrPlayerRefuses) {
+		return transfers.StatusRefused
+	}
+	return transfers.StatusCollapsed
+}
+
 // complete stages an accepted offer's transfer at m.at: the player leaves
 // the seller and joins the buyer's senior team on the offer's terms, the
 // fee moves between the ledgers, and every other open offer for the player
-// collapses and his listing ends. It revalidates the rules first: the window is open, the seller
-// still employs the player and he has not moved in this window, the seller
-// keeps its minimum at his position, the buyer has room for him (hasRoom)
-// and can pay the fee. A rule failure returns one of ruleErrors and stages
-// nothing.
+// collapses and his listing ends. It revalidates the rules first: the
+// window is open, the seller still employs the player and he has not moved
+// in this window, the seller keeps its minimum at his position, the player
+// agrees to join the buyer (joins, against the squads as staged now: his
+// consent binds only at completion, whoever the seller), the buyer has room
+// for him (hasRoom) and can pay the fee. A rule failure returns one of
+// ruleErrors and stages nothing.
 func (m *market) complete(o transfers.Offer) error {
 	pos := m.position[o.Player]
 	q := m.w.defs.Quota(pos)
@@ -379,6 +409,9 @@ func (m *market) complete(o transfers.Offer) error {
 		return fmt.Errorf("%w: player %d is not at club %d or has moved", ErrNotTransferable, o.Player, o.Seller)
 	case m.counts[o.Seller][pos] <= q.Min:
 		return fmt.Errorf("%w: club %d has %d %s", ErrSquadMinimum, o.Seller, m.counts[o.Seller][pos], pos)
+	case !m.joins(o.Player, o.Buyer):
+		return fmt.Errorf("%w: player %d (%d) of club %d (average %d) to club %d (average %d)", ErrPlayerRefuses,
+			o.Player, m.overall(o.Player), o.Seller, m.average(o.Seller), o.Buyer, m.average(o.Buyer))
 	case !m.w.hasRoom(o.Buyer, m.counts[o.Buyer], pos):
 		return fmt.Errorf("%w: club %d has %d players, %d %s", ErrSquadFull, o.Buyer, squadSize(m.counts[o.Buyer]), m.counts[o.Buyer][pos], pos)
 	case m.balances[o.Buyer] < o.Fee:
@@ -405,6 +438,8 @@ func (m *market) complete(o transfers.Offer) error {
 	m.wages[o.Buyer], m.wages[o.Seller] = buyerWages, m.wages[o.Seller]-old.Contract.WeeklyWage
 	m.counts[o.Seller][pos]--
 	m.counts[o.Buyer][pos]++
+	m.overalls[o.Seller] -= m.overall(o.Player)
+	m.overalls[o.Buyer] += m.overall(o.Player)
 	m.employer[o.Player], m.moved[o.Player], m.bought[o.Buyer] = o.Buyer, true, true
 	m.terms[o.ID] = contract
 	m.unlist(o.Player, false)
@@ -465,6 +500,7 @@ func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
 	m.jobs.Signings = append(m.jobs.Signings, a)
 	m.wages[club] = wages
 	m.counts[club][p.Position]++
+	m.overalls[club] += p.Overall()
 	m.employer[player], m.position[player] = club, p.Position
 	m.pool = slices.DeleteFunc(m.pool, func(f ai.FreeAgent) bool { return f.Player == player })
 	m.actions = append(m.actions, marketAction{bid: -1, signing: a})
@@ -578,7 +614,7 @@ func (w *World) deal(o transfers.Offer) events.Deal {
 //     player (see sellingPrice), for a player it can spare or can still
 //     replace (see replaceable) and, unless it listed him, who did not join
 //     it by transfer in the previous window. An accepted offer completes at
-//     once or collapses (see complete).
+//     once, or the player refuses to join or it collapses (see complete).
 //  2. Every open offer to the manager due now expires.
 //  3. At the close, every AI club with a vacancy (a position below its
 //     roster count) signs free agents to fill it, as at the contract year
@@ -620,7 +656,6 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 		if !ai.AcceptBid(ai.Sale{
 			Fee: o.Fee, Price: price, Spare: m.counts[o.Seller][pos] > m.w.defs.Quota(pos).Count, Replaceable: replaceable,
 			Listed: listed, Settling: m.settling[o.Player],
-			Overall: m.overall(o.Player), SellerAverage: m.averages[o.Seller], BuyerAverage: m.averages[o.Buyer],
 		}) {
 			m.closeOffer(o, transfers.StatusRejected)
 			continue
@@ -629,7 +664,7 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 			if !isRuleError(err) {
 				return err
 			}
-			m.closeOffer(o, transfers.StatusCollapsed)
+			m.closeOffer(o, failedStatus(err))
 		}
 	}
 	m.pool = w.freeAgentPool()
@@ -879,8 +914,7 @@ func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.T
 		if seller == club || !ok(id) || m.moved[id] || m.openFor[id] > 0 || m.bidFor[[2]uint64{uint64(club), uint64(id)}] ||
 			m.counts[seller][pos] <= q.Min || (seller == w.userClub && !listed) ||
 			(seller != w.userClub && !replaceable && m.counts[seller][pos] <= q.Count) ||
-			(seller != w.userClub && !listed && m.settling[id]) ||
-			!ai.Joins(m.overall(id), m.averages[seller], m.averages[club]) {
+			(seller != w.userClub && !listed && m.settling[id]) || !m.joins(id, club) {
 			continue
 		}
 		if _, stored := w.employment.Assignment(id); !stored {
@@ -902,8 +936,8 @@ func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.T
 // at the next transfer run: an AI club accepts a fee of at least its price
 // for the player (see sellingPrice), unless it bought him in the previous
 // window and has not listed him, late in the window only for a player it
-// can spare (see replaceable), and only if he agrees to join (ai.Joins);
-// the transfer then completes at once if the rules still allow it. A bid
+// can spare (see replaceable); the transfer then completes at once if the
+// rules still allow it and the player agrees to join (see complete). A bid
 // needs an open window with a run left before the close, a player of
 // another club who has not moved in this window, and it must be
 // the user club's first bid for him in this window. The user club must be
@@ -934,8 +968,10 @@ type OfferRecord struct {
 // RespondToOffer answers an open bid for one of the user club's players
 // before its deadline. Accepting completes the transfer at once (see
 // complete): it is refused, changing nothing, if the sale would leave the
-// squad below its minimum at the player's position; if the buyer can no
-// longer complete it, the offer collapses. Declining rejects it.
+// squad below its minimum at the player's position; if the player now
+// refuses to join the buyer (ai.Joins against the current squads, as for an
+// AI seller), the offer closes as refused; if the buyer can no longer
+// complete it, it collapses. Declining rejects it.
 type RespondToOffer struct {
 	ID               CommandID
 	ExpectedRevision Revision
@@ -944,7 +980,7 @@ type RespondToOffer struct {
 }
 
 // OfferAnswered is the recorded result of RespondToOffer: the offer's final
-// status (completed, rejected or collapsed) and, when completed, the
+// status (completed, rejected, refused or collapsed) and, when completed, the
 // player's new contract.
 type OfferAnswered struct {
 	Command  CommandID
@@ -1055,7 +1091,7 @@ func (w *World) RespondToOffer(cmd RespondToOffer) (OfferAnswered, error) {
 			if !isRuleError(err) || errors.Is(err, ErrSquadMinimum) {
 				return OfferAnswered{}, err
 			}
-			status = transfers.StatusCollapsed
+			status = failedStatus(err)
 		}
 	}
 	if status != transfers.StatusCompleted {
@@ -1237,7 +1273,7 @@ func (w *World) BidRefusal(player ids.PlayerID) BidRefusal {
 	switch {
 	case err1 != nil || err2 != nil:
 		return RefusalNone
-	case !ai.Joins(m.overall(player), m.averages[seller], m.averages[w.userClub]):
+	case !m.joins(player, w.userClub):
 		return RefusalStar
 	case !listed && m.settling[player]:
 		return RefusalSettling
@@ -1272,14 +1308,18 @@ func (w *World) TransferList() []ListedPlayer {
 // inside the window; NextRun is when clubs next answer bids. An AI club
 // sells a player it needs (it holds no more than its roster count at his
 // position) only for a bid made before NeededClose: it rejects a later one,
-// which leaves it too little time to replace him (see replaceable).
+// which leaves it too little time to replace him (see replaceable). Until
+// FreeAgentsOpen only the manager signs free agents for vacancies above an
+// AI club's roster minimum; AI clubs sign them from the first run at or
+// after it (see freeAgentGrace).
 type TransferWindow struct {
-	Open        bool
-	Opens       sim.GameInstant
-	Closes      sim.GameInstant // exclusive
-	BidsClose   sim.GameInstant // exclusive
-	NeededClose sim.GameInstant // exclusive
-	NextRun     sim.GameInstant
+	Open           bool
+	Opens          sim.GameInstant
+	Closes         sim.GameInstant // exclusive
+	BidsClose      sim.GameInstant // exclusive
+	NeededClose    sim.GameInstant // exclusive
+	FreeAgentsOpen sim.GameInstant
+	NextRun        sim.GameInstant
 }
 
 // TransferWindow returns the window under way or the next one. Read-only.
@@ -1292,7 +1332,8 @@ func (w *World) TransferWindow() TransferWindow {
 	}
 	next, _ := w.nextTransferRun(now)
 	day := sim.GameInstant(sim.Day)
-	return TransferWindow{Open: now >= open, Opens: open, Closes: close, BidsClose: close - day, NeededClose: max(close-3*day, open), NextRun: next}
+	return TransferWindow{Open: now >= open, Opens: open, Closes: close, BidsClose: close - day, NeededClose: max(close-3*day, open),
+		FreeAgentsOpen: open + freeAgentGrace(w.defs.Transfers.WindowDays), NextRun: next}
 }
 
 // OfferView is a transfer offer with display names.

@@ -14,7 +14,7 @@ import (
 // the answer to a bid, the choice of a bid's target, and which players a
 // club lists and at what price. Bump it whenever the same squads, balances
 // and offers would produce different decisions.
-const TransfersVersion = 5
+const TransfersVersion = 6
 
 const (
 	// ValueAt60Units is a 60-overall player's value, in currency units, in
@@ -102,6 +102,8 @@ func ListingPrice(valuation money.Money) money.Money {
 }
 
 // Sale is a bid an AI club answers, with what it knows about the player.
+// Whether the player agrees to join the buyer (Joins) is not the club's
+// decision: it is checked when the transfer completes, whoever the seller.
 type Sale struct {
 	Fee   money.Money // the bid
 	Price money.Money // its price for the player (SellingPrice, or his asking price if listed)
@@ -111,23 +113,20 @@ type Sale struct {
 	// Listed: the club has listed him. Settling: he joined it by transfer in
 	// the previous window.
 	Listed, Settling bool
-	// Overall is the player's; SellerAverage and BuyerAverage are the two
-	// clubs' squad averages.
-	Overall, SellerAverage, BuyerAverage int
 }
 
 // AcceptBid reports whether an AI club accepts a bid: a fee at or above its
 // price, for a player it can spare or still has time to replace, who, unless
 // it listed him, is not still settling in (a club does not sell on a player
-// it bought in the previous window), and who agrees to join the buyer
-// (Joins).
+// it bought in the previous window).
 func AcceptBid(s Sale) bool {
-	return s.Fee >= s.Price && (s.Spare || s.Replaceable) && (s.Listed || !s.Settling) && Joins(s.Overall, s.SellerAverage, s.BuyerAverage)
+	return s.Fee >= s.Price && (s.Spare || s.Replaceable) && (s.Listed || !s.Settling)
 }
 
 // Joins reports whether a player agrees to move between clubs with these
 // squad averages: a star (rated at least StarMargin above his club's
-// average) joins only a club at least as strong.
+// average) joins only a club at least as strong. It is the player's
+// consent, the same for every seller and buyer.
 func Joins(overall, sellerAverage, buyerAverage int) bool {
 	return overall < sellerAverage+StarMargin || buyerAverage >= sellerAverage
 }

@@ -23,16 +23,17 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by closer shootouts (simple.ModelVersion 4: the
-// version seeds every match's stream, so every result moved).
+// this value. Last changed by player consent at completion
+// (ai.TransfersVersion 6: consent is judged against the squads a run has
+// staged, so a few first-window transfers moved).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens.
 const (
-	goldenSeasonSeed42       = "b4194c99f00a6cfcbed5862b3a71c285fd70136607693ca144bfad65d3904c57"
-	goldenSecondLeagueSeed42 = "8dcd85c5a65963311860729aa4136660000b880b7d8f8ebf6def7f7c5cb031ff"
-	goldenCupSeed42          = "b453f9adb67bde353c3f9148b6a5f83dd2580036b7dd7ba7e6be2c29e8d571cc"
+	goldenSeasonSeed42       = "8ce20082fb04e9c55e43aef5808ddf8f0eaa437cf46d3dc5c17ca4d3a2ff1f4a"
+	goldenSecondLeagueSeed42 = "f77b19c9e381c90ef87cc870db59b2387732441b84d337d97eccc8bac8dec789"
+	goldenCupSeed42          = "f13eee7fcd1d65b42e4affce86f5a7e9408ef6c612bb6c3096a6825dd4eabca6"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

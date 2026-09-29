@@ -280,7 +280,8 @@ type TransferCompleted struct {
 }
 
 // OfferClosed: an offer closed without a transfer. Outcome is the transfers
-// module's durable status: 3 rejected, 4 expired, 5 collapsed.
+// module's durable status: 3 rejected, 4 expired, 5 collapsed, 6 refused
+// by the player.
 type OfferClosed struct {
 	Deal
 	Outcome uint8
@@ -506,7 +507,7 @@ func (e Event) Validate() error {
 			return fail("invalid payload %+v", p)
 		}
 	case KindOfferClosed:
-		if p := e.OfferClosed; !p.Deal.valid() || p.Outcome < 3 || p.Outcome > 5 {
+		if p := e.OfferClosed; !p.Deal.valid() || p.Outcome < 3 || p.Outcome > 6 {
 			return fail("invalid payload %+v", p)
 		}
 	case KindPlayerReleased:

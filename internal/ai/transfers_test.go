@@ -250,7 +250,4 @@ func TestJoins(t *testing.T) {
 	if !Joins(60+StarMargin, 60, 60) || !Joins(90, 60, 65) {
 		t.Fatal("a star refuses a club as strong as his own")
 	}
-	if AcceptBid(Sale{Fee: 100, Price: 100, Spare: true, Overall: 80, SellerAverage: 60, BuyerAverage: 55}) {
-		t.Fatal("a club sells a star to a weaker club")
-	}
 }

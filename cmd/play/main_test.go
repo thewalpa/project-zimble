@@ -261,7 +261,7 @@ func TestPlayerYearMessages(t *testing.T) {
 	contains(t, out,
 		"Wed 2027-06-30 00:00 UTC  development: 4 of your players improved and 8 declined over the year (type squad)",
 		"Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36",
-		"Wed 2027-06-30 00:00 UTC  youth: Aaron Tanaka joined from the youth ranks until 1 July 2030 at 540.00 a week",
+		"Wed 2027-06-30 00:00 UTC  youth: Jonas Costa joined from the youth ranks until 1 July 2030 at 510.00 a week",
 		"Every year on the eve of that date, young players improve, older ones decline, and some retire.",
 	)
 	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Hugo Kowal") {
@@ -278,11 +278,11 @@ func TestCup(t *testing.T) {
 	contains(t, out,
 		"No cup has been drawn yet",
 		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Veldmouth Albion",
+		"Continental Cup 1 won by Quillford FC: your club won it!",
 		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
 		"  Brackenmoor Town         1-1 Ironbridge Wanderers (2-4 on penalties)",
 		"Final, Sat 2025-12-06 15:00 UTC",
-		"Winner: Veldmouth Albion",
+		"Winner: Quillford FC",
 	)
 }
 
@@ -302,8 +302,8 @@ func TestManagedCupRun(t *testing.T) {
 	// Hollowick Athletic (club 6 of seed 1) wins it.
 	out = play(t, []string{"-seed", "1", "-club", "6"}, script...)
 	contains(t, out,
-		"matchday: Continental Cup final v Caldershaw Albion (home)",
-		"FULL TIME  Hollowick Athletic 4-0 Caldershaw Albion  (W)",
+		"matchday: Continental Cup final v Osterholm Athletic (home)",
+		"FULL TIME  Hollowick Athletic 4-0 Osterholm Athletic  (W)",
 		"Continental Cup 1 won by Hollowick Athletic: your club won it!",
 	)
 }
@@ -323,7 +323,7 @@ func TestTransfers(t *testing.T) {
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
 		"  37  GRY Westmark    Jonas Gallo              Westmark     32    74     2027     410,000.00  (won't join a weaker club)",
 		"! usage: market GK|DF|MF|FW",
-		"You bid 400,000.00 for Aaron Farrow (offer 58), offering 1 year at 2,000.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
+		"You bid 400,000.00 for Aaron Farrow (offer 55), offering 1 year at 2,000.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
 		"! app: your club has already bid for the player in this window: player 238",
 		"! player 44 is not at another club; type market POS for the list",
 		"! app: the squad would fall below its minimum at that position: 5 DF, minimum 5", // before the bought defenders arrive
@@ -331,20 +331,20 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Elias Gallo              Westmark   DF   18    75   1,200,000.00",
 		"transfer: Aaron Farrow joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
 		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
-		"bid: Eldhaven United bid 1,200,000.00 for Elias Gallo (offer 88); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
+		"bid: Eldhaven United bid 1,200,000.00 for Elias Gallo (offer 84); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Aaron Farrow             Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 88", "finances 2", "list", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 84", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Elias Gallo left for Eldhaven United for 1,200,000.00", "transfer fee O88")
+		"transfer: Elias Gallo left for Eldhaven United for 1,200,000.00", "transfer fee O84")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
-	rejected := play(t, []string{"-load", path}, "reject 88", "unlist 44", "unlist 44", "continue", "q", "q")
+	rejected := play(t, []string{"-load", path}, "reject 84", "unlist 44", "unlist 44", "continue", "q", "q")
 	contains(t, rejected, "Rejected.", "Elias Gallo is off the transfer list.", "! app: the player is not on the transfer list: player 44",
 		"transfer: the bid of 1,200,000.00 from Eldhaven United for Elias Gallo was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {
@@ -472,13 +472,13 @@ func TestTablesShowsEveryLeague(t *testing.T) {
 // history lists every season's champion and shows a past season's final
 // table or bracket.
 func TestHistory(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "2"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
 	contains(t, out,
 		"Founders League", "in progress",
-		"Greyfen United *",                       // the manager's club is marked where it is champion
+		"Quillford FC *",                         // the manager's club is marked where it is champion
 		"Continental Cup   ", "Brackenmoor Town", // the league champion
 		"Founders League season 1 (14/14 rounds)",
-		"Winner: Greyfen United",
+		"Winner: Quillford FC",
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)

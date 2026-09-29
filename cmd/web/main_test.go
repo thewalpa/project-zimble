@@ -555,9 +555,9 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"88"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.post("/answer", url.Values{"offer": {"84"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
 	contains(t, c.get("/inbox"), "Elias Gallo left for Eldhaven United for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 88")
+	contains(t, c.get("/finances"), "transfer fee, offer 84")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
@@ -957,7 +957,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Eldhaven United</b>", "← All seasons")
+	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Saltmere Athletic</b>", "← All seasons")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
 	if err != nil {
 		t.Fatal(err)

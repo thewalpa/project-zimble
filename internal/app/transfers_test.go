@@ -136,7 +136,7 @@ func TestTransferWindowAndRuns(t *testing.T) {
 	w := userWorld(t, 42, userClub3)
 	win := w.TransferWindow()
 	closes := 28 * day
-	if !win.Open || win.Opens != 0 || win.Closes != closes || win.BidsClose != closes-day || win.NextRun != day {
+	if !win.Open || win.Opens != 0 || win.Closes != closes || win.BidsClose != closes-day || win.FreeAgentsOpen != 14*day || win.NextRun != day {
 		t.Fatalf("window at the start %+v", win)
 	}
 	if task := transferTask(t, w); task.DueAt != day || task.Phase != sim.PhaseDecisions || task.PayloadID != 0 {
@@ -162,7 +162,7 @@ func TestTransferWindowAndRuns(t *testing.T) {
 	mustContinue(t, w, closes)
 	next := w.ContractYearEnd()
 	win = w.TransferWindow()
-	if win.Open || win.Opens != next || win.Closes != next+closes || win.NextRun != next+day || transferTask(t, w).DueAt != next+day {
+	if win.Open || win.Opens != next || win.Closes != next+closes || win.FreeAgentsOpen != next+14*day || win.NextRun != next+day || transferTask(t, w).DueAt != next+day {
 		t.Fatalf("window after the close %+v, next contract-year end %d", win, next)
 	}
 	if _, err := w.MakeTransferOffer(MakeTransferOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: target.Player,
@@ -360,8 +360,9 @@ func TestLateBidForANeededPlayerIsRejected(t *testing.T) {
 }
 
 // A star (ai.StarMargin above his club's squad average) joins only a club
-// at least as strong: the manager's bid at his price from a weaker club is
-// rejected, and no weaker AI club bids for a star.
+// at least as strong: the selling club accepts the manager's bid at his
+// price from a weaker club, but the star refuses to join, and no weaker AI
+// club bids for a star.
 func TestAStarRefusesAWeakerClub(t *testing.T) {
 	w := userWorld(t, 42, userClub3)
 	averages := map[ids.ClubID]int{}
@@ -391,7 +392,7 @@ func TestAStarRefusesAWeakerClub(t *testing.T) {
 	}
 	res := bidFor(t, w, star.Player, star.Value)
 	mustContinue(t, w, day)
-	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRejected || clubOf(w, star.Player) != seller {
+	if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRefused || clubOf(w, star.Player) != seller {
 		t.Fatalf("offer %+v, star at club %d", o, clubOf(w, star.Player))
 	}
 	// The AI bids of the first run were chosen against the squads as they
@@ -410,6 +411,180 @@ func TestAStarRefusesAWeakerClub(t *testing.T) {
 	}
 	if bids == 0 {
 		t.Fatal("no AI bids at the first run")
+	}
+}
+
+// lowerAverage releases a club's best players (ties: lowest ID) at
+// positions other than keep, while it stays above its minimum there, until
+// its squad average is below ceiling; commitMoves records each as an
+// expired contract.
+func lowerAverage(t *testing.T, w *World, club ids.ClubID, keep players.Position, ceiling int) {
+	t.Helper()
+	for w.squadAverage(club) >= ceiling {
+		team, _ := w.registry.SeniorTeam(club)
+		counts := w.squadCounts(team)
+		var best SquadPlayer
+		squad, _ := w.Squad(club)
+		for _, p := range squad {
+			if p.Position != keep && counts[p.Position] > w.defs.Quota(p.Position).Min && (best.Player == 0 || p.Overall > best.Overall) {
+				best = p
+			}
+		}
+		if best.Player == 0 {
+			t.Fatalf("club %d cannot lower its average %d below %d", club, w.squadAverage(club), ceiling)
+		}
+		commitMoves(t, w, employment.Changes{Departures: []ids.PlayerID{best.Player}})
+	}
+}
+
+// consentUnchanged fails unless a refused offer left its player at the
+// seller and moved no fee.
+func consentUnchanged(t *testing.T, w *World, o transfers.Offer) {
+	t.Helper()
+	if c := offerOf(t, w, o.ID); c.Status != transfers.StatusRefused || c.ClosedAt != w.Now() || clubOf(w, o.Player) != o.Seller {
+		t.Fatalf("offer %+v, player at club %d", c, clubOf(w, o.Player))
+	}
+	for _, e := range w.finance.All() {
+		if e.Kind == finance.KindTransfer && e.Offer == o.ID {
+			t.Fatalf("a refused offer moved a fee: %+v", e)
+		}
+	}
+	assertLedgersConsistent(t, w)
+}
+
+// A player's consent (ai.Joins) binds at completion, whoever the seller: a
+// star who would join the buyer when the bid is made refuses once the
+// squads have changed, and the offer closes as refused, moving nobody and
+// no money. For the manager's player too, answered before the deadline.
+func TestConsentAtCompletion(t *testing.T) {
+	t.Run("manager sells", func(t *testing.T) {
+		w := userWorld(t, 42, userClub3)
+		squad, _ := w.Squad(userClub3)
+		star := slices.MaxFunc(squad, func(a, b SquadPlayer) int { return a.Overall - b.Overall })
+		mine := w.squadAverage(userClub3)
+		if star.Overall < mine+ai.StarMargin+2 {
+			t.Fatalf("best player %d rates %d, squad average %d", star.Player, star.Overall, mine)
+		}
+		// The weakest AI club at least as strong as the manager's, with room
+		// for him.
+		var buyer ids.ClubID
+		for _, c := range w.registry.Clubs() {
+			if avg := w.squadAverage(c.ID); c.ID != userClub3 && avg >= mine && (buyer == 0 || avg < w.squadAverage(buyer)) {
+				buyer = c.ID
+			}
+		}
+		if buyer == 0 {
+			t.Fatal("no AI club as strong as the manager's")
+		}
+		release(t, w, buyer, star.Position)
+		if !ai.Joins(star.Overall, mine, w.squadAverage(buyer)) {
+			t.Fatal("the star would not join the buyer when it bids")
+		}
+		o := plantBid(t, w, star.Player, buyer, star.Value)
+		// The buyer's squad grows weaker than the manager's before he answers.
+		lowerAverage(t, w, buyer, star.Position, mine)
+		if ai.Joins(star.Overall, w.squadAverage(userClub3), w.squadAverage(buyer)) {
+			t.Fatal("the star would still join")
+		}
+		if err := w.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		mineBefore, buyerBefore := balance(t, w, userClub3), balance(t, w, buyer)
+		cmd := RespondToOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Offer: o.ID, Accept: true}
+		res, err := w.RespondToOffer(cmd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Status != transfers.StatusRefused || res.Contract != (employment.Contract{}) {
+			t.Fatalf("result %+v", res)
+		}
+		consentUnchanged(t, w, o)
+		if balance(t, w, userClub3) != mineBefore || balance(t, w, buyer) != buyerBefore {
+			t.Fatal("balances changed")
+		}
+		evs := w.Events()
+		if e := evs[len(evs)-1]; e.Kind != events.KindOfferClosed || e.OfferClosed.Outcome != uint8(transfers.StatusRefused) || e.Cause != commandCause(cmd.ID) {
+			t.Fatalf("event %+v", e)
+		}
+		if m := lastMessage(w); m.Kind != inbox.KindOfferClosed || m.Outcome != uint8(transfers.StatusRefused) || !m.Selling || m.Offer != o.ID {
+			t.Fatalf("inbox %+v", m)
+		}
+		snap := w.Snapshot()
+		if again, err := w.RespondToOffer(cmd); err != nil || again != res || !reflect.DeepEqual(w.Snapshot(), snap) {
+			t.Fatalf("retry: %+v %v", again, err)
+		}
+		consentUnchanged(t, roundTrip(t, w), o)
+	})
+
+	t.Run("AI club sells", func(t *testing.T) {
+		w := userWorld(t, 42, userClub3)
+		funds, mine := balance(t, w, userClub3), w.squadAverage(userClub3)
+		// A star of the strongest AI club no stronger than the manager's, which
+		// it sells at its price.
+		var star SquadPlayer
+		strongest := 0
+		for _, c := range w.registry.Clubs() {
+			avg := w.squadAverage(c.ID)
+			if c.ID == userClub3 || avg > mine || avg <= strongest {
+				continue
+			}
+			team, _ := w.registry.SeniorTeam(c.ID)
+			squad, _ := w.Squad(c.ID)
+			for _, p := range squad {
+				if p.Overall >= avg+ai.StarMargin+2 && p.Value <= funds && w.squadCounts(team)[p.Position] > w.defs.Quota(p.Position).Min {
+					star, strongest = p, avg
+					break
+				}
+			}
+		}
+		if star.Player == 0 {
+			t.Fatal("no affordable star at a weaker club")
+		}
+		seller := clubOf(w, star.Player)
+		release(t, w, userClub3, star.Position)
+		if r := w.BidRefusal(star.Player); r != RefusalNone {
+			t.Fatalf("BidRefusal = %d", r)
+		}
+		res := bidFor(t, w, star.Player, star.Value)
+		// The manager's squad grows weaker than the seller's before the run.
+		lowerAverage(t, w, userClub3, star.Position, w.squadAverage(seller))
+		if w.BidRefusal(star.Player) != RefusalStar {
+			t.Fatal("the star would still join")
+		}
+		before := balance(t, w, userClub3)
+		mustContinue(t, w, day)
+		consentUnchanged(t, w, offerOf(t, w, res.Offer))
+		if balance(t, w, userClub3) != before {
+			t.Fatal("the manager's balance changed")
+		}
+		if m := lastMessage(w); m.Kind != inbox.KindOfferClosed || m.Outcome != uint8(transfers.StatusRefused) || m.Selling {
+			t.Fatalf("inbox %+v", m)
+		}
+	})
+}
+
+// Consent is judged against the squads as the run has staged them: a player
+// who would join the manager's club when the bid is made refuses once his
+// club has completed a purchase earlier in the same run that makes him one
+// of the stars of a stronger club.
+func TestConsentFollowsEarlierCompletions(t *testing.T) {
+	w, bid := bidScenario(t)(t)
+	if _, err := w.RespondToOffer(RespondToOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Offer: bid.ID}); err != nil {
+		t.Fatal(err)
+	}
+	release(t, w, userClub3, players.Forward)
+	target := bestAt(t, w, players.Forward, userClub3)
+	seller, average := clubOf(w, target.Player), w.squadAverage(clubOf(w, target.Player))
+	if w.BidRefusal(target.Player) != RefusalNone {
+		t.Fatal("the target refuses before the run")
+	}
+	res := bidFor(t, w, target.Player, target.Value)
+	mustContinue(t, w, 2*day)
+	consentUnchanged(t, w, offerOf(t, w, res.Offer))
+	if !slices.ContainsFunc(w.transfers.Offers(), func(o transfers.Offer) bool {
+		return o.ID < res.Offer && o.Buyer == seller && o.Status == transfers.StatusCompleted && o.ClosedAt == 2*day
+	}) || w.squadAverage(seller) <= average {
+		t.Fatalf("club %d (average %d, was %d) bought nobody earlier in the run", seller, w.squadAverage(seller), average)
 	}
 }
 
@@ -959,14 +1134,19 @@ func TestRestoreRejectsInvalidTransfers(t *testing.T) {
 	scenario := bidScenario(t)
 	build := func() WorldSnapshot {
 		w, bid := scenario(t)
-		// The manager declines one bid and completes a purchase.
+		// The manager declines one bid and bids for a forward, who refuses
+		// to join once his club has bought a player earlier in the run
+		// (TestConsentFollowsEarlierCompletions); AI clubs complete purchases.
 		if _, err := w.RespondToOffer(RespondToOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Offer: bid.ID}); err != nil {
 			t.Fatal(err)
 		}
 		release(t, w, userClub3, players.Forward)
 		target := bestAt(t, w, players.Forward, userClub3)
-		bidFor(t, w, target.Player, target.Value)
+		res := bidFor(t, w, target.Player, target.Value)
 		mustContinue(t, w, 2*day)
+		if o := offerOf(t, w, res.Offer); o.Status != transfers.StatusRefused {
+			t.Fatalf("the manager's bid is %s", o.Status)
+		}
 		return w.Snapshot()
 	}
 	if _, err := Restore(build()); err != nil {
@@ -982,7 +1162,7 @@ func TestRestoreRejectsInvalidTransfers(t *testing.T) {
 		return -1
 	}
 	cases := map[string]func(*WorldSnapshot){
-		"fee edited": func(s *WorldSnapshot) { s.Transfers.Offers[index(s, transfers.StatusCompleted, userClub3)].Fee++ },
+		"fee edited": func(s *WorldSnapshot) { s.Transfers.Offers[index(s, transfers.StatusCompleted, 0)].Fee++ },
 		"completed without a fee": func(s *WorldSnapshot) {
 			i := index(s, transfers.StatusRejected, 0)
 			s.Transfers.Offers[i].Status = transfers.StatusCompleted

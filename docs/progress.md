@@ -2653,3 +2653,35 @@ The terminal and browser compare screens let the manager choose players from the
 ### Verification
 
 - Client interaction tests cover quoted terminal full-name selection and browser name lookup alongside existing ID comparisons.
+
+## squad: consent at completion, the free-agent date (done)
+
+A player's consent to a transfer is now a shared rule checked when the transfer completes, whoever the seller (audit PAR-04). `TransferWindow` also says when AI clubs may start signing free agents.
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/transfers` | `StatusRefused` (6): accepted, but the player refused to join the buyer at completion | – |
+| `internal/ai` | `AcceptBid` and `Sale` no longer judge `Joins`: the seller's price, settling-in and replacement preferences only | `ai.TransfersVersion` 6 |
+| `internal/app` | `market.complete` checks `ai.Joins` against staged squad averages (`market.average`, `market.joins`) and fails with `ErrPlayerRefuses`; the offer closes as refused (`failedStatus`) in `transferRun` and `RespondToOffer`. AI candidates and `BidRefusal` use the same staged averages. `TransferWindow.FreeAgentsOpen` | – |
+| `internal/events` | `OfferClosed.Outcome` may be 6 | – |
+
+### Decisions
+
+- **Consent is conditional until completion, for both controllers.** Completion happens when a seller accepts: at the AI seller's run, or when the manager accepts before the deadline. The squads can change in between, so consent is judged then, not when the bid is made. It is not binding at the bid for either.
+- **Judged against the staged squads.** The market keeps each club's overall sum as it stages completions and signings. A club that completes a purchase earlier in the same run can make one of its players a star who then refuses a weaker buyer. The seed-42 first window shows this: the manager's bid for club 11's forward is refused after club 11 buys a player at the same run.
+- **Refused, not rejected or collapsed.** The seller did accept, so "rejected" would misreport it; "collapsed" is kept for a buyer or seller who can no longer complete. A manager's bid for a star of a stronger club now ends refused, where it was rejected before. `BidRefusal` still predicts it (`RefusalStar`).
+- **No schema bump.** No field changed. A save holding outcome 6 carries `ai.TransfersVersion` 6, which older builds refuse to load.
+- **`FreeAgentsOpen`** is `Opens + freeAgentGrace`, the instant `aiActions` already used. It is exposed so that clients never compute it. PAR-02 may replace the grace; the field would then carry the new rule.
+
+### Verification
+
+- `TestConsentAtCompletion`: the manager accepts an AI bid after the buyer's squad has weakened below his own; and an AI club answers the manager's bid after the manager's squad has weakened below the seller's. Both end refused, move nobody and no money, and emit `OfferClosed` 6 and its inbox message. The manager's answer retries to the same result and survives a save.
+- `TestConsentFollowsEarlierCompletions`: a same-run completion changes consent. `TestRestoreRejectsInvalidTransfers` restores a snapshot holding a refused offer.
+- `TestFreeAgentPoolAtTheWindowsOpen`: over eight AI-only years the pool is untouched until `FreeAgentsOpen`, and AI clubs sign from it later.
+- Deliberate-bug checks: without the consent check in `complete`, three tests fail; with a quarter of the grace, AI signings before `FreeAgentsOpen` are caught.
+- Goldens updated deliberately: the seed-42 season, second-league and cup hashes. Seed 42's first window now completes 49 offers with 3 refusals (was 54 and 1 collapsed). The pinned client tests were updated for the moved careers.
+
+### Limitations
+
+- `TestSquadsStayLegalAndBalancedOverTheYears` now tolerates two missing AI players after a window (was one): the thin-market item, reproduced on a new path (seed 7, club 3 managed, year 7, club 14).
+- The clients still word a refusal as a collapse until `ui` answers its note.
