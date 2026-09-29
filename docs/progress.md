@@ -2566,3 +2566,13 @@ A league's season N kicks off on its first kickoff's weekday and time, in the we
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
 
 From now on, a lane records completed work in a section titled `## <lane>: <feature> (done)`, placed just above this one, with the same subsections as the milestones above. Milestone numbers end at 16 because parallel lanes would claim the same number. If two lanes append at the same time, keep both sections in merge order.
+
+## UI: cup qualifiers and match timelines (done)
+
+### Changes
+
+League tables in both clients now use `World.CupQualifiers` to say which places enter each cup; the web and terminal no longer infer qualification from promotion places or hard-code a cup name. Completed match reports show stored match events in order, including goals, substitutions, mentality changes, half time and full time. The web timeline reads from `World.MatchReport`, so it survives save/load.
+
+### Verification
+
+`cmd/play` and `cmd/web` tests check qualification labels and the report timeline; `gofmt -l .`, `go vet ./...` and `go test ./...` pass.

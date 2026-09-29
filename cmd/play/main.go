@@ -690,6 +690,9 @@ func (s *session) tables(args []string) error {
 func (s *session) printTable(t app.Table, rows []app.TableRow) {
 	s.printf("\n%s season %d (%d/%d rounds)\n", t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	s.printf("%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
+	for _, q := range s.w.CupQualifiers(t.Competition) {
+		s.printf("top %d qualify for %s\n", q.Places, q.Name)
+	}
 	moves, legend := s.promotionMoves(t)
 	for _, r := range rows {
 		mark := " "
@@ -1373,13 +1376,25 @@ func (s *session) play() error {
 					names[p.Player] = p.Name
 				}
 			}
-			for _, g := range m.Goals {
-				who := names[g.Scorer]
+			for _, e := range m.Events {
 				team := m.Home.ShortName
-				if g.Side == matches.Away {
+				if e.Side == matches.Away {
 					team = m.Away.ShortName
 				}
-				s.printf("  %2d'  %s %s\n", g.Minute, team, who)
+				switch e.Kind {
+				case matches.EventGoal:
+					s.printf("  %2d'  %s Goal: %s\n", e.Minute, team, names[e.Player])
+				case matches.EventSubstitution:
+					s.printf("  %2d'  %s Substitution: %s on for %s\n", e.Minute, team, names[e.Player], names[e.Other])
+				case matches.EventMentalityChange:
+					s.printf("  %2d'  %s mentality changed to %s\n", e.Minute, team, e.Mentality.String())
+				case matches.EventPeriodEnd:
+					if e.Period == matches.FirstHalf {
+						s.printf("  %2d'  Half time\n", e.Minute)
+					} else if e.Period == matches.SecondHalf {
+						s.printf("  %2d'  Full time\n", e.Minute)
+					}
+				}
 			}
 		}
 	}

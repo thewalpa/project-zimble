@@ -2,7 +2,7 @@
 {{$d := .Data}}
 {{range $d.Tables}}{{$t := .}}
 <h1>{{.CompetitionName}} season {{.Season}}</h1>
-<p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}{{if .Cup}} · the top four play in the Continental Cup{{end}}{{if .Legend}} · {{.Legend}}{{end}}</p>
+<p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}{{range .CupPlaces}} · the top {{.Places}} qualify for {{.Name}}{{end}}{{if .Legend}} · {{.Legend}}{{end}}</p>
 <div class="panel scroll">
 <table>
   <tr>

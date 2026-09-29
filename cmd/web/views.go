@@ -620,9 +620,9 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 // places marked.
 type leagueTable struct {
 	app.Table
-	Marked []markedRow
-	Cup    bool   // the league's top places play in the Continental Cup
-	Legend string // what the marks mean; empty when the league has none
+	Marked    []markedRow
+	CupPlaces []app.CupQualifier
+	Legend    string // what the marks mean; empty when the league has none
 }
 
 type markedRow struct {
@@ -677,8 +677,7 @@ func (s *server) table(r *http.Request) (string, any, error) {
 		t.Rows = append([]app.TableRow(nil), t.Rows...)
 		sortTableRows(t.Rows, sortState.Col, sortState.Dir)
 		mark, legend := s.promotionMarks(t)
-		promoted, _ := s.w.PromotionPlaces(t.Competition)
-		lt := leagueTable{Table: t, Legend: legend, Cup: promoted == 0} // second divisions send no one to the cup
+		lt := leagueTable{Table: t, Legend: legend, CupPlaces: s.w.CupQualifiers(t.Competition)}
 		for _, row := range t.Rows {
 			lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
 		}
@@ -793,6 +792,11 @@ type goalView struct {
 	PlayerName string
 }
 
+type eventView struct {
+	Minute uint16
+	Text   string
+}
+
 type reportView struct {
 	Fixture      ids.FixtureID
 	Context      string // e.g. "Founders League season 1 · Round 3", "Continental Cup 1 · Final"
@@ -809,6 +813,7 @@ type reportView struct {
 	HomeSelected string
 	AwaySelected string
 	Goals        []goalView
+	Events       []eventView
 }
 
 func selectedText(b app.SelectedBy) string {
@@ -899,6 +904,37 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 				pName = s.name(g.Scorer)
 			}
 			v.Goals = append(v.Goals, goalView{Minute: g.Minute, Team: team, PlayerName: pName})
+		}
+		for _, e := range rep.Events {
+			team := rep.Home.ShortName
+			if e.Side == matches.Away {
+				team = rep.Away.ShortName
+			}
+			playerName := func(id ids.PlayerID) string {
+				name, _ := s.w.PlayerName(id)
+				if name == "" {
+					name = s.name(id)
+				}
+				return name
+			}
+			var text string
+			switch e.Kind {
+			case matches.EventGoal:
+				text = fmt.Sprintf("%s · Goal · %s", team, playerName(e.Player))
+			case matches.EventSubstitution:
+				text = fmt.Sprintf("%s · Substitution · %s on for %s", team, playerName(e.Player), playerName(e.Other))
+			case matches.EventMentalityChange:
+				text = fmt.Sprintf("%s · Mentality changed to %s", team, e.Mentality.String())
+			case matches.EventPeriodEnd:
+				if e.Period == matches.FirstHalf {
+					text = "Half time"
+				} else if e.Period == matches.SecondHalf {
+					text = "Full time"
+				}
+			}
+			if text != "" {
+				v.Events = append(v.Events, eventView{Minute: e.Minute, Text: text})
+			}
 		}
 	} else if hasF && f.Played {
 		if f.Home.Club == s.club() || f.Away.Club == s.club() {
@@ -1163,7 +1199,7 @@ func (s *server) history(r *http.Request) (string, any, error) {
 			}
 		} else if t, ok := s.w.Table(ref); ok {
 			mark, legend := s.promotionMarks(t)
-			lt := leagueTable{Table: t, Legend: legend}
+			lt := leagueTable{Table: t, Legend: legend, CupPlaces: s.w.CupQualifiers(t.Competition)}
 			for _, row := range t.Rows {
 				lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
 			}

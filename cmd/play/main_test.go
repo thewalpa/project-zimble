@@ -57,7 +57,7 @@ func TestEditedLineupIsPlayedAndSaved(t *testing.T) {
 	}
 	contains(t, out, "MATCHDAY Sat 2025-08-09 15:00 UTC: round 1 v Brackenmoor Town (home).",
 		"your changes (used when you continue)", "Mentality: attacking", "(out of position)",
-		"FULL TIME  Quillford FC", "Other results:", "New in your inbox:", "Saved to "+path)
+		"FULL TIME  Quillford FC", "45'  Half time", "90'  Full time", "Other results:", "New in your inbox:", "Saved to "+path)
 	if strings.Contains(out, "player ") {
 		t.Fatal("a scorer was printed without a name")
 	}
@@ -452,6 +452,7 @@ func TestTablesShowsEveryLeague(t *testing.T) {
 		"Harbour League season 1 (0/14 rounds)",
 		"Founders Second Division season 1 (0/14 rounds)",
 		"Harbour Second Division season 1 (0/14 rounds)",
+		"top 4 qualify for Continental Cup",
 		"usage: tables",
 	)
 	if strings.Count(out, "POS  ABB  CLUB") != 4 {
@@ -459,6 +460,9 @@ func TestTablesShowsEveryLeague(t *testing.T) {
 	}
 	if !strings.Contains(out, "* QUI") {
 		t.Fatalf("managed club was not marked in its table:\n%s", out)
+	}
+	if strings.Count(out, "top 4 qualify for Continental Cup") != 2 {
+		t.Fatalf("cup places should be shown only for the qualifying first divisions:\n%s", out)
 	}
 }
 

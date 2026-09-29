@@ -476,7 +476,7 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 	contains(t, fixturesPage, fmt.Sprintf(`<a href="/report?fixture=%d">`, c.s.report.Fixture))
 
 	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", c.s.report.Fixture))
-	contains(t, reportPage, "Game report", "Founders League", "Round 1", "Goals", "Back to fixtures", "League table")
+	contains(t, reportPage, "Game report", "Founders League", "Round 1", "Match timeline", "Half time", "Full time", "Back to fixtures", "League table")
 
 	for _, other := range c.s.report.Others {
 		otherPage := c.get(fmt.Sprintf("/report?fixture=%d", other.Fixture))
@@ -1125,7 +1125,7 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 	if up, down := strings.Count(page, `class="up"`), strings.Count(page, `class="out"`); up != 4 || down != 4 {
 		t.Fatalf("%d promotion and %d relegation marks in four leagues, want 4 and 4", up, down)
 	}
-	if strings.Count(page, "play in the Continental Cup") != 2 {
+	if strings.Count(page, "qualify for Continental Cup") != 2 {
 		t.Fatal("only the first divisions send their top four to the cup")
 	}
 	c.post("/season", nil)

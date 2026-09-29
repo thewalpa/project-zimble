@@ -34,15 +34,21 @@
   </div>
 
   <div class="panel">
-    <h2>Goals</h2>
-    {{if $d.Goals}}
+    <h2>Match timeline</h2>
+    {{if $d.Events}}
+    <ul class="plain">
+      {{range $d.Events}}
+      <li><b>{{.Minute}}'</b> {{.Text}}</li>
+      {{end}}
+    </ul>
+    {{else if $d.Goals}}
     <ul class="plain">
       {{range $d.Goals}}
-      <li><b>{{.Minute}}'</b> <span class="muted">({{.Team}})</span> {{.PlayerName}}</li>
+      <li><b>{{.Minute}}'</b> <span class="muted">({{.Team}})</span> Goal · {{.PlayerName}}</li>
       {{end}}
     </ul>
     {{else}}
-    <p class="muted">No goals scored (0-0).</p>
+    <p class="muted">No match events.</p>
     {{end}}
   </div>
 

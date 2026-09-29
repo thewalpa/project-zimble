@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Answered all eight prior handoffs (injuries, attributes, nationalities, second divisions, promotion and relegation, seller refusals, free agents, the formatting audit): see [progress](../progress.md). Added `tables` to `cmd/play` for every league and player comparison to both clients. Two notes remain out: `competitions--cup-qualifiers.md` and `squad--free-agent-reservation-instant.md`. Durable player career history needs the data archive; see [data--player-career-history.md](../handoffs/data--player-career-history.md). Match report polish needs persisted match events; see [match--report-events.md](../handoffs/match--report-events.md).
+Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, and `match--report-events.md` with a minute-ordered timeline in both clients. See [progress](../progress.md). Removed the stale seed-story note after reading it. `squad--free-agent-reservation-instant.md` remains open; durable player career history needs the data archive; see [data--player-career-history.md](../handoffs/data--player-career-history.md).
 
 ## Backlog
 
@@ -34,7 +34,6 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 
 - **Player career history** on the profile page (past clubs, transfers): needs a stored history from `squad` or `data`.
 - **Injured players in the lineup editors** stay selectable (`SubmitLineup` refuses them with an explanation). Consider an "available only" filter once `app` exposes the fit-player rule.
-- **Match report polish:** incidents timeline and substitutions in both clients.
 - **Play the rest of the season:** clicking the button should advance to the end of the season, but not go to the next season. this should give the option to finalize contract extensions and reading messages before switching to next season
 - **Lineup editing:** Lineup editing must be always available, also when not in matchday.  
 
