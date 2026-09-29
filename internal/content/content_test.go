@@ -25,6 +25,11 @@ func TestDefaultReturnsIndependentCopies(t *testing.T) {
 	if Default().Nations[1].Divisions[1].Towns[0].Name == "Changed" {
 		t.Fatal("Default shares slices between calls")
 	}
+	b := a.Clone()
+	b.Nations[0].FirstNames[0], b.Nations[1].LastNames[0] = "Changed", "Changed"
+	if a.Nations[0].FirstNames[0] == "Changed" || a.Nations[1].LastNames[0] == "Changed" {
+		t.Fatal("Clone shares the name pools")
+	}
 }
 
 func TestValidateRejectsBrokenDefinitions(t *testing.T) {
@@ -47,7 +52,11 @@ func TestValidateRejectsBrokenDefinitions(t *testing.T) {
 		"no nations":       func(d *Definitions) { d.Nations = nil },
 		"no clubs":         func(d *Definitions) { d.Nations[1].Divisions[1].Clubs = 0 },
 		"same nation":      func(d *Definitions) { d.Nations[1].Name = d.Nations[0].Name },
-		"empty names":      func(d *Definitions) { d.FirstNames = nil },
+		"no first names":   func(d *Definitions) { d.Nations[1].FirstNames = nil },
+		"no last names":    func(d *Definitions) { d.Nations[0].LastNames = nil },
+		"empty name":       func(d *Definitions) { d.Nations[1].LastNames[3] = "" },
+		"repeated name":    func(d *Definitions) { d.Nations[0].FirstNames[1] = d.Nations[0].FirstNames[0] },
+		"no club suffixes": func(d *Definitions) { d.ClubSuffixes = nil },
 		"bad quota":        func(d *Definitions) { d.Roster[0].Count = 0 },
 		"min above count":  func(d *Definitions) { d.Roster[0].Min = d.Roster[0].Count + 1 },
 		"zero min":         func(d *Definitions) { d.Roster[1].Min = 0 },

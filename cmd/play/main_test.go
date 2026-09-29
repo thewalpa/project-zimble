@@ -178,14 +178,14 @@ func TestWatchLiveWithHalfTimeChanges(t *testing.T) {
 	args := []string{"-seed", "42", "-club", "3"}
 	straight := play(t, args, "c", "watch", "sub 57 58", "mentality attacking", "watch 70", "watch", "continue", "q", "q")
 	contains(t, straight, "KICKOFF  Quillford FC v Brackenmoor Town", "HALF TIME\nMake changes",
-		"45'  SUB   QUI  Wes Lindqvist on for Quentin Tanaka", "45'  TACT  QUI  now attacking",
+		"45'  SUB   QUI  Rhys Aldridge on for Pieter Haugen", "45'  TACT  QUI  now attacking",
 		"\n70'  Quillford FC", "FULL TIME\nType continue to confirm", "\nFULL TIME  Quillford FC", "Other results:")
 
 	first := play(t, args, "c", "watch", "sub 57 58", "save "+path, "q")
 	contains(t, first, "Saved to "+path)
 	resumed := play(t, []string{"-load", path}, "status", "lineup", "mentality attacking", "watch 70", "watch", "continue", "q", "q")
-	contains(t, resumed, "LIVE 45'  Quillford FC", "2 substitutions left", "  58  Wes Lindqvist ",
-		"on the pitch", "Taken off: 57 Quentin Tanaka (45')")
+	contains(t, resumed, "LIVE 45'  Quillford FC", "2 substitutions left", "  58  Rhys Aldridge ",
+		"on the pitch", "Taken off: 57 Pieter Haugen (45')")
 	cut := func(out string) string { return out[strings.Index(out, "\n70'  Quillford"):] }
 	if cut(resumed) != cut(straight) {
 		t.Fatalf("the match differs after resuming at half time:\n%s\n---\n%s", cut(resumed), cut(straight))
@@ -233,25 +233,25 @@ func TestContracts(t *testing.T) {
 		"continue", "free", "sign 44", "sign 168 1", "squad", "inbox 12", "continue", "bid 300", "q", "q")
 	contains(t, out,
 		"Contracts: 7 end on Wed 2026-07-01 00:00 UTC unless renewed (type contracts).",
-		"  56  MF  Callum Ibsen              27    76     2,660.00     2026     2,570.00  <- final year",
-		"Callum Ibsen signed a new contract until 1 July 2028 at 2,570.00 a week.",
+		"  56  MF  Kieran Walsh              27    76     2,660.00     2026     2,570.00  <- final year",
+		"Kieran Walsh signed a new contract until 1 July 2028 at 2,570.00 a week.",
 		"! app: contract offer rejected: 9 years, allowed 1..4",
 		"! app: contract offer rejected: weekly wage 1.00, player accepts 2,120.00..4,240.00",
 		"! app: the contract is not in its final year: player 44",
 		"! player 999 is not in your squad",
 		"! player 45 is not a free agent; type free for the list",
 		"development: 8 of your players improved and 11 declined over the year (type squad)",
-		"contract: Callum Ibsen renewed until 1 July 2028 at 2,570.00 a week",
-		"contract: Oscar Bellamy left the club as a free agent",
-		"signing: Aaron Abbott joined until 1 July 2029 at 1,340.00 a week",
-		" 168  DF  Tomas Grady              Eastmarch   23    46 100%               940.00",
+		"contract: Kieran Walsh renewed until 1 July 2028 at 2,570.00 a week",
+		"contract: Aaron Morrow left the club as a free agent",
+		"signing: Rasmus Brandt joined until 1 July 2029 at 1,340.00 a week",
+		" 168  DF  Lars Kessler             Eastmarch   23    46 100%               940.00",
 		"Free agents retire on the eve of 1 July once they are 31.",
 		"! player 44 is not a free agent; type free for the list",
 		"! app: squads cannot change while rounds await results",
-		"  56  MF  Callum Ibsen             Westmark    27    76 100%             2,570.00  to 2028",
-		"Tomas Grady joined until 1 July 2027 at 940.00 a week.",
+		"  56  MF  Kieran Walsh             Westmark    27    76 100%             2,570.00  to 2028",
+		"Lars Kessler joined until 1 July 2027 at 940.00 a week.",
 	)
-	if strings.Count(out, "Tomas Grady joined until 1 July 2027 at 940.00 a week.") != 1 {
+	if strings.Count(out, "Lars Kessler joined until 1 July 2027 at 940.00 a week.") != 1 {
 		t.Fatal("signed a player on a matchday, or twice")
 	}
 }
@@ -262,11 +262,11 @@ func TestPlayerYearMessages(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "season", "continue", "season", "continue", "squad", "q", "q")
 	contains(t, out,
 		"Wed 2027-06-30 00:00 UTC  development: 4 of your players improved and 8 declined over the year (type squad)",
-		"Wed 2027-06-30 00:00 UTC  retirement: Hugo Kowal retired at 36",
-		"Wed 2027-06-30 00:00 UTC  youth: Jonas Costa joined from the youth ranks until 1 July 2030 at 510.00 a week",
+		"Wed 2027-06-30 00:00 UTC  retirement: Liam Aldridge retired at 36",
+		"Wed 2027-06-30 00:00 UTC  youth: Ben Nolan joined from the youth ranks until 1 July 2030 at 510.00 a week",
 		"Every year on the eve of that date, young players improve, older ones decline, and some retire.",
 	)
-	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Hugo Kowal") {
+	if strings.Contains(out[strings.LastIndex(out, "AGE"):], "Liam Aldridge") {
 		t.Fatal("the retired goalkeeper is still in the squad")
 	}
 }
@@ -334,32 +334,32 @@ func TestTransfers(t *testing.T) {
 	contains(t, out, "9 free agents wait for a club (type free).",
 		"Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
-		"  37  GRY Westmark    Jonas Gallo              Westmark     32    74     2027     410,000.00  (won't join a weaker club)",
+		"  37  GRY Westmark    Ben Mercer               Westmark     32    74     2027     410,000.00  (won't join a weaker club)",
 		"! usage: market GK|DF|MF|FW",
-		"You bid 400,000.00 for Aaron Farrow (offer 55), offering 1 year at 2,000.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
+		"You bid 400,000.00 for Rhys Underwood (offer 55), offering 1 year at 2,000.00 a week. The club answers on Thu 2026-07-02 00:00 UTC.",
 		"! app: your club has already bid for the player in this window: player 238",
 		"! player 44 is not at another club; type market POS for the list",
 		"! app: the squad would fall below its minimum at that position: 5 DF, minimum 5", // before the bought defenders arrive
-		"Elias Gallo is on the transfer list at 1,200,000.00 until the window closes; clubs that need a defender may bid.",
-		"  44  Quillford FC           Elias Gallo              Westmark   DF   18    75   1,200,000.00",
-		"transfer: Aaron Farrow joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
-		"transfer: your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected",
-		"bid: Eldhaven United bid 1,200,000.00 for Elias Gallo (offer 84); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
+		"Callum Doyle is on the transfer list at 1,200,000.00 until the window closes; clubs that need a defender may bid.",
+		"  44  Quillford FC           Callum Doyle             Westmark   DF   18    75   1,200,000.00",
+		"transfer: Rhys Underwood joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
+		"transfer: your bid of 500,000.00 for Leif Dekker of Ironbridge Wanderers was rejected",
+		"bid: Eldhaven United bid 1,200,000.00 for Callum Doyle (offer 84); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
-		"* Thu 2026-07-02 00:00 UTC   Aaron Farrow             Northwick Albion       -> Quillford FC",
+		"* Thu 2026-07-02 00:00 UTC   Rhys Underwood           Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
 	accepted := play(t, []string{"-load", path}, "accept 84", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Elias Gallo left for Eldhaven United for 1,200,000.00", "transfer fee O84")
+		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O84")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
 	rejected := play(t, []string{"-load", path}, "reject 84", "unlist 44", "unlist 44", "continue", "q", "q")
-	contains(t, rejected, "Rejected.", "Elias Gallo is off the transfer list.", "! app: the player is not on the transfer list: player 44",
-		"transfer: the bid of 1,200,000.00 from Eldhaven United for Elias Gallo was rejected")
+	contains(t, rejected, "Rejected.", "Callum Doyle is off the transfer list.", "! app: the player is not on the transfer list: player 44",
+		"transfer: the bid of 1,200,000.00 from Eldhaven United for Callum Doyle was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {
 		t.Fatal("a rejected bid moved the player")
 	}
@@ -407,18 +407,18 @@ func TestRelease(t *testing.T) {
 		"release 60", "release 60 yes", "release 43 yes", "release 42 yes", "release 999", "release 60 no",
 		"finances 2", "inbox 2", "squad", "bid 159", "continue", "continue", "release 41 yes", "q", "q")
 	contains(t, out,
-		"Releasing Rafael Okafor costs 179,400.00: his wages until his contract ends on 1 July 2028. He becomes a free agent.",
+		"Releasing Rhys McAllister costs 179,400.00: his wages until his contract ends on 1 July 2028. He becomes a free agent.",
 		"Type release 60 yes to release him.",
-		"Rafael Okafor was released and is now a free agent. You paid 179,400.00.",
-		"Gareth Gallo was released and is now a free agent. You paid 113,360.00.",
+		"Rhys McAllister was released and is now a free agent. You paid 179,400.00.",
+		"Callum McAllister was released and is now a free agent. You paid 113,360.00.",
 		"! app: the squad would fall below its minimum at that position: 2 GK, minimum 2",
 		"! player 999 is not in your squad",
 		"! usage: release ID [yes]",
 		"contract payoff P60    -179,400.00",
-		"release: Gareth Gallo left the club as a free agent; you paid 113,360.00",
+		"release: Callum McAllister left the club as a free agent; you paid 113,360.00",
 		"You have 18 players; a squad holds at most 25, and at least 2 GK, 5 DF, 5 MF, 3 FW.",
-		"You bid 860,000.00 for Aaron Farrow (offer 1)",
-		"transfer: Aaron Farrow joined from Dunmarrow Albion",
+		"You bid 860,000.00 for Jamie Draper (offer 1)",
+		"transfer: Jamie Draper joined from Dunmarrow Albion",
 		"! app: squads cannot change while rounds await results",
 	)
 	if strings.Count(out, "was released") != 2 {
@@ -439,7 +439,7 @@ func TestLineupCarriesOverToNextMatchday(t *testing.T) {
 	)
 	contains(t, out,
 		"carried over from the last match (vs Brackenmoor Town)",
-		"Elias Gallo has left the club;",
+		"Callum Doyle has left the club;",
 		"takes his place",
 		"Mentality: attacking",
 		"Lineup: your lineup",
@@ -448,14 +448,14 @@ func TestLineupCarriesOverToNextMatchday(t *testing.T) {
 
 func TestPlayerProfileCommand(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "player 56", "player 1", "player 99999", "player", "quit", "quit")
-	contains(t, out, "Callum Ibsen (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:", "Career:", "before ", "current club",
+	contains(t, out, "Kieran Walsh (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:", "Career:", "before ", "current club",
 		"no player 99999", "usage: player ID")
 }
 
 func TestComparePlayersCommand(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "compare 56 1", `compare "Callum Ibsen" 1`, "compare 56 99999", "compare 56", "quit", "quit")
-	contains(t, out, "Callum Ibsen (#56)", "Weekly wage", "Asking price", "Wage demand", "DEF", "no player 99999", "usage: compare PLAYER PLAYER")
-	if strings.Count(out, "Callum Ibsen (#56)") < 2 {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "compare 56 1", `compare "Kieran Walsh" 1`, "compare 56 99999", "compare 56", "quit", "quit")
+	contains(t, out, "Kieran Walsh (#56)", "Weekly wage", "Asking price", "Wage demand", "DEF", "no player 99999", "usage: compare PLAYER PLAYER")
+	if strings.Count(out, "Kieran Walsh (#56)") < 2 {
 		t.Fatalf("compare should resolve a managed squad player by name:\n%s", out)
 	}
 }
@@ -551,7 +551,7 @@ func TestNationalitiesAndAttributes(t *testing.T) {
 	out := play(t, []string{"-seed", "42"}, "3", "squad", "continue", "lineup", "player 56", "quit", "quit")
 	contains(t, out, "Founders League\n  ID  ABB  CLUB", "Harbour Second Division\n", "NATION", "Westmark",
 		"POS NAME                     NATION", "GK DEF PAS FIN PAC STA DRI HEA STR ACC PSN",
-		"Callum Ibsen (player 56), MF, age 26, Westmark", "dribbling, heading, strength, acceleration, positioning")
+		"Kieran Walsh (player 56), MF, age 26, Westmark", "dribbling, heading, strength, acceleration, positioning")
 	first, second := strings.Index(out, "Founders League\n"), strings.Index(out, "Harbour Second Division\n")
 	if first < 0 || second < first {
 		t.Fatal("the leagues are not listed in order")

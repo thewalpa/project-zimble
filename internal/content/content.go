@@ -19,8 +19,9 @@ import (
 // version 4 added player ages and youth intake; version 5 added a second
 // nation; version 6 added a second division to each nation; version 7 added
 // ranges for the five match attributes; version 8 added the shares of
-// foreign players (nationalities).
-const Version = 8
+// foreign players (nationalities); version 9 moved the name pools to the
+// nations.
+const Version = 9
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
@@ -40,10 +41,13 @@ type Division struct {
 // nation's second division, and so on. Each league takes the next block of
 // clubs (see League), so with leagues in that order league i holds the
 // i'th block's clubs when their sizes match. Every nation defines the same
-// number of divisions.
+// number of divisions. A player's names come from the pools of their
+// nationality, not of their club's nation.
 type Nation struct {
-	Name      string
-	Divisions []Division // top first, at least one
+	Name       string
+	FirstNames []string
+	LastNames  []string
+	Divisions  []Division // top first, at least one
 }
 
 // Quota is how many players of a position a senior squad holds. Count is
@@ -161,8 +165,6 @@ type Definitions struct {
 	Version      int
 	Nations      []Nation // in generation order
 	ClubSuffixes []string
-	FirstNames   []string
-	LastNames    []string
 	Roster       []Quota // in generation order
 	// SquadLimit is the most players a senior squad may hold in total; at
 	// least SquadSize.
@@ -194,14 +196,14 @@ func (d Definitions) ClubCount() int {
 func (d Definitions) Clone() Definitions {
 	d.Nations = slices.Clone(d.Nations)
 	for i := range d.Nations {
+		d.Nations[i].FirstNames = slices.Clone(d.Nations[i].FirstNames)
+		d.Nations[i].LastNames = slices.Clone(d.Nations[i].LastNames)
 		d.Nations[i].Divisions = slices.Clone(d.Nations[i].Divisions)
 		for j := range d.Nations[i].Divisions {
 			d.Nations[i].Divisions[j].Towns = slices.Clone(d.Nations[i].Divisions[j].Towns)
 		}
 	}
 	d.ClubSuffixes = slices.Clone(d.ClubSuffixes)
-	d.FirstNames = slices.Clone(d.FirstNames)
-	d.LastNames = slices.Clone(d.LastNames)
 	d.Roster = slices.Clone(d.Roster)
 	d.Profiles = slices.Clone(d.Profiles)
 	return d
@@ -251,6 +253,9 @@ func (d Definitions) Validate() error {
 			errs = append(errs, fmt.Errorf("content: nation %q (%d divisions) is invalid, duplicated or has a different number of divisions", na.Name, len(na.Divisions)))
 		}
 		nations[na.Name] = true
+		if !namePool(na.FirstNames) || !namePool(na.LastNames) {
+			errs = append(errs, fmt.Errorf("content: nation %q name pools must be non-empty, without empty or repeated names", na.Name))
+		}
 		for _, dv := range na.Divisions {
 			if dv.Clubs <= 0 || len(dv.Towns) < dv.Clubs {
 				errs = append(errs, fmt.Errorf("content: nation %q division (%d clubs, %d towns) is invalid", na.Name, dv.Clubs, len(dv.Towns)))
@@ -263,8 +268,8 @@ func (d Definitions) Validate() error {
 			}
 		}
 	}
-	if len(d.ClubSuffixes) == 0 || len(d.FirstNames) == 0 || len(d.LastNames) == 0 {
-		errs = append(errs, errors.New("content: name pools must not be empty"))
+	if len(d.ClubSuffixes) == 0 {
+		errs = append(errs, errors.New("content: no club suffixes"))
 	}
 	seen := map[players.Position]bool{}
 	for _, q := range d.Roster {
@@ -312,12 +317,36 @@ func (d Definitions) Validate() error {
 	return errors.Join(errs...)
 }
 
+// namePool reports whether names is a usable pool: non-empty, with no
+// empty or repeated name (a repeat would make it likelier than the others).
+func namePool(names []string) bool {
+	seen := map[string]bool{}
+	for _, n := range names {
+		if n == "" || seen[n] {
+			return false
+		}
+		seen[n] = true
+	}
+	return len(names) > 0
+}
+
 // Default returns a fresh copy of the built-in definitions.
 func Default() Definitions {
 	return Definitions{
 		Version: Version,
 		Nations: []Nation{
-			{Name: "Westmark", Divisions: []Division{
+			{Name: "Westmark", FirstNames: []string{
+				"Aaron", "Aidan", "Alfie", "Barnaby", "Ben", "Brendan", "Callum", "Conor",
+				"Declan", "Dylan", "Edmund", "Euan", "Finlay", "Fraser", "Gareth", "Hamish",
+				"Harvey", "Iain", "Jack", "Jamie", "Kieran", "Lewis", "Liam", "Morgan",
+				"Niall", "Oliver", "Owen", "Rhys", "Rory", "Seamus", "Toby", "Wes",
+			}, LastNames: []string{
+				"Abbott", "Aldridge", "Ashworth", "Bellamy", "Blackwood", "Brennan", "Callahan", "Carver",
+				"Doyle", "Draper", "Ellison", "Farrow", "Fletcher", "Gallagher", "Grady", "Hale",
+				"Hart", "Holloway", "Kerrigan", "Lockhart", "Maddox", "McAllister", "Mercer", "Morrow",
+				"Nolan", "Pembroke", "Quinlan", "Radcliffe", "Rowntree", "Sheridan", "Slater", "Tennant",
+				"Thackeray", "Underwood", "Wainwright", "Walsh", "Whitlock", "Wilde", "Winslow", "Yardley",
+			}, Divisions: []Division{
 				{Clubs: 8, Towns: []Town{
 					{"Brackenmoor", "BRK"}, {"Eldhaven", "ELD"}, {"Marrowdale", "MRW"},
 					{"Osterholm", "OST"}, {"Quillford", "QUI"}, {"Saltmere", "SAL"},
@@ -331,7 +360,18 @@ func Default() Definitions {
 					{"Kingsmere", "KIN"}, {"Lowenby", "LOW"}, {"Mistley", "MIS"},
 				}},
 			}},
-			{Name: "Eastmarch", Divisions: []Division{
+			{Name: "Eastmarch", FirstNames: []string{
+				"Anders", "Arne", "Bastian", "Bjorn", "Casper", "Dirk", "Elias", "Emil",
+				"Erik", "Frederik", "Gunnar", "Hakon", "Henrik", "Ivar", "Jannik", "Jonas",
+				"Kjell", "Lars", "Leif", "Lukas", "Magnus", "Mats", "Nils", "Oskar",
+				"Pieter", "Rasmus", "Sander", "Sven", "Tobias", "Torben", "Viggo", "Wouter",
+			}, LastNames: []string{
+				"Aalders", "Andersen", "Bakker", "Berg", "Bergmann", "Brandt", "Dahl", "Dekker",
+				"Engel", "Eriksen", "Falk", "Frisk", "Gronberg", "Hagen", "Haugen", "Holm",
+				"Ibsen", "Jansen", "Kessler", "Krause", "Kvist", "Lindqvist", "Lund", "Mertens",
+				"Moller", "Nygaard", "Olsen", "Pedersen", "Rask", "Sauer", "Schulte", "Sorensen",
+				"Strand", "Thorsen", "Ulrich", "Vogel", "Voss", "Wendt", "Winther", "Zeller",
+			}, Divisions: []Division{
 				{Clubs: 8, Towns: []Town{
 					{"Ashcombe", "ASH"}, {"Brightwater", "BRI"}, {"Coldharbour", "COL"},
 					{"Drakeford", "DRA"}, {"Emberton", "EMB"}, {"Foxmere", "FOX"},
@@ -347,17 +387,6 @@ func Default() Definitions {
 			}},
 		},
 		ClubSuffixes: []string{"United", "Rovers", "Athletic", "Albion", "Wanderers", "Town", "City", "FC"},
-		FirstNames: []string{
-			"Aaron", "Ben", "Callum", "Dario", "Elias", "Felix", "Gareth", "Hugo",
-			"Ivan", "Jonas", "Kofi", "Luca", "Mateo", "Nils", "Oscar", "Pavel",
-			"Quentin", "Rafael", "Samir", "Tomas", "Umar", "Viktor", "Wes", "Yannick",
-		},
-		LastNames: []string{
-			"Abbott", "Brandt", "Castell", "Doyle", "Eriksen", "Farrow", "Gallo", "Hart",
-			"Ibsen", "Jansen", "Kowal", "Lindqvist", "Moreau", "Novak", "Okafor", "Pereira",
-			"Quinlan", "Rossi", "Sauer", "Tanaka", "Ulrich", "Varga", "Whitlock", "Zeller",
-			"Adeyemi", "Bellamy", "Costa", "Duarte", "Engel", "Fonseca", "Grady", "Holm",
-		},
 		Roster: []Quota{
 			{players.Goalkeeper, 3, 2},
 			{players.Defender, 7, 5},

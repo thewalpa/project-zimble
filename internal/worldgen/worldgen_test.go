@@ -20,17 +20,20 @@ import (
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v7 and content v8 (nations and nationalities,
+// Last changed by worldgen v8 and content v9 (names from each nation's pools,
 // drawn after every earlier draw; see TestEarlierDrawsUnchanged).
-const goldenSeed42 = "2a1efc74ffbe83feec9a97adb3eaf602b988ab34b8ecc32e26479e747500f4c9"
+const goldenSeed42 = "f40190cef9c75f6e14e5ca383abe44e3fe17c8cf0b386369e5f12931c9a1d0d8"
 
-// goldenV6Seed42 was goldenSeed42 before nationalities: worldgen v6, content
-// v7, no nations.
-const goldenV6Seed42 = "97707b41d757f481c66c2e4f5161d9886ce31f7f3051b1add1d69b34779568bc"
-
-// goldenV5Seed42 was goldenV6Seed42 before the match attributes: worldgen v5,
-// content v6, six attributes per player.
-const goldenV5Seed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
+// The worlds of earlier generator versions for seed 42, hashed without the
+// names by canonicalAs (version 8 changed every name): goldenV7Seed42 is the
+// v7 world (content v8), goldenV6Seed42 the v6 world (content v7, no
+// nations) and goldenV5Seed42 the v5 world (content v6, six attributes per
+// player).
+const (
+	goldenV7Seed42 = "d4ef7c38773a27876fe6c82b95c6a71c9c645a8488336ec356f5d386168258c9"
+	goldenV6Seed42 = "2e7192faf9e672dd9705252705a255bece1e00f1b3ac9980c7430414b302ebdb"
+	goldenV5Seed42 = "52e5590e0fd73f704a242fb828669f903bfaae00ee578e0a91d90dd4b91eee3c"
+)
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -58,21 +61,30 @@ func TestGenerateMatchesGoldenFingerprint(t *testing.T) {
 	}
 }
 
-// canonicalWithout hashes the snapshot's canonical text after dropping what
-// later generator versions added: the nations and nationalities (v7), and
-// with matchAttrs false the match attributes (v6).
-func canonicalWithout(s Snapshot, matchAttrs bool) string {
+// canonicalAs hashes the snapshot's canonical text as generator version
+// gen (5..7) encoded it, without the names: from version 7 down, it drops
+// the names (v8); from 6 down also the nations and nationalities (v7), and
+// at 5 also the match attributes (v6).
+func canonicalAs(s Snapshot, gen int) string {
+	s.GeneratorVersion, s.ContentVersion = gen, gen+1
 	var body bytes.Buffer
 	s.writeCanonical(&body)
 	h := sha256.New()
 	for line := range strings.Lines(body.String()) {
+		if strings.HasPrefix(line, "player ") {
+			// `player 1 "First" "Last" born=...`: drop the two quoted names.
+			id, rest, _ := strings.Cut(strings.TrimPrefix(line, "player "), " ")
+			_, rest, _ = strings.Cut(rest, " born=")
+			line = "player " + id + " born=" + rest
+		}
 		switch {
+		case gen >= 7:
 		case strings.HasPrefix(line, "nation "):
 			continue
 		case strings.HasPrefix(line, "club ") || strings.HasPrefix(line, "player "):
 			head, _, _ := strings.Cut(line, " nation=")
 			line = head + "\n"
-		case strings.HasPrefix(line, "profile ") && !matchAttrs:
+		case strings.HasPrefix(line, "profile ") && gen <= 5:
 			// "profile 1 pos=1 attrs=[a b c d e f g h i j k]": keep six.
 			head, attrs, _ := strings.Cut(line, "attrs=[")
 			fields := strings.Fields(strings.TrimSuffix(strings.TrimSpace(attrs), "]"))
@@ -83,19 +95,20 @@ func canonicalWithout(s Snapshot, matchAttrs bool) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// Nationalities and the match attributes are drawn last in each player's
-// stream, so every earlier draw is unchanged: the snapshot without the
-// nationalities, encoded as worldgen v6 did, is exactly the v6 world, and
-// without the match attributes too the v5 world.
+// Names, nationalities and the match attributes are drawn last in each
+// player's stream, so every earlier draw is unchanged: the snapshot without
+// the names, encoded as worldgen v7 did, is exactly the v7 world, without
+// the nationalities too the v6 world, and without the match attributes too
+// the v5 world.
 func TestEarlierDrawsUnchanged(t *testing.T) {
 	s := generate(t, 42)
-	s.GeneratorVersion, s.ContentVersion = 6, 7
-	if got := canonicalWithout(s, true); got != goldenV6Seed42 {
-		t.Fatalf("seed 42 without nationalities = %s, want the v6 world %s", got, goldenV6Seed42)
-	}
-	s.GeneratorVersion, s.ContentVersion = 5, 6
-	if got := canonicalWithout(s, false); got != goldenV5Seed42 {
-		t.Fatalf("seed 42 without the match attributes = %s, want the v5 world %s", got, goldenV5Seed42)
+	for _, g := range []struct {
+		gen  int
+		want string
+	}{{7, goldenV7Seed42}, {6, goldenV6Seed42}, {5, goldenV5Seed42}} {
+		if got := canonicalAs(s, g.gen); got != g.want {
+			t.Errorf("seed 42 as worldgen v%d = %s, want %s", g.gen, got, g.want)
+		}
 	}
 }
 
@@ -220,8 +233,8 @@ func TestYouth(t *testing.T) {
 			if p.ID != id || prof.Player != id || prof.Position != pos || prof.Retired || p.FirstName == "" || p.LastName == "" {
 				t.Fatalf("youth %d: %+v %+v", id, p, prof)
 			}
-			if p.Nationality < 1 || int(p.Nationality) > len(defs.Nations) {
-				t.Fatalf("youth %d has nationality %d", id, p.Nationality)
+			if p.Nationality < 1 || int(p.Nationality) > len(defs.Nations) || !namedFrom(defs, p) {
+				t.Fatalf("youth %d has nationality %d and is named %s %s", id, p.Nationality, p.FirstName, p.LastName)
 			}
 			total++
 			if p.Nationality != home {
@@ -242,23 +255,27 @@ func TestYouth(t *testing.T) {
 	if foreign < total*defs.Youth.ForeignPct/200 || foreign > total*defs.Youth.ForeignPct*2/100 {
 		t.Fatalf("%d of %d youth players are foreign, want about %d%%", foreign, total, defs.Youth.ForeignPct)
 	}
-	// Youth v2 appended the match attributes: names, birth dates and the
-	// first six attributes are those youth v1 generated.
-	for _, v1 := range []struct {
+	// Youth v2 to v4 appended their draws: birth dates, attributes and
+	// nationalities are those youth v3 generated (and the birth dates and
+	// first six attributes those of v1), and only the names moved.
+	for _, v3 := range []struct {
 		id          ids.PlayerID
 		pos         players.Position
-		first, last string
 		born        sim.GameInstant
-		attrs       [6]players.Rating
+		attrs       players.Attributes
+		nationality ids.NationID
 	}{
-		{641, players.Goalkeeper, "Yannick", "Tanaka", -5573760, [6]players.Rating{61, 5, 42, 2, 12, 40}},
-		{678, players.Defender, "Hugo", "Varga", -5612640, [6]players.Rating{1, 61, 33, 12, 25, 25}},
-		{715, players.Midfielder, "Jonas", "Moreau", -6128160, [6]players.Rating{1, 38, 60, 17, 28, 73}},
-		{752, players.Forward, "Viktor", "Moreau", -6125280, [6]players.Rating{1, 13, 19, 47, 51, 20}},
+		{641, players.Goalkeeper, -5573760, players.Attributes{61, 5, 42, 2, 12, 40, 2, 23, 45, 18, 28}, 1},
+		{678, players.Defender, -5612640, players.Attributes{1, 61, 33, 12, 25, 25, 35, 30, 46, 48, 43}, 2},
+		{715, players.Midfielder, -6128160, players.Attributes{1, 38, 60, 17, 28, 73, 52, 43, 42, 48, 58}, 1},
+		{752, players.Forward, -6125280, players.Attributes{1, 13, 19, 47, 51, 20, 45, 45, 44, 60, 26}, 1},
 	} {
-		p, prof, err := Youth(defs, 42, v1.id, v1.pos, 3_000_000, 1)
-		if err != nil || p.FirstName != v1.first || p.LastName != v1.last || p.Born != v1.born || [6]players.Rating(prof.Attributes[:6]) != v1.attrs {
-			t.Errorf("youth %d changed its v1 draws: %+v %v (%v)", v1.id, p, prof.Attributes, err)
+		p, prof, err := Youth(defs, 42, v3.id, v3.pos, 3_000_000, 1)
+		if err != nil || p.Born != v3.born || prof.Attributes != v3.attrs || p.Nationality != v3.nationality {
+			t.Errorf("youth %d changed its v3 draws: %+v %v (%v)", v3.id, p, prof.Attributes, err)
+		}
+		if !namedFrom(defs, p) {
+			t.Errorf("youth %d of nation %d is named %s %s", v3.id, p.Nationality, p.FirstName, p.LastName)
 		}
 	}
 	if _, _, err := Youth(defs, 42, 500, 0, at, 1); err == nil {
@@ -317,14 +334,22 @@ func TestDivisionsAreGeneratedIndependently(t *testing.T) {
 	}
 }
 
-// withoutNationality returns the players with their nationalities cleared:
-// who is foreign depends on how many nations there are.
+// withoutNationality returns the players with their nationalities and names
+// cleared: who is foreign, and so named from another nation's pools, depends
+// on how many nations there are.
 func withoutNationality(ps []registry.Player) []registry.Player {
 	out := slices.Clone(ps)
 	for i := range out {
-		out[i].Nationality = 0
+		out[i].Nationality, out[i].FirstName, out[i].LastName = 0, "", ""
 	}
 	return out
+}
+
+// namedFrom reports whether p's names come from the pools of p's
+// nationality.
+func namedFrom(defs content.Definitions, p registry.Player) bool {
+	n := defs.Nations[p.Nationality-1]
+	return slices.Contains(n.FirstNames, p.FirstName) && slices.Contains(n.LastNames, p.LastName)
 }
 
 func TestNationalities(t *testing.T) {
@@ -352,6 +377,10 @@ func TestNationalities(t *testing.T) {
 			if p.Nationality < 1 || int(p.Nationality) > len(s.Nations) {
 				t.Fatalf("seed %d: player %d has nationality %d", seed, p.ID, p.Nationality)
 			}
+			// Names follow the nationality, not the club.
+			if !namedFrom(defs, p) {
+				t.Fatalf("seed %d: player %d of nation %d is named %s %s", seed, p.ID, p.Nationality, p.FirstName, p.LastName)
+			}
 			if p.Nationality != clubNation[s.Assignments[i].Club] {
 				foreign++
 			}
@@ -373,13 +402,15 @@ func TestNationalities(t *testing.T) {
 			t.Fatalf("player %d is foreign with a 0%% share", p.ID)
 		}
 	}
-	// A foreign share leaves every other draw as it was.
+	// A foreign share leaves every other draw as it was, and changes only
+	// the foreign players' names.
 	full := generate(t, 42)
-	for i := range full.Players {
-		a, b := full.Players[i], s.Players[i]
-		a.Nationality, b.Nationality = 0, 0
-		if a != b || !reflect.DeepEqual(full.Profiles[i], s.Profiles[i]) {
-			t.Fatalf("player %d changed with the foreign share", a.ID)
+	if !reflect.DeepEqual(withoutNationality(full.Players), withoutNationality(s.Players)) || !reflect.DeepEqual(full.Profiles, s.Profiles) {
+		t.Fatal("players changed with the foreign share")
+	}
+	for i, p := range full.Players {
+		if p.Nationality == s.Players[i].Nationality && p != s.Players[i] {
+			t.Fatalf("player %d changed with the foreign share though not foreign", p.ID)
 		}
 	}
 }

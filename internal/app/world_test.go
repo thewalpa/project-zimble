@@ -159,7 +159,7 @@ func TestNewWorldSchedulesLeagueForSeniorTeams(t *testing.T) {
 
 // Creating the league must not change any generated world data.
 func TestCompetitionCreationPreservesGeneratedWorld(t *testing.T) {
-	const worldFingerprintSeed42 = "2a1efc74ffbe83feec9a97adb3eaf602b988ab34b8ecc32e26479e747500f4c9"
+	const worldFingerprintSeed42 = "f40190cef9c75f6e14e5ca383abe44e3fe17c8cf0b386369e5f12931c9a1d0d8"
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, 42)
 	if err != nil {

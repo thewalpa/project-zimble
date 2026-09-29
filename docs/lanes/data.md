@@ -26,17 +26,12 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
-**Player careers delivered:** `internal/careers`, a read model of every player's clubs built from the employment events, saved and validated against employment; `app.PlayerCareer` for the profile ([progress](../progress.md#data-player-careers-done)). Notes to `ui` (the profile history) and `squad` (every employment change must emit its event). Match's report events in `save.go` were reviewed and accepted.
+**Per-nation name pools delivered:** each nation's own first and last names, drawn last from the nationality's pools, so only names moved (`worldgen.Version` 8, `YouthVersion` 4, `content.Version` 9, `storage.SchemaVersion` 24; [progress](../progress.md#data-per-nation-name-pools-done)). Note to `ui` (pinned names in its tests were updated; new pins after rebasing).
 
-**Refused offers reviewed:** squad's `OfferClosed.Outcome` 6 needs no schema change; tests cover it ([progress](../progress.md#data-refused-offers-reviewed-done)).
-
-**`SeasonInterval` dropped** for `content.MaxSeasonSpan` (`LeagueVersion` 5), answering `competitions` ([progress](../progress.md#data-seasoninterval-dropped-done)).
-
-**Next:** per-nation name pools (see the backlog), or save fixtures per schema version. The next free version numbers are `worldgen.Version` 8, `content.Version` 9, `worldgen.YouthVersion` 4, `content.LeagueVersion` 6 and `storage.SchemaVersion` 24.
+**Next:** save fixtures per schema version (see the backlog). The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 25.
 
 ## Backlog
 
-- **Per-nation name pools:** names that fit a player's nationality. Moves every generated name (bump `worldgen.Version` and `YouthVersion`, and tell every lane whose goldens read names); wants a `streamVersion` decision and `content` pools per nation.
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
 - **Save compatibility:** a fixture save per schema version in `testdata/`, and a policy test that each one either loads or is refused explicitly.

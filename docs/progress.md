@@ -2689,6 +2689,7 @@ A player's consent to a transfer is now a shared rule checked when the transfer 
 Reviewed squad's widening of `OfferClosed.Outcome` to 3–6 in `internal/events` (`transfers.StatusRefused`). Accepted as is: no new kind, no snapshot field, so no `storage.SchemaVersion` bump; `journal` already checks the closure's status against the offer (`transfers.go` fact check), `inbox` passes the outcome through and `careers` ignores `OfferClosed`.
 
 - `TestValidate` now accepts every outcome 3–6, and `TestTransferMessages` covers an outcome-6 message for the buyer.
+
 ## match: lineup eligibility query (done)
 
 Delivered `ui`'s note `match--lineup-availability`: clients can filter the lineup editors by the app's selection rule instead of inferring it from injuries.
@@ -2740,3 +2741,31 @@ Both lineup editors use `World.SquadEligibility` to show which squad players can
 ### Verification
 
 - Terminal interaction tests cover the available-only lineup command. Browser tests verify an injured, unselectable player is hidden while his injury days remain explained in the full editor.
+
+## data: per-nation name pools (done)
+
+A player's names now fit their nationality: each nation has its own first and last name pools, and generated and youth players draw from the pools of their nationality (not their club's nation), so a foreign player stands out by name. Westmark's pools are Anglo-Celtic, Eastmarch's Nordic and Low German; the two share no name.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/content` | `Nation.FirstNames` and `Nation.LastNames` (32 and 40 names each) replace the global `Definitions.FirstNames`/`LastNames`. `Validate` requires each pool to be non-empty, without an empty or repeated name, and still at least one club suffix. `Clone` copies the pools. `content.Version` 9 |
+| `internal/worldgen` | `drawNames` draws the names last in each player's and youth player's stream, after the nationality. `skipNames` keeps the two draws that chose the names before, unused, so every other draw is unchanged. `worldgen.Version` 8, `YouthVersion` 4; `streamVersion` and `youthStreamVersion` stay |
+| `internal/storage` | `SchemaVersion` 24 (the saved `Content` moved the name pools into the nations). Schema 23 saves are refused |
+| world fingerprint | Seed 42 is now `f40190ce…`, in `worldgen`, `app/world_test.go` and `app/resolve_test.go` |
+| `cmd/play`, `cmd/web` tests | Pinned player names updated, player by player (same IDs, same numbers) |
+
+### Decisions
+
+- **Only names moved.** Skipping the old draws, rather than bumping `streamVersion`, keeps every attribute, contract, birth date and nationality, so no season, cup, transfer or balance golden changed: only tests that print names did. Each skipped draw was one `IntN`, which takes one value from the stream except on a rejection (a chance under 2^-59 per player); `TestEarlierDrawsUnchanged` checks seed 42.
+- **Names follow the nationality.** A Westmark club's Eastmarch player has an Eastmarch name, and so does a foreign youth player.
+- **Fewer repeated names.** Each nation's pools give 1,280 combinations where the shared pools gave 768. Seed 42 now has 74 names borne by more than one player (80 extra players), down from 158 (214). Names are still not unique, and clients that accept a name must keep handling ambiguity.
+- **Historic goldens rehashed without names.** The v5 and v6 worlds can no longer be rebuilt with their names, so `canonicalAs` hashes the snapshot as generator v7, v6 or v5 encoded it, without the names, against goldens taken from the v7 code before the change.
+
+### Verification
+
+- `TestEarlierDrawsUnchanged`: seed 42 without names is exactly the v7 world, and without nationalities and match attributes the v6 and v5 worlds.
+- `TestNationalities` and `TestYouth`: every generated and youth player is named from their nationality's pools; the pinned youth players keep their v3 birth dates, all eleven attributes and nationalities. A foreign share changes nothing but the foreign players' nationalities and names.
+- `TestValidateRejectsBrokenDefinitions`: a missing first or last name pool, an empty or repeated name and no club suffixes are refused; `Clone` does not share the pools.
+- Every season, second-league and cup golden in `internal/app` is unchanged.

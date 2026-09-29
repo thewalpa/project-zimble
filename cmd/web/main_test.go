@@ -285,18 +285,18 @@ func TestContractsInTheBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	renew := url.Values{"player": {"56"}, "years": {strconv.Itoa(offer.Years)}, "wage": {strconv.FormatInt(int64(offer.WeeklyWage)/100, 10)}}
-	contains(t, c.post("/renew", renew), "Callum Ibsen signed a new contract until 1 July 2028 at 2,570.00 a week.")
+	contains(t, c.post("/renew", renew), "Kieran Walsh signed a new contract until 1 July 2028 at 2,570.00 a week.")
 	contains(t, c.post("/renew", url.Values{"player": {"45"}, "years": {"2"}, "wage": {"1"}}), "contract offer rejected: weekly wage 1.00")
 	contains(t, c.post("/renew", url.Values{"player": {"45"}, "years": {"two"}, "wage": {"1"}}), "whole number of years")
 	contains(t, c.post("/renew", url.Values{"player": {"44"}, "years": {"2"}, "wage": {"3,000"}}), "the contract is not in its final year")
 
 	page = c.post("/continue", nil) // the contract year opens the transfer window
-	contains(t, page, "The transfer window has opened", "Oscar Bellamy left the club as a free agent")
+	contains(t, page, "The transfer window has opened", "Aaron Morrow left the club as a free agent")
 	page = c.get("/free") // the AI clubs have not yet signed everyone
-	contains(t, page, "Tomas Grady")
+	contains(t, page, "Lars Kessler")
 	sign := url.Values{"player": {"168"}, "years": {"1"}, "wage": {"940"}}
-	contains(t, c.post("/sign", sign), "Tomas Grady joined until 1 July 2027 at 940.00 a week.")
-	contains(t, c.get("/squad"), "Tomas Grady")
+	contains(t, c.post("/sign", sign), "Lars Kessler joined until 1 July 2027 at 940.00 a week.")
+	contains(t, c.get("/squad"), "Lars Kessler")
 	contains(t, c.post("/sign", sign), "the player is not a free agent")
 	page = c.post("/continue", nil) // no transfer news: the first matchday of season 2
 	contains(t, page, "Matchday: Round 1 v Brackenmoor Town (home)")
@@ -525,7 +525,7 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	page := c.post("/continue", nil)
 	contains(t, page, "The transfer window has opened", `href="/transfers"`)
 	page = c.get("/transfers?pos=FW")
-	contains(t, page, "Aaron Farrow", "400,000.00", `action="/bid"`)
+	contains(t, page, "Rhys Underwood", "400,000.00", `action="/bid"`)
 	if strings.Contains(page, "Your squad is full") {
 		t.Fatal("the manager has room at FW after the contract year")
 	}
@@ -540,24 +540,24 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	for _, p := range []string{"344", "547"} {
 		bid(p, strconv.FormatInt(int64(valueOf(t, c, p))/100, 10))
 	}
-	contains(t, bid("617", "400,000"), "You bid 400,000.00 for Aaron Farrow", "Your bids awaiting an answer")
+	contains(t, bid("617", "400,000"), "You bid 400,000.00 for Rhys Underwood", "Your bids awaiting an answer")
 	contains(t, bid("238", "500000"), "You bid 500,000.00")
 	contains(t, bid("238", "700000"), "your club has already bid for the player in this window")
 	contains(t, bid("617", "abc"), "the fee must be a positive whole amount")
 
 	page = c.post("/continue", nil)
-	contains(t, page, "Transfer news", "Aaron Farrow joined from Northwick Albion for 400,000.00",
-		"Your bid of 500,000.00 for Oscar Adeyemi of Ironbridge Wanderers was rejected")
+	contains(t, page, "Transfer news", "Rhys Underwood joined from Northwick Albion for 400,000.00",
+		"Your bid of 500,000.00 for Leif Dekker of Ironbridge Wanderers was rejected")
 	// AI clubs bid for the manager's players only when he lists them.
 	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
-		"Elias Gallo is on the transfer list")
+		"Callum Doyle is on the transfer list")
 	page = c.post("/continue", nil)
-	contains(t, page, "Eldhaven United bid 1,200,000.00 for Elias Gallo", "1 bids for your players await your answer")
+	contains(t, page, "Eldhaven United bid 1,200,000.00 for Callum Doyle", "1 bids for your players await your answer")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
 	contains(t, c.post("/answer", url.Values{"offer": {"84"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
-	contains(t, c.get("/inbox"), "Elias Gallo left for Eldhaven United for 1,200,000.00")
+	contains(t, c.get("/inbox"), "Callum Doyle left for Eldhaven United for 1,200,000.00")
 	contains(t, c.get("/finances"), "transfer fee, offer 84")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
@@ -583,16 +583,16 @@ func TestRefusedOfferInboxWording(t *testing.T) {
 func TestTransferListInTheBrowser(t *testing.T) {
 	c := career(t)
 	page := c.get("/squad")
-	contains(t, page, `action="/list"`, `aria-label="Asking price for Callum Ibsen"`, ">List</button>")
+	contains(t, page, `action="/list"`, `aria-label="Asking price for Kieran Walsh"`, ">List</button>")
 
 	page = c.post("/list", url.Values{"player": {"56"}, "asking": {"700,000"}, "back": {"/squad"}})
-	contains(t, page, "Callum Ibsen is on the transfer list at 700,000.00", "Listed at 700,000.00", ">Change</button>", ">Unlist</button>")
+	contains(t, page, "Kieran Walsh is on the transfer list at 700,000.00", "Listed at 700,000.00", ">Change</button>", ">Unlist</button>")
 	page = c.get("/transfers")
-	contains(t, page, "Transfer list", "Quillford FC (You)", "Callum Ibsen", "700,000.00", ">Unlist</button>",
+	contains(t, page, "Transfer list", "Quillford FC (You)", "Kieran Walsh", "700,000.00", ">Unlist</button>",
 		"You receive bids only for players you put on the transfer list")
 
 	page = c.post("/list", url.Values{"player": {"56"}, "unlist": {"yes"}, "back": {"/transfers"}})
-	contains(t, page, "Callum Ibsen is off the transfer list", "No players are on the transfer list")
+	contains(t, page, "Kieran Walsh is off the transfer list", "No players are on the transfer list")
 	c.post("/list", url.Values{"player": {"56"}, "asking": {"700000"}, "back": {"/squad"}})
 
 	// A player at the positional minimum cannot be listed.
@@ -602,7 +602,7 @@ func TestTransferListInTheBrowser(t *testing.T) {
 		"the squad would fall below its minimum at that position: 2 GK, minimum 2")
 
 	page = c.post("/continue", nil)
-	contains(t, page, "Hollowick Town bid 700,000.00 for Callum Ibsen")
+	contains(t, page, "Hollowick Town bid 700,000.00 for Kieran Walsh")
 	var other app.ListedPlayer
 	for day := 0; day < 3 && other.Player == 0; day++ {
 		for _, listed := range c.s.w.TransferList() {
@@ -698,7 +698,7 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 	// Squad page shows squad limit and payoff preview with confirmation.
 	page := c.get("/squad")
 	contains(t, page, "You have 20 players; a squad holds at most 25, and at least 2 GK, 5 DF, 5 MF, 3 FW.",
-		`action="/release"`, `confirm('Release Rafael Okafor for 179,400.00?');`, "Release (179,400.00)")
+		`action="/release"`, `confirm('Release Rhys McAllister for 179,400.00?');`, "Release (179,400.00)")
 
 	// Transfers and squad limit:
 	// Club 3 starts with 20 players and 4 forwards.
@@ -806,21 +806,21 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 		t.Fatal("found enabled bid button when squad is full")
 	}
 
-	// Releasing player 60 (Rafael Okafor) drops squad to 24.
+	// Releasing player 60 (Rhys McAllister) drops squad to 24.
 	page = c.post("/release", url.Values{"player": {"60"}})
-	contains(t, page, "Rafael Okafor was released and is now a free agent. You paid 179,400.00.")
+	contains(t, page, "Rhys McAllister was released and is now a free agent. You paid 179,400.00.")
 
-	// Rafael Okafor is now on the free agents page with an active Sign button (since 24 < 25).
+	// Rhys McAllister is now on the free agents page with an active Sign button (since 24 < 25).
 	freePage := c.get("/free")
-	contains(t, freePage, "Rafael Okafor", "<button >Sign</button>")
+	contains(t, freePage, "Rhys McAllister", "<button >Sign</button>")
 
 	// Finances shows the contract payoff with the player's name and amount.
-	contains(t, c.get("/finances"), "contract payoff, Rafael Okafor", "-179,400.00")
+	contains(t, c.get("/finances"), "contract payoff, Rhys McAllister", "-179,400.00")
 
 	// Inbox shows the release message.
-	contains(t, c.get("/inbox"), "Rafael Okafor left the club as a free agent; you paid 179,400.00")
+	contains(t, c.get("/inbox"), "Rhys McAllister left the club as a free agent; you paid 179,400.00")
 
-	// Sign Rafael Okafor back to return squad to 25.
+	// Sign Rhys McAllister back to return squad to 25.
 	o, err := c.s.w.SuggestContract(ids.PlayerID(60))
 	if err != nil {
 		t.Fatal(err)
@@ -849,7 +849,7 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 
 	// Free agents page reflects squad full.
 	freeFull := c.get("/free")
-	contains(t, freeFull, "Gareth Gallo", "squad full")
+	contains(t, freeFull, "Callum McAllister", "squad full")
 	if strings.Contains(freeFull, "Sign</button>") {
 		t.Fatal("found sign button when squad is full")
 	}
@@ -894,15 +894,15 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 	page = c.post("/continue", nil)
 	contains(t, page, "Latest result")
 
-	// Release starter 44 (Elias Gallo) between rounds.
+	// Release starter 44 (Callum Doyle) between rounds.
 	page = c.post("/release", url.Values{"player": {"44"}})
-	contains(t, page, "Elias Gallo was released")
+	contains(t, page, "Callum Doyle was released")
 
 	// Advance to Round 2 matchday.
 	page = c.post("/continue", nil)
 	contains(t, page, "Matchday: Round 2 v Hollowick Town (away)",
 		"Lineup: Carried over from the last match (vs Brackenmoor Town)",
-		"Elias Gallo has left the club;",
+		"Callum Doyle has left the club;",
 		"takes his place",
 	)
 
@@ -910,7 +910,7 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 	lineupPage := c.get("/lineup")
 	contains(t, lineupPage,
 		"Carried over from the last match (vs Brackenmoor Town)",
-		"Elias Gallo has left the club;",
+		"Callum Doyle has left the club;",
 		"takes his place",
 		"Ask the assistant",
 	)
@@ -935,7 +935,7 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 func TestPlayerProfilePage(t *testing.T) {
 	c := career(t)
 	contains(t, c.get("/squad"), `href="/player?id=56"`)
-	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond", "Club history", "At career start", "Current club", `/compare?a=56`)
+	contains(t, c.get("/player?id=56"), "Kieran Walsh", "(You)", "Contract:", "until", "Value:", "Cond", "Club history", "At career start", "Current club", `/compare?a=56`)
 	// A player of another club shows that club, not "(You)".
 	other := c.get("/player?id=1")
 	contains(t, other, "</html>")
@@ -948,8 +948,8 @@ func TestPlayerProfilePage(t *testing.T) {
 
 func TestComparePlayersPage(t *testing.T) {
 	c := career(t)
-	contains(t, c.get("/compare?a=56&b=1"), "Compare players", "Callum Ibsen", "Weekly wage", "Asking price", "Wage demand", "Attribute order", "id=\"my-squad\"")
-	contains(t, c.get("/compare?a=Callum+Ibsen&b=1"), "Callum Ibsen", "Weekly wage")
+	contains(t, c.get("/compare?a=56&b=1"), "Compare players", "Kieran Walsh", "Weekly wage", "Asking price", "Wage demand", "Attribute order", "id=\"my-squad\"")
+	contains(t, c.get("/compare?a=Kieran+Walsh&b=1"), "Kieran Walsh", "Weekly wage")
 	contains(t, c.get("/compare?a=56&b=99999"), "There is no player 99999")
 	contains(t, c.get("/compare?a=x&b=1"), "is not a player ID")
 }
