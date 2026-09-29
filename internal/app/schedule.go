@@ -243,6 +243,29 @@ func (w *World) Cups() []CupEdition {
 	return out
 }
 
+// CupQualifier is a cup a league qualifies teams for: the top Places of the
+// league's final table play in the cup's next edition.
+type CupQualifier struct {
+	Cup    ids.CompetitionID
+	Name   string
+	Places int
+}
+
+// CupQualifiers returns the cups a league qualifies teams for, in cup ID
+// order: none for a league that sends nobody or an unknown competition.
+// Read-only.
+func (w *World) CupQualifiers(league ids.CompetitionID) []CupQualifier {
+	var out []CupQualifier
+	for _, c := range w.cups {
+		for _, q := range c.Qualifiers {
+			if q.League == league {
+				out = append(out, CupQualifier{Cup: c.ID, Name: c.Name, Places: q.Places})
+			}
+		}
+	}
+	return out
+}
+
 // Cup returns any edition of a cup. Read-only.
 func (w *World) Cup(ref competitions.SeasonRef) (CupEdition, bool) {
 	ci, ok := w.cupIndex(ref.Competition)

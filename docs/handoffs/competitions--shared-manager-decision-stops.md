@@ -1,10 +1,12 @@
 ---
 to: competitions
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-09-29
 ---
+
+Accepted by competitions: it is the P2 "shared decision opportunities" item in docs/lanes/competitions.md, to be built with the season-review stop.
 
 # Make manager deadline opportunities an application contract
 

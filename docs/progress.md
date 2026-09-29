@@ -2522,6 +2522,19 @@ Four handoffs delivered and three acknowledged.
 - Accepted: `match--tick-mentality`, `match--tick-goals-by-level`.
 - Filed: [ui--report-events.md](handoffs/ui--report-events.md), [ui--seed-stories-moved-shootouts.md](handoffs/ui--seed-stories-moved-shootouts.md).
 
+## competitions: cup qualifiers query (done)
+
+`World.CupQualifiers(league)` lists the cups a league qualifies teams for (`CupQualifier{Cup, Name, Places}`, in cup ID order), so the clients can stop guessing from `PromotionPlaces` which tables send teams to the Continental Cup.
+
+### Verification
+
+- `TestCupQualifiers`: the first divisions each send four teams and the second divisions, the cup itself and an unknown ID none; a returned slice is a copy; the first edition's entrants are exactly the qualifying places of every league.
+
+### Handoffs
+
+- Delivered: `competitions--cup-qualifiers`. Filed: [ui--cup-qualifiers.md](handoffs/ui--cup-qualifiers.md).
+- Accepted: `competitions--shared-manager-decision-stops` (the P2 decision-opportunities backlog item).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

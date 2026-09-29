@@ -73,6 +73,44 @@ func TestCupEditionIsCreatedFromTheLeagues(t *testing.T) {
 	}
 }
 
+// Only the first divisions send teams to the cup, and each league's
+// qualifying places are the teams its first edition is drawn from.
+func TestCupQualifiers(t *testing.T) {
+	w := newWorld(t, 42)
+	want := map[ids.CompetitionID][]CupQualifier{
+		1: {{Cup: 3, Name: "Continental Cup", Places: 4}},
+		2: {{Cup: 3, Name: "Continental Cup", Places: 4}},
+	}
+	for _, league := range []ids.CompetitionID{1, 2, 3, 4, 5, 99} {
+		if got := w.CupQualifiers(league); !reflect.DeepEqual(got, want[league]) {
+			t.Fatalf("league %d qualifies for %+v, want %+v", league, got, want[league])
+		}
+	}
+	w.CupQualifiers(1)[0].Places = 8
+	if w.CupQualifiers(1)[0].Places != 4 {
+		t.Fatal("editing a returned qualifier reached the world")
+	}
+
+	playLeagues(t, w)
+	e, _ := w.Cup(cup1)
+	var drawn, qualified []ids.TeamID
+	for _, l := range e.Entrants {
+		drawn = append(drawn, l.Team)
+	}
+	for _, league := range []ids.CompetitionID{1, 2, 4, 5} {
+		for _, q := range w.CupQualifiers(league) {
+			for pos := 1; pos <= q.Places; pos++ {
+				qualified = append(qualified, top(w, league, pos))
+			}
+		}
+	}
+	slices.Sort(drawn)
+	slices.Sort(qualified)
+	if !slices.Equal(drawn, qualified) {
+		t.Fatalf("edition 1 drew %v, the qualifying places hold %v", drawn, qualified)
+	}
+}
+
 // The cup is played round by round to a champion. Every tie has a winner
 // (a level one by penalties, recorded officially and in the events), the
 // winners meet in the next round, and only cup matches are knockouts.
