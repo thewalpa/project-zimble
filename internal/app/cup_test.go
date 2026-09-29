@@ -270,15 +270,15 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 		"cup definition edited": func(s *WorldSnapshot) { s.Cups[0].FirstRoundDelay++ },
 		"cup definition edited and refingerprinted": func(s *WorldSnapshot) {
 			s.Cups[0].FirstRoundDelay += sim.Day
-			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
 		"cup with a league's ID": func(s *WorldSnapshot) {
 			s.Cups[0].ID = 2
-			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
 		"cup removed": func(s *WorldSnapshot) {
 			s.Cups = nil
-			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
 		"bracket reseeded": func(s *WorldSnapshot) {
 			c := cupSeason(s)

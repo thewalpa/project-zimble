@@ -2340,6 +2340,20 @@ Players now carry Dribbling, Heading, Strength, Acceleration and Positioning on 
 - Nothing uses the five yet: `matches.Ratings` doesn't carry them until `match` adds the fields.
 - The ranges are the note's first proposal and haven't been measured.
 
+## data: content fingerprint covers promotions (done)
+
+Found reviewing the second-divisions wiring: `WorldSnapshot.Promotions` is pinned by the save, but `contentFingerprint` hashed only the definitions, leagues and cups. A save with its promotion places edited mid-season still loaded, and the career then ran under different rules. The fingerprint now includes the links. It rides schema 18 from the section above, so no save written by an earlier build meets the new format.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/app` | `contentFingerprint(defs, leagues, cups, promotions)`; `Snapshot` and `Restore` pass the links. Tests that re-sign a mutated snapshot pass them too, and `TestPromotionSaveRejections` re-signs every case, so each is rejected by the rule it names, not by the fingerprint |
+
+### Verification
+
+- `TestRestoreRejectsInvalidState` "promotions changed": one place fewer on the first link, three rounds into season 1. It is rejected by the fingerprint, and it loads once re-signed, which is how every save loaded before this change.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

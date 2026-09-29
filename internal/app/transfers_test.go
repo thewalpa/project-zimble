@@ -1030,7 +1030,7 @@ func TestRestoreRejectsInvalidTransfers(t *testing.T) {
 		snap := build()
 		mutate(&snap)
 		if name == "no window days" {
-			snap.ContentFingerprint = contentFingerprint(snap.Content, leagueDefsOf(&snap), snap.Cups)
+			snap.ContentFingerprint = contentFingerprint(snap.Content, leagueDefsOf(&snap), snap.Cups, snap.Promotions)
 		}
 		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
 			t.Errorf("%s: err = %v", name, err)

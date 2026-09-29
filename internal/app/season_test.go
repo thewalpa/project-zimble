@@ -292,7 +292,7 @@ func TestRestoreRejectsInvalidSeasonState(t *testing.T) {
 		},
 		"season interval edited": func(s *WorldSnapshot) {
 			s.Leagues[0].Definition.SeasonInterval += sim.Day
-			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
 	}
 	for name, mutate := range cases {

@@ -81,7 +81,7 @@ type WorldSnapshot struct {
 	UserClub           ids.ClubID // zero: no user club
 	Versions           Versions
 	WorldFingerprint   string // generated-world provenance, shown by Summary
-	ContentFingerprint string // SHA-256 of Content and the league definitions
+	ContentFingerprint string // SHA-256 of Content, the league and cup definitions and the promotions
 	Content            content.Definitions
 	Leagues            []LeagueSnapshot    // ascending competition ID
 	Cups               []content.Cup       // effective rules, pinned by the save; ascending competition ID
@@ -138,12 +138,13 @@ func currentVersions(engine matches.Engine) Versions {
 }
 
 // contentFingerprint identifies the effective content of a career.
-func contentFingerprint(defs content.Definitions, leagues []content.League, cups []content.Cup) string {
+func contentFingerprint(defs content.Definitions, leagues []content.League, cups []content.Cup, promotions []content.Promotion) string {
 	data, err := json.Marshal(struct {
-		Content content.Definitions
-		Leagues []content.League
-		Cups    []content.Cup
-	}{defs, leagues, cups})
+		Content    content.Definitions
+		Leagues    []content.League
+		Cups       []content.Cup
+		Promotions []content.Promotion
+	}{defs, leagues, cups, promotions})
 	if err != nil {
 		panic(fmt.Sprintf("app: content is not serializable: %v", err)) // plain data; cannot happen
 	}
@@ -173,7 +174,7 @@ func (w *World) Snapshot() WorldSnapshot {
 			Youth: w.youthVersion, Transfers: w.transfersVersion, EngineID: w.engine.ID(), EngineVersion: w.engine.Version(),
 		},
 		WorldFingerprint:   w.fingerprint,
-		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs(), w.cups),
+		ContentFingerprint: contentFingerprint(w.defs, w.leagueDefs(), w.cups, w.promotions),
 		Content:            w.defs.Clone(),
 		Revision:           w.revision,
 		Registry:           w.registry.Snapshot(),
@@ -259,7 +260,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	for _, l := range snap.Leagues {
 		leagueDefs = append(leagueDefs, l.Definition)
 	}
-	if got := contentFingerprint(defs, leagueDefs, snap.Cups); got != snap.ContentFingerprint {
+	if got := contentFingerprint(defs, leagueDefs, snap.Cups, snap.Promotions); got != snap.ContentFingerprint {
 		return invalid("content fingerprint %s does not match its content (%s)", snap.ContentFingerprint, got)
 	}
 	if err := defs.Validate(); err != nil {

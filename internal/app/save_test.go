@@ -310,10 +310,11 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 	cases := map[string]func(*WorldSnapshot){
 		"content changed":      func(s *WorldSnapshot) { s.Content.Nations[0].Divisions[0].Towns[0].Name = "Elsewhere" },
 		"league rules changed": func(s *WorldSnapshot) { s.Leagues[0].Definition.MaxBench = 5 },
+		"promotions changed":   func(s *WorldSnapshot) { s.Promotions[0].Places = 1 },
 		"invalid epoch":        func(s *WorldSnapshot) { s.Epoch = sim.CivilTime{} },
 		"no leagues": func(s *WorldSnapshot) {
 			s.Leagues = nil
-			s.ContentFingerprint = contentFingerprint(s.Content, nil, s.Cups)
+			s.ContentFingerprint = contentFingerprint(s.Content, nil, s.Cups, s.Promotions)
 		},
 		"player without profile":     func(s *WorldSnapshot) { s.Players = s.Players[1:] },
 		"match attribute missing":    func(s *WorldSnapshot) { s.Players[0].Attributes[players.Positioning] = 0 },

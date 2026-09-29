@@ -83,12 +83,9 @@ func TestPromotionSaveRejections(t *testing.T) {
 		t.Fatalf("snapshot links %v", got)
 	}
 	cases := map[string]func(s *WorldSnapshot){
-		"link to a missing league": func(s *WorldSnapshot) { s.Promotions[0].Lower = 9 },
-		"too many places":          func(s *WorldSnapshot) { s.Promotions[0].Places = 5 },
-		"linked calendars differ": func(s *WorldSnapshot) {
-			s.Leagues[2].Definition.RoundInterval *= 2
-			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups)
-		},
+		"link to a missing league":                 func(s *WorldSnapshot) { s.Promotions[0].Lower = 9 },
+		"too many places":                          func(s *WorldSnapshot) { s.Promotions[0].Places = 5 },
+		"linked calendars differ":                  func(s *WorldSnapshot) { s.Leagues[2].Definition.RoundInterval *= 2 },
 		"links removed after a season moved teams": func(s *WorldSnapshot) { s.Promotions = nil },
 		"places changed after a season moved teams": func(s *WorldSnapshot) {
 			s.Promotions[0].Places = 1
@@ -97,6 +94,8 @@ func TestPromotionSaveRejections(t *testing.T) {
 	for name, mutate := range cases {
 		snap := build()
 		mutate(&snap)
+		// Re-signed, so the rule under test rejects it, not the fingerprint.
+		snap.ContentFingerprint = contentFingerprint(snap.Content, leagueDefsOf(&snap), snap.Cups, snap.Promotions)
 		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
 			t.Errorf("%s: err = %v", name, err)
 		}
