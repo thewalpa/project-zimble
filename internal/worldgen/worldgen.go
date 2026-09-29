@@ -26,8 +26,9 @@ import (
 // seed and content would produce a different snapshot. Version 2 added
 // contract terms; version 3 added birth dates; version 4 generates clubs
 // nation by nation; version 5 adds each nation's lower divisions; version 6
-// adds the five match attributes (see matchAttributes).
-const Version = 6
+// adds the five match attributes (see matchAttributes); version 7 adds
+// nations and nationalities (see drawNationality).
+const Version = 7
 
 // streamVersion keys the club and player streams: the generator version
 // that last changed their existing draws. Version 3 only appended a draw to
@@ -35,16 +36,17 @@ const Version = 6
 // contracts) as they were; version 4 keeps the first nation's club stream
 // and adds one per further nation, and version 5 adds one per lower division
 // after every top division. Version 6 appended the match attributes to each
-// player's stream. Set it to Version when a change alters an existing draw.
+// player's stream. Version 7 appended the nationality. Set it to Version when a change alters an existing draw.
 const streamVersion = 2
 
 // YouthVersion identifies youth generation (Youth). Bump it whenever the
 // same definitions, seed, ID, position and instant would produce a
-// different player. Version 2 added the match attributes.
-const YouthVersion = 2
+// different player. Version 2 added the match attributes; version 3 the
+// nationality.
+const YouthVersion = 3
 
 // youthStreamVersion keys the youth streams: the youth version that last
-// changed an existing draw. Version 2 only appended draws.
+// changed an existing draw. Versions 2 and 3 only appended draws.
 const youthStreamVersion = 1
 
 // matchAttributes is the first of the attributes added in generator
@@ -52,6 +54,26 @@ const youthStreamVersion = 1
 // and each youth player's stream, after the birth date, so every earlier
 // draw is unchanged; the attributes before it are drawn first, in order.
 const matchAttributes = players.Dribbling
+
+// NationID is the ID of the i'th of the content's nations (in content
+// order); IDs start at 1.
+func NationID(i int) ids.NationID { return ids.NationID(i + 1) }
+
+// drawNationality draws a player's nationality: their club's nation home,
+// except foreignPct percent of the time, when it is one of the other nations
+// (equally likely). It always makes the same two draws, so the stream after
+// it does not depend on the number of nations.
+func drawNationality(rng *random.Stream, home ids.NationID, nations, foreignPct int) ids.NationID {
+	roll := rng.IntN(100)
+	pick := rng.IntN(max(nations-1, 1))
+	if nations < 2 || roll >= foreignPct {
+		return home
+	}
+	if pick >= int(home)-1 { // skip the home nation
+		pick++
+	}
+	return NationID(pick)
+}
 
 // drawAttributes draws the attributes from..to-1, each from its range.
 func drawAttributes(rng *random.Stream, attrs *players.Attributes, ranges [players.NumAttributes]content.Range, from, to players.Attribute) {
@@ -82,6 +104,7 @@ type Snapshot struct {
 	GeneratorVersion int
 	RandomVersion    int
 	ContentVersion   int
+	Nations          []registry.Nation
 	Clubs            []registry.Club
 	Teams            []registry.Team
 	Players          []registry.Player
@@ -110,6 +133,7 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 		GeneratorVersion: Version,
 		RandomVersion:    random.Version,
 		ContentVersion:   defs.Version,
+		Nations:          make([]registry.Nation, 0, len(defs.Nations)),
 		Clubs:            make([]registry.Club, 0, clubs),
 		Teams:            make([]registry.Team, 0, clubs),
 		Players:          make([]registry.Player, 0, clubs*squad),
@@ -117,6 +141,9 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 		Assignments:      make([]employment.Assignment, 0, clubs*squad),
 	}
 
+	for i, nation := range defs.Nations {
+		s.Nations = append(s.Nations, registry.Nation{ID: NationID(i), Name: nation.Name})
+	}
 	var nextPlayer ids.PlayerID
 	var nextClub int
 	// Tier by tier, nation by nation: every nation's top division comes
@@ -140,7 +167,7 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 				clubID := ids.ClubID(nextClub)
 				teamID := ids.TeamID(nextClub)
 				suffix := defs.ClubSuffixes[clubRNG.IntN(len(defs.ClubSuffixes))]
-				s.Clubs = append(s.Clubs, registry.Club{ID: clubID, Name: town.Name + " " + suffix, ShortName: town.Short})
+				s.Clubs = append(s.Clubs, registry.Club{ID: clubID, Name: town.Name + " " + suffix, ShortName: town.Short, Nation: NationID(ni)})
 				s.Teams = append(s.Teams, registry.Team{ID: teamID, Club: clubID, Kind: registry.TeamSenior})
 
 				for _, q := range defs.Roster {
@@ -166,9 +193,11 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 						})
 						// Version 3: drawn after the contract, so the draws above are unchanged.
 						player.Born = -sim.GameInstant(rng.IntRange(birthDays(defs.Ages))) * sim.GameInstant(sim.Day)
-						s.Players = append(s.Players, player)
-						// Version 6: drawn last, for the same reason.
+						// Version 6: drawn after the birth date, for the same reason.
 						drawAttributes(rng, &profile.Attributes, pp.Ranges, matchAttributes, players.NumAttributes)
+						// Version 7: drawn last of all.
+						player.Nationality = drawNationality(rng, NationID(ni), len(defs.Nations), defs.ForeignPct)
+						s.Players = append(s.Players, player)
 						s.Profiles = append(s.Profiles, profile)
 					}
 				}
@@ -190,14 +219,17 @@ func (s Snapshot) Fingerprint() string {
 func (s Snapshot) writeCanonical(w io.Writer) {
 	fmt.Fprintf(w, "world seed=%d gen=%d rand=%d content=%d\n",
 		s.Seed, s.GeneratorVersion, s.RandomVersion, s.ContentVersion)
+	for _, n := range s.Nations {
+		fmt.Fprintf(w, "nation %d %q\n", n.ID, n.Name)
+	}
 	for _, c := range s.Clubs {
-		fmt.Fprintf(w, "club %d %q %q\n", c.ID, c.Name, c.ShortName)
+		fmt.Fprintf(w, "club %d %q %q nation=%d\n", c.ID, c.Name, c.ShortName, c.Nation)
 	}
 	for _, t := range s.Teams {
 		fmt.Fprintf(w, "team %d club=%d kind=%d\n", t.ID, t.Club, t.Kind)
 	}
 	for _, p := range s.Players {
-		fmt.Fprintf(w, "player %d %q %q born=%d\n", p.ID, p.FirstName, p.LastName, p.Born)
+		fmt.Fprintf(w, "player %d %q %q born=%d nation=%d\n", p.ID, p.FirstName, p.LastName, p.Born, p.Nationality)
 	}
 	for _, p := range s.Profiles {
 		fmt.Fprintf(w, "profile %d pos=%d attrs=%v\n", p.Player, p.Position, p.Attributes)
@@ -213,13 +245,17 @@ func (s Snapshot) writeCanonical(w io.Writer) {
 // Youth generates a player who joins a club from its youth ranks at instant
 // at: player ID id, at position pos, with a name from the content's pools,
 // defs.Youth.Ages[0]..defs.Youth.Ages[1] whole years old at `at`, and
-// attributes from the youth ranges (content.Youth.Range). Every draw comes
-// from a stream keyed by the ID, so the player does not depend on who else
-// joins.
-func Youth(defs content.Definitions, seed random.Seed, id ids.PlayerID, pos players.Position, at sim.GameInstant) (registry.Player, players.Profile, error) {
+// attributes from the youth ranges (content.Youth.Range) and, unless
+// defs.Youth.ForeignPct of the time, the nationality of the joining club's
+// nation home. Every draw comes from a stream keyed by the ID, so the player
+// does not depend on who else joins.
+func Youth(defs content.Definitions, seed random.Seed, id ids.PlayerID, pos players.Position, at sim.GameInstant, home ids.NationID) (registry.Player, players.Profile, error) {
 	profile, ok := defs.Profile(pos)
 	if !ok || !id.Valid() {
 		return registry.Player{}, players.Profile{}, fmt.Errorf("worldgen: no youth player %d at position %s", id, pos)
+	}
+	if !home.Valid() || int(home) > len(defs.Nations) {
+		return registry.Player{}, players.Profile{}, fmt.Errorf("worldgen: youth player %d for unknown nation %d", id, home)
 	}
 	rng := random.Derive(seed, "worldgen/youth", youthStreamVersion, uint64(id))
 	p := registry.Player{
@@ -240,5 +276,7 @@ func Youth(defs content.Definitions, seed random.Seed, id ids.PlayerID, pos play
 	p.Born = born
 	// Version 2: drawn last, so the draws above are unchanged.
 	drawAttributes(rng, &attrs, ranges, matchAttributes, players.NumAttributes)
+	// Version 3: drawn last of all.
+	p.Nationality = drawNationality(rng, home, len(defs.Nations), defs.Youth.ForeignPct)
 	return p, players.Profile{Player: id, Position: pos, Attributes: attrs}, nil
 }

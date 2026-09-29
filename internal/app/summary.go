@@ -20,6 +20,7 @@ type ClubSummary struct {
 	ID         ids.ClubID
 	Name       string
 	ShortName  string
+	Nation     string // the country the club plays in
 	SeniorTeam ids.TeamID
 	Players    int
 	Positions  []PositionCount // in players.Positions order
@@ -72,6 +73,7 @@ func (w *World) Summary() Summary {
 			ID:         c.ID,
 			Name:       c.Name,
 			ShortName:  c.ShortName,
+			Nation:     w.nationName(c.Nation),
 			SeniorTeam: team,
 			Players:    len(squad),
 		}
@@ -92,19 +94,20 @@ func (w *World) Summary() Summary {
 // employment (contract; zero for a free agent). Demand is the weekly wage
 // the player asks for in a new contract.
 type SquadPlayer struct {
-	Player     ids.PlayerID
-	Name       string
-	Age        int
-	Position   players.Position
-	Attributes players.Attributes
-	Overall    int
-	Condition  uint8
-	DaysOut    uint16 // injured: the recovery days he still misses; zero when fit
-	Contract   employment.Contract
-	Demand     money.Money
-	Value      money.Money // employed players: the fee his club sells for (see sellingPrice)
-	Payoff     money.Money // employed players: what releasing him costs now, the rest of his contract
-	Listed     bool        // on the transfer list
+	Player      ids.PlayerID
+	Name        string
+	Nationality string
+	Age         int
+	Position    players.Position
+	Attributes  players.Attributes
+	Overall     int
+	Condition   uint8
+	DaysOut     uint16 // injured: the recovery days he still misses; zero when fit
+	Contract    employment.Contract
+	Demand      money.Money
+	Value       money.Money // employed players: the fee his club sells for (see sellingPrice)
+	Payoff      money.Money // employed players: what releasing him costs now, the rest of his contract
+	Listed      bool        // on the transfer list
 }
 
 // Squad returns a club's senior squad in ascending player ID order, or false
@@ -125,6 +128,7 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	row := SquadPlayer{Player: id}
 	if p, ok := w.registry.Player(id); ok {
 		row.Name = p.FullName()
+		row.Nationality = w.nationName(p.Nationality)
 		row.Age, _ = w.calendar.WholeYears(p.Born, w.Now())
 	}
 	if p, ok := w.players.Profile(id); ok {
@@ -146,6 +150,11 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 // pinned when the career began (roster quotas, contract lengths, economy).
 // Read-only.
 func (w *World) Content() content.Definitions { return w.defs.Clone() }
+
+func (w *World) nationName(id ids.NationID) string {
+	n, _ := w.registry.Nation(id)
+	return n.Name
+}
 
 // PlayerName returns a player's full name from the registry, or false if the
 // player is unknown. Read-only.

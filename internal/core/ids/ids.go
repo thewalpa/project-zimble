@@ -8,11 +8,13 @@ type (
 	ClubID   uint64
 	TeamID   uint64
 	PlayerID uint64
+	NationID uint64
 )
 
 func (id ClubID) Valid() bool   { return id != 0 }
 func (id TeamID) Valid() bool   { return id != 0 }
 func (id PlayerID) Valid() bool { return id != 0 }
+func (id NationID) Valid() bool { return id != 0 }
 
 type (
 	CompetitionID uint64

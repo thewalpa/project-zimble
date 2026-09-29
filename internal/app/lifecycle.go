@@ -139,7 +139,7 @@ func (w *World) playerYear(at sim.GameInstant, cohort []sim.Task) error {
 		}
 		for _, pos := range intake {
 			nextID++
-			identity, profile, err := worldgen.Youth(w.defs, w.seed, nextID, pos, at)
+			identity, profile, err := worldgen.Youth(w.defs, w.seed, nextID, pos, at, c.Nation)
 			if err != nil {
 				return err
 			}

@@ -18,8 +18,9 @@ import (
 // attribute ranges to the 1..100 scale; version 3 added the economy;
 // version 4 added player ages and youth intake; version 5 added a second
 // nation; version 6 added a second division to each nation; version 7 added
-// ranges for the five match attributes.
-const Version = 7
+// ranges for the five match attributes; version 8 added the shares of
+// foreign players (nationalities).
+const Version = 8
 
 // Town is a fictional club home town with a unique three-letter code.
 type Town struct {
@@ -119,11 +120,13 @@ func (e Economy) validate() error {
 // Youth defines the players who join clubs from their youth ranks: their
 // age in whole years on joining (Ages[0]..Ages[1]), their attribute ranges
 // (each position's ranges lowered by RatingGap points, never below 1) and
-// the length of their first contract in contract years.
+// the length of their first contract in contract years. ForeignPct is the
+// percentage of them who are not of their club's nation.
 type Youth struct {
 	Ages          [2]int
 	RatingGap     int
 	ContractYears int
+	ForeignPct    int
 }
 
 // Range returns a youth attribute range for a position's range.
@@ -168,9 +171,12 @@ type Definitions struct {
 	Economy    Economy
 	// Ages bounds generated players' ages at the career start, in whole
 	// years.
-	Ages      [2]int
-	Youth     Youth
-	Transfers Transfers
+	Ages [2]int
+	// ForeignPct is the percentage of generated players who are not of their
+	// club's nation; each draws their own nation from the others.
+	ForeignPct int
+	Youth      Youth
+	Transfers  Transfers
 }
 
 // ClubCount is the number of clubs the nations generate.
@@ -286,9 +292,13 @@ func (d Definitions) Validate() error {
 	if d.Ages[0] < 15 || d.Ages[0] > d.Ages[1] || d.Ages[1] >= players.RetirementAge {
 		errs = append(errs, fmt.Errorf("content: invalid generated ages %v", d.Ages))
 	}
+	if d.ForeignPct < 0 || d.ForeignPct > 100 {
+		errs = append(errs, fmt.Errorf("content: invalid foreign share %d%%", d.ForeignPct))
+	}
 	if y := d.Youth; y.Ages[0] < 15 || y.Ages[0] > y.Ages[1] || y.Ages[1] >= players.FreeAgentRetirementAge ||
 		y.RatingGap < 0 || y.RatingGap >= int(players.MaxRating) ||
-		y.ContractYears < d.Economy.ContractYears[0] || y.ContractYears > d.Economy.ContractYears[1] {
+		y.ContractYears < d.Economy.ContractYears[0] || y.ContractYears > d.Economy.ContractYears[1] ||
+		y.ForeignPct < 0 || y.ForeignPct > 100 {
 		errs = append(errs, fmt.Errorf("content: invalid youth %+v", y))
 	}
 	for _, pp := range d.Profiles {
@@ -376,11 +386,13 @@ func Default() Definitions {
 			ContractYears:    [2]int{1, 4},
 			OfferCeilingPct:  200,
 		},
-		Ages: [2]int{17, 34},
+		Ages:       [2]int{17, 34},
+		ForeignPct: 15,
 		Youth: Youth{
 			Ages:          [2]int{16, 17},
 			RatingGap:     13, // keeps the long-run average overall at the generated one (about 59)
 			ContractYears: 3,
+			ForeignPct:    5,
 		},
 		Transfers: Transfers{
 			WindowDays:   28, // 1 to 29 July: closed well before the first kickoff

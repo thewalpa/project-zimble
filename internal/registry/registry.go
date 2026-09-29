@@ -1,5 +1,5 @@
-// Package registry owns world identities: clubs, teams and players' names
-// and birth dates.
+// Package registry owns world identities: nations, clubs (and the nation
+// each belongs to), teams and players' names, birth dates and nationalities.
 //
 // Player IDs come from one allocator and are never removed or reused: a
 // retired player keeps their identity. It holds no football rules. Which club employs a player belongs to the
@@ -30,10 +30,17 @@ func (k TeamKind) String() string {
 	return fmt.Sprintf("TeamKind(%d)", uint8(k))
 }
 
+// Nation is a country: the home of clubs and the nationality of players.
+type Nation struct {
+	ID   ids.NationID
+	Name string
+}
+
 type Club struct {
 	ID        ids.ClubID
 	Name      string
 	ShortName string
+	Nation    ids.NationID // the country the club plays in
 }
 
 type Team struct {
@@ -43,12 +50,14 @@ type Team struct {
 }
 
 // Player is a player's identity, not their ability or employer. Born is
-// the start of their birth day (in the career calendar).
+// the start of their birth day (in the career calendar). Nationality is one
+// of the registry's nations; it does not change.
 type Player struct {
-	ID        ids.PlayerID
-	FirstName string
-	LastName  string
-	Born      sim.GameInstant
+	ID          ids.PlayerID
+	FirstName   string
+	LastName    string
+	Born        sim.GameInstant
+	Nationality ids.NationID
 }
 
 func (p Player) FullName() string { return p.FirstName + " " + p.LastName }
@@ -56,6 +65,7 @@ func (p Player) FullName() string { return p.FirstName + " " + p.LastName }
 // Init is the initial registry state. LastPlayer is the player ID
 // allocator: the highest ID ever issued, at least every player's ID.
 type Init struct {
+	Nations    []Nation
 	Clubs      []Club
 	Teams      []Team
 	Players    []Player
@@ -67,10 +77,12 @@ var ErrStalePlan = errors.New("registry: plan is stale")
 
 // Registry is the authoritative identity store. Queries return copies.
 type Registry struct {
-	clubs      []Club // sorted by ID
-	teams      []Team // sorted by ID
+	nations    []Nation // sorted by ID
+	clubs      []Club   // sorted by ID
+	teams      []Team   // sorted by ID
 	players    []Player
 	lastPlayer ids.PlayerID
+	nationIdx  map[ids.NationID]int
 	clubIdx    map[ids.ClubID]int
 	teamIdx    map[ids.TeamID]int
 	plIdx      map[ids.PlayerID]int
@@ -81,18 +93,39 @@ type Registry struct {
 // New validates init and returns a registry holding its own copy.
 func New(init Init) (*Registry, error) {
 	r := &Registry{
+		nations:    slices.Clone(init.Nations),
 		clubs:      slices.Clone(init.Clubs),
 		teams:      slices.Clone(init.Teams),
 		players:    slices.Clone(init.Players),
 		lastPlayer: init.LastPlayer,
+		nationIdx:  make(map[ids.NationID]int, len(init.Nations)),
 		clubIdx:    make(map[ids.ClubID]int, len(init.Clubs)),
 		teamIdx:    make(map[ids.TeamID]int, len(init.Teams)),
 		plIdx:      make(map[ids.PlayerID]int, len(init.Players)),
 		senior:     make(map[ids.ClubID]ids.TeamID, len(init.Clubs)),
 	}
+	slices.SortFunc(r.nations, func(a, b Nation) int { return cmp.Compare(a.ID, b.ID) })
 	slices.SortFunc(r.clubs, func(a, b Club) int { return cmp.Compare(a.ID, b.ID) })
 	slices.SortFunc(r.teams, func(a, b Team) int { return cmp.Compare(a.ID, b.ID) })
 	slices.SortFunc(r.players, func(a, b Player) int { return cmp.Compare(a.ID, b.ID) })
+
+	nationNames := map[string]ids.NationID{}
+	for i, n := range r.nations {
+		if !n.ID.Valid() {
+			return nil, fmt.Errorf("registry: invalid nation ID %d", n.ID)
+		}
+		if _, dup := r.nationIdx[n.ID]; dup {
+			return nil, fmt.Errorf("registry: duplicate nation ID %d", n.ID)
+		}
+		if n.Name == "" {
+			return nil, fmt.Errorf("registry: nation %d has an empty name", n.ID)
+		}
+		if other, dup := nationNames[n.Name]; dup {
+			return nil, fmt.Errorf("registry: nations %d and %d share name %q", other, n.ID, n.Name)
+		}
+		nationNames[n.Name] = n.ID
+		r.nationIdx[n.ID] = i
+	}
 
 	names := map[string]ids.ClubID{}
 	shorts := map[string]ids.ClubID{}
@@ -105,6 +138,9 @@ func New(init Init) (*Registry, error) {
 		}
 		if c.Name == "" || c.ShortName == "" {
 			return nil, fmt.Errorf("registry: club %d has an empty name", c.ID)
+		}
+		if _, ok := r.nationIdx[c.Nation]; !ok {
+			return nil, fmt.Errorf("registry: club %d references unknown nation %d", c.ID, c.Nation)
 		}
 		if other, dup := names[c.Name]; dup {
 			return nil, fmt.Errorf("registry: clubs %d and %d share name %q", other, c.ID, c.Name)
@@ -144,7 +180,7 @@ func New(init Init) (*Registry, error) {
 	}
 
 	for i, p := range r.players {
-		if err := p.validate(r.lastPlayer); err != nil {
+		if err := r.validatePlayer(p, r.lastPlayer); err != nil {
 			return nil, err
 		}
 		if _, dup := r.plIdx[p.ID]; dup {
@@ -155,7 +191,7 @@ func New(init Init) (*Registry, error) {
 	return r, nil
 }
 
-func (p Player) validate(last ids.PlayerID) error {
+func (r *Registry) validatePlayer(p Player, last ids.PlayerID) error {
 	switch {
 	case !p.ID.Valid() || p.ID > last:
 		return fmt.Errorf("registry: player ID %d is invalid or above the allocator %d", p.ID, last)
@@ -163,6 +199,9 @@ func (p Player) validate(last ids.PlayerID) error {
 		return fmt.Errorf("registry: player %d has an empty name", p.ID)
 	case !p.Born.Valid():
 		return fmt.Errorf("registry: player %d birth instant %d outside the supported range", p.ID, p.Born)
+	}
+	if _, ok := r.nationIdx[p.Nationality]; !ok {
+		return fmt.Errorf("registry: player %d has unknown nationality %d", p.ID, p.Nationality)
 	}
 	return nil
 }
@@ -183,7 +222,7 @@ func (r *Registry) PlanPlayers(add []Player) (Plan, error) {
 		if p.ID != next {
 			return Plan{}, fmt.Errorf("registry: new player ID %d, the allocator issues %d", p.ID, next)
 		}
-		if err := p.validate(next); err != nil {
+		if err := r.validatePlayer(p, next); err != nil {
 			return Plan{}, err
 		}
 	}
@@ -211,7 +250,19 @@ func (r *Registry) LastPlayer() ids.PlayerID { return r.lastPlayer }
 // Snapshot exports the registry's authoritative state as fresh copies.
 // New(Snapshot()) restores an equivalent registry.
 func (r *Registry) Snapshot() Init {
-	return Init{Clubs: r.Clubs(), Teams: r.Teams(), Players: r.Players(), LastPlayer: r.lastPlayer}
+	return Init{Nations: r.Nations(), Clubs: r.Clubs(), Teams: r.Teams(), Players: r.Players(), LastPlayer: r.lastPlayer}
+}
+
+// Nations returns all nations in ascending ID order.
+func (r *Registry) Nations() []Nation { return slices.Clone(r.nations) }
+
+// Nation returns the nation with the given ID.
+func (r *Registry) Nation(id ids.NationID) (Nation, bool) {
+	i, ok := r.nationIdx[id]
+	if !ok {
+		return Nation{}, false
+	}
+	return r.nations[i], true
 }
 
 // Clubs returns all clubs in ascending ID order.

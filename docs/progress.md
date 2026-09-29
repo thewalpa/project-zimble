@@ -2406,6 +2406,34 @@ The first backlog item of the squad lane: matches can hurt players, and injured 
 - `TestInjuredPlayersAreNotSelected`, `TestInjuriesHealAndSurviveSaves`, `TestASquadTooHurtToFieldPlaysItsInjured`, `TestInjuriesOverSeasons` (two seeds, three seasons: no club left unable to field a team, everyone heals), `TestInjuriesAreDeterministic`; the journal and inbox tests count injuries and recoveries.
 - The squad-full tests now allow one AI club to be one player short at the close (`assertAISquadsFullBut(t, w, 1)`). Changed results change promotion and money, and the trajectory of seeds 7 and 42 then hits a market gap that was there before: a club with no transfer budget loses the race for the last free agent at a position to lower-numbered clubs, a surplus player of another club stays listed but unaffordable, and the next player year refills the club with youth. It is on the backlog.
 
+## data: nationalities (done)
+
+Every club plays in a nation and every player has a nationality: the first of the richer identities in the architecture's world registry.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/core/ids` | `NationID` (zero invalid) |
+| `internal/registry` | `Nation{ID, Name}` with `Nations()` / `Nation(id)`; `Club.Nation`; `Player.Nationality`. `New` and `PlanPlayers` reject a duplicate or empty nation, a club of an unknown nation and a player of an unknown one (a zero nationality included) |
+| `internal/content` | `Definitions.ForeignPct` (15) and `Youth.ForeignPct` (5), each 0..100 and validated. `Version` 8 |
+| `internal/worldgen` | Nations get IDs by content order (`NationID(i)`, from 1). A player is of their club's nation, except `ForeignPct` percent of the time, when it is one of the other nations, equally likely. Two draws at the end of each player's stream (after the match attributes) and of each youth stream. `Youth` takes the joining club's nation. `Version` 7, `YouthVersion` 3 |
+| `internal/storage` | `SchemaVersion` 20: `registry.Init` has nations and the new fields. Schema 19 saves are refused |
+| `internal/app` | `ClubSummary.Nation` and `SquadPlayer.Nationality` (names); the player year passes the club's nation to `worldgen.Youth` (one argument in `lifecycle.go`); restore validates through `registry.New` |
+
+### Decisions
+
+- **Appended draws.** Names, attributes, contracts and birth dates are unchanged for every seed. Only the world fingerprint moves (the two app goldens and `goldenSeed42` are updated); the seed-42 season, second-league and cup goldens did not move.
+- **Both draws are always made,** even with one nation or a 0% share, so the stream never depends on the number of nations. Adding a nation does change who is foreign among existing players.
+- **Names are still global pools.** A player's name does not depend on their nationality yet. Per-nation name pools would move every name and so every lane's goldens; that is a separate, announced change (lane backlog).
+- **Old saves are refused, not migrated:** a schema 19 registry has no nationalities, and restore must not generate them from the seed.
+
+### Verification
+
+- `TestEarlierDrawsUnchanged`: the seed-42 world without nations and nationalities, encoded as worldgen v6 did, hashes to the v6 golden, and without the match attributes too to the v5 golden.
+- `TestNationalities` (worldgen): nations and club nations in content order, every nationality valid, the foreign share about `ForeignPct`, none at 0%, and every other draw the same with a different share. `TestYouth` covers the youth share and rejects an unknown home nation.
+- `TestNationalities` (app): summaries show the names, youth players joining in a player year have valid nationalities and are mostly their club's, and a restored world keeps them. `TestRestoreRejectsInvalidState` rejects a player or club of an unknown nation.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

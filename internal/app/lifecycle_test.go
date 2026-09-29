@@ -497,3 +497,64 @@ func TestRestoreRejectsInvalidLifecycle(t *testing.T) {
 		t.Fatalf("the unmodified save: %v", err)
 	}
 }
+
+// Nationalities are identity: generated once, summarized by name, kept by
+// saves, and youth players get one from their club's nation (mostly the
+// club's own).
+func TestNationalities(t *testing.T) {
+	w := newWorld(t, 42)
+	nations := w.registry.Nations()
+	if len(nations) != len(w.defs.Nations) {
+		t.Fatalf("%d nations, content defines %d", len(nations), len(w.defs.Nations))
+	}
+	for _, c := range w.Summary().ClubRows {
+		club, _ := w.registry.Club(c.ID)
+		if n, _ := w.registry.Nation(club.Nation); c.Nation == "" || c.Nation != n.Name {
+			t.Fatalf("club %d summarized as of %q, its nation is %q", c.ID, c.Nation, n.Name)
+		}
+	}
+	for _, c := range w.registry.Clubs() {
+		squad, _ := w.Squad(c.ID)
+		for _, p := range squad {
+			if identity, _ := w.registry.Player(p.Player); p.Nationality == "" || p.Nationality != w.nationName(identity.Nationality) {
+				t.Fatalf("player %d shows nationality %q", p.Player, p.Nationality)
+			}
+		}
+	}
+
+	playSeason(t, w)
+	before := w.registry.LastPlayer()
+	mustContinue(t, w, playerYearTask(t, w).DueAt)
+	joined, foreign := 0, 0
+	for _, p := range w.registry.Players() {
+		if p.ID <= before {
+			continue
+		}
+		joined++
+		a, ok := w.employment.Assignment(p.ID)
+		if !ok {
+			t.Fatalf("youth player %d has no club", p.ID)
+		}
+		club, _ := w.registry.Club(a.Club)
+		if _, ok := w.registry.Nation(p.Nationality); !ok {
+			t.Fatalf("youth player %d has unknown nationality %d", p.ID, p.Nationality)
+		}
+		if p.Nationality != club.Nation {
+			foreign++
+		}
+	}
+	if joined == 0 {
+		t.Fatal("no youth players joined")
+	}
+	if foreign*2 > joined {
+		t.Fatalf("%d of %d youth players are foreign", foreign, joined)
+	}
+
+	restored, err := Restore(w.Snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.registry.Snapshot(), w.registry.Snapshot()) {
+		t.Fatal("a restored world lost nations or nationalities")
+	}
+}

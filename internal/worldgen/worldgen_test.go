@@ -14,16 +14,21 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/registry"
 )
 
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v6 and content v7 (the five match attributes,
-// drawn after every earlier draw; see TestMatchAttributesKeepEarlierDraws).
-const goldenSeed42 = "97707b41d757f481c66c2e4f5161d9886ce31f7f3051b1add1d69b34779568bc"
+// Last changed by worldgen v7 and content v8 (nations and nationalities,
+// drawn after every earlier draw; see TestEarlierDrawsUnchanged).
+const goldenSeed42 = "2a1efc74ffbe83feec9a97adb3eaf602b988ab34b8ecc32e26479e747500f4c9"
 
-// goldenV5Seed42 was goldenSeed42 before the match attributes: worldgen v5,
+// goldenV6Seed42 was goldenSeed42 before nationalities: worldgen v6, content
+// v7, no nations.
+const goldenV6Seed42 = "97707b41d757f481c66c2e4f5161d9886ce31f7f3051b1add1d69b34779568bc"
+
+// goldenV5Seed42 was goldenV6Seed42 before the match attributes: worldgen v5,
 // content v6, six attributes per player.
 const goldenV5Seed42 = "c40c7f78e6e9a7c9c302a3396cbfaa3b0ce1dcdaabc34d95756b33941c7ad123"
 
@@ -53,17 +58,21 @@ func TestGenerateMatchesGoldenFingerprint(t *testing.T) {
 	}
 }
 
-// The match attributes are drawn last in each player's stream, so every
-// earlier draw is unchanged: the snapshot without them, encoded as worldgen
-// v5 did, is exactly the v5 world.
-func TestMatchAttributesKeepEarlierDraws(t *testing.T) {
-	s := generate(t, 42)
-	s.GeneratorVersion, s.ContentVersion = 5, 6
-	h := sha256.New()
+// canonicalWithout hashes the snapshot's canonical text after dropping what
+// later generator versions added: the nations and nationalities (v7), and
+// with matchAttrs false the match attributes (v6).
+func canonicalWithout(s Snapshot, matchAttrs bool) string {
 	var body bytes.Buffer
 	s.writeCanonical(&body)
+	h := sha256.New()
 	for line := range strings.Lines(body.String()) {
-		if strings.HasPrefix(line, "profile ") {
+		switch {
+		case strings.HasPrefix(line, "nation "):
+			continue
+		case strings.HasPrefix(line, "club ") || strings.HasPrefix(line, "player "):
+			head, _, _ := strings.Cut(line, " nation=")
+			line = head + "\n"
+		case strings.HasPrefix(line, "profile ") && !matchAttrs:
 			// "profile 1 pos=1 attrs=[a b c d e f g h i j k]": keep six.
 			head, attrs, _ := strings.Cut(line, "attrs=[")
 			fields := strings.Fields(strings.TrimSuffix(strings.TrimSpace(attrs), "]"))
@@ -71,7 +80,21 @@ func TestMatchAttributesKeepEarlierDraws(t *testing.T) {
 		}
 		h.Write([]byte(line))
 	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != goldenV5Seed42 {
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Nationalities and the match attributes are drawn last in each player's
+// stream, so every earlier draw is unchanged: the snapshot without the
+// nationalities, encoded as worldgen v6 did, is exactly the v6 world, and
+// without the match attributes too the v5 world.
+func TestEarlierDrawsUnchanged(t *testing.T) {
+	s := generate(t, 42)
+	s.GeneratorVersion, s.ContentVersion = 6, 7
+	if got := canonicalWithout(s, true); got != goldenV6Seed42 {
+		t.Fatalf("seed 42 without nationalities = %s, want the v6 world %s", got, goldenV6Seed42)
+	}
+	s.GeneratorVersion, s.ContentVersion = 5, 6
+	if got := canonicalWithout(s, false); got != goldenV5Seed42 {
 		t.Fatalf("seed 42 without the match attributes = %s, want the v5 world %s", got, goldenV5Seed42)
 	}
 }
@@ -175,25 +198,34 @@ func TestYouth(t *testing.T) {
 		t.Fatal(err)
 	}
 	at, _ := cal.Instant(sim.CivilTime{Year: 2031, Month: 6, Day: 30})
-	a, pa, err := Youth(defs, 42, 500, players.Defender, at)
+	a, pa, err := Youth(defs, 42, 500, players.Defender, at, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, pb, _ := Youth(defs, 42, 500, players.Defender, at)
+	b, pb, _ := Youth(defs, 42, 500, players.Defender, at, 1)
 	if a != b || pa != pb {
 		t.Fatal("youth generation is not repeatable")
 	}
-	if c, _, _ := Youth(defs, 42, 501, players.Defender, at); c.FirstName+c.LastName == a.FirstName+a.LastName && c.Born == a.Born {
+	if c, _, _ := Youth(defs, 42, 501, players.Defender, at, 1); c.FirstName+c.LastName == a.FirstName+a.LastName && c.Born == a.Born {
 		t.Fatal("another ID produced the same youth")
 	}
+	foreign, total := 0, 0
 	for id := ids.PlayerID(161); id <= 400; id++ {
 		for _, pos := range players.Positions() {
-			p, prof, err := Youth(defs, 7, id, pos, at)
+			home := NationID(int(id) % len(defs.Nations))
+			p, prof, err := Youth(defs, 7, id, pos, at, home)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if p.ID != id || prof.Player != id || prof.Position != pos || prof.Retired || p.FirstName == "" || p.LastName == "" {
 				t.Fatalf("youth %d: %+v %+v", id, p, prof)
+			}
+			if p.Nationality < 1 || int(p.Nationality) > len(defs.Nations) {
+				t.Fatalf("youth %d has nationality %d", id, p.Nationality)
+			}
+			total++
+			if p.Nationality != home {
+				foreign++
 			}
 			if age, _ := cal.WholeYears(p.Born, at); age < defs.Youth.Ages[0] || age > defs.Youth.Ages[1] {
 				t.Fatalf("youth %d is %d, want %v", id, age, defs.Youth.Ages)
@@ -205,6 +237,10 @@ func TestYouth(t *testing.T) {
 				}
 			}
 		}
+	}
+	// A small share of youth players are foreign (5%: about 48 of 960).
+	if foreign < total*defs.Youth.ForeignPct/200 || foreign > total*defs.Youth.ForeignPct*2/100 {
+		t.Fatalf("%d of %d youth players are foreign, want about %d%%", foreign, total, defs.Youth.ForeignPct)
 	}
 	// Youth v2 appended the match attributes: names, birth dates and the
 	// first six attributes are those youth v1 generated.
@@ -220,16 +256,21 @@ func TestYouth(t *testing.T) {
 		{715, players.Midfielder, "Jonas", "Moreau", -6128160, [6]players.Rating{1, 38, 60, 17, 28, 73}},
 		{752, players.Forward, "Viktor", "Moreau", -6125280, [6]players.Rating{1, 13, 19, 47, 51, 20}},
 	} {
-		p, prof, err := Youth(defs, 42, v1.id, v1.pos, 3_000_000)
+		p, prof, err := Youth(defs, 42, v1.id, v1.pos, 3_000_000, 1)
 		if err != nil || p.FirstName != v1.first || p.LastName != v1.last || p.Born != v1.born || [6]players.Rating(prof.Attributes[:6]) != v1.attrs {
 			t.Errorf("youth %d changed its v1 draws: %+v %v (%v)", v1.id, p, prof.Attributes, err)
 		}
 	}
-	if _, _, err := Youth(defs, 42, 500, 0, at); err == nil {
+	if _, _, err := Youth(defs, 42, 500, 0, at, 1); err == nil {
 		t.Fatal("youth at no position accepted")
 	}
-	if _, _, err := Youth(defs, 42, 0, players.Forward, at); err == nil {
+	if _, _, err := Youth(defs, 42, 0, players.Forward, at, 1); err == nil {
 		t.Fatal("youth with ID 0 accepted")
+	}
+	for _, home := range []ids.NationID{0, ids.NationID(len(defs.Nations) + 1)} {
+		if _, _, err := Youth(defs, 42, 500, players.Forward, at, home); err == nil {
+			t.Fatalf("youth for nation %d accepted", home)
+		}
 	}
 }
 
@@ -261,7 +302,7 @@ func TestDivisionsAreGeneratedIndependently(t *testing.T) {
 				t.Fatal(err)
 			}
 			n := len(part.Players)
-			if len(part.Clubs) != sub.clubs || !reflect.DeepEqual(full.Clubs[:sub.clubs], part.Clubs) || !reflect.DeepEqual(full.Players[:n], part.Players) ||
+			if len(part.Clubs) != sub.clubs || !reflect.DeepEqual(full.Clubs[:sub.clubs], part.Clubs) || !reflect.DeepEqual(withoutNationality(full.Players[:n]), withoutNationality(part.Players)) ||
 				!reflect.DeepEqual(full.Profiles[:n], part.Profiles) || !reflect.DeepEqual(full.Contracts[:n], part.Contracts) {
 				t.Fatalf("seed %d: later clubs changed the %s", seed, sub.name)
 			}
@@ -272,6 +313,73 @@ func TestDivisionsAreGeneratedIndependently(t *testing.T) {
 			if !slices.ContainsFunc(division.Towns, func(tw content.Town) bool { return tw.Short == c.ShortName }) {
 				t.Fatalf("seed %d: club %d (%s) is not from nation %d's division %d", seed, c.ID, c.Name, i/8%2+1, i/16+1)
 			}
+		}
+	}
+}
+
+// withoutNationality returns the players with their nationalities cleared:
+// who is foreign depends on how many nations there are.
+func withoutNationality(ps []registry.Player) []registry.Player {
+	out := slices.Clone(ps)
+	for i := range out {
+		out[i].Nationality = 0
+	}
+	return out
+}
+
+func TestNationalities(t *testing.T) {
+	defs := content.Default()
+	for _, seed := range []uint64{1, 42} {
+		s := generate(t, seed)
+		if len(s.Nations) != len(defs.Nations) {
+			t.Fatalf("seed %d: %d nations", seed, len(s.Nations))
+		}
+		for i, n := range s.Nations {
+			if n.ID != NationID(i) || n.Name != defs.Nations[i].Name {
+				t.Fatalf("seed %d: nation %d is %+v", seed, i, n)
+			}
+		}
+		clubNation := map[ids.ClubID]ids.NationID{}
+		for i, c := range s.Clubs {
+			// Clubs 1-8 and 17-24 are the first nation's, 9-16 and 25-32 the second's.
+			if want := NationID(i / 8 % 2); c.Nation != want {
+				t.Fatalf("seed %d: club %d is of nation %d, want %d", seed, c.ID, c.Nation, want)
+			}
+			clubNation[c.ID] = c.Nation
+		}
+		foreign := 0
+		for i, p := range s.Players {
+			if p.Nationality < 1 || int(p.Nationality) > len(s.Nations) {
+				t.Fatalf("seed %d: player %d has nationality %d", seed, p.ID, p.Nationality)
+			}
+			if p.Nationality != clubNation[s.Assignments[i].Club] {
+				foreign++
+			}
+		}
+		// 15% of 640 is 96; allow generous sampling noise.
+		if foreign < 50 || foreign > 150 {
+			t.Fatalf("seed %d: %d of %d players are foreign, want about %d%%", seed, foreign, len(s.Players), defs.ForeignPct)
+		}
+	}
+	// No foreign share, no foreigners.
+	none := defs.Clone()
+	none.ForeignPct = 0
+	s, err := Generate(none, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range s.Players {
+		if home := s.Clubs[s.Assignments[i].Club-1].Nation; p.Nationality != home {
+			t.Fatalf("player %d is foreign with a 0%% share", p.ID)
+		}
+	}
+	// A foreign share leaves every other draw as it was.
+	full := generate(t, 42)
+	for i := range full.Players {
+		a, b := full.Players[i], s.Players[i]
+		a.Nationality, b.Nationality = 0, 0
+		if a != b || !reflect.DeepEqual(full.Profiles[i], s.Profiles[i]) {
+			t.Fatalf("player %d changed with the foreign share", a.ID)
 		}
 	}
 }

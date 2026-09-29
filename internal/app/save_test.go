@@ -230,6 +230,7 @@ func TestSnapshotsShareNoMutableData(t *testing.T) {
 		s.Content.Nations[0].Divisions[0].Towns[0].Name = "X"
 		s.Content.Roster[0].Count = 99
 		s.Registry.Clubs[0].Name = "X"
+		s.Registry.Nations[0].Name = "X"
 		s.Players[0].Attributes[0] = 1
 		s.Employment[0].Team = 99
 		s.Competitions.Seasons[0].Fixtures[0].Home = 99
@@ -316,6 +317,8 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 			s.Leagues = nil
 			s.ContentFingerprint = contentFingerprint(s.Content, nil, s.Cups, s.Promotions)
 		},
+		"player of unknown nation":   func(s *WorldSnapshot) { s.Registry.Players[0].Nationality = 99 },
+		"club of unknown nation":     func(s *WorldSnapshot) { s.Registry.Clubs[0].Nation = 99 },
 		"player without profile":     func(s *WorldSnapshot) { s.Players = s.Players[1:] },
 		"match attribute missing":    func(s *WorldSnapshot) { s.Players[0].Attributes[players.Positioning] = 0 },
 		"assignment to unknown team": func(s *WorldSnapshot) { s.Employment[0].Team = 99 },

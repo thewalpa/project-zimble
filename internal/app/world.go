@@ -203,7 +203,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	if n := len(snap.Players); n > 0 {
 		lastPlayer = snap.Players[n-1].ID // ascending
 	}
-	reg, err := registry.New(registry.Init{Clubs: snap.Clubs, Teams: snap.Teams, Players: snap.Players, LastPlayer: lastPlayer})
+	reg, err := registry.New(registry.Init{Nations: snap.Nations, Clubs: snap.Clubs, Teams: snap.Teams, Players: snap.Players, LastPlayer: lastPlayer})
 	if err != nil {
 		return nil, err
 	}
