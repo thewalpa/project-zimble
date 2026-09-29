@@ -2840,3 +2840,23 @@ Balance's sweep, `ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBala
 
 - Delivered: `match--tick-mentality`.
 - Filed: [balance--tick-mentality-delivered.md](handoffs/balance--tick-mentality-delivered.md) to refresh `docs/balance.md`'s tick tables.
+
+## data: save fixtures per schema version (done)
+
+Old saves are now tested, not just promised. `internal/storage/testdata` keeps, per schema version, a gzipped save file (`schema-N.json.gz`) and the payload's JSON shape (`schema-N.shape`: every field path with its kind and tag options). Both are written once, by the build that introduces the version, and never rewritten.
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/storage` | `TestSaveFixtures` policy test; the `-fixture` flag writes the current schema's fixture and shape if they are missing; `testdata/schema-24.*` | – |
+
+### Decisions
+
+- **Loads or is refused explicitly.** A fixture of an older schema must be refused with `ErrUnsupportedSave` (no migrations exist; a migration would make it load). The current schema's fixture must load, or be refused with `ErrIncompatibleSave` when a simulation version moved since it was written. Any other error means a rule change made existing saves invalid, and the change must bump `storage.SchemaVersion` or migrate.
+- **Two schema guards.** The shape file catches a field added, removed, renamed or retyped anywhere in the snapshot types, even where the fixture holds no value (for example `Transfers.Listings`, empty once the window closes). The current fixture must also decode and re-encode to the same bytes.
+- **A rich fixture.** Seed 42, club 3 managed: a release, a signing, a renewal, a bid, two listings, an inbox read, three answered AI bids, submitted lineups through the first season and its end, the contract and player years, into the second window, then a live match stopped at minute 30 after a change of mentality. Every command list, `Live`, past seasons, the cup, the payload records, the journal and both read models hold data. It is 130 KB gzipped (2.2 MB of JSON).
+- **Frozen, not regenerated.** `-fixture` refuses to overwrite a fixture, because regenerating it would hide the drift it exists to catch. A lane that renumbers its schema version on a rebase drops its own fixture and writes it again (AGENTS.md).
+
+### Verification
+
+- Deliberate-bug checks: a field added to `transfers.Listing` fails the shape check; a top-level snapshot field fails both guards (the excerpt shows `"Extra": null`); a new Restore invariant the fixture breaks fails ("no longer loads"); a moved `ai.TransfersVersion` passes, logged as an explicit refusal; bumping `SchemaVersion` to 25 fails until `-fixture` writes schema 25, after which schema 24 is refused with `ErrUnsupportedSave`.
+- Writing the fixture twice gives identical bytes.

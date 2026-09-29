@@ -61,7 +61,7 @@ Enum values are durable, and two lanes can pick the same next number at the same
 - event kinds (`internal/events/events.go`), inbox kinds (`internal/inbox/inbox.go`), finance entry kinds (`internal/finance/finance.go`)
 - `storage.SchemaVersion`, and every version constant listed in CLAUDE.md
 
-If a rebase shows that another lane already took your number, renumber **your** value to the next free one and bump the schema version again if you need one. Never keep two values with the same number, and never renumber a value that is already on `main`.
+If a rebase shows that another lane already took your number, renumber **your** value to the next free one and bump the schema version again if you need one. A renumbered `storage.SchemaVersion` needs its save fixture written again under the new number: drop yours and rerun `-fixture`. Never keep two values with the same number, and never renumber a value that is already on `main`.
 
 ### Goldens
 

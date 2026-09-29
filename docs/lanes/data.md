@@ -14,7 +14,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 - **Steward, not gatekeeper.** Other lanes add events, snapshot fields and validation to the hub files as part of their features. Every session, read the diffs to your files since your last session (`git log -p -- internal/app/save.go internal/app/journal.go internal/app/world.go internal/events internal/inbox`). Check that the project rules held: every authoritative field is saved, restored and validated, events are emitted in the committing change, and the schema version was bumped. File a note to the lane when something was missed.
 - **Content vs runtime.** Definitions are read-only and versioned. Generation turns definitions and a seed into a plain snapshot. Changing generated output for a seed means bumping a version and updating the fingerprint golden, which every lane notices. Announce it with a note to all lanes that have goldens depending on generated worlds.
-- **Saves are forever.** Keep old-save behavior deliberate: either reject incompatible saves with `ErrIncompatibleSave`, or migrate them. Never load one silently wrong. Save fixtures for past schema versions belong in `testdata/` once migrations exist.
+- **Saves are forever.** Keep old-save behavior deliberate: either reject incompatible saves with `ErrIncompatibleSave`, or migrate them. Never load one silently wrong. `internal/storage/testdata` keeps a frozen save and payload shape per schema version; `TestSaveFixtures` checks that each loads or is refused explicitly. A migration makes an old fixture load instead of being refused.
 - **Events are a contract.** An event kind's meaning never changes after it lands. The inbox is built only from events. If a lane needs a message the events can't support, the event gets the field, not the inbox.
 - **New packages** need an entry in `boundaries_test.go` chosen deliberately. Review every entry another lane adds.
 
@@ -26,17 +26,16 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
-**Per-nation name pools delivered:** each nation's own first and last names, drawn last from the nationality's pools, so only names moved (`worldgen.Version` 8, `YouthVersion` 4, `content.Version` 9, `storage.SchemaVersion` 24; [progress](../progress.md#data-per-nation-name-pools-done)). Note to `ui` (pinned names in its tests were updated; new pins after rebasing).
+**Save fixtures per schema version delivered:** `internal/storage/testdata` holds a frozen save and payload shape for schema 24, from a managed career that uses every command kind and stops mid live match. `TestSaveFixtures` checks that every fixture loads or is refused explicitly, and that the current schema's fixture and shape still match the snapshot types ([progress](../progress.md#data-save-fixtures-per-schema-version-done)). A schema bump now needs `go test ./internal/storage -run TestSaveFixtures -fixture` (CLAUDE.md, AGENTS.md).
 
 **Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
 
-**Next:** save fixtures per schema version (see the backlog). The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 25.
+**Next:** recover the previous valid save (see the backlog). The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 25.
 
 ## Backlog
 
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
-- **Save compatibility:** a fixture save per schema version in `testdata/`, and a policy test that each one either loads or is refused explicitly.
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
 
 - **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them. `careers` would read them from events like the spells.
