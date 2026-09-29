@@ -2,6 +2,7 @@ package app
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"slices"
@@ -400,6 +401,166 @@ func TestManagerSeesThePlayerYear(t *testing.T) {
 	}
 	if kinds[inbox.KindDeveloped] != 1 || kinds[inbox.KindRetired] != mine || kinds[inbox.KindYouthJoined] != mine {
 		t.Fatalf("inbox %v for %d retirements", kinds, mine)
+	}
+}
+
+// withController restores a copy of a snapshot with a different user club
+// (zero: none), so two worlds differ only in who manages the club. The
+// inbox, a read model for the manager, is rebuilt from the journal, which
+// must still start at the first event.
+func withController(t *testing.T, snap WorldSnapshot, club ids.ClubID) *World {
+	t.Helper()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s WorldSnapshot
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	s.UserClub = club
+	var team ids.TeamID
+	for _, tm := range s.Registry.Teams {
+		if tm.Club == club && club != 0 && tm.Kind == registry.TeamSenior {
+			team = tm.ID
+		}
+	}
+	box, err := inbox.New(team, inbox.Snapshot{})
+	if err == nil {
+		_, err = box.Apply(s.Events)
+	}
+	if err != nil || len(s.Events) == 0 || s.Events[0].ID != 1 {
+		t.Fatalf("cannot rebuild the inbox for club %d: %v", club, err)
+	}
+	s.Inbox = box.Snapshot()
+	w, err := Restore(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// playerYearUnderEachController runs the player year from the same
+// snapshot of a career managing club and with no user club, checks that
+// both give the same world (identities, profiles, contracts, condition,
+// ledgers and events) and returns the managed one.
+func playerYearUnderEachController(t *testing.T, snap WorldSnapshot, club ids.ClubID, at sim.GameInstant) *World {
+	t.Helper()
+	if snap.UserClub != club {
+		t.Fatalf("snapshot manages club %d, not %d", snap.UserClub, club)
+	}
+	aiRun, managed := withController(t, snap, 0), withController(t, snap, club)
+	mustContinue(t, aiRun, at)
+	mustContinue(t, managed, at)
+	modules := func(w *World) []any {
+		return []any{w.registry.Snapshot(), w.players.Snapshot(), w.employment.Snapshot(), w.medical.Snapshot(), w.finance.Snapshot(), w.Events()}
+	}
+	if !reflect.DeepEqual(modules(aiRun), modules(managed)) {
+		t.Fatalf("the player year differs when club %d is managed", club)
+	}
+	if err := managed.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return managed
+}
+
+// youthAt counts the youth players who joined a club at an instant.
+func youthAt(w *World, at sim.GameInstant, club ids.ClubID) int {
+	n := 0
+	for _, e := range eventsAt(w, at, events.KindYouthJoined) {
+		if e.YouthJoined.Club == club {
+			n++
+		}
+	}
+	return n
+}
+
+// retiredAt counts a club's players who retired at an instant.
+func retiredAt(w *World, at sim.GameInstant, club ids.ClubID) int {
+	n := 0
+	for _, e := range eventsAt(w, at, events.KindPlayerRetired) {
+		if e.PlayerRetired.Club == club {
+			n++
+		}
+	}
+	return n
+}
+
+// The academy intake depends on a club's squad, never on who manages it
+// (PAR-01 in docs/ai-manager-parity.md): with vacancies above the minimum,
+// the same snapshot gives the same youth, positions, contracts and ledgers
+// whether the club is managed or not. Retirees are replaced as well, and
+// the squad is back at the roster count.
+func TestYouthIntakeDoesNotDependOnTheController(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	playSeason(t, w)
+	at := playerYearTask(t, w).DueAt
+	mustContinue(t, w, at-1)
+	release(t, w, userClub3, players.Defender)
+	release(t, w, userClub3, players.Forward)
+	team, _ := w.registry.SeniorTeam(userClub3)
+	short := 0
+	for _, q := range w.defs.Roster {
+		short += max(0, q.Count-w.squadCounts(team)[q.Position])
+	}
+
+	managed := playerYearUnderEachController(t, w.Snapshot(), userClub3, at)
+	retired := retiredAt(managed, at, userClub3)
+	if got := youthAt(managed, at, userClub3); short < 2 || got != retired+short {
+		t.Fatalf("%d youth players for %d retirements and %d vacancies", got, retired, short)
+	}
+	for _, q := range managed.defs.Roster {
+		if n := managed.squadCounts(team)[q.Position]; n < q.Count {
+			t.Fatalf("club %d has %d %s after the player year, want %d", userClub3, n, q.Position, q.Count)
+		}
+	}
+}
+
+// The academy fills vacancies only while the squad is below the squad
+// limit, for either controller: a full squad with a positional vacancy gets
+// no youth beyond its retirees' replacements.
+func TestYouthIntakeStopsAtTheSquadLimit(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	playSeason(t, w)
+	at := playerYearTask(t, w).DueAt
+	mustContinue(t, w, at-1)
+	release(t, w, userClub3, players.Goalkeeper)
+	team, _ := w.registry.SeniorTeam(userClub3)
+	// Fill the squad to the limit with outfield players other clubs can
+	// spare (each club above its minimum there), one per club.
+	var moved []employment.Assignment
+	for _, c := range w.registry.Clubs() {
+		if squadSize(w.squadCounts(team))+len(moved) == w.defs.SquadLimit {
+			break
+		}
+		other, _ := w.registry.SeniorTeam(c.ID)
+		counts := w.squadCounts(other)
+		for _, id := range w.employment.Squad(other) {
+			p, _ := w.players.Profile(id)
+			if c.ID != userClub3 && p.Position != players.Goalkeeper && counts[p.Position] > w.defs.Quota(p.Position).Min {
+				a, _ := w.employment.Assignment(id)
+				moved = append(moved, employment.Assignment{Player: id, Club: userClub3, Team: team, Contract: a.Contract})
+				break
+			}
+		}
+	}
+	var departures []ids.PlayerID
+	for _, a := range moved {
+		departures = append(departures, a.Player)
+	}
+	commitMoves(t, w, employment.Changes{Departures: departures})
+	commitMoves(t, w, employment.Changes{Signings: moved})
+	counts := w.squadCounts(team)
+	if squadSize(counts) != w.defs.SquadLimit || counts[players.Goalkeeper] >= w.defs.Quota(players.Goalkeeper).Count {
+		t.Fatalf("club %d squad %v, want %d players and a goalkeeper vacancy", userClub3, counts, w.defs.SquadLimit)
+	}
+
+	managed := playerYearUnderEachController(t, w.Snapshot(), userClub3, at)
+	if got, retired := youthAt(managed, at, userClub3), retiredAt(managed, at, userClub3); got != retired {
+		t.Fatalf("%d youth players for %d retirements at the squad limit", got, retired)
+	}
+	if n := squadSize(managed.squadCounts(team)); n != w.defs.SquadLimit {
+		t.Fatalf("club %d has %d players, limit %d", userClub3, n, w.defs.SquadLimit)
 	}
 }
 

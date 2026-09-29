@@ -2773,3 +2773,24 @@ A player's names now fit their nationality: each nation has its own first and la
 ### UI handoff
 
 Rebased the UI lane onto this commit. The pinned player names in both client test suites match the new generated names, and name-based comparison continues to handle duplicate names. `gofmt -l .`, `go vet ./...` and `go test ./...` pass; closed `ui--per-nation-names.md`.
+
+## squad: one youth intake rule (done)
+
+The player year's youth intake no longer depends on who manages a club (audit PAR-01). Every club replaces its retirees one for one. Its academy then fills each position below the roster count, in roster order, while the squad is below the squad limit. Before this change only AI clubs had their vacancies filled.
+
+| Package | Change | Version |
+| --- | --- | --- |
+| `internal/app` | `playerYear`: the vacancy intake runs for every club, bounded by `SquadLimit`; the `c.ID != w.userClub` branch is removed | – |
+
+### Decisions
+
+- **Fill every club rather than no club.** Removing the top-up for everyone would starve the free-agent pool. Retirees are replaced one for one and free agents retire unreplaced, so nothing else refills the pool. The squad-limit section's deliberate-bug check showed it: without vacancy youth, an AI club ended a contract year with 5 midfielders. So the manager now gets the intake as well. This reverses the earlier "the user club gets no vacancy youth" decision (squad-limit section above). A manager who wants a position short keeps the squad at the limit, or releases the youth player.
+- **Bounded by the squad limit.** AI squads never reach it, so AI-only careers are unchanged bit for bit and no golden moved. A managed club at 25 players with a positional vacancy gets no extra youth.
+- **No version or schema bump.** `worldgen.Youth` is called the same way, and no saved field changed. Managed careers whose club ends a season short now draw extra youth, which shifts later player IDs. No golden covers managed multi-year careers. `data` was asked to confirm ([note](handoffs/data--academy-intake-rule.md)).
+
+### Verification
+
+- `TestYouthIntakeDoesNotDependOnTheController`: one seed-42 managed snapshot on the eve of the player year, with club 3 short one defender and one forward. It is restored once as managed and once with no user club (`withController` rebuilds the inbox for the controller). The registry, profiles, employment, condition, ledgers and journal after the player year are identical. Club 3 gets its retirees' replacements plus two vacancy youth and is back at the roster count.
+- `TestYouthIntakeStopsAtTheSquadLimit`: club 3 at 25 players with a goalkeeper vacancy gets only its retirees' replacements, identically for both controllers.
+- Deliberate-bug check: both tests fail against the previous `playerYear` ("the player year differs when club 3 is managed").
+- `TestSquadsStayLegalAndBalancedOverTheYears` (AI-only and managed, fifteen years) and the rest of the suite pass unchanged.

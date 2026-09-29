@@ -61,10 +61,12 @@ func (w *World) age(player ids.PlayerID, t sim.GameInstant) (int, error) {
 //     player at the same position (worldgen.Youth), club by club in ID
 //     order, retirees in ID order, with new IDs from the registry's
 //     allocator. So every squad keeps its size per position and stays legal.
-//     Then each AI club also fills its vacancies (positions below the roster
-//     count, left by sales the free agents could not replace) with youth
-//     players, in roster order. So every AI squad is full again before the
-//     contract year, and its free agents can always refill every club (see
+//     Then each club's academy also fills its vacancies (positions below the
+//     roster count, left by sales nobody replaced) with youth players, in
+//     roster order, while the squad is below the squad limit. This is one
+//     rule for every club, whoever manages it: the intake depends only on
+//     the club's squad. So every squad is full again before the contract
+//     year, and its free agents can always refill every club (see
 //     contractYear), however many players the manager keeps. A youth
 //     contract runs Youth.ContractYears contract years from the coming
 //     contract-year end, at the player's demand.
@@ -129,12 +131,12 @@ func (w *World) playerYear(at sim.GameInstant, cohort []sim.Task) error {
 				intake = append(intake, old.Position)
 			}
 		}
-		if c.ID != w.userClub {
-			counts := w.squadCounts(team) // retirees are replaced one for one
-			for _, q := range w.defs.Roster {
-				for n := counts[q.Position]; n < q.Count; n++ {
-					intake = append(intake, q.Position)
-				}
+		counts := w.squadCounts(team) // retirees are replaced one for one
+		size := squadSize(counts)
+		for _, q := range w.defs.Roster {
+			for n := counts[q.Position]; n < q.Count && size < w.defs.SquadLimit; n++ {
+				intake = append(intake, q.Position)
+				size++
 			}
 		}
 		for _, pos := range intake {
