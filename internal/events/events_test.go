@@ -67,6 +67,15 @@ func TestValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Every closing status of the transfers module is a valid outcome:
+	// rejected, expired, collapsed and refused.
+	for outcome := uint8(3); outcome <= 6; outcome++ {
+		e := valid()[14]
+		e.OfferClosed.Outcome = outcome
+		if err := e.Validate(); err != nil {
+			t.Errorf("outcome %d: %v", outcome, err)
+		}
+	}
 	cases := map[string]func([]Event) Event{
 		"read zero message":   func(v []Event) Event { v[18].InboxRead.Message = 0; return v[18] },
 		"read itself":         func(v []Event) Event { v[18].InboxRead.Message = v[18].ID; return v[18] },

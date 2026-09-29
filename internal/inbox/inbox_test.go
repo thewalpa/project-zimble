@@ -218,6 +218,7 @@ func TestTransferMessages(t *testing.T) {
 	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: buy, Outcome: 3} })
 	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: sell, Outcome: 4} })
 	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: other, Outcome: 5} })
+	add(events.KindOfferClosed, func(e *events.Event) { e.OfferClosed = &events.OfferClosed{Deal: buy, Outcome: 6} })
 	b := mustNew(t, 3)
 	if _, err := b.Apply(j); err != nil {
 		t.Fatal(err)
@@ -229,6 +230,7 @@ func TestTransferMessages(t *testing.T) {
 		{Event: 11, At: 110, Kind: KindTransferOut, Player: 7, Offer: 1, Club: 4, Fee: 900, Selling: true},
 		{Event: 13, At: 130, Kind: KindOfferClosed, Player: 8, Offer: 2, Club: 1, Fee: 700, Outcome: 3},
 		{Event: 14, At: 140, Kind: KindOfferClosed, Player: 7, Offer: 1, Club: 4, Fee: 900, Outcome: 4, Selling: true},
+		{Event: 16, At: 160, Kind: KindOfferClosed, Player: 8, Offer: 2, Club: 1, Fee: 700, Outcome: 6},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("transfer messages %+v", got)

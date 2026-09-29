@@ -2685,3 +2685,9 @@ A player's consent to a transfer is now a shared rule checked when the transfer 
 
 - `TestSquadsStayLegalAndBalancedOverTheYears` now tolerates two missing AI players after a window (was one): the thin-market item, reproduced on a new path (seed 7, club 3 managed, year 7, club 14).
 - The clients still word a refusal as a collapse until `ui` answers its note.
+
+## data: refused offers reviewed (done)
+
+Reviewed squad's widening of `OfferClosed.Outcome` to 3–6 in `internal/events` (`transfers.StatusRefused`). Accepted as is: no new kind, no snapshot field, so no `storage.SchemaVersion` bump; `journal` already checks the closure's status against the offer (`transfers.go` fact check), `inbox` passes the outcome through and `careers` ignores `OfferClosed`.
+
+- `TestValidate` now accepts every outcome 3–6, and `TestTransferMessages` covers an outcome-6 message for the buyer.
