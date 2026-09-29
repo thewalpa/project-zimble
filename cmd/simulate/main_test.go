@@ -96,7 +96,7 @@ func TestRunPrintsFixturesGroupedByRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "(competition 1, season 1, schedule=v1): 8 teams, 14 rounds, 56 fixtures") {
+	if !strings.Contains(out, "(competition 1, season 1, schedule=v2): 8 teams, 14 rounds, 56 fixtures") {
 		t.Fatalf("missing schedule header:\n%s", out)
 	}
 	round, fixtures, perRound := 0, 0, map[int]int{}

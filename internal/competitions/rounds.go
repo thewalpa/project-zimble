@@ -66,6 +66,31 @@ func (t Timing) validate() error {
 	return nil
 }
 
+// SeasonKickoff returns a league's first kickoff in the given season, from
+// its first season's first kickoff (civil UTC): the instant on the same
+// weekday and time in the week nearest that kickoff's (season-1)th
+// anniversary. Seasons so start at most three days from the anniversary,
+// every year, instead of drifting against the civil calendar (and the
+// contract year and transfer window, which follow it). A 29 February
+// anniversary falls on 1 March in common years.
+func SeasonKickoff(cal sim.Calendar, first sim.CivilTime, season Season) (sim.GameInstant, error) {
+	start, err := cal.Instant(first)
+	if err != nil {
+		return 0, fmt.Errorf("competitions: first kickoff: %w", err)
+	}
+	if season < 1 {
+		return 0, fmt.Errorf("competitions: season %d is not 1-based", season)
+	}
+	month := first
+	month.Year, month.Day = first.Year+int(season)-1, 1
+	anniversary, err := cal.Instant(month)
+	if err != nil {
+		return 0, fmt.Errorf("competitions: season %d anniversary: %w", season, err)
+	}
+	days := (anniversary-start)/sim.GameInstant(sim.Day) + sim.GameInstant(first.Day-1)
+	return start.Add(sim.Duration((days+3)/7) * sim.Week)
+}
+
 // roundKickoffs returns the kickoff of each of n rounds.
 func roundKickoffs(t Timing, n int) ([]sim.GameInstant, error) {
 	if err := t.validate(); err != nil {

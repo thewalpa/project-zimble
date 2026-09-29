@@ -3,6 +3,7 @@ package competitions
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 )
@@ -147,5 +148,69 @@ func TestRoundQueriesReturnCopies(t *testing.T) {
 	}
 	if _, ok := s.Round(RoundRef{league1, 15}); ok {
 		t.Fatal("Round found round 15")
+	}
+}
+
+// Season kickoffs keep the first season's weekday and time and stay within
+// three days of its anniversary for centuries, so the season never drifts
+// against the civil calendar. Seasons are 52 or 53 weeks apart.
+func TestSeasonKickoffFollowsTheAnniversary(t *testing.T) {
+	cal, err := sim.NewCalendar(sim.CivilTime{Year: 2025, Month: 7, Day: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, first := range []sim.CivilTime{
+		{Year: 2025, Month: 8, Day: 9, Hour: 15},               // the default leagues' Saturday
+		{Year: 2025, Month: 12, Day: 31, Hour: 20, Minute: 45}, // the anniversary crosses the year end
+		{Year: 2028, Month: 2, Day: 29, Hour: 19},              // a leap day
+	} {
+		t0 := time.Date(first.Year, time.Month(first.Month), first.Day, first.Hour, first.Minute, 0, 0, time.UTC)
+		var prev sim.GameInstant
+		for season := Season(1); season <= 400; season++ {
+			k, err := SeasonKickoff(cal, first, season)
+			if err != nil {
+				t.Fatalf("%s season %d: %v", first, season, err)
+			}
+			c, _ := cal.Civil(k)
+			got := time.Date(c.Year, time.Month(c.Month), c.Day, c.Hour, c.Minute, 0, 0, time.UTC)
+			anniversary := time.Date(first.Year+int(season)-1, time.Month(first.Month), first.Day, first.Hour, first.Minute, 0, 0, time.UTC)
+			if off := got.Sub(anniversary); got.Weekday() != t0.Weekday() || c.Hour != first.Hour || c.Minute != first.Minute || off < -3*24*time.Hour || off > 3*24*time.Hour {
+				t.Fatalf("%s season %d kicks off %s, %v from %s", first, season, cal.Format(k), off, anniversary)
+			}
+			if season == 1 && got != t0 {
+				t.Fatalf("%s season 1 kicks off %s", first, cal.Format(k))
+			}
+			if gap := k - prev; season > 1 && gap != 52*sim.GameInstant(sim.Week) && gap != 53*sim.GameInstant(sim.Week) {
+				t.Fatalf("%s season %d starts %d minutes after season %d", first, season, gap, season-1)
+			}
+			prev = k
+		}
+	}
+}
+
+// For the default leagues the anchored calendar kept seasons 2 and 3 where
+// 52-week seasons put them; season 4 is the first that moved.
+func TestSeasonKickoffDefaultDates(t *testing.T) {
+	cal, _ := sim.NewCalendar(sim.CivilTime{Year: 2025, Month: 7, Day: 1})
+	first := sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}
+	want := []string{"Sat 2025-08-09 15:00 UTC", "Sat 2026-08-08 15:00 UTC", "Sat 2027-08-07 15:00 UTC", "Sat 2028-08-12 15:00 UTC", "Sat 2053-08-09 15:00 UTC"}
+	for i, season := range []Season{1, 2, 3, 4, 29} {
+		k, err := SeasonKickoff(cal, first, season)
+		if err != nil || cal.Format(k) != want[i] {
+			t.Fatalf("season %d kicks off %s (%v), want %s", season, cal.Format(k), err, want[i])
+		}
+	}
+	for name, f := range map[string]func() error{
+		"season 0": func() error { _, err := SeasonKickoff(cal, first, 0); return err },
+		"invalid civil": func() error {
+			_, err := SeasonKickoff(cal, sim.CivilTime{Year: 2025, Month: 2, Day: 30}, 1)
+			return err
+		},
+		"out of range":  func() error { _, err := SeasonKickoff(cal, first, 60000); return err },
+		"zero calendar": func() error { _, err := SeasonKickoff(sim.Calendar{}, first, 1); return err },
+	} {
+		if f() == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

@@ -2535,6 +2535,32 @@ Four handoffs delivered and three acknowledged.
 - Delivered: `competitions--cup-qualifiers`. Filed: [ui--cup-qualifiers.md](handoffs/ui--cup-qualifiers.md).
 - Accepted: `competitions--shared-manager-decision-stops` (the P2 decision-opportunities backlog item).
 
+## competitions: seasons follow the civil calendar (done)
+
+A league's season N kicks off on its first kickoff's weekday and time, in the week nearest that kickoff's (N−1)th anniversary: `competitions.SeasonKickoff(cal, first, season)`. Seasons used to start 52 weeks apart, a day or two earlier each year, until after about 28 years a first round fell inside the transfer window.
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/competitions` | `SeasonKickoff`; `ScheduleVersion` 2, now also covering the season calendar; the pairing draw keeps its stream key (`pairingDraw` = 1) |
+| `internal/app` | `endSeasons` and `validateSeasons` use `SeasonKickoff` instead of `SeasonInterval` |
+| `cmd/simulate` | test expects the `schedule=v2` header |
+
+### Decisions
+
+- **Nearest week, not the date.** Seasons keep their weekday and kickoff time and move at most three days either side of the anniversary, so consecutive seasons are 52 or 53 weeks apart. A 29 February anniversary is 1 March in common years.
+- **No content change.** The rule reads only `FirstKickoff`, so `LeagueVersion`, content fingerprints and the world fingerprint are unchanged. `SeasonInterval` no longer sets the calendar; whether to drop it is `data`'s call ([note](handoffs/data--season-interval-unused.md)).
+- **Pairings kept.** `ScheduleVersion` also keyed the fixture draw's stream, so a plain bump would have reshuffled every career. The draw is keyed by `pairingDraw` (the last version that changed pairings), so the seed-42 schedule golden and every season 1–3 result are unchanged. The bump is still needed: it makes saves from the old calendar (`Schedule` is a must-match version) fail as incompatible instead of as invalid.
+- For the default leagues seasons 2 and 3 fall where they did (8 Aug 2026, 7 Aug 2027); season 4 moves from 5 to 12 August 2028, and later seasons differ from before.
+
+### Verification
+
+- `TestSeasonKickoffFollowsTheAnniversary`: 400 seasons from three first kickoffs (the default Saturday, 31 December, a leap day) keep weekday and time, stay within three days of the anniversary (recomputed with `time.Date`) and are 52 or 53 weeks apart. `TestSeasonKickoffDefaultDates` pins seasons 1–4 and 29 and rejects season 0, an invalid date, an out-of-range season and a zero calendar.
+- `TestSeasonsStayInsideTheContractYear`: for 100 seasons of every default league, the first round is after the transfer window closes and the cup final before the next player year.
+- Deliberate-bug check: validating each season against its kickoff plus one minute failed the consecutive-season and save tests.
+- Also rewrapped a comment in `continue.go` (steward review of squad's injury change; no behavior change).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

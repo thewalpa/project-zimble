@@ -22,9 +22,17 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 )
 
-// ScheduleVersion identifies the fixture-generation algorithm. Bump it when
-// the same seed, season and entrants would produce different fixtures.
-const ScheduleVersion = 1
+// ScheduleVersion identifies the fixture-generation algorithm and the season
+// calendar (SeasonKickoff). Bump it when the same seed, season and entrants
+// would produce different fixtures or kickoffs. Version 2 anchored seasons to
+// their first kickoff's anniversary; pairings are drawn from pairingDraw's
+// stream and did not change.
+const ScheduleVersion = 2
+
+// pairingDraw keys the stream that places entrants in schedule slots. It is
+// the ScheduleVersion that last changed pairings, so a calendar change does
+// not reshuffle every career's fixtures.
+const pairingDraw = 1
 
 // SupportedEntrants is the only league size this milestone accepts.
 const SupportedEntrants = 8
@@ -182,7 +190,7 @@ func (s *Store) CreateSeasons(seed random.Seed, specs []NewSeason) error {
 			return err
 		}
 
-		rng := random.Derive(seed, "competitions/fixtures", ScheduleVersion,
+		rng := random.Derive(seed, "competitions/fixtures", pairingDraw,
 			uint64(ref.Competition), uint64(ref.Season))
 		pairs := doubleRoundRobin(canonical, rng)
 

@@ -315,3 +315,37 @@ func leagueDefsOf(s *WorldSnapshot) []content.League {
 	}
 	return out
 }
+
+// For a century of seasons, every league's first round kicks off after that
+// summer's transfer window has closed, and the cup final is played before
+// the next contract year ends, so the football year keeps its shape against
+// the civil calendar.
+func TestSeasonsStayInsideTheContractYear(t *testing.T) {
+	w := newWorld(t, 42)
+	for _, l := range w.leagues {
+		for season := competitions.Season(1); season <= 100; season++ {
+			first, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, season)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, closes, err := w.transferWindow(first)
+			if err != nil || first < closes {
+				t.Fatalf("league %d season %d kicks off %s, window closes %s (%v)", l.def.ID, season, w.calendar.Format(first), w.calendar.Format(closes), err)
+			}
+			yearEnd, err := w.contractYearEnd(first)
+			if err != nil {
+				t.Fatal(err)
+			}
+			last := first + sim.GameInstant(l.def.Rounds()-1)*sim.GameInstant(l.def.RoundInterval)
+			for _, c := range w.cups {
+				rounds := 0
+				for n := c.Entrants(); n > 1; n /= 2 {
+					rounds++
+				}
+				if final := last + sim.GameInstant(c.FirstRoundDelay) + sim.GameInstant(rounds-1)*sim.GameInstant(c.RoundInterval); final >= yearEnd-sim.GameInstant(sim.Day) {
+					t.Fatalf("season %d cup final %s is not before the player year %s", season, w.calendar.Format(final), w.calendar.Format(yearEnd))
+				}
+			}
+		}
+	}
+}

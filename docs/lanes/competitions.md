@@ -25,11 +25,10 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. Promotion and relegation is delivered (see `docs/progress.md`); take the top backlog item.
+Nothing queued. Calendar drift and `CupQualifiers` are delivered (see `docs/progress.md`); `data` decides whether `League.SeasonInterval` goes ([note](../handoffs/data--season-interval-unused.md)), and if it does, drop its comparison in `checkPromotions`. Take the top backlog item.
 
 ## Backlog
 
-- **Calendar drift:** `SeasonInterval` is 52 weeks, so a season starts a day earlier each year and after about 28 years the first round falls inside the transfer window. Anchor a season to the civil calendar (or content) and agree with `data` on whether it needs a content version.
 - **Play-offs** between divisions, as a different rule over the same links.
 
 - **Auto-resolving batches:** `Continue` resolves rounds with no user fixture without stopping. Agree with `match`, which owns `resolve.go`.

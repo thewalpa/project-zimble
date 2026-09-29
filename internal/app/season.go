@@ -58,8 +58,8 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 // league's next season, and creates the next edition of every cup whose
 // qualifying league seasons are now all over (see cupEditionDue):
 //
-//   - A league's next season starts SeasonInterval after the ending season's
-//     first kickoff. Its entrants are the ending season's, moved along the
+//   - A league's next season starts in the week of its first kickoff's
+//     anniversary (competitions.SeasonKickoff). Its entrants are the ending season's, moved along the
 //     promotion links by every linked league's final ranking
 //     (competitions.NextEntrants); linked leagues end in one cohort.
 //   - A cup edition's bracket seeds the qualifying seasons' final rankings
@@ -81,6 +81,7 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		payload sim.PayloadID
 		ref     competitions.SeasonRef
 		next    competitions.SeasonRef // zero for a cup edition
+		first   sim.GameInstant        // next's first kickoff
 	}
 	var ends []ending
 	var specs []competitions.NewSeason
@@ -105,16 +106,14 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		if !ok || w.leagues[li].season != ref {
 			return fmt.Errorf("app: season-end task %d for %s, which is not a league's current season or a cup edition", t.ID, ref)
 		}
-		def := w.leagues[li].def
-		rounds := w.competitions.Rounds(ref)
-		first := rounds[0].Kickoff + sim.GameInstant(def.SeasonInterval)
-		if !first.Valid() || first <= at {
-			return fmt.Errorf("app: %s next first kickoff %d is invalid or not after %d", ref, first, at)
+		next := competitions.SeasonRef{Competition: ref.Competition, Season: ref.Season + 1}
+		first, err := competitions.SeasonKickoff(w.calendar, w.leagues[li].def.FirstKickoff, next.Season)
+		if err != nil || first <= at {
+			return fmt.Errorf("app: %s first kickoff %d is invalid or not after %d: %v", next, first, at, err)
 		}
 		rankings[ref.Competition] = w.competitions.Ranking(ref)
-		next := competitions.SeasonRef{Competition: ref.Competition, Season: ref.Season + 1}
 		advanced[ref.Competition] = next.Season
-		ends = append(ends, ending{league: li, task: t.ID, payload: t.PayloadID, ref: ref, next: next})
+		ends = append(ends, ending{league: li, task: t.ID, payload: t.PayloadID, ref: ref, next: next, first: first})
 	}
 	if len(rankings) > 0 {
 		entrants, err := competitions.NextEntrants(rankings, w.movementLinks())
@@ -125,11 +124,9 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 			if e.league < 0 {
 				continue
 			}
-			def := w.leagues[e.league].def
-			first := w.competitions.Rounds(e.ref)[0].Kickoff + sim.GameInstant(def.SeasonInterval)
 			specs = append(specs, competitions.NewSeason{
 				Ref: e.next, Format: competitions.FormatLeague, Entrants: entrants[e.ref.Competition],
-				Timing: competitions.Timing{FirstKickoff: first, RoundInterval: def.RoundInterval},
+				Timing: competitions.Timing{FirstKickoff: e.first, RoundInterval: w.leagues[e.league].def.RoundInterval},
 			})
 		}
 	}
@@ -290,7 +287,7 @@ func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competit
 //   - a league's seasons in the store are exactly 1..current; every earlier
 //     season is complete and is followed by the entrants NextEntrants
 //     derives from every league's final ranking of it; each season starts
-//     SeasonInterval after the previous one;
+//     at its competitions.SeasonKickoff;
 //   - a cup's editions are exactly 1..N, where edition n exists exactly when
 //     every qualifying league has moved past season n; each edition is the
 //     one cupEdition builds (bracket and timing);
@@ -348,9 +345,9 @@ func (w *World) validateSeasons() []error {
 					fail("%s entrants %v, want %v after %s", seasons[i+1], got, want[l.def.ID], ref)
 				}
 			}
-			prev, next := w.competitions.Rounds(ref), w.competitions.Rounds(seasons[i+1])
-			if len(prev) > 0 && len(next) > 0 && next[0].Kickoff != prev[0].Kickoff+sim.GameInstant(l.def.SeasonInterval) {
-				fail("%s starts at %d, want %d after %s", seasons[i+1], next[0].Kickoff, l.def.SeasonInterval, ref)
+			want, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, seasons[i+1].Season)
+			if next := w.competitions.Rounds(seasons[i+1]); err != nil || len(next) == 0 || next[0].Kickoff != want {
+				fail("%s does not start at %d: %v", seasons[i+1], want, err)
 			}
 		}
 	}
