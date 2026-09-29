@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/careers"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
@@ -1945,6 +1946,38 @@ func (s *session) printEdition(c app.CupEdition, sorted bool, col string, desc b
 }
 
 // player prints the profile of any player, at any club, free or retired.
+func careerJoined(joined careers.Joined) string {
+	switch joined {
+	case careers.JoinedAtStart:
+		return "at career start"
+	case careers.JoinedYouth:
+		return "joined through youth"
+	case careers.JoinedFree:
+		return "signed as a free agent"
+	case careers.JoinedTransfer:
+		return "signed by transfer"
+	default:
+		return "joined"
+	}
+}
+
+func careerLeft(left careers.Left) string {
+	switch left {
+	case careers.LeftNot:
+		return "current club"
+	case careers.LeftTransfer:
+		return "sold"
+	case careers.LeftExpired:
+		return "contract expired"
+	case careers.LeftReleased:
+		return "released"
+	case careers.LeftRetired:
+		return "retired"
+	default:
+		return "left"
+	}
+}
+
 func (s *session) player(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: player ID")
@@ -1975,6 +2008,25 @@ func (s *session) player(args []string) error {
 	}
 	if !p.Retired {
 		s.printf("Condition: %s\n", fitness(p.SquadPlayer))
+	}
+	spells, _ := s.w.PlayerCareer(id)
+	if len(spells) > 0 {
+		s.printf("Career:\n")
+		for _, spell := range spells {
+			from := s.w.Calendar().Format(spell.From)
+			if spell.Joined == careers.JoinedAtStart {
+				from = "before " + from
+			}
+			to := "present"
+			if !spell.Current() {
+				to = s.w.Calendar().Format(spell.Until)
+			}
+			s.printf("  %s: %s–%s; %s", spell.ClubName, from, to, careerJoined(spell.Joined))
+			if spell.Joined == careers.JoinedTransfer {
+				s.printf(" for %s", spell.Fee)
+			}
+			s.printf("; %s\n", careerLeft(spell.Left))
+		}
 	}
 	s.printf("Overall:   %d\n", p.Overall)
 	s.printf("%s\n%s\n", attributeHeader, ratings(p.Attributes))

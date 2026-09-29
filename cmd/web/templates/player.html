@@ -10,6 +10,15 @@
   <tr><td class="n"><b>{{$d.Overall}}</b></td>{{range ratings $d.Attributes}}<td class="n">{{.}}</td>{{end}}{{if not $d.Retired}}<td class="n">{{template "cond" $d}}</td>{{end}}</tr>
 </table>
 </div>
+{{if $d.Career}}
+<h2>Club history</h2>
+<div class="panel scroll">
+<table>
+  <tr><th>Club</th><th>From</th><th>Until</th><th>Joined</th><th>Left</th></tr>
+  {{range $d.Career}}<tr><td><a href="/squad?club={{.ClubID}}">{{.Club}}</a></td><td>{{.From}}</td><td>{{.Until}}</td><td>{{.Joined}}</td><td>{{.Left}}</td></tr>{{end}}
+</table>
+</div>
+{{end}}
 {{if not $d.Retired}}
 <div class="panel">
 {{if $d.Club}}

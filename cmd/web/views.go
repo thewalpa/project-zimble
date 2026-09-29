@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/careers"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
@@ -1300,11 +1301,48 @@ func (s *server) listSaves() []saveInfo {
 	return saves
 }
 
+type playerCareerView struct {
+	ClubID, Club, From, Until, Joined, Left string
+}
+
 type playerView struct {
 	app.PlayerProfile
 	Ends    int
 	IsMine  bool
+	Career  []playerCareerView
 	Missing string // set when the ID names no player
+}
+
+func playerJoined(joined careers.Joined) string {
+	switch joined {
+	case careers.JoinedAtStart:
+		return "At career start"
+	case careers.JoinedYouth:
+		return "Joined through youth"
+	case careers.JoinedFree:
+		return "Signed as a free agent"
+	case careers.JoinedTransfer:
+		return "Signed by transfer"
+	default:
+		return "Joined"
+	}
+}
+
+func playerLeft(left careers.Left) string {
+	switch left {
+	case careers.LeftNot:
+		return "Current club"
+	case careers.LeftTransfer:
+		return "Sold"
+	case careers.LeftExpired:
+		return "Contract expired"
+	case careers.LeftReleased:
+		return "Released"
+	case careers.LeftRetired:
+		return "Retired"
+	default:
+		return "Left"
+	}
 }
 
 func (s *server) player(r *http.Request) (string, any, error) {
@@ -1318,5 +1356,22 @@ func (s *server) player(r *http.Request) (string, any, error) {
 		return "player", playerView{Missing: fmt.Sprintf("There is no player %d.", n)}, nil
 	}
 	c, _ := s.w.Calendar().Civil(p.Contract.Expires)
-	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club()}, nil
+	spells, _ := s.w.PlayerCareer(ids.PlayerID(n))
+	history := make([]playerCareerView, 0, len(spells))
+	for _, spell := range spells {
+		from := s.w.Calendar().Format(spell.From)
+		if spell.Joined == careers.JoinedAtStart {
+			from = "before " + from
+		}
+		until := "Present"
+		if !spell.Current() {
+			until = s.w.Calendar().Format(spell.Until)
+		}
+		joined := playerJoined(spell.Joined)
+		if spell.Joined == careers.JoinedTransfer {
+			joined += " for " + spell.Fee.String()
+		}
+		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: playerLeft(spell.Left)})
+	}
+	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club(), Career: history}, nil
 }

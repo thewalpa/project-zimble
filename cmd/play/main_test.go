@@ -435,7 +435,7 @@ func TestLineupCarriesOverToNextMatchday(t *testing.T) {
 
 func TestPlayerProfileCommand(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "player 56", "player 1", "player 99999", "player", "quit", "quit")
-	contains(t, out, "Callum Ibsen (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:",
+	contains(t, out, "Callum Ibsen (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:", "Career:", "before ", "current club",
 		"no player 99999", "usage: player ID")
 }
 

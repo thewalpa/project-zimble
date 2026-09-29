@@ -2625,3 +2625,17 @@ League tables in both clients now use `World.CupQualifiers` to say which places 
 ### Verification
 
 `cmd/play` and `cmd/web` tests check qualification labels and the report timeline; `gofmt -l .`, `go vet ./...` and `go test ./...` pass.
+
+## UI: player club history (done)
+
+Player profiles in the terminal and browser now show a player's club spells from the saved career history: named clubs, UTC start and end dates, how each spell began (including transfer fees), and how it ended. A current spell is marked as present; players already at a club when the career began are shown as there before the career start date.
+
+### Changes
+
+- `cmd/play`: the `player ID` profile prints the career below the player's current status.
+- `cmd/web`: the player profile has a club history table with links to each club's squad.
+- Both clients use `World.PlayerCareer`; neither reconstructs past clubs from current employment or the event journal. Closed `ui--player-career-history.md`.
+
+### Verification
+
+- Terminal and web profile tests assert the career history section, including the initial spell's before-date wording and current-club status.

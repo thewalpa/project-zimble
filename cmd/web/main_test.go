@@ -919,7 +919,7 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 func TestPlayerProfilePage(t *testing.T) {
 	c := career(t)
 	contains(t, c.get("/squad"), `href="/player?id=56"`)
-	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond", `/compare?a=56`)
+	contains(t, c.get("/player?id=56"), "Callum Ibsen", "(You)", "Contract:", "until", "Value:", "Cond", "Club history", "At career start", "Current club", `/compare?a=56`)
 	// A player of another club shows that club, not "(You)".
 	other := c.get("/player?id=1")
 	contains(t, other, "</html>")
