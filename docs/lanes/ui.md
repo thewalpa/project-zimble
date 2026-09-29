@@ -26,15 +26,14 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, and `data--player-career-history.md` on both player profiles. See [progress](../progress.md). `squad--free-agent-reservation-instant.md` remains open.
+Delivered `competitions--cup-qualifiers.md` using `World.CupQualifiers` in every league table, `match--report-events.md` with a minute-ordered timeline in both clients, and `data--player-career-history.md` on both player profiles. See [progress](../progress.md). `squad--free-agent-reservation-instant.md` remains open. The season-review flow is already in both clients: play the current season through its final table, then review inbox and contract decisions while continuing toward the next season. The current task is lineup editing outside matchday; it needs an app contract from `match` first ([handoff](../handoffs/match--lineup-editing-outside-matchday.md)).
 
 ## Backlog
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
 - **Injured players in the lineup editors** stay selectable (`SubmitLineup` refuses them with an explanation). Waiting on the match lane to expose app-owned fit and emergency eligibility via [match--lineup-availability.md](../handoffs/match--lineup-availability.md); then add an "available only" filter in both clients.
-- **Play the rest of the season:** clicking the button should advance to the end of the season, but not go to the next season. this should give the option to finalize contract extensions and reading messages before switching to next season
-- **Lineup editing:** Lineup editing must be always available, also when not in matchday.  
+- **Lineup editing:** Lineup editing must be always available, also when not in matchday. Waiting on the match lane's app-owned query and command for editing the saved lineup outside a pending matchday.
 
 - **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
 - **Improved Player compare:** Player compare should allow to select players of the own team without needing to enter an id
