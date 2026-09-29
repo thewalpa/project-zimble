@@ -118,7 +118,10 @@ func TestListingRejectionsChangeNothing(t *testing.T) {
 			s.cmd.Player = bestAt(t, s.w, players.Forward, userClub3).Player
 		}},
 		{"unknown player", ErrNotUserPlayer, func(_ *testing.T, s *setup) { s.cmd.Player = 99_999 }},
-		{"free agent", ErrNotUserPlayer, func(t *testing.T, s *setup) { s.cmd.Player = release(t, s.w, userClub3, players.Forward) }},
+		{"free agent", ErrNotUserPlayer, func(t *testing.T, s *setup) {
+			s.cmd.Player = release(t, s.w, userClub3, players.Forward)
+			s.cmd.ExpectedRevision = s.w.Revision()
+		}},
 		{"negative price", ErrInvalidPrice, func(_ *testing.T, s *setup) { s.cmd.Asking = -1 }},
 		{"unlisting an unlisted player", ErrNotListed, func(_ *testing.T, s *setup) { s.cmd.Asking = 0 }},
 		{"last day of the window", ErrWindowClosed, func(t *testing.T, s *setup) {
@@ -132,6 +135,7 @@ func TestListingRejectionsChangeNothing(t *testing.T) {
 		{"squad at its minimum", ErrSquadMinimum, func(t *testing.T, s *setup) {
 			release(t, s.w, userClub3, players.Goalkeeper) // 3 -> 2, the minimum
 			s.cmd.Player = longestContract(t, s.w, players.Goalkeeper).Player
+			s.cmd.ExpectedRevision = s.w.Revision()
 		}},
 		{"moved in this window", ErrNotTransferable, func(t *testing.T, s *setup) {
 			release(t, s.w, userClub3, players.Forward)
@@ -301,11 +305,7 @@ func TestAIClubsListThePlayersTheyReplace(t *testing.T) {
 	pos := w.squadPlayer(l.Player).Position
 	squad, _ := w.Squad(l.Club)
 	other := slices.IndexFunc(squad, func(p SquadPlayer) bool { return p.Position == pos && p.Player != l.Player })
-	plan, err := w.employment.Plan(employment.Changes{Departures: []ids.PlayerID{squad[other].Player}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.applyEmployment(plan)
+	commitMoves(t, w, employment.Changes{Departures: []ids.PlayerID{squad[other].Player}})
 	mustContinue(t, w, w.Now()+day)
 	if _, ok := w.transfers.Listing(l.Player); ok || clubOf(w, l.Player) != l.Club {
 		t.Fatal("the needed player is still listed, or was sold")
@@ -518,14 +518,10 @@ func TestAClubWithSurplusBuysNoUpgrade(t *testing.T) {
 	i := slices.IndexFunc(squad, func(p SquadPlayer) bool { return p.Position == players.Defender })
 	a, _ := w.employment.Assignment(squad[i].Player)
 	team, _ := w.registry.SeniorTeam(1)
-	plan, err := w.employment.Plan(employment.Changes{
+	commitMoves(t, w, employment.Changes{
 		Departures: []ids.PlayerID{a.Player},
 		Signings:   []employment.Assignment{{Player: a.Player, Club: 1, Team: team, Contract: a.Contract}},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.applyEmployment(plan)
 	mustContinue(t, w, day)
 	assertAIListings(t, w)
 	if !slices.ContainsFunc(w.transfers.Listings(), func(l transfers.Listing) bool { return l.Club == 1 }) {

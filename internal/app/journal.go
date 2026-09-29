@@ -31,8 +31,9 @@ func (w *World) emit(at sim.GameInstant, cause events.Cause, e events.Event) {
 
 // publish completes a commit whose revision has just been incremented: it
 // assigns event IDs and the revision to the staged events, appends them to
-// the journal, lets the inbox consume them and trims the journal. It cannot
-// fail for events produced by this package; a failure is a broken invariant.
+// the journal, lets the read models (the inbox and the careers) consume them
+// and trims the journal. It cannot fail for events produced by this package;
+// a failure is a broken invariant.
 func (w *World) publish() {
 	for i := range w.outbox {
 		w.lastEvent++
@@ -42,10 +43,13 @@ func (w *World) publish() {
 	if _, err := w.inbox.Apply(w.outbox); err != nil {
 		panic(fmt.Sprintf("app: unreachable: %v", err))
 	}
+	if _, err := w.careers.Apply(w.outbox); err != nil {
+		panic(fmt.Sprintf("app: unreachable: %v", err))
+	}
 	w.journal = append(w.journal, w.outbox...)
 	w.outbox = nil
 	if n := len(w.journal) - journalRetention; n > 0 {
-		// Every dropped event is at or before the inbox offset.
+		// Every dropped event is at or before both read models' offsets.
 		w.journal = slices.Delete(w.journal, 0, n)
 	}
 }

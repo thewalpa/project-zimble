@@ -181,6 +181,7 @@ func TestReleaseRejectionsChangeNothing(t *testing.T) {
 		{"squad at its minimum", ErrSquadMinimum, func(t *testing.T, s *setup) {
 			release(t, s.w, userClub3, players.Goalkeeper) // 3 -> 2, the minimum
 			s.cmd.Player = longestContract(t, s.w, players.Goalkeeper).Player
+			s.cmd.ExpectedRevision = s.w.Revision()
 		}},
 		{"payoff above the balance", ErrCannotAfford, func(t *testing.T, s *setup) {
 			drain := balance(t, s.w, userClub3) - 1

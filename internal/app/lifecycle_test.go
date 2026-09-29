@@ -216,11 +216,7 @@ func TestRetiredPlayersNeverReturn(t *testing.T) {
 		if age, _ := w.age(oldest.Player, at); age < players.FreeAgentRetirementAge {
 			t.Fatalf("the oldest player is %d", age)
 		}
-		plan, err := w.employment.Plan(employment.Changes{Departures: []ids.PlayerID{oldest.Player}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.applyEmployment(plan)
+		commitMoves(t, w, employment.Changes{Departures: []ids.PlayerID{oldest.Player}})
 		mustContinue(t, w, at)
 		for _, p := range w.FreeAgents() {
 			if age, _ := w.age(p.Player, at); age >= players.FreeAgentRetirementAge {

@@ -1,13 +1,13 @@
 # Lane: data
 
-The data the world starts from and how it is kept: content definitions, world generation, identities, the core value types, saves, the event contract and the read models built from it. This lane is also the steward of most [hub files](../../AGENTS.md#hub-files).
+The data the world starts from and how it is kept: content definitions, world generation, identities, the core value types, saves, the event contract and the read models built from it (the inbox and player careers). This lane is also the steward of most [hub files](../../AGENTS.md#hub-files).
 
 ## Owns
 
 - `internal/content` (definitions, leagues, cups, tuning), `internal/worldgen`, `internal/registry`.
 - `internal/core/ids`, `internal/core/money`, `internal/core/random`.
-- `internal/storage` (the save codec and `SchemaVersion`), `internal/events`, `internal/inbox`.
-- `internal/app/world.go` (loading and `Validate`), `save.go`, `journal.go`, `summary.go`, and `boundaries_test.go`.
+- `internal/storage` (the save codec and `SchemaVersion`), `internal/events`, `internal/inbox`, `internal/careers`.
+- `internal/app/world.go` (loading and `Validate`), `save.go`, `journal.go`, `summary.go`, `careers.go`, and `boundaries_test.go`.
 - Versions: `content.Version`, `content.LeagueVersion`, `worldgen.Version`, `worldgen.YouthVersion`, `random.Version`, `events.SchemaVersion`, `storage.SchemaVersion`, and the world fingerprint golden.
 
 ## Rules for this lane
@@ -26,9 +26,9 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
-**Nationalities delivered:** nations, club nations and player nationalities in `registry`, generated after every earlier draw so seeded careers are unchanged ([progress](../progress.md#data-nationalities-done)). Notes to `ui` and `squad`. The injury events squad added to the hub files were reviewed and accepted.
+**Player careers delivered:** `internal/careers`, a read model of every player's clubs built from the employment events, saved and validated against employment; `app.PlayerCareer` for the profile ([progress](../progress.md#data-player-careers-done)). Notes to `ui` (the profile history) and `squad` (every employment change must emit its event). Match's report events in `save.go` were reviewed and accepted.
 
-**Next:** per-nation name pools (see the backlog), or save fixtures per schema version. The next free version numbers are `worldgen.Version` 8, `content.Version` 9, `worldgen.YouthVersion` 4 and `storage.SchemaVersion` 21.
+**Next:** answer `data--season-interval-unused`, then per-nation name pools (see the backlog) or save fixtures per schema version. The next free version numbers are `worldgen.Version` 8, `content.Version` 9, `worldgen.YouthVersion` 4 and `storage.SchemaVersion` 23.
 
 ## Backlog
 
@@ -38,7 +38,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **Save compatibility:** a fixture save per schema version in `testdata/`, and a policy test that each one either loads or is refused explicitly.
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
 
-- **Durable player career history:** provide the archive/read model needed by `ui`'s profile history. Capture the starting club and subsequent signings, transfers, releases and retirement from their owning workflows, with stable player/club IDs and dates. Agree the facts with `squad`; history must survive journal trimming and save/load without becoming a second owner of current employment. Start with club spells and transfer fees; agree appearances and goals with `match` before expanding it.
+- **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them. `careers` would read them from events like the spells.
 - **Recover the previous valid save:** retain one verified previous save alongside atomic replacement and expose recovery explicitly to clients. A corrupt or incompatible load must not overwrite either file, and recovery must never silently replace the chosen career. Coordinate naming and the recovery action with `ui`; test interrupted writes and a damaged newest save.
 
 ### AI/player rule parity audit

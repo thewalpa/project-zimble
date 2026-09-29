@@ -23,8 +23,8 @@ const userClub3 ids.ClubID = 3
 
 // release frees a club's weakest player at a position (ties: lowest ID)
 // directly in employment, without a payoff, to make a vacancy (AI clubs
-// never release players). The squad must stay at or above its minimum
-// there.
+// never release players); commitMoves records it as an expired contract.
+// The squad must stay at or above its minimum there.
 func release(t *testing.T, w *World, club ids.ClubID, pos players.Position) ids.PlayerID {
 	t.Helper()
 	squad, _ := w.Squad(club)
@@ -38,11 +38,7 @@ func release(t *testing.T, w *World, club ids.ClubID, pos players.Position) ids.
 		t.Fatalf("club %d has only %d %s", club, len(at), pos)
 	}
 	weakest := slices.MinFunc(at, func(a, b SquadPlayer) int { return a.Overall - b.Overall })
-	plan, err := w.employment.Plan(employment.Changes{Departures: []ids.PlayerID{weakest.Player}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.applyEmployment(plan)
+	commitMoves(t, w, employment.Changes{Departures: []ids.PlayerID{weakest.Player}})
 	return weakest.Player
 }
 
@@ -215,6 +211,7 @@ func TestManagerBuysAPlayer(t *testing.T) {
 	terms := suggest(t, w, target.Player)
 	buyerBefore, sellerBefore, total := balance(t, w, userClub3), balance(t, w, seller), totalBalance(w)
 	userTeam, sellerTeam := mustUserTeam(t, w), w.competitionsTeam(seller)
+	messages := len(w.Inbox()) // the released player's
 
 	res := bidFor(t, w, target.Player, target.Value)
 	o := offerOf(t, w, res.Offer)
@@ -225,7 +222,7 @@ func TestManagerBuysAPlayer(t *testing.T) {
 	if len(evs) != 1 || evs[0].Kind != events.KindTransferOffered || evs[0].Cause != commandCause(res.Command) || evs[0].TransferOffered.Deadline != day {
 		t.Fatalf("events after the bid %+v", evs)
 	}
-	if len(w.Inbox()) != 0 {
+	if len(w.Inbox()) != messages {
 		t.Fatal("the manager's own bid reached the inbox")
 	}
 
@@ -260,7 +257,7 @@ func TestManagerBuysAPlayer(t *testing.T) {
 			t.Fatalf("ledger entry %+v", e)
 		}
 	}
-	m := w.Inbox()[0]
+	m := w.Inbox()[messages]
 	if m.Kind != inbox.KindTransferIn || m.Player != target.Player || m.Fee != target.Value || m.Club != seller ||
 		m.ClubName == "" || m.PlayerName != target.Name || m.Expires != contract.Expires {
 		t.Fatalf("inbox %+v", m)
@@ -480,7 +477,10 @@ func TestTransferOfferRejectionsChangeNothing(t *testing.T) {
 	}{
 		{"zero ID", ErrInvalidCommand, func(_ *testing.T, s *setup) { s.cmd.ID = 0 }},
 		{"stale revision", ErrStaleRevision, func(_ *testing.T, s *setup) { s.cmd.ExpectedRevision++ }},
-		{"no user club", ErrNoUserClub, func(t *testing.T, s *setup) { s.w = newWorld(t, 42) }},
+		{"no user club", ErrNoUserClub, func(t *testing.T, s *setup) {
+			s.w = newWorld(t, 42)
+			s.cmd.ExpectedRevision = s.w.Revision()
+		}},
 		{"own player", ErrNotTransferable, func(t *testing.T, s *setup) {
 			squad, _ := s.w.Squad(userClub3)
 			s.cmd.Player = squad[0].Player

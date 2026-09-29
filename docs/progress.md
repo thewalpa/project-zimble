@@ -2561,6 +2561,34 @@ A league's season N kicks off on its first kickoff's weekday and time, in the we
 - Deliberate-bug check: validating each season against its kickoff plus one minute failed the consecutive-season and save tests.
 - Also rewrapped a comment in `continue.go` (steward review of squad's injury change; no behavior change).
 
+## data: player careers (done)
+
+Every player's clubs since the career began: how and when he joined each (with the fee for a transfer) and how and when he left. Delivers `ui`'s blocking request for profile history (`data--player-career-history`).
+
+### Changes
+
+| Package | Change |
+| --- | --- |
+| `internal/careers` (new) | A read model like the inbox: `Store` with a consumer offset, `Start(at, employed)` for a new world, `New(Snapshot)`, `Apply(events)` (all-or-nothing), `Career(player)`, `Careers()`, `Initial()`. A `Spell` is `{Club, From, Joined, Fee, Until, Left}`; `Joined` is at start, youth, free or transfer, `Left` is not yet, transfer, expired, released or retired (durable values) |
+| `internal/app` | `World.careers`, started from the generated employment at load and fed by `publish` with the inbox. Query `PlayerCareer(id) ([]CareerSpell, bool)` (spells with the club's name). `validateCareers` in `Validate` |
+| `internal/storage` | `SchemaVersion` 22: `WorldSnapshot.Careers`. Schema 21 saves are refused |
+| `internal/app/boundaries_test.go` | `careers` may import core and `events`; `app`, `cmd/play` and `cmd/web` may import `careers` |
+
+### Decisions
+
+- **Built from events, not a second owner.** Employment still owns where a player is now. The events that already describe every employment change (youth joined, signed, transfer completed, contract expired, released, retired) carry every fact a spell needs, so no event changed and no workflow gained a write. The careers are saved because the journal is trimmed (about three to four years), like the inbox.
+- **Validation ties it to employment.** A player has a current spell exactly when he is employed, at his employer. So a future workflow that moves a player without its event fails `Validate` (and every save/load test). While the journal is complete, the careers must also equal a rebuild from their start and the journal; a spell ending in retirement needs a retired player.
+- **Spells before the career have no date.** Players on the books at the start get a `JoinedAtStart` spell from the career's start: clients should say "before" that date, not "joined". Worldgen draws no join dates, so no generated output changed (no version bump, no golden moved).
+- **Clubs only.** Teams, appearances and goals are not kept. Appearances and goals need `match`'s agreement first (lane backlog).
+- **Squad's tests kept honest.** Four tests moved players straight in `employment` with no event, a state no workflow reaches. A shared test helper, `commitMoves`, now commits such moves with `ContractExpired`/`PlayerSigned` events. Three rejection cases refresh their expected revision, and `TestManagerBuysAPlayer` skips the released player's inbox message ([note](handoffs/squad--careers-follow-employment-events.md)).
+
+### Verification
+
+- `careers`: a story of sales both ways, an expiry and free signing, a release, a free agent's and a youth player's retirement builds the expected spells; the snapshot restores and `Initial()` plus the journal rebuilds it; redelivery is a no-op and queries copy. Seven contradicting events (wrong seller, a signing while employed, a youth ID reused, signing after retiring, …) are refused with nothing changed, as are gaps and invalid events; `New` refuses 18 malformed snapshots.
+- `TestCareersRecordReleasesAndTransfers`: a real release and a transfer with fee, checked before and after save/load and again after the journal is trimmed to five events.
+- `TestRestoreRejectsInvalidCareers`: an offset behind the journal, a missing career, a wrong current club, an edited fee, a forgotten transfer and an unknown club.
+- A seed-42 run of two seasons with save/load in between: 665 careers, 810 spells (104 transfers, 41 free signings, 25 youth), offset 1515 with the journal trimmed.
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).

@@ -35,7 +35,10 @@ var allowedImports = map[string][]string{
 	// Events are a contract: typed facts other packages consume.
 	"internal/events": {"internal/core/ids", "internal/core/money", "internal/core/sim"},
 	// The inbox is a read model built only from events.
-	"internal/inbox":        {"internal/core/ids", "internal/core/money", "internal/core/sim", "internal/events"},
+	"internal/inbox": {"internal/core/ids", "internal/core/money", "internal/core/sim", "internal/events"},
+	// Careers is the other read model: every player's past and present clubs,
+	// built only from events and the employment a career starts with.
+	"internal/careers":      {"internal/core/ids", "internal/core/money", "internal/core/sim", "internal/events"},
 	"internal/competitions": {"internal/core/ids", "internal/core/random", "internal/core/sim"},
 	// Match engines depend only on the contract and core; never on app,
 	// the scheduler or module stores.
@@ -60,7 +63,7 @@ var allowedImports = map[string][]string{
 		"internal/core/sim", "internal/employment", "internal/players", "internal/registry", "internal/worldgen",
 		"internal/ai", "internal/matches", "internal/matches/simple", "internal/selection",
 		"internal/medical", "internal/events", "internal/inbox", "internal/core/money", "internal/finance",
-		"internal/transfers",
+		"internal/transfers", "internal/careers",
 	},
 	// Storage is an adapter: it encodes app snapshots and never reaches
 	// into modules.
@@ -70,13 +73,14 @@ var allowedImports = map[string][]string{
 	"cmd/play": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/events", "internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
-		"internal/transfers",
+		"internal/transfers", "internal/careers",
 	},
 	// The web client is another presentation adapter: app queries and
 	// commands, the contract types they return, and storage for saving.
 	"cmd/web": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage", "internal/transfers",
+		"internal/careers",
 	},
 	"cmd/simulate": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/random", "internal/core/sim",

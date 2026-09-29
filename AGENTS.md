@@ -10,7 +10,7 @@ Several agents work on this repository at the same time, each in its own **lane*
 | `match` | The match engine and everything on matchday: [docs/lanes/match.md](docs/lanes/match.md) | `internal/matches/**`, `internal/selection`, `internal/ai/selection.go`, `internal/app/{lineup,live,resolve}.go` |
 | `competitions` | Game time, `Continue`, leagues, cups and season transitions: [docs/lanes/competitions.md](docs/lanes/competitions.md) | `internal/competitions`, `internal/core/sim`, `internal/app/{continue,season,schedule}.go` |
 | `squad` | Contracts, transfers, money, condition, development and retirement: [docs/lanes/squad.md](docs/lanes/squad.md) | `internal/{employment,finance,transfers,medical,players}`, `internal/ai/{contracts,transfers}.go`, `internal/app/{contracts,lifecycle,money,transfers}.go` |
-| `data` | Content, generation, identities, saves, events and read models: [docs/lanes/data.md](docs/lanes/data.md) | `internal/{content,worldgen,registry,storage,events,inbox}`, `internal/core/{ids,money,random}`, `internal/app/{world,save,journal,summary}.go`, `internal/app/boundaries_test.go` |
+| `data` | Content, generation, identities, saves, events and read models: [docs/lanes/data.md](docs/lanes/data.md) | `internal/{content,worldgen,registry,storage,events,inbox,careers}`, `internal/core/{ids,money,random}`, `internal/app/{world,save,journal,summary,careers}.go`, `internal/app/boundaries_test.go` |
 | `balance` | Long seeded simulations, statistics and playtesting; no production code: [docs/lanes/balance.md](docs/lanes/balance.md) | every `balance_test.go`, `docs/balance.md` |
 
 Each lane owns the tests beside its files. A file not listed belongs to the lane that owns its package.

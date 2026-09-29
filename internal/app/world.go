@@ -12,6 +12,7 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/ai"
+	"github.com/thewalpa/project-zimble/internal/careers"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -92,8 +93,8 @@ type World struct {
 	commands map[CommandID]commandRecord
 
 	// Committed domain events: the retained journal tail, the event ID
-	// allocator, events staged by the commit in progress, and the inbox read
-	// model that consumes them.
+	// allocator, events staged by the commit in progress, and the read
+	// models that consume them: the inbox and the players' careers.
 	// The manager's match in progress, if any (see liveState).
 	live *liveState
 
@@ -101,6 +102,7 @@ type World struct {
 	lastEvent events.ID
 	outbox    []events.Event
 	inbox     *inbox.Inbox
+	careers   *careers.Store
 
 	// Simulation runtime: the world clock, queued tasks and the payload
 	// records they reference. Only app interprets task kinds.
@@ -280,6 +282,13 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	if w.inbox, err = w.newInbox(); err != nil {
 		return nil, err
 	}
+	var employed []careers.Employed
+	for _, a := range emp.Assignments() {
+		employed = append(employed, careers.Employed{Player: a.Player, Club: a.Club})
+	}
+	if w.careers, err = careers.Start(scheduler.Now(), employed); err != nil {
+		return nil, err
+	}
 	if err := w.scheduleRecovery(sim.GameInstant(sim.Day)); err != nil {
 		return nil, err
 	}
@@ -419,6 +428,7 @@ func (w *World) Validate() error {
 	errs = append(errs, w.validateSchedule()...)
 	errs = append(errs, w.validateSelections()...)
 	errs = append(errs, w.validateJournal()...)
+	errs = append(errs, w.validateCareers()...)
 	errs = append(errs, w.validateLive()...)
 	errs = append(errs, w.validateFinance()...)
 	errs = append(errs, w.validateContracts()...)

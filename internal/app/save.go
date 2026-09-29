@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/ai"
+	"github.com/thewalpa/project-zimble/internal/careers"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -122,10 +123,12 @@ type WorldSnapshot struct {
 	Live *LiveSnapshot
 
 	// The retained event journal (oldest first), the event ID allocator and
-	// the inbox read model with its consumer offset.
+	// the read models with their consumer offsets: the inbox and every
+	// player's career, which outlive the journal.
 	Events    []events.Event
 	LastEvent events.ID
 	Inbox     inbox.Snapshot
+	Careers   careers.Snapshot
 }
 
 func currentVersions(engine matches.Engine) Versions {
@@ -190,6 +193,7 @@ func (w *World) Snapshot() WorldSnapshot {
 		Events:             events.CloneAll(w.journal),
 		LastEvent:          w.lastEvent,
 		Inbox:              w.inbox.Snapshot(),
+		Careers:            w.careers.Snapshot(),
 	}
 	for _, l := range w.leagues {
 		snap.Leagues = append(snap.Leagues, LeagueSnapshot{Definition: l.def, Season: l.season})
@@ -402,6 +406,9 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	}
 	team, _ := w.userTeam()
 	if w.inbox, err = inbox.New(team, snap.Inbox); err != nil {
+		return invalid("%v", err)
+	}
+	if w.careers, err = careers.New(snap.Careers); err != nil {
 		return invalid("%v", err)
 	}
 	for _, c := range snap.ResolveCommands {
