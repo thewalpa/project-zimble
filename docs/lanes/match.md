@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine, phase 2: make it playable.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1, see [progress](../progress.md)). No career match uses it yet. Next: let the manager's live match run on it and expose its frames through `app`, then hand the pitch view to `ui`. See the roadmap below.
+**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Next are balance's two accepted notes: [mentality as a real trade-off](../handoffs/match--tick-mentality.md), then [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
 
 ## Tick engine roadmap
 
@@ -52,8 +52,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 ## What the tick engine needs from other lanes
 
-- **`data`:** new player attributes for phase 4 (dribbling or first touch, heading, strength, acceleration, positioning): note `data--match-attributes`. Phases 1–3 use the six existing ratings.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple). Answer the open mentality, goals-by-level and shootout notes; the career-season comparison follows phase 2.
+- **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout note is answered. The mentality and goals-by-level notes are accepted and come next; the career-season comparison follows phase 2.
 - **`ui`:** a pitch view once frames are reachable through `app` (phase 2; the note follows that work).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.
@@ -62,7 +62,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup (today a submitted lineup carries over until replaced). Needs a stored "delegated" choice, so a save schema bump.
-- **Match statistics** in the outcome (shots, possession share), with a `ui` note for reports. `tick` counts them already; see roadmap phase 3.
+- **Match statistics** in the outcome (shots, possession share), with a `ui` note for reports. `tick` counts them already; see roadmap phase 3. Reports already keep every match event (`MatchReport.Events`); statistics would sit beside them and need another schema bump.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.
 - **Formations and roles** beyond GK/DF/MF/FW, when selection needs them (roadmap phase 4 for `tick`).

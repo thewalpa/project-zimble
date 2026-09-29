@@ -2492,6 +2492,36 @@ Added side-by-side comparison to the terminal (`compare ID ID`) and browser (`/c
 
 The next UI backlog item, durable player career history, needs the data archive. Filed blocking request [data--player-career-history.md](handoffs/data--player-career-history.md) for a save/load-safe app query.
 
+## match: attributes, closer shootouts, report events (done)
+
+Four handoffs delivered and three acknowledged.
+
+### Changes
+
+- **Match attributes.** `matches.Ratings` carries all eleven player attributes (Dribbling, Heading, Strength, Acceleration and Positioning are new), validated like the others; `World.candidate` copies them and the `enginetest` fixtures set them. `tick`'s tackle duel reads Dribbling instead of the mean of Passing and Pace (`tick.ModelVersion` 2). `simple` reads none of the new fields.
+- **Closer shootouts** in both engines: a kick scores with 75% plus 0.15 points per effective rating point of taker Finishing above keeper Goalkeeping, clamped to 60–90%, instead of a ratio clamped to 50–93%. `simple.ModelVersion` 4, `tick.ModelVersion` 3.
+- **Report events.** `MatchReport.Events` keeps every match event of every resolved fixture (goals, substitutions, mentality changes, period ends; a live match's replayed events first). They are checked against the goals when resolving and on restore, and cloned in and out. `storage.SchemaVersion` 21.
+- `SubmitLineup`'s doc now states that injured players are rejected (squad's injury edits reviewed and kept).
+
+### Decisions
+
+- **Additive shootout rule.** A ratio of taker to keeper multiplies the stronger side's two advantages (better takers, better keeper). A small additive effect around 75% keeps shootouts close to a coin toss: in balance's sweep the stronger home side wins 55% (simple) / 54% (tick) at 65 v 55 and 61% / 62% at 70 v 50, down from 74/82 and 88/93. Penalties scored per shootout fell from about 9.5 to 8.3, matching real conversion of 70–80%.
+- **Every engine bump reshuffles every career,** because the engine version seeds each fixture's stream. The seed-42 goldens moved, and the client tests that name a seed-42 story were re-pinned to equivalent scenarios ([note to ui](handoffs/ui--seed-stories-moved-shootouts.md)).
+- **Events are stored, not re-simulated.** A report could be rebuilt by replaying the match, but that ties old reports to the engine version that played them. Storing them costs about 190 KB per season in a save (+15%).
+- **tick fixtures give defenders lower Dribbling,** as the generated career does. That raises `tick`'s goals (60 v 60: 3.26, from 2.92), which folds into the accepted goals-by-level note.
+
+### Verification
+
+- `TestCandidateCopiesEveryAttribute` pins one `matches.Ratings` field per `players.Attribute`, copied in order; the contract suite rejects a zero Dribbling and a Positioning of 101.
+- `TestShootoutsStayClose` (simple, always on) bounds the stronger side at 62% of 65 v 55 shootouts; `ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v` gives the table above.
+- `TestMatchReportKeepsEvents` plays a live match with a half-time substitution and compares the report's events with the live view, through the command result, `MatchReport` and a save, and checks for aliasing. `TestRestoreRejectsInvalidReportEvents` covers missing, reordered, unknown, mismatched and out-of-time events.
+
+### Handoffs
+
+- Delivered: `match--match-attributes-delivered`, `match--shootout-favourite`, `match--report-events`. Acknowledged: `match--command-record-hub`, `match--goldens-32-clubs`, `match--injuries-eligibility`.
+- Accepted: `match--tick-mentality`, `match--tick-goals-by-level`.
+- Filed: [ui--report-events.md](handoffs/ui--report-events.md), [ui--seed-stories-moved-shootouts.md](handoffs/ui--seed-stories-moved-shootouts.md).
+
 ## Next tasks
 
 Work is split into parallel lanes (see [AGENTS.md](../AGENTS.md)). Each lane keeps its current task and backlog in its own doc: [ui](lanes/ui.md), [match](lanes/match.md), [competitions](lanes/competitions.md), [squad](lanes/squad.md), [data](lanes/data.md), [balance](lanes/balance.md). Requests between lanes are in [handoffs/](handoffs/README.md).
