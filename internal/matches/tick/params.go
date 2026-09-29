@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 3
+const ModelVersion uint32 = 4
 
 // The clock: a tick is one simulated instant.
 const (
@@ -39,12 +39,23 @@ const (
 //     kickoff, fatigue growing each minute on the pitch, less with more
 //     Stamina. It is recomputed once a minute.
 //   - Shape: each outfield player has a spot from his role's line depth
-//     (deeper out of possession, shifted by mentality) and an even share of
-//     the width among his line. The block follows the ball along the pitch
-//     (Shift) and across it (Lateral). Players in possession stay level
-//     with the last opponent defender or the ball, whichever is further.
-//     Out of possession each outfield player marks the nearest free
-//     opponent within MarkRadius of his spot, goal-side.
+//     (deeper out of possession) and an even share of the width among his
+//     line. The block follows the ball along the pitch (Shift) and across
+//     it (Lateral). Players in possession drift around their spots, a new
+//     offset of up to Drift every DriftTicks or so, and stay level with the
+//     last opponent defender or the ball, whichever is further.
+//   - Mentality moves the lines: attacking pushes both higher, so a side
+//     makes more chances and leaves more room behind; defensive drops both
+//     and so makes and allows fewer. Out of possession the line moves
+//     further than in possession.
+//   - Marking: out of possession, defenders and opponents within
+//     MarkRadius of the defender's spot pair up nearest first. A defender
+//     stands goal-side of a man within TightMarkRadius of his spot, and
+//     partway between his spot and the man farther out, so the block
+//     neither ignores nor chases runners suddenly. Drift and gradual
+//     marking keep results continuous in the line depths: without them,
+//     a line moved by a metre or two could flip whole lines between marked
+//     and free and double the goals.
 //   - The nearest defender presses the carrier and the next one covers;
 //     in the carrier's own third, Pressers (by mentality) press. While a
 //     pass is in flight only its receiver moves for the ball; a loose ball
@@ -85,14 +96,17 @@ type Params struct {
 	JogPermille, DribblePermille int64 // of sprint speed
 	SprintDistance               int64 // farther than this from his spot, a player sprints
 
-	// Shape: line depths from the own goal line, out of and in possession.
-	DefendDepth, AttackDepth [5]int64
-	MentalityDepth           [4]int64
-	ShiftPermille            int64
-	LateralPermille          int64
-	MarkRadius, MarkDistance int64
-	KeeperDepth              int64
-	KeeperTrackPermille      int64
+	// Shape: line depths from the own goal line, out of and in possession,
+	// each moved by the side's mentality.
+	DefendDepth, AttackDepth                   [5]int64
+	MentalityDefendDepth, MentalityAttackDepth [4]int64
+	ShiftPermille                              int64
+	LateralPermille                            int64
+	DriftDepth, DriftWidth                     int64  // largest drift from a spot in possession
+	DriftTicks                                 uint32 // a drift lasts DriftTicks to twice that
+	MarkRadius, TightMarkRadius, MarkDistance  int64
+	KeeperDepth                                int64
+	KeeperTrackPermille                        int64
 
 	// The ball.
 	GroundDecel, AirDecel int64 // cm/tick lost per tick
@@ -156,16 +170,21 @@ func DefaultParams() Params {
 		SprintDistance:  1200,
 
 		//                 -, GK, DF, MF, FW
-		DefendDepth: [5]int64{0, 0, 1900, 3500, 4700},
-		AttackDepth: [5]int64{0, 0, 3800, 5800, 7700},
-		//                        -, def, bal, att
-		MentalityDepth:      [4]int64{0, -250, 0, 250},
-		ShiftPermille:       450,
-		LateralPermille:     300,
-		MarkRadius:          1500,
-		MarkDistance:        150,
-		KeeperDepth:         300,
-		KeeperTrackPermille: 150,
+		DefendDepth: [5]int64{0, 0, 1840, 3440, 4640},
+		AttackDepth: [5]int64{0, 0, 3770, 5770, 7670},
+		//                              -, def, bal, att
+		MentalityDefendDepth: [4]int64{0, -80, 0, 100},
+		MentalityAttackDepth: [4]int64{0, -40, 0, 30},
+		ShiftPermille:        450,
+		LateralPermille:      300,
+		MarkRadius:           1800,
+		MarkDistance:         150,
+		TightMarkRadius:      800,
+		DriftDepth:           250,
+		DriftWidth:           250,
+		DriftTicks:           5 * TicksPerSecond,
+		KeeperDepth:          300,
+		KeeperTrackPermille:  150,
 
 		GroundDecel:  4, // 1 m/s²
 		AirDecel:     2,
@@ -216,7 +235,7 @@ func DefaultParams() Params {
 		TacklePPM:        400_000,
 		WinBallPPM:       500_000,
 		BeatenTicks:      5,
-		Pressers:         [4]int{0, 1, 1, 2},
+		Pressers:         [4]int{0, 1, 1, 1},
 
 		CelebrationTicks:    15 * TicksPerSecond,
 		RestartTicks:        2 * TicksPerSecond,
@@ -270,6 +289,10 @@ func (p Params) Validate() error {
 		return bad("shot range")
 	case p.PassErrorPermille < 0 || p.ShotErrorPermille < 0 || p.PassArrivalSpeed < 0:
 		return bad("kick errors")
+	case p.DriftDepth < 0 || p.DriftWidth < 0 || p.DriftTicks == 0:
+		return bad("drift")
+	case p.MarkDistance < 0 || p.TightMarkRadius < 0 || p.MarkRadius <= p.TightMarkRadius:
+		return bad("marking")
 	case p.TackleRadius <= 0 || p.RestartDistance < 0 || p.RestartTimeoutTicks == 0 || p.KickTicks == 0:
 		return bad("tackle or restart")
 	case !(0 < p.MinShootoutPPM && p.MinShootoutPPM <= p.MaxShootoutPPM && p.MaxShootoutPPM < ppm &&

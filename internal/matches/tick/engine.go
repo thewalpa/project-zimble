@@ -128,6 +128,10 @@ type player struct {
 	// busy is the first tick at which the player may touch the ball
 	// again: after a kick, a missed control or a lost challenge.
 	busy uint32
+	// drift moves his spot (depth, lateral in his side's frame) while his
+	// side has the ball, until driftUntil, when it is drawn again.
+	drift      vec
+	driftUntil uint32
 }
 
 type team struct {

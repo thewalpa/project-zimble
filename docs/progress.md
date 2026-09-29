@@ -2794,3 +2794,49 @@ The player year's youth intake no longer depends on who manages a club (audit PA
 - `TestYouthIntakeStopsAtTheSquadLimit`: club 3 at 25 players with a goalkeeper vacancy gets only its retirees' replacements, identically for both controllers.
 - Deliberate-bug check: both tests fail against the previous `playerYear` ("the player year differs when club 3 is managed").
 - `TestSquadsStayLegalAndBalancedOverTheYears` (AI-only and managed, fifteen years) and the rest of the suite pass unchanged.
+
+## match: tick mentality is a trade-off (done)
+
+Delivered `balance`'s note `match--tick-mentality`. In `tick`, attacking no longer wins 20 points more for free, and defensive no longer turns a match into a shoot-out. `tick.ModelVersion` 4.
+
+### Changes
+
+- **The cause was a cliff, not a mentality rule.** Both sides' lines follow the ball by the same fraction, so every gap between an attacker's spot and a defender's spot was a fixed constant. Marking was all-or-nothing within `MarkRadius` (the nearest free opponent, in slot order, then stand goal-side of him), and a marked player is never a pass target. Moving a line by 2.5 m flipped whole lines between marked and free. At v3, `MarkRadius` 13 m gave 5.4 goals a match and 14 m gave 3.7. An in-possession shift of −2.5 m gave 5.2 goals, and −3 m gave 1.9. Mentality's ±2.5 m shift landed on these cliffs.
+- **Continuous shape.** (1) Players of the side in possession drift around their spots, a new offset of up to 2.5 m every 5–10 s (`DriftDepth`, `DriftWidth`, `DriftTicks`). (2) Marking pairs defenders and opponents nearest first. A defender goes fully goal-side only within `TightMarkRadius` (8 m) of his spot. Farther out he holds a point partway, fading out at `MarkRadius` (18 m, pull on squared distance). Goals are now smooth and monotonic in every line depth.
+- **Mentality moves two lines.** `MentalityDepth` is split into `MentalityDefendDepth` (−80 / 0 / +100 cm) and `MentalityAttackDepth` (−40 / 0 / +30 cm). Measured per metre and per side, a higher in-possession line scores more at no cost, and a deeper out-of-possession line concedes less at little cost. Each lever alone is a free lunch, so a mentality moves both. Attacking also no longer brings a second high presser (`Pressers` is 1 for every mentality): that alone was worth about 13 points of win rate.
+- **Base lines recalibrated** to 2.8 goals between equal 60-rated teams (DF / MF / FW at 18.4 / 34.4 / 46.4 m out of possession, 37.7 / 57.7 / 76.7 m in it).
+- `simulate` in `model_test.go` plays in parallel, so the package's tests take about 14 s instead of 34 s. New validation: `TightMarkRadius < MarkRadius`, `DriftTicks > 0`.
+
+### Results
+
+Balance's sweep, `ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v`, 3,000 matches a row, 60 v 60:
+
+| Home v away | Goals | Home–away goals | H / D / A % | v3 goals | v3 H / D / A % |
+| --- | --- | --- | --- | --- | --- |
+| balanced v balanced | 2.80 | 1.52–1.28 | 42.8 / 25.3 / 31.9 | 3.28 | 43.2 / 23.9 / 32.9 |
+| attacking v balanced | 3.62 | 1.94–1.69 | 44.2 / 23.0 / 32.8 | 4.17 | 69.8 / 15.0 / 15.2 |
+| balanced v attacking | 3.55 | 1.95–1.60 | 45.3 / 22.1 / 32.6 | 4.08 | 22.8 / 18.6 / 58.6 |
+| defensive v balanced | 1.97 | 1.08–0.88 | 40.1 / 30.2 / 29.7 | 5.15 | 42.3 / 18.9 / 38.9 |
+| balanced v defensive | 1.98 | 1.09–0.89 | 39.8 / 30.9 / 29.3 | 5.22 | 52.0 / 16.4 / 31.6 |
+| defensive v defensive | 1.52 | 0.82–0.69 | 35.4 / 37.1 / 27.5 | 1.74 | 37.4 / 33.8 / 28.8 |
+| attacking v attacking | 4.25 | 2.27–1.98 | 45.5 / 19.9 / 34.6 | 4.52 | 47.2 / 18.8 / 34.0 |
+
+(v3 figures are from my tuning harness on the same seeds and fixtures.) Every row meets the note's criteria. With a defensive side, goals fall below balanced, and with an attacking side they rise above it. A defensive side concedes 0.88–0.89 instead of 1.28–1.52. Attacking changes the attacking side's win rate by +1.4 points at home and +0.7 away. Points per 100 matches are within noise of each other: 150–155 at home and 116–121 away for every mentality.
+
+### Decisions
+
+- **Fix the cliff, then tune.** Tuning mentality offsets on the v3 model would have fitted it to one lucky configuration. With a continuous response, the same levers keep their meaning when ratings, formations or later rules change.
+- **Drift only in possession.** Drifting defenders opened holes (5–8 goals a match whatever the marking); attackers looking for space is the football reason for it anyway.
+- **Tighter marking concedes more.** A marker dragged far out of the block leaves room behind him, so the radii are a balance between shape and pressure, not "more is safer".
+- **Slower:** 26 ms a match on one core, from 20 ms (the marking pairs). Roadmap phase 5 owns speed.
+- **Goals by level got worse:** 40 v 40 scores 1.84 (v3 2.35) and 80 v 80 scores 4.46, and 70 v 50 still ends 95% home wins with 4.5 goals. That is the next tick note (`match--tick-goals-by-level`); its figures are updated there.
+
+### Verification
+
+- `TestMentalityTradeOff` (always on, 1,800 matches in about 3 s): against a balanced side, attacking scores and concedes more with home wins within 12 points, and defensive scores and concedes less and draws more.
+- `TestModelTrends`, `TestConditionMatters` and the contract suite hold. The golden hash was re-pinned for v4. No career match uses `tick` yet, so no other golden moved.
+
+### Handoffs
+
+- Delivered: `match--tick-mentality`.
+- Filed: [balance--tick-mentality-delivered.md](handoffs/balance--tick-mentality-delivered.md) to refresh `docs/balance.md`'s tick tables.

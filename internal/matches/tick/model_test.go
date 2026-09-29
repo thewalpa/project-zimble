@@ -4,6 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"hash/fnv"
+	"runtime"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -13,22 +16,57 @@ import (
 
 type tally struct {
 	matches, homeWins, awayWins, goals int
+	scored                             [2]int
 	shots, passes, completed           [2]int
 }
 
+// simulate plays fixtures 1..n in parallel and folds them in fixture order.
 func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput) tally {
 	t.Helper()
+	e := engine(t)
+	type result struct {
+		score [2]uint16
+		stats stats
+		err   error
+	}
+	results := make([]result, n)
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			var dst matches.MatchStepResult
+			for i := int(next.Add(1)) - 1; i < n; i = int(next.Add(1)) - 1 {
+				in := build(ids.FixtureID(i + 1))
+				ms, err := e.Start(in, enginetest.Random(e, in.Match))
+				for half := 0; err == nil && half < 2; half++ {
+					err = ms.Advance(matches.AdvanceRequest{ToMinute: matches.RegulationMinutes}, &dst)
+				}
+				if err == nil && dst.Status != matches.MatchFinished {
+					err = fmt.Errorf("stopped at %+v", dst.Position)
+				}
+				if err != nil {
+					results[i].err = err
+					continue
+				}
+				results[i] = result{score: dst.Outcome.Score, stats: ms.(*session).stats}
+			}
+		})
+	}
+	wg.Wait()
 	var r tally
-	for f := ids.FixtureID(1); f <= ids.FixtureID(n); f++ {
-		s := start(t, build(f))
-		o := playOut(t, s, false).Outcome
-		h, a := int(o.Score[0]), int(o.Score[1])
+	for i, res := range results {
+		if res.err != nil {
+			t.Fatalf("fixture %d: %v", i+1, res.err)
+		}
+		h, a := int(res.score[0]), int(res.score[1])
 		r.matches++
 		r.goals += h + a
-		for i := range 2 {
-			r.shots[i] += s.stats.shots[i]
-			r.passes[i] += s.stats.passes[i]
-			r.completed[i] += s.stats.completed[i]
+		r.scored[0] += h
+		r.scored[1] += a
+		for k := range 2 {
+			r.shots[k] += res.stats.shots[k]
+			r.passes[k] += res.stats.passes[k]
+			r.completed[k] += res.stats.completed[k]
 		}
 		switch {
 		case h > a:
@@ -86,6 +124,45 @@ func TestModelTrends(t *testing.T) {
 	t.Logf("defensive: %v", defensive)
 	if attacking.goals <= even.goals || defensive.goals >= even.goals {
 		t.Errorf("mentality has no effect: attacking %d, balanced %d, defensive %d goals", attacking.goals, even.goals, defensive.goals)
+	}
+}
+
+// Mentality is a trade-off against a balanced side: attacking scores and
+// concedes more for a modest change in results, and defensive scores and
+// concedes less and draws more. The win-rate bound is several standard
+// errors wide.
+func TestMentalityTradeOff(t *testing.T) {
+	if testing.Short() {
+		t.Skip("plays 1,800 matches")
+	}
+	const n = 600
+	homeWith := func(m matches.Mentality) func(ids.FixtureID) *matches.MatchInput {
+		return func(f ids.FixtureID) *matches.MatchInput {
+			in := input(f, 60, 60)
+			in.Home.Tactics.Mentality = m
+			return in
+		}
+	}
+	balanced := simulate(t, n, homeWith(matches.Balanced))
+	attacking := simulate(t, n, homeWith(matches.Attacking))
+	defensive := simulate(t, n, homeWith(matches.Defensive))
+	t.Logf("balanced v balanced: %v", balanced)
+	t.Logf("attacking v balanced: %v", attacking)
+	t.Logf("defensive v balanced: %v", defensive)
+	if attacking.scored[0] <= balanced.scored[0] || attacking.scored[1] <= balanced.scored[1] {
+		t.Errorf("attacking scored %d and conceded %d, balanced %d and %d: want more at both ends",
+			attacking.scored[0], attacking.scored[1], balanced.scored[0], balanced.scored[1])
+	}
+	if defensive.scored[0] >= balanced.scored[0] || defensive.scored[1] >= balanced.scored[1] {
+		t.Errorf("defensive scored %d and conceded %d, balanced %d and %d: want fewer at both ends",
+			defensive.scored[0], defensive.scored[1], balanced.scored[0], balanced.scored[1])
+	}
+	draws := func(r tally) int { return r.matches - r.homeWins - r.awayWins }
+	if draws(defensive) <= draws(balanced) {
+		t.Errorf("defensive drew %d, balanced %d", draws(defensive), draws(balanced))
+	}
+	if d := attacking.homeWins - balanced.homeWins; d*100 > n*12 || d*100 < -n*12 {
+		t.Errorf("attacking changed home wins by %d of %d, want a modest change", d, n)
 	}
 }
 
@@ -152,6 +229,8 @@ func TestParamsValidation(t *testing.T) {
 		"certain penalties":  func(p *Params) { p.MaxShootoutPPM = ppm },
 		"negative skill":     func(p *Params) { p.ShootoutSkillPPM = -1 },
 		"restart never ends": func(p *Params) { p.RestartTimeoutTicks = 0 },
+		"marking radii":      func(p *Params) { p.TightMarkRadius = p.MarkRadius },
+		"no drift interval":  func(p *Params) { p.DriftTicks = 0 },
 	}
 	for name, mutate := range cases {
 		p := DefaultParams()
@@ -164,7 +243,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "d804cd432a297640"
+const goldenHash = "912570bde311838f"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

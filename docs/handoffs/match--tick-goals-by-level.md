@@ -30,6 +30,8 @@ Win rates by gap look reasonable in the career's range: 72% for a home side 10 p
 
 Accepted 2026-09-29: next in the match lane after the attribute, shootout and report-event notes, before tick phase 2.
 
+Update from match, 2026-09-29, at `tick.ModelVersion` 4 (after the mentality fix): 40 v 40 scores 1.84 goals, 60 v 60 2.80, 80 v 80 4.46, 65 v 55 3.30 (75.9% home wins) and 70 v 50 4.52 (94.9% home wins). Level still drives goals, and the low end is now under the target too.
+
 ## What is needed
 Make goals per match depend mainly on the difference between the sides, not on their absolute level. For example, attack and defence (and finishing and goalkeeping) could scale together with rating. Also make a mismatch show more in who scores than in how many goals there are. Bump `tick.ModelVersion`.
 

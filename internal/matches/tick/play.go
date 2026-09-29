@@ -99,11 +99,17 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 				targets[side][slot] = s.keeperSpot(side)
 				continue
 			}
-			line := s.p.DefendDepth[p.role]
-			if inPossession {
-				line = s.p.AttackDepth[p.role]
+			if s.tick >= p.driftUntil {
+				p.drift = vec{s.spread(s.p.DriftDepth), s.spread(s.p.DriftWidth)}
+				p.driftUntil = s.tick + s.p.DriftTicks + uint32(s.draw(int64(s.p.DriftTicks)))
 			}
-			d := line + s.p.MentalityDepth[t.mentality] + (ballDepth-pitchL/2)*s.p.ShiftPermille/permille
+			d := s.p.DefendDepth[p.role] + s.p.MentalityDefendDepth[t.mentality]
+			lat := t.lateral[slot]
+			if inPossession {
+				d = s.p.AttackDepth[p.role] + s.p.MentalityAttackDepth[t.mentality] + p.drift.x
+				lat += p.drift.y
+			}
+			d += (ballDepth - pitchL/2) * s.p.ShiftPermille / permille
 			if inPossession {
 				d = min(d, max(lastLine, ballDepth))
 			}
@@ -111,7 +117,7 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 				d = min(d, pitchL/2-100)
 			}
 			d = min(max(d, 500), pitchL-500)
-			lat := t.lateral[slot] + (s.abs(side, 0, b.y).y-pitchW/2)*s.p.LateralPermille/permille
+			lat += (s.abs(side, 0, b.y).y - pitchW/2) * s.p.LateralPermille / permille
 			lat = min(max(lat, 200), pitchW-200)
 			targets[side][slot] = s.abs(side, d, lat)
 		}
@@ -169,29 +175,70 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 	}
 }
 
-// mark has each outfield player of the defending side pick up the nearest
-// unmarked opponent within MarkRadius of his spot, in slot order, and
-// stand goal-side of him.
+// mark has the defending side's outfield players pick up opponents.
+// Pairs are matched nearest first, by the opponent's distance from the
+// defender's spot, each player at most once and only within MarkRadius. A
+// defender stands MarkDistance goal-side of a man within TightMarkRadius of
+// his spot; for a man farther away he holds a point between his spot and
+// that position, nearer the spot the farther the man is, so the shape
+// changes smoothly as opponents move.
 func (s *session) mark(side int, targets *[matches.StartersPerTeam]vec) {
+	const n = matches.StartersPerTeam
 	t, opp := &s.teams[side], &s.teams[1-side]
 	goal := s.ownGoal(side)
-	var taken [matches.StartersPerTeam]bool
+	// Each defender's opponents within MarkRadius of his spot, nearest
+	// first (ties by slot).
+	var cand [n][n]int
+	var d2 [n][n]int64
+	var count, next [n]int
+	r2, tight2 := s.p.MarkRadius*s.p.MarkRadius, s.p.TightMarkRadius*s.p.TightMarkRadius
+	var men [n]vec
+	var outfield [n]bool
+	for o := range opp.pitch {
+		q := opp.at(o)
+		men[o], outfield[o] = q.pos, q.role != matches.Goalkeeper
+	}
 	for slot := range t.pitch {
 		if t.at(slot).role == matches.Goalkeeper {
 			continue
 		}
-		best, bestD := -1, s.p.MarkRadius*s.p.MarkRadius
-		for o := range opp.pitch {
-			q := opp.at(o).pos.sub(targets[slot])
-			if d := q.dot(q); !taken[o] && opp.at(o).role != matches.Goalkeeper && d < bestD {
-				best, bestD = o, d
+		spot := targets[slot]
+		for o, m := range men {
+			if !outfield[o] {
+				continue
+			}
+			d := dist2(m, spot)
+			if d >= r2 {
+				continue
+			}
+			k := count[slot]
+			for ; k > 0 && d2[slot][k-1] > d; k-- {
+				cand[slot][k], d2[slot][k] = cand[slot][k-1], d2[slot][k-1]
+			}
+			cand[slot][k], d2[slot][k] = o, d
+			count[slot]++
+		}
+	}
+	var marked [n]bool
+	for {
+		best := -1
+		for slot := range t.pitch {
+			for next[slot] < count[slot] && marked[cand[slot][next[slot]]] {
+				next[slot]++
+			}
+			if next[slot] < count[slot] && (best < 0 || d2[slot][next[slot]] < d2[best][next[best]]) {
+				best = slot
 			}
 		}
-		if best >= 0 {
-			taken[best] = true
-			m := opp.at(best).pos
-			targets[slot] = m.add(goal.sub(m).withLength(s.p.MarkDistance))
+		if best < 0 {
+			return
 		}
+		o, d := cand[best][next[best]], d2[best][next[best]]
+		marked[o], count[best] = true, 0
+		m := men[o]
+		tight := m.add(goal.sub(m).withLength(s.p.MarkDistance))
+		pull := min((r2-d)*permille/(r2-tight2), permille)
+		targets[best] = targets[best].add(tight.sub(targets[best]).scale(pull, permille))
 	}
 }
 
