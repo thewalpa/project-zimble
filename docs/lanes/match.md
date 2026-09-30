@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine: phase 3 (match statistics) is delivered.** `tick` reports shots, shots on target, passes and completions, tackles, saves and possession (`matches.MatchStats`) live in `MatchView.Stats`, final in `MatchOutcome.Stats` and kept in `MatchReport.Stats`; `simple` marks them unavailable. Schema 27 ([progress](../progress.md#match-match-statistics-from-tick-done)). `ui` has the notes for an `-engine` flag, a pitch view and the statistics; `balance` has the notes to compare careers on both engines and the statistics with real football (passes, tackles and the possession spread look off). `tick` stays opt-in: a season costs 12.5 s on it against 0.26 s on `simple`. Next: roadmap phase 4 (offside first), or the tuning `balance` asks for.
+**Tick engine: offside is delivered (phase 4, first rule).** Forwards make runs in behind, back lines hold, passers play through balls, and a receiver beyond the second-last opponent when the ball is played is caught offside, giving a free kick. Equal sides are caught about 1.8 times a side at the old goal level (2.54). `TeamStats.Offsides`, schema 28, `tick.ModelVersion` 6 ([progress](../progress.md#match-offside-in-tick-done)). The mentality effect is smaller than at v5 (both attacking 3.27 goals, both defensive 1.21). `tick` stays opt-in (a season costs about 12.5 s against 0.26 s on `simple`). Next: fouls, free kicks and cards (phase 4), or the tuning `balance` asks for.
 
 ## Tick engine roadmap
 
@@ -42,10 +42,10 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
    - The `balance` note asks for a career-season comparison of `tick` and `simple`.
 3. **Done: match statistics.** `matches.MatchStats` in the view, the outcome and reports, advertised through `DetailedStats`, unavailable from `simple`; schema 27; notes to `ui` and `balance`.
 4. **Richer football**, one rule per step, each with its trend test:
-   - offside, instead of capping runs at the last defender;
+   - **done (v6):** offside, with runs in behind, through balls and a back line that holds;
    - fouls, free kicks, penalties and cards (`Cards` capability, with `competitions` for suspensions);
    - the ball in the air: crosses, headers, long balls, goalkeepers catching crosses (needs aerial attributes from `data`);
-   - smarter movement: runs into space, overlaps, a compact block, keeper distribution;
+   - smarter movement: runs into space beyond forwards' runs in behind, overlaps, a compact block, keeper distribution;
    - game state: a side that leads comfortably eases off, which would further temper goals in mismatches (v5 note);
    - formations and roles beyond GK/DF/MF/FW (the backlog item), fed from `selection`;
    - live injuries (`Injuries` capability) and workload from distance and sprints rather than minutes, handed to `squad` for condition.
@@ -54,7 +54,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison ([note](../handoffs/balance--tick-career-seasons.md)) and a statistics comparison with real football ([note](../handoffs/balance--tick-match-stats.md)) are requested.
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v6 is requested). The career-season comparison ([note](../handoffs/balance--tick-career-seasons.md)) and a statistics comparison with real football ([note](../handoffs/balance--tick-match-stats.md)) are requested.
 - **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)); statistics in reports and the live match ([note](../handoffs/ui--match-stats.md)).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.

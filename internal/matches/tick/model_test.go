@@ -18,7 +18,8 @@ type tally struct {
 	matches, homeWins, awayWins, goals int
 	scored                             [2]int
 	shots, onTarget, passes, completed [2]int
-	tackles, saves, possession         [2]int // possession: permille summed over matches
+	tackles, saves, offsides           [2]int
+	possession                         [2]int // permille summed over matches
 }
 
 // simulate plays fixtures 1..n in parallel and folds them in fixture order.
@@ -71,6 +72,7 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 			r.completed[k] += int(st.PassesCompleted)
 			r.tackles[k] += int(st.Tackles)
 			r.saves[k] += int(st.Saves)
+			r.offsides[k] += int(st.Offsides)
 			r.possession[k] += int(st.PossessionPermille)
 		}
 		switch {
@@ -86,12 +88,13 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 func (r tally) String() string {
 	n := float64(r.matches)
 	return fmt.Sprintf("%.2f goals/match, home %d away %d draws %d, shots %.1f (%.1f on target) v %.1f (%.1f), "+
-		"possession %.0f%%, passes %.0f (%.0f%% completed), tackles %.1f, saves %.1f",
+		"possession %.0f%%, passes %.0f (%.0f%% completed), tackles %.1f, saves %.1f, offsides %.1f v %.1f",
 		float64(r.goals)/n, r.homeWins, r.awayWins, r.matches-r.homeWins-r.awayWins,
 		float64(r.shots[0])/n, float64(r.onTarget[0])/n, float64(r.shots[1])/n, float64(r.onTarget[1])/n,
 		float64(r.possession[0])/n/10, float64(r.passes[0]+r.passes[1])/2/n,
 		100*float64(r.completed[0]+r.completed[1])/float64(r.passes[0]+r.passes[1]),
-		float64(r.tackles[0]+r.tackles[1])/2/n, float64(r.saves[0]+r.saves[1])/2/n)
+		float64(r.tackles[0]+r.tackles[1])/2/n, float64(r.saves[0]+r.saves[1])/2/n,
+		float64(r.offsides[0])/n, float64(r.offsides[1])/n)
 }
 
 // Seeded batches show the intended trends. Bounds are loose on purpose:
@@ -111,6 +114,9 @@ func TestModelTrends(t *testing.T) {
 	}
 	if done := even.completed[0] + even.completed[1]; done*100 < (even.passes[0]+even.passes[1])*60 {
 		t.Errorf("only %d of %d passes completed", done, even.passes[0]+even.passes[1])
+	}
+	if off := even.offsides[0] + even.offsides[1]; off < n || off > 8*n {
+		t.Errorf("equal teams were caught offside %d times in %d matches, want 0.5..4 a side", off, n)
 	}
 
 	mismatch := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 55, 65) })
@@ -136,6 +142,10 @@ func TestModelTrends(t *testing.T) {
 	t.Logf("defensive: %v", defensive)
 	if attacking.goals <= even.goals || defensive.goals >= even.goals {
 		t.Errorf("mentality has no effect: attacking %d, balanced %d, defensive %d goals", attacking.goals, even.goals, defensive.goals)
+	}
+	// Runs and a high line catch attacking sides offside more often.
+	if off := func(r tally) int { return r.offsides[0] + r.offsides[1] }; off(attacking) <= off(even) || off(defensive) >= off(even) {
+		t.Errorf("offsides: attacking %d, balanced %d, defensive %d", off(attacking), off(even), off(defensive))
 	}
 }
 
@@ -277,6 +287,11 @@ func TestParamsValidation(t *testing.T) {
 		"no reference":       func(p *Params) { p.ContestReference = 0 },
 		"contest scale":      func(p *Params) { p.ContestPermille = -1 },
 		"home advantage":     func(p *Params) { p.HomeAdvantage = -1 },
+		"run rate over 1":    func(p *Params) { p.RunPPM[matches.Attacking] = ppm + 1 },
+		"endless run":        func(p *Params) { p.RunTicks = 0 },
+		"offside blindness":  func(p *Params) { p.OffsideVision = matches.PitchLength },
+		"line gives way":     func(p *Params) { p.LineHold = -1 },
+		"through ball reach": func(p *Params) { p.ThroughBallLead = p.MaxPass + 1 },
 	}
 	for name, mutate := range cases {
 		p := DefaultParams()
@@ -289,7 +304,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "752774b3cc6224bb"
+const goldenHash = "bbc9c139068c9826"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

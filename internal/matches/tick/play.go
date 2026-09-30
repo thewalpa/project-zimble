@@ -83,16 +83,14 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 	}
 	for side := range s.teams {
 		t := &s.teams[side]
-		opp := &s.teams[1-side]
 		inPossession := side == possession
 		ballDepth := s.depth(side, b)
-		// The last opponent outfield player, seen from this side.
-		lastLine := int64(0)
-		for slot := range opp.pitch {
-			if p := opp.at(slot); p.role != matches.Goalkeeper {
-				lastLine = max(lastLine, s.depth(side, p.pos))
-			}
-		}
+		// Runs stop at the offside line, except a forward's run in behind
+		// while a team-mate has the ball.
+		line := s.secondLast(side)
+		onside := max(line, ballDepth, pitchL/2)
+		behind := min(line+s.p.RunDepth, pitchL-boxDepth/2)
+		building := inPossession && s.ball.carried && !s.dead
 		for slot := range t.pitch {
 			p := t.at(slot)
 			if p.role == matches.Goalkeeper {
@@ -111,7 +109,15 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 			}
 			d += (ballDepth - pitchL/2) * s.p.ShiftPermille / permille
 			if inPossession {
-				d = min(d, max(lastLine, ballDepth))
+				d = min(d, onside)
+			}
+			if building && p.role == matches.Forward && slot != s.ball.slot {
+				if s.tick >= p.runUntil && s.chance(s.p.RunPPM[t.mentality]) {
+					p.runUntil = s.tick + s.p.RunTicks
+				}
+				if s.tick < p.runUntil {
+					d, sprint[side][slot] = max(d, behind), true
+				}
 			}
 			if s.dead && s.restart.kind == restartKickoff {
 				d = min(d, pitchL/2-100)
@@ -122,7 +128,18 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 			targets[side][slot] = s.abs(side, d, lat)
 		}
 		if !inPossession && !s.dead {
+			spots := targets[side]
 			s.mark(side, &targets[side])
+			if s.ball.carried {
+				// The back line holds: it follows a runner only so far
+				// while the carrier looks for a pass.
+				for slot := range t.pitch {
+					if t.at(slot).role == matches.Defender {
+						d := max(s.depth(side, targets[side][slot]), s.depth(side, spots[slot])-s.p.LineHold)
+						targets[side][slot] = s.abs(side, d, s.abs(side, 0, targets[side][slot].y).y)
+					}
+				}
+			}
 		}
 	}
 
@@ -169,8 +186,13 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 				}
 				continue
 			}
-			order, _ := s.nearest(side, ahead, s.inBox(side, s.ball.pos))
-			targets[side][order[0]], sprint[side][order[0]] = ahead, true
+			order, n := s.nearest(side, ahead, s.inBox(side, s.ball.pos))
+			for _, slot := range order[:n] {
+				if !s.flagged(side, slot) { // an offside player leaves it
+					targets[side][slot], sprint[side][slot] = ahead, true
+					break
+				}
+			}
 		}
 	}
 }
@@ -337,6 +359,9 @@ func (s *session) act(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matc
 	if pressure < s.p.PressureDistance {
 		passPPM = s.p.PressuredPassPPM
 	}
+	if s.running(side) {
+		passPPM = max(passPPM, s.p.RunPassPPM) // he looks for the run
+	}
 	if s.chance(passPPM) && s.pass(side, slot) {
 		return
 	}
@@ -353,49 +378,53 @@ func (s *session) act(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matc
 	targets[side][slot] = tgt
 }
 
-// pass picks the best open teammate and passes to him. It reports false
-// when nobody is worth passing to.
+// pass picks the best open pass and plays it: to a team-mate's feet, or a
+// through ball into the space behind the opponents' line for him to run
+// onto. It reports false when nobody is worth passing to. The passer
+// overlooks a team-mate offside by up to OffsideVision.
 func (s *session) pass(side, slot int) bool {
 	t := &s.teams[side]
-	opp := &s.teams[1-side]
 	c := t.at(slot)
-	best, bestScore := -1, int64(0)
-	for j := range t.pitch {
-		if j == slot {
-			continue
+	seen := s.offsideLine(side) + s.p.OffsideVision
+	line := s.secondLast(side)
+	lead := s.abs(side, s.p.ThroughBallLead, 0).sub(s.abs(side, 0, 0)) // towards goal
+	best, bestScore, bestAim := -1, int64(0), vec{}
+	consider := func(j int, aim vec, run int64) {
+		if within(c.pos, aim, s.p.MinPass-1) || !within(c.pos, aim, s.p.MaxPass) {
+			return
 		}
-		q := t.at(j).pos
-		if within(c.pos, q, s.p.MinPass-1) || !within(c.pos, q, s.p.MaxPass) {
-			continue
-		}
-		d := dist(c.pos, q)
-		// Space around the receiver and along the lane; a marker at the
-		// passer's feet does not block the lane.
-		open := int64(1000 * 1000) // squared
-		for o := range opp.pitch {
-			op := opp.at(o).pos
-			open = min(open, dist2(op, q)*4/9)
-			if t, lane := closest(c.pos, q, op); t*d/permille > s.p.TackleRadius {
-				open = min(open, lane)
-			}
-		}
-		open = isqrt(open)
+		open := s.openness(side, c.pos, aim, run)
 		if open < s.p.BlockedDistance {
-			continue
+			return
 		}
-		progress := s.depth(side, q) - s.depth(side, c.pos)
-		score := progress*s.p.ProgressPermille[t.mentality]/permille + open - d/4 + s.draw(s.p.PassNoise)
+		progress := s.depth(side, aim) - s.depth(side, c.pos)
+		score := progress*s.p.ProgressPermille[t.mentality]/permille + open - dist(c.pos, aim)/4 + s.draw(s.p.PassNoise)
 		if t.at(j).role == matches.Goalkeeper {
 			score -= 1500
 		}
 		if best < 0 || score > bestScore {
-			best, bestScore = j, score
+			best, bestScore, bestAim = j, score, aim
+		}
+	}
+	for j := range t.pitch {
+		q := t.at(j).pos
+		if j == slot || s.depth(side, q) > seen {
+			continue
+		}
+		consider(j, q, 0)
+		if through := q.add(lead); t.at(j).role != matches.Goalkeeper && s.depth(side, through) > line &&
+			s.depth(side, through) <= pitchL-boxDepth/2 {
+			run := s.p.ThroughBallLead
+			if s.tick < t.at(j).runUntil {
+				run -= s.p.RunStart // already sprinting
+			}
+			consider(j, through, run)
 		}
 	}
 	if best < 0 {
 		return false
 	}
-	aim := t.at(best).pos
+	aim := bestAim
 	d := dist(c.pos, aim)
 	miss := d * (per10k - s.against(c.eff[effPassing], s.teams[1-side].level.defending)) / per10k * s.p.PassErrorPermille / permille
 	aim = clampPitch(aim.add(vec{s.spread(miss), s.spread(miss)}))
@@ -405,6 +434,90 @@ func (s *session) pass(side, slot int) bool {
 	s.ball.passTo, s.ball.aim = best, aim
 	s.stats.passes[side]++
 	return true
+}
+
+// openness is how free a pass from from to aim is: the space around the
+// aim or along the lane, whichever is less. The space is two thirds of the
+// nearest opponent's distance from the aim for a pass to feet, and for a
+// through ball the head start the receiver, run cm from the aim, has on
+// that opponent. A marker at the passer's feet does not block the lane.
+func (s *session) openness(side int, from, aim vec, run int64) int64 {
+	opp := &s.teams[1-side]
+	d := dist(from, aim)
+	near, lane := int64(pitchL*pitchL), int64(1000*1000) // squared
+	for o := range opp.pitch {
+		op := opp.at(o).pos
+		near = min(near, dist2(op, aim))
+		if t, l := closest(from, aim, op); t*d/permille > s.p.TackleRadius {
+			lane = min(lane, l)
+		}
+	}
+	space := min(isqrt(near)*2/3, 1000)
+	if run > 0 {
+		space = min(isqrt(near)-run, 1000)
+	}
+	return min(space, isqrt(lane))
+}
+
+// secondLast is the depth, seen from side, of the second-last opponent,
+// goalkeeper included.
+func (s *session) secondLast(side int) int64 {
+	opp := &s.teams[1-side]
+	first, second := int64(-1), int64(-1)
+	for slot := range opp.pitch {
+		d := s.depth(side, opp.at(slot).pos)
+		if d > first {
+			first, second = d, first
+		} else if d > second {
+			second = d
+		}
+	}
+	return second
+}
+
+// offsideLine is the depth, seen from side, beyond which its players are in
+// an offside position: the second-last opponent, unless the ball or the
+// halfway line is further.
+func (s *session) offsideLine(side int) int64 {
+	return max(s.secondLast(side), s.depth(side, s.ball.pos), pitchL/2)
+}
+
+// offsidePositions returns side's slots in an offside position as the
+// player at slot plays the ball.
+func (s *session) offsidePositions(side, slot int) uint16 {
+	line := s.offsideLine(side)
+	t := &s.teams[side]
+	var mask uint16
+	for j := range t.pitch {
+		if j != slot && s.depth(side, t.at(j).pos) > line {
+			mask |= 1 << j
+		}
+	}
+	return mask
+}
+
+// running reports whether one of side's players is making a run in behind.
+func (s *session) running(side int) bool {
+	t := &s.teams[side]
+	for slot := range t.pitch {
+		if s.tick < t.at(slot).runUntil {
+			return true
+		}
+	}
+	return false
+}
+
+// flagged reports whether side's slot was in an offside position when his
+// side last played the ball.
+func (s *session) flagged(side, slot int) bool {
+	return side == s.ball.offsideSide && s.ball.offside&(1<<slot) != 0
+}
+
+// caughtOffside gives the opponents a free kick where side's slot reached
+// the ball.
+func (s *session) caughtOffside(side, slot int) {
+	s.stats.offsides[side]++
+	s.setRestart(restartFreeKick, 1-side, clampPitch(s.teams[side].at(slot).pos))
 }
 
 // spread draws an offset in [-n, n].
@@ -434,6 +547,10 @@ func (s *session) shoot(side, slot int) {
 
 func (s *session) kick(side, slot int, aim vec, speed, decel int64) {
 	p := s.teams[side].at(slot)
+	s.ball.offside, s.ball.offsideSide = 0, side
+	if k := s.restart.kind; !s.ball.setPiece || k == restartKickoff || k == restartFreeKick {
+		s.ball.offside = s.offsidePositions(side, slot)
+	}
 	s.ball.carried, s.ball.shot, s.ball.setPiece = false, false, false
 	s.ball.side, s.ball.slot, s.ball.passTo = side, slot, -1
 	s.ball.vel = aim.sub(p.pos).withLength(speed)
@@ -479,6 +596,7 @@ func (s *session) challenge() {
 		}
 		s.ball.carried, s.ball.shot, s.ball.passTo = false, false, -1
 		s.ball.vel, s.ball.decel = dir.withLength(40+s.draw(60)), s.p.GroundDecel
+		s.ball.offside, s.ball.offsideSide = s.offsidePositions(def, slot), def
 		d.busy = s.tick + s.p.KickTicks
 		s.touch(def, slot)
 		return
@@ -561,6 +679,9 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 			if d2 > reach*reach || t > cross {
 				continue
 			}
+			if s.flagged(side, slot) && (side != s.lastSide || slot != s.ball.passTo) {
+				continue // offside, he leaves it
+			}
 			d := isqrt(d2)
 			c := candidate{t: t, d: d, order: s.draw(ppm), side: side, slot: slot, hands: hands}
 			k := n
@@ -573,6 +694,10 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 	}
 	speed := s.ball.vel.norm()
 	for _, c := range cands[:n] {
+		if s.flagged(c.side, c.slot) {
+			s.caughtOffside(c.side, c.slot)
+			return
+		}
 		p := s.teams[c.side].at(c.slot)
 		reach := s.p.ControlRadius
 		var chance int64
@@ -650,9 +775,13 @@ func (s *session) saved(keeper int) {
 }
 
 // deflect sends the ball off a player's touch at contact.
+// A team-mate's touch is a new play for offside; an opponent's is not.
 func (s *session) deflect(c candidate, contact, vel vec) {
 	s.ball.pos, s.ball.vel = contact, vel
 	s.ball.shot, s.ball.passTo, s.ball.decel = false, -1, s.p.GroundDecel
+	if c.side == s.ball.offsideSide {
+		s.ball.offside = s.offsidePositions(c.side, c.slot)
+	}
 	s.touch(c.side, c.slot)
 }
 

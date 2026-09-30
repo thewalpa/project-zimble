@@ -346,12 +346,14 @@ type MatchView struct {
 // scores or the goalkeeper saves it; a save is the goalkeeper stopping a
 // shot on target (a shot blocked by an outfield player is neither). A pass
 // is completed when a team-mate controls it. Tackles are challenges that
-// take the ball off the carrier. PossessionPermille is the side's share of
-// the time a player had the ball under control.
+// take the ball off the carrier. Offsides are the times one of the side's
+// players was caught offside. PossessionPermille is the side's share of the
+// time a player had the ball under control.
 type TeamStats struct {
 	Shots, ShotsOnTarget    uint16
 	Passes, PassesCompleted uint16
 	Tackles, Saves          uint16
+	Offsides                uint16
 	PossessionPermille      uint16
 }
 

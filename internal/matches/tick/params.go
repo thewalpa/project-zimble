@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 5
+const ModelVersion uint32 = 6
 
 // The clock: a tick is one simulated instant.
 const (
@@ -54,12 +54,21 @@ const (
 //     (deeper out of possession) and an even share of the width among his
 //     line. The block follows the ball along the pitch (Shift) and across
 //     it (Lateral). Players in possession drift around their spots, a new
-//     offset of up to Drift every DriftTicks or so, and stay level with the
-//     last opponent defender or the ball, whichever is further.
+//     offset of up to Drift every DriftTicks or so, and stop level with
+//     the offside line: the second-last opponent, keeper included, unless
+//     the ball or the halfway line is further.
+//   - Runs in behind: while a team-mate has the ball, a forward may start
+//     a run (RunPPM per tick, by mentality) to RunDepth behind the
+//     opponents' line for RunTicks, and the carrier then looks to pass far
+//     more often (RunPassPPM). Out of possession, while an opponent has the
+//     ball, a defender drops at most LineHold behind his spot to follow a
+//     runner: the back line holds, and a run that beats it is either
+//     onside, through on goal, or caught offside.
 //   - Mentality moves the lines: attacking pushes both higher, so a side
 //     makes more chances and leaves more room behind; defensive drops both
 //     and so makes and allows fewer. Out of possession the line moves
-//     further than in possession.
+//     further than in possession, and a deeper back line catches fewer
+//     opponents offside.
 //   - Marking: out of possession, defenders and opponents within
 //     MarkRadius of the defender's spot pair up nearest first. A defender
 //     stands goal-side of a man within TightMarkRadius of his spot, and
@@ -77,11 +86,16 @@ const (
 //     Sprint speed grows with contest Pace.
 //   - The carrier shoots more often the nearer he is to goal, passes more
 //     often under pressure, and otherwise dribbles at goal. A pass goes to
-//     the teammate with the best mix of progress and space (with noise); it
-//     misses its aim by up to PassError of its length, less with Passing.
-//     A pass is struck to arrive at PassArrivalSpeed. A shot aims inside
-//     the posts and misses its aim by up to ShotError of its length, less
-//     with Finishing.
+//     the teammate with the best mix of progress and space (with noise),
+//     either to his feet or, as a through ball, ThroughBallLead ahead of him
+//     into the space behind the opponents' line, for him to run onto when
+//     he would beat the nearest opponent there (a runner already sprinting
+//     has a RunStart head start). The passer commits before he strikes the
+//     ball, so he overlooks a team-mate offside by up to OffsideVision. A
+//     pass misses its aim by up to PassError of its length, less with
+//     Passing, and is struck to arrive at PassArrivalSpeed. A shot aims
+//     inside the posts and misses its aim by up to ShotError of its length,
+//     less with Finishing.
 //   - A loose ball slows by a constant deceleration each tick, faster on
 //     the ground than in the air (shots). Any player within reach of
 //     its path may try to control it, the first along the path first; the
@@ -92,6 +106,12 @@ const (
 //     on a ball at the same instant contest it evenly.
 //   - A defender within TackleRadius of the carrier may tackle: Defending
 //     against the carrier's Dribbling.
+//   - Offside: when a player passes or shoots, his team-mates beyond the
+//     offside line are in an offside position. The intended receiver among
+//     them is caught offside when he reaches the ball, and the others leave
+//     it alone, until the next play by their side or possession by anyone;
+//     a throw-in, corner or goal kick puts nobody offside. The opponents
+//     take a free kick where he reached it.
 //   - The ball leaving the pitch gives a throw-in, corner or goal kick; a
 //     goal gives a kickoff. Set pieces are taken by a pass.
 //
@@ -120,6 +140,16 @@ type Params struct {
 	MarkRadius, TightMarkRadius, MarkDistance  int64
 	KeeperDepth                                int64
 	KeeperTrackPermille                        int64
+
+	// Runs in behind, through balls and offside.
+	RunPPM          [4]int64 // a forward starts a run, per tick, by mentality
+	RunTicks        uint32   // a run's length
+	RunDepth        int64    // how far behind the opponents' line a run aims
+	RunPassPPM      int64    // the carrier's chance to pass, per tick, during a run
+	RunStart        int64    // a runner's head start in the race for a through ball
+	LineHold        int64    // defenders follow a runner at most this far behind their spots
+	ThroughBallLead int64    // a through ball's aim ahead of its receiver
+	OffsideVision   int64    // a passer overlooks an offside by up to this
 
 	// The ball.
 	GroundDecel, AirDecel int64 // cm/tick lost per tick
@@ -185,10 +215,10 @@ func DefaultParams() Params {
 		SprintDistance:  1200,
 
 		//                 -, GK, DF, MF, FW
-		DefendDepth: [5]int64{0, 0, 1840, 3440, 4640},
+		DefendDepth: [5]int64{0, 0, 2400, 3440, 4640},
 		AttackDepth: [5]int64{0, 0, 3770, 5770, 7670},
 		//                              -, def, bal, att
-		MentalityDefendDepth: [4]int64{0, -80, 0, 100},
+		MentalityDefendDepth: [4]int64{0, -300, 0, 100},
 		MentalityAttackDepth: [4]int64{0, -40, 0, 30},
 		ShiftPermille:        450,
 		LateralPermille:      300,
@@ -200,6 +230,15 @@ func DefaultParams() Params {
 		DriftTicks:           5 * TicksPerSecond,
 		KeeperDepth:          300,
 		KeeperTrackPermille:  150,
+
+		RunPPM:          [4]int64{0, 6_000, 8_000, 12_000},
+		RunTicks:        3 * TicksPerSecond,
+		RunDepth:        800,
+		RunPassPPM:      300_000,
+		RunStart:        500,
+		LineHold:        300,
+		ThroughBallLead: 800,
+		OffsideVision:   200,
 
 		GroundDecel:  4, // 1 m/s²
 		AirDecel:     2,
@@ -270,7 +309,7 @@ func (p Params) Validate() error {
 	bad := func(what string) error { return fmt.Errorf("tick: invalid params: %s", what) }
 	probs := []int64{
 		p.ControlPPM, p.ControlSkillPPM, p.SavePPM, p.SaveSkillPPM, p.MinControlPPM, p.MaxControlPPM, p.ParryPPM, p.DeflectPPM,
-		p.PassPPM, p.PressuredPassPPM, p.ShotPPM, p.TackleAttemptPPM, p.TacklePPM, p.WinBallPPM,
+		p.PassPPM, p.PressuredPassPPM, p.ShotPPM, p.TackleAttemptPPM, p.TacklePPM, p.WinBallPPM, p.RunPassPPM,
 	}
 	for _, v := range probs {
 		if v < 0 || v > ppm {
@@ -308,6 +347,10 @@ func (p Params) Validate() error {
 		return bad("kick errors")
 	case p.DriftDepth < 0 || p.DriftWidth < 0 || p.DriftTicks == 0:
 		return bad("drift")
+	case p.OffsideVision < 0 || p.OffsideVision > matches.PitchLength/4 || p.LineHold < 0 || p.RunStart < 0 || p.RunTicks == 0:
+		return bad("offside and runs")
+	case p.ThroughBallLead < 0 || p.ThroughBallLead > p.MaxPass || p.RunDepth < 0 || p.RunDepth > matches.PitchLength/4:
+		return bad("runs in behind")
 	case p.MarkDistance < 0 || p.TightMarkRadius < 0 || p.MarkRadius <= p.TightMarkRadius:
 		return bad("marking")
 	case p.TackleRadius <= 0 || p.RestartDistance < 0 || p.RestartTimeoutTicks == 0 || p.KickTicks == 0:
@@ -325,7 +368,7 @@ func (p Params) Validate() error {
 	}
 	for m := matches.Defensive; m <= matches.Attacking; m++ {
 		if p.ProgressPermille[m] < 0 || p.MentalityShotPermille[m] <= 0 || p.MentalityShotPermille[m] > 4*permille ||
-			p.Pressers[m] < 0 || p.Pressers[m] > matches.StartersPerTeam-1 {
+			p.Pressers[m] < 0 || p.Pressers[m] > matches.StartersPerTeam-1 || p.RunPPM[m] < 0 || p.RunPPM[m] > ppm {
 			return bad("mentality settings")
 		}
 	}

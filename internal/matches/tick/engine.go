@@ -132,6 +132,8 @@ type player struct {
 	// side has the ball, until driftUntil, when it is drawn again.
 	drift      vec
 	driftUntil uint32
+	// runUntil ends a forward's run in behind.
+	runUntil uint32
 }
 
 type team struct {
@@ -196,6 +198,7 @@ const (
 	restartThrowIn
 	restartCorner
 	restartGoalKick
+	restartFreeKick
 )
 
 // restart is a dead ball waiting for its taker.
@@ -224,12 +227,17 @@ type ball struct {
 	free         uint32 // no control before this tick
 	setPiece     bool   // the carrier must pass: a restart was just taken
 	setPieceFrom uint32
+	// offside holds the slots of side offsideSide that were in an offside
+	// position when a team-mate last played the ball, until the next play
+	// by that side or possession by anyone.
+	offside     uint16
+	offsideSide int
 }
 
 // stats count what matches.TeamStats reports, per side.
 type stats struct {
-	shots, onTarget, passes, completed, tackles, saves [2]int
-	possession                                         [2]int // ticks with the ball
+	shots, onTarget, passes, completed, tackles, saves, offsides [2]int
+	possession                                                   [2]int // ticks with the ball
 }
 
 func (st *stats) report() matches.MatchStats {
@@ -240,6 +248,7 @@ func (st *stats) report() matches.MatchStats {
 		t.Shots, t.ShotsOnTarget = uint16(st.shots[side]), uint16(st.onTarget[side])
 		t.Passes, t.PassesCompleted = uint16(st.passes[side]), uint16(st.completed[side])
 		t.Tackles, t.Saves = uint16(st.tackles[side]), uint16(st.saves[side])
+		t.Offsides = uint16(st.offsides[side])
 	}
 	if held > 0 {
 		home := (st.possession[0]*permille + held/2) / held
@@ -445,6 +454,9 @@ func (s *session) Apply(cmd matches.MatchCommand) error {
 		t.subs++
 		if t.lastTouch == out {
 			t.lastTouch = -1
+		}
+		if s.ball.offsideSide == cmd.Side.Index() {
+			s.ball.offside &^= 1 << slot // the substitute was not in the play
 		}
 		t.layOut()
 		s.rate(cmd.Side.Index(), in)

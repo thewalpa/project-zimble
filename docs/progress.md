@@ -3134,3 +3134,57 @@ Settles the lane's PAR-09 item from the [AI/player parity audit](ai-manager-pari
 - Filed: [ui--match-stats.md](handoffs/ui--match-stats.md) (statistics in reports and the live match).
 - Filed: [balance--tick-match-stats.md](handoffs/balance--tick-match-stats.md) (compare the levels with real football).
 - Filed: [data--schema-27-match-stats.md](handoffs/data--schema-27-match-stats.md) (the schema bump).
+
+## match: offside in tick (done)
+
+`tick` roadmap phase 4, first rule. Forwards used to stop level with the last outfield defender, so nobody could be offside, and the back line dropped with every forward, so nobody got in behind either. Now forwards make runs in behind, back lines hold, passers play through balls, and a player beyond the line when the ball is played is caught offside. `tick.ModelVersion` is 6 and the save schema is 28 (`TeamStats.Offsides`).
+
+### Changes
+
+- **The law.** When a player passes or shoots, the engine records which team-mates are in an offside position: beyond the second-last opponent (keeper included), the ball and the halfway line. The intended receiver among them is caught offside when he reaches the ball, and the opponents take a free kick (a new restart) where he reached it. The others leave the ball alone. The record lasts until that side plays the ball again (a team-mate's deflection counts) or anyone gains possession; an opponent's deflection or a save does not clear it. A throw-in, corner or goal kick puts nobody offside, but a free kick and a kickoff do. A substitute starts with a clean record.
+- **Runs in behind.** While a team-mate has the ball, each forward may start a run (`RunPPM`, by mentality: 6,000 / 8,000 / 12,000 ppm per tick), sprinting to `RunDepth` (8 m) behind the line for `RunTicks` (3 s). While a run is on, the carrier looks to pass far more often (`RunPassPPM`). Otherwise attackers stop at the offside line rather than at the last outfield defender.
+- **Through balls.** A pass may aim `ThroughBallLead` (8 m) ahead of a team-mate, into the space behind the line, when he would win the race there against the nearest opponent. A runner already sprinting has a `RunStart` (5 m) head start. Passes to feet are scored as before.
+- **The passer's judgement.** A passer commits before he strikes the ball, so he overlooks a team-mate offside by up to `OffsideVision` (2 m) and never picks one who is clearly offside. Nearly every offside comes from a run timed a fraction too early.
+- **The back line holds.** While an opponent has the ball, a defender follows a runner at most `LineHold` (3 m) behind his spot. It follows fully again once the pass is played.
+- **Line depths.** Defenders' out-of-possession depth rises from 18.4 m to 24 m. Defensive mentality now drops it by 3 m (was 0.8 m) and attacking still raises it by 1 m.
+- **Contract.** `matches.TeamStats.Offsides`, counted by `tick`, zero and unavailable from `simple`. The contract suite checks it never falls during a match. `storage.SchemaVersion` 28 with its fixture; the shape differs from 27 only by that field.
+
+### Decisions
+
+- **Why the back line had to move.** With defenders at 18 m and marking forwards goal-side, forwards stood 7.5–12.5 m short of the line and the runs never beat it: the first version of the law produced 0.0 offsides a match. Raising the forwards' line to meet it instead nearly doubled goals (4.7 between equal sides). A higher line that holds, beaten by timed runs, gives realistic offside counts at the old goal level.
+- **The trade-offs of a high line are now in the model.** A high line catches opponents offside and leaves space behind it. The first tuning made it too protective: with its line only 0.8 m lower, a defensive side conceded more than a balanced one, and pushing the attacking line 2 m higher made attacking sides concede less. The larger defensive drop (3 m) and runs that depend on mentality restore the trade-off: attacking scores and concedes more, defensive scores and concedes less.
+- **The passer, not the referee, makes the errors.** Offside calls are exact. `OffsideVision` models the passer's commitment, and it sets the offside rate: at 5 m equal sides were caught 2.1 times a side and a high line caught its opponents 5 times a match; at 2 m it is 1.8 and 4.
+- **The mentality effect is smaller.** Two attacking sides now score 3.27 a match (4.08 at v5) and two defensive ones 1.21 (1.32). Attacking against balanced lifts home wins by 10 points out of 600 matches, within `TestMentalityTradeOff`'s 12-point bound. A high line against runners punishes more realistically than the old extra space did.
+- **No offside events.** An offside shows only in the statistics and as a free kick in the frames. A `MatchEvent` kind can follow if the clients want a line of commentary.
+
+### Results
+
+200 matches per row from `TestModelTrends`, `TestGoalsFollowTheGapNotTheLevel` and `TestMentalityTradeOff` (600 per row), v5 in brackets:
+
+| Match | Goals | Home / draw / away wins | Offsides a side |
+| --- | --- | --- | --- |
+| 60 v 60 | 2.54 (2.46) | 76 / 58 / 66 (76 / 58 / 66) | 1.8 |
+| 40 v 40 | 2.39 (2.61) | 91 / 52 / 57 | 1.9 |
+| 80 v 80 | 2.62 (2.50) | 96 / 45 / 59 | 1.7 |
+| 70 v 50 | 3.18 (3.74) | 161 / 29 / 10 (179 / 16 / 5) | 2.1 v 1.4 |
+| 55 v 65 | 2.56 (2.55) | 43 / 54 / 103 (54 / 44 / 102) | 1.5 v 1.7 |
+| both attacking | 3.27 (4.08) | 92 / 45 / 63 | 4.4 |
+| both defensive | 1.21 (1.32) | 67 / 88 / 45 | 0.1 |
+| attacking v balanced (600) | 2.95 (3.34) | 310 / 129 / 161 | 2.7 v 2.9 |
+| defensive v balanced (600) | 1.85 (1.83) | 243 / 176 / 181 | 1.2 v 0.2 |
+
+Real top divisions average about 2 offsides a side. A deep block rarely catches anyone offside (0.1–0.2 against a defensive side), which is plausible. Shots, passes and tackles barely moved: 11.0 shots a side at 60 v 60, 940 passes at 79 %, 45 tackles. A match costs the same (40–47 ms on 4 cores, before and after).
+
+### Verification
+
+- `TestOffsideLaw` (tick): scripted passes are offside beyond the second-last opponent and from a free kick; they are not when the receiver is level, short of the line, behind the ball, in his own half, or when the pass is a throw-in or corner. The free kick is taken where the receiver reached the ball. Two mutations of the law (level counting as offside, no set-piece exemption) fail it.
+- `TestOffsidePlayerLeavesTheBall` (tick): an offside team-mate on the ball's path lets it run to the receiver, who is caught.
+- `TestModelTrends` (tick): equal sides are caught offside 0.5–4 times a side, attacking sides more than balanced ones and defensive sides less. All the older trend tests hold unchanged.
+- `TestParamsValidation`: bad run rates, an endless run, blind passers, a line that gives way and an out-of-range through ball are rejected. `TestGolden` updated at v6.
+- The contract suite's `Stats` case checks that offsides never fall. `TestMatchStatsValidate` covers the new field. Save fixture `schema-28` written.
+
+### Handoffs
+
+- Updated: [ui--match-stats.md](handoffs/ui--match-stats.md) now lists the offsides row.
+- Filed: [data--schema-28-offsides.md](handoffs/data--schema-28-offsides.md) (the schema bump).
+- Updated: [balance--tick-mentality-delivered.md](handoffs/balance--tick-mentality-delivered.md) asks for the tick tables at v6, and [balance--tick-match-stats.md](handoffs/balance--tick-match-stats.md) adds offsides.

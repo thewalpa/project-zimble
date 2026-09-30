@@ -27,7 +27,7 @@ import (
 
 const (
 	Format        = "project-zimble/save"
-	SchemaVersion = 27
+	SchemaVersion = 28
 )
 
 var (

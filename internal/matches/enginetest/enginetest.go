@@ -850,7 +850,7 @@ func (c contract) stats(t *testing.T) {
 				was := prev.Teams[side]
 				now.PossessionPermille, was.PossessionPermille = 0, 0
 				if now.Shots < was.Shots || now.ShotsOnTarget < was.ShotsOnTarget || now.Passes < was.Passes ||
-					now.PassesCompleted < was.PassesCompleted || now.Tackles < was.Tackles || now.Saves < was.Saves {
+					now.PassesCompleted < was.PassesCompleted || now.Tackles < was.Tackles || now.Saves < was.Saves || now.Offsides < was.Offsides {
 					t.Fatalf("minute %d: %s stats fell from %+v to %+v", dst.Position.Minute, matches.Side(side+1), was, now)
 				}
 			}

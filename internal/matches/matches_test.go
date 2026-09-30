@@ -36,8 +36,8 @@ func TestSideHelpers(t *testing.T) {
 
 func TestMatchStatsValidate(t *testing.T) {
 	good := MatchStats{Available: true, Teams: [2]TeamStats{
-		{Shots: 12, ShotsOnTarget: 5, Passes: 400, PassesCompleted: 320, Tackles: 18, Saves: 2, PossessionPermille: 540},
-		{Shots: 8, ShotsOnTarget: 3, Passes: 350, PassesCompleted: 270, Tackles: 20, Saves: 4, PossessionPermille: 460},
+		{Shots: 12, ShotsOnTarget: 5, Passes: 400, PassesCompleted: 320, Tackles: 18, Saves: 2, Offsides: 3, PossessionPermille: 540},
+		{Shots: 8, ShotsOnTarget: 3, Passes: 350, PassesCompleted: 270, Tackles: 20, Saves: 4, Offsides: 1, PossessionPermille: 460},
 	}}
 	oneSided := good
 	oneSided.Teams[0].PossessionPermille, oneSided.Teams[1].PossessionPermille = 0, 1000
