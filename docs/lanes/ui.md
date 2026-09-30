@@ -34,6 +34,7 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 
 - **Decision overview, next step:** replace the home notes and `status` lines that the agenda now duplicates, and show renewal urgency (positions at risk) once `squad` delivers its [contract-planning view](squad.md#backlog). Show the deadline on the season-review stop when `competitions` delivers it.
 - **Formation View, rest:** the formation is shown for both sides of a report and for other clubs' squads. Left: a live-match view of the formation with substitutions applied, if `match` wants one.
+- **Formation View, overall:** the formation view should show the player overall
 
 ### AI/player rule parity audit
 
