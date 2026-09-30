@@ -195,6 +195,64 @@ func TestPlayingAMatchday(t *testing.T) {
 	contains(t, c.get("/table"), "1 of 14 rounds played")
 }
 
+// Watch live on tick: the match stops at half time with a pitch replay and
+// statistics, takes a substitution, plays on to full time and is confirmed
+// by Play match; the report keeps the statistics.
+func TestLiveMatchInTheBrowser(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 3, engine: "tick", savePath: filepath.Join(t.TempDir(), "c.json")})
+	contains(t, c.post("/continue", nil), "Watch live")
+	page := c.post("/watch", nil)
+	contains(t, page, "Live: Round 1", "Half time · 45'", "Play to full time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
+		"<title>Pieter Haugen</title>", "var frames = [[0,", "<h2>Match statistics</h2>", `<th class="stat">Possession</th>`,
+		"3 substitutions left", "Half time</li>")
+	if n := strings.Count(page, "data-dot="); n != 22 {
+		t.Fatalf("%d players on the pitch view", n)
+	}
+	contains(t, c.get("/lineup"), "Live: Round 1") // changes are substitutions now
+	contains(t, c.get("/"), "Go to the match")
+
+	page = c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"58"}})
+	contains(t, page, "Substitution · Rhys Aldridge on for Pieter Haugen", "2 substitutions left",
+		"<title>Pieter Haugen</title>") // the replay up to half time still shows who played it
+	contains(t, c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"60"}}), "invalid match decision")
+	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}}), "Mentality changed to attacking", "Mentality <b>attacking</b>")
+	contains(t, c.post("/watch", url.Values{"minute": {"30"}}), "invalid command")
+
+	page = c.post("/watch", url.Values{"minute": {"70"}})
+	contains(t, page, "In play · 70'", "play from 45:00 to 70:00", "<title>Rhys Aldridge</title>")
+	page = c.post("/watch", nil)
+	contains(t, page, "Full time · 90'", "Confirm the result")
+	if strings.Contains(page, "Your changes") {
+		t.Fatal("changes offered after full time")
+	}
+	fixture, _ := c.s.pendingFixture()
+	page = c.post("/continue", url.Values{"back": {"/live"}})
+	contains(t, page, "Latest result")
+	if _, live := c.s.w.LiveMatch(); live {
+		t.Fatal("the live match was not confirmed")
+	}
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "<h2>Match statistics</h2>", `<th class="stat">Offsides</th>`)
+}
+
+// On simple a live match has no pitch and no statistics, never zeros.
+func TestLiveMatchWithoutFramesOrStatistics(t *testing.T) {
+	c := career(t)
+	c.post("/continue", nil)
+	fixture, _ := c.s.pendingFixture()
+	page := c.post("/watch", nil)
+	contains(t, page, "Live: Round 1", "Half time · 45'", "Your changes")
+	for _, absent := range []string{"On the pitch", "Match statistics", "var frames"} {
+		if strings.Contains(page, absent) {
+			t.Fatalf("a simple career shows %q", absent)
+		}
+	}
+	c.post("/continue", nil)
+	if strings.Contains(c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Match statistics") {
+		t.Fatal("a simple report shows statistics")
+	}
+	contains(t, c.post("/watch", nil), "no match is waiting")
+}
+
 // lineupForm is the lineup page's form for the suggested lineup with
 // another mentality.
 func lineupForm(c *client, fixture any, mentality string) url.Values {
@@ -543,7 +601,7 @@ func TestSaveSelectorOnStartupAndMultipleSaves(t *testing.T) {
 // off-season and after the player year (with retirements and youth).
 func TestEveryPageRenders(t *testing.T) {
 	c := career(t)
-	pages := []string{"/", "/squad", "/lineup", "/table", "/fixtures", "/free", "/inbox", "/finances", "/report"}
+	pages := []string{"/", "/squad", "/lineup", "/table", "/fixtures", "/free", "/inbox", "/finances", "/report", "/live"}
 	check := func(stage string) {
 		for _, p := range pages {
 			page := c.get(p)

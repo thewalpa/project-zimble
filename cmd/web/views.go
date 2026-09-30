@@ -736,6 +736,10 @@ func slotRank(slot string) matches.Role { return slotRoles[slot] }
 func (s *server) lineup(r *http.Request) (string, any, error) {
 	fixture, hasFixture := s.pendingFixture()
 	planMode := r.URL.Query().Get("plan") == "1" || !hasFixture
+	if _, live := s.w.LiveMatch(); live && !planMode {
+		// The match has kicked off: changes are substitutions now.
+		return s.live(r)
+	}
 	suggest := r.URL.Query().Get("suggest") == "1"
 	var l selection.Lineup
 	var state string
@@ -1038,6 +1042,7 @@ type reportView struct {
 	AwaySelected string
 	Goals        []goalView
 	Events       []eventView
+	Stats        []app.StatLine // none when the engine keeps no statistics
 	Lineups      []*reportPitch // what each side started with, home first
 }
 
@@ -1153,37 +1158,8 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 			}
 			v.Goals = append(v.Goals, goalView{Minute: g.Minute, Team: team, PlayerName: pName})
 		}
-		for _, e := range rep.Events {
-			team := rep.Home.ShortName
-			if e.Side == matches.Away {
-				team = rep.Away.ShortName
-			}
-			playerName := func(id ids.PlayerID) string {
-				name, _ := s.w.PlayerName(id)
-				if name == "" {
-					name = s.name(id)
-				}
-				return name
-			}
-			var text string
-			switch e.Kind {
-			case matches.EventGoal:
-				text = fmt.Sprintf("%s · Goal · %s", team, playerName(e.Player))
-			case matches.EventSubstitution:
-				text = fmt.Sprintf("%s · Substitution · %s on for %s", team, playerName(e.Player), playerName(e.Other))
-			case matches.EventMentalityChange:
-				text = fmt.Sprintf("%s · Mentality changed to %s", team, e.Mentality.String())
-			case matches.EventPeriodEnd:
-				if e.Period == matches.FirstHalf {
-					text = "Half time"
-				} else if e.Period == matches.SecondHalf {
-					text = "Full time"
-				}
-			}
-			if text != "" {
-				v.Events = append(v.Events, eventView{Minute: e.Minute, Text: text})
-			}
-		}
+		v.Events = s.eventViews(rep.Events, rep.Home, rep.Away)
+		v.Stats = app.StatLines(rep.Stats)
 	} else if hasF && f.Played {
 		if f.Home.Club == s.club() || f.Away.Club == s.club() {
 			v.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == s.club())
@@ -1193,6 +1169,43 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 	}
 
 	return "report", v, nil
+}
+
+// eventViews words match events for a timeline, in order.
+func (s *server) eventViews(events []matches.MatchEvent, home, away app.TeamLabel) []eventView {
+	playerName := func(id ids.PlayerID) string {
+		name, _ := s.w.PlayerName(id)
+		if name == "" {
+			name = s.name(id)
+		}
+		return name
+	}
+	var out []eventView
+	for _, e := range events {
+		team := home.ShortName
+		if e.Side == matches.Away {
+			team = away.ShortName
+		}
+		var text string
+		switch e.Kind {
+		case matches.EventGoal:
+			text = fmt.Sprintf("%s · Goal · %s", team, playerName(e.Player))
+		case matches.EventSubstitution:
+			text = fmt.Sprintf("%s · Substitution · %s on for %s", team, playerName(e.Player), playerName(e.Other))
+		case matches.EventMentalityChange:
+			text = fmt.Sprintf("%s · Mentality changed to %s", team, e.Mentality.String())
+		case matches.EventPeriodEnd:
+			if e.Period == matches.FirstHalf {
+				text = "Half time"
+			} else if e.Period == matches.SecondHalf {
+				text = "Full time"
+			}
+		}
+		if text != "" {
+			out = append(out, eventView{Minute: e.Minute, Text: text})
+		}
+	}
+	return out
 }
 
 // pitchOf draws a lineup read-only: starters by line, then the bench.

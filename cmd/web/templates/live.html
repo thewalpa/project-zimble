@@ -1,0 +1,126 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Live: {{$d.Title}}</h1>
+<div class="panel">
+  <p class="muted" style="margin-top:0;">{{$d.State}} · {{$d.Minute}}'</p>
+  <div class="scoreboard">
+    <div class="team home"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
+    <div class="score">{{index $d.Score 0}} - {{index $d.Score 1}}{{if $d.Penalties}} <span class="muted" style="font-size:14px; letter-spacing:0;">{{$d.Penalties}}</span>{{end}}</div>
+    <div class="team"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
+  </div>
+  <div class="actions" style="justify-content:center;">
+    {{if $d.Finished}}
+      <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button class="primary">Confirm the result</button></form>
+    {{else}}
+      <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Play to {{if eq $d.Target 45}}half time{{else}}full time{{end}}</button></form>
+      <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}">
+        <label>to minute <input type="number" name="minute" min="{{$d.Minute}}" max="90" value="{{$d.Target}}" style="width:5em;"></label><button>Play</button>
+      </form>
+      <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button>Finish the match</button></form>
+    {{end}}
+  </div>
+</div>
+
+{{with $d.Pitch}}
+<div class="panel live-pitch">
+  <div class="board-head">
+    <h2>On the pitch</h2>
+    <span class="muted"><span data-clock>{{.To}}</span> · play from {{.From}} to {{.To}}</span>
+  </div>
+  <p class="muted board-hint">{{$d.Home.ClubName}} (<span class="kit home"></span>) attack to the right in the first half and to the left in the second; {{$d.Away.ClubName}} (<span class="kit away"></span>) the other way. The ringed player has the ball.</p>
+  <svg class="field" viewBox="-30 -20 1110 720" role="img" aria-label="Positions at {{.To}}">
+    <rect class="grass" x="-30" y="-20" width="1110" height="720"/>
+    <g class="lines">
+      <rect x="0" y="0" width="1050" height="680"/>
+      <line x1="525" y1="0" x2="525" y2="680"/>
+      <circle cx="525" cy="340" r="91.5"/>
+      <rect x="0" y="138.5" width="165" height="403"/><rect x="885" y="138.5" width="165" height="403"/>
+      <rect x="0" y="248.5" width="55" height="183"/><rect x="995" y="248.5" width="55" height="183"/>
+      <rect x="-20" y="303.4" width="20" height="73.2"/><rect x="1050" y="303.4" width="20" height="73.2"/>
+    </g>
+    {{range $i, $p := .Dots}}
+    <g class="dot{{if .Away}} away{{else}} home{{end}}{{if .Mine}} mine{{end}}" data-dot="{{$i}}" transform="translate({{.X}} {{.Y}})">
+      <title>{{.Name}}</title>
+      <circle class="carrier" r="19"{{if not .Carrier}} style="display:none"{{end}}/>
+      <circle class="body" r="12"/>
+      <text y="-17">{{.Label}}</text>
+    </g>
+    {{end}}
+    <circle class="ball" data-ball r="6" cx="{{index .Ball 0}}" cy="{{index .Ball 1}}"/>
+  </svg>
+  <div class="actions replay-controls" hidden>
+    <button type="button" data-play>Replay</button>
+    <input type="range" data-scrub min="0" max="{{len .Frames}}" value="{{len .Frames}}" aria-label="Replay position" style="flex:1; min-width:120px;">
+    <label>speed <select data-speed><option value="5">×5</option><option value="10" selected>×10</option><option value="30">×30</option><option value="90">×90</option></select></label>
+  </div>
+  <script>
+  (function () {
+    var frames = {{.Frames}};
+    var panel = document.currentScript.parentElement;
+    var dots = panel.querySelectorAll('[data-dot]'), ball = panel.querySelector('[data-ball]');
+    var clock = panel.querySelector('[data-clock]'), scrub = panel.querySelector('[data-scrub]');
+    var play = panel.querySelector('[data-play]'), speed = panel.querySelector('[data-speed]');
+    panel.querySelector('.replay-controls').hidden = false;
+    scrub.max = frames.length - 1; scrub.value = frames.length - 1;
+    var pos = frames.length - 1, running = false, last = 0;
+    function mmss(t) { var s = Math.floor(t); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
+    function draw(p) {
+      var i = Math.min(Math.floor(p), frames.length - 1), j = Math.min(i + 1, frames.length - 1), k = p - i;
+      var a = frames[i], b = frames[j];
+      function at(n) { return a[n] + (b[n] - a[n]) * k; }
+      ball.setAttribute('cx', at(1)); ball.setAttribute('cy', at(2));
+      for (var d = 0; d < dots.length; d++) {
+        dots[d].setAttribute('transform', 'translate(' + at(4 + 2 * d) + ' ' + at(5 + 2 * d) + ')');
+        dots[d].querySelector('.carrier').style.display = a[3] === d ? '' : 'none';
+      }
+      clock.textContent = mmss(at(0));
+    }
+    function tick(now) {
+      if (!running) return;
+      var secs = (now - last) / 1000 * Number(speed.value); last = now;
+      var i = Math.floor(pos), j = Math.min(i + 1, frames.length - 1);
+      var t = frames[i][0] + (frames[j][0] - frames[i][0]) * (pos - i) + secs;
+      while (pos < frames.length - 1 && frames[Math.floor(pos) + 1][0] <= t) pos = Math.floor(pos) + 1;
+      if (pos >= frames.length - 1) { pos = frames.length - 1; running = false; play.textContent = 'Replay'; }
+      else { var a = frames[Math.floor(pos)][0], b = frames[Math.floor(pos) + 1][0]; pos = Math.floor(pos) + (b > a ? (t - a) / (b - a) : 0); }
+      draw(pos); scrub.value = Math.floor(pos);
+      if (running) requestAnimationFrame(tick);
+    }
+    function start() { running = true; play.textContent = 'Pause'; last = performance.now(); requestAnimationFrame(tick); }
+    play.addEventListener('click', function () {
+      if (running) { running = false; play.textContent = 'Play'; return; }
+      if (pos >= frames.length - 1) pos = 0;
+      start();
+    });
+    scrub.addEventListener('input', function () { pos = Number(scrub.value); draw(pos); });
+    if (frames.length > 1) { pos = 0; draw(0); start(); }
+  })();
+  </script>
+</div>
+{{end}}
+
+<div class="grid">
+  {{if not $d.Finished}}
+  <div class="panel">
+    <h2>Your changes</h2>
+    <p class="muted">Mentality <b>{{$d.Mentality}}</b> · {{$d.SubsLeft}} substitutions left</p>
+    <form method="post" action="/decide" class="actions">
+      <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="sub">
+      <label>Off <select name="out">{{range $d.OnPitch}}<option value="{{.Player}}">{{.Role}} {{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
+      <label>On <select name="in">{{range $d.Bench}}<option value="{{.Player}}">{{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
+      <button{{if or (not $d.Bench) (le $d.SubsLeft 0)}} disabled{{end}}>Substitute</button>
+    </form>
+    <form method="post" action="/decide" class="actions">
+      <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="mentality">
+      <label>Mentality <select name="mentality">{{range $d.Mentalities}}<option{{if eq . $d.Mentality}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <button>Change</button>
+    </form>
+  </div>
+  {{end}}
+  {{if $d.Stats}}{{template "statsPanel" $d}}{{end}}
+  <div class="panel">
+    <h2>Match timeline</h2>
+    {{if $d.Events}}<ul class="plain">{{range $d.Events}}<li><b>{{.Minute}}'</b> {{.Text}}</li>{{end}}</ul>{{else}}<p class="muted">Nothing has happened yet.</p>{{end}}
+  </div>
+</div>
+{{end}}

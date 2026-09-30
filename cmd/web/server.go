@@ -29,7 +29,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare"}
+var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live"}
 
 type config struct {
 	seed     random.Seed
@@ -60,6 +60,7 @@ type server struct {
 	notes         []note
 	offers        []recoverOffer // recovery choices for the next page
 	report        *matchReport   // the latest matchday, shown on the home page
+	frameLabels   frameLabels    // who the live match's pitch replay shows
 	pages         map[string]*template.Template
 	mux           *http.ServeMux
 }
@@ -120,7 +121,7 @@ func newServer(cfg config) (*server, error) {
 		view func(*http.Request) (string, any, error)
 	}{
 		{"/squad", s.squad}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup}, {"/history", s.history},
-		{"/report", s.reportPage}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
+		{"/report", s.reportPage}, {"/live", s.live}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
 	}
@@ -128,7 +129,7 @@ func newServer(cfg config) (*server, error) {
 		path string
 		act  func(url.Values) (string, error)
 	}{
-		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
+		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/watch", s.watch}, {"/decide", s.decide}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
 		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save}, {"/recover", s.recoverCareer}, {"/inbox/read", s.readInbox},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
@@ -254,7 +255,7 @@ func (s *server) newCareer(club ids.ClubID, engine string) error {
 	if err != nil {
 		return err
 	}
-	s.w, s.saved, s.report, s.warnedYearEnd = w, false, nil, 0
+	s.w, s.saved, s.report, s.warnedYearEnd, s.frameLabels = w, false, nil, 0, frameLabels{}
 	return nil
 }
 
@@ -356,6 +357,7 @@ func (s *server) adopt(w *app.World, path string) error {
 	s.savedRevision = w.Revision()
 	s.report = nil
 	s.warnedYearEnd = 0
+	s.frameLabels = frameLabels{}
 	return nil
 }
 

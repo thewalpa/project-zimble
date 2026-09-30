@@ -52,6 +52,8 @@
     {{end}}
   </div>
 
+  {{if $d.Stats}}{{template "statsPanel" $d}}{{end}}
+
   {{range $d.Lineups}}{{template "pitchPanel" .}}{{end}}
 
   <div class="actions">

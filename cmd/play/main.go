@@ -322,6 +322,8 @@ func (s *session) loop() {
 			err = s.watch(args)
 		case "sub":
 			err = s.sub(args)
+		case "stats":
+			err = s.liveStats()
 		case "continue", "c":
 			err = s.next()
 		case "season":
@@ -383,6 +385,7 @@ func (s *session) help() {
   reset, assistant      ask the assistant for a suggested lineup
   watch (w) [MIN]       play your match live to MIN (default: half time, then full time)
   sub OUT IN            during your match: substitute player OUT with IN (IDs)
+  stats                 during your match: the match statistics so far
   continue (c)          play the waiting match, or go to your next matchday (while the
                         transfer window is open: to the next transfer news)
   season                play the rest of the season (edited lineup used once)
@@ -1642,6 +1645,7 @@ func (s *session) play() error {
 					}
 				}
 			}
+			s.showStats(m.Home, m.Away, m.Stats)
 		}
 	}
 	s.printf("\nOther results:\n")
@@ -1821,7 +1825,37 @@ func (s *session) watch(args []string) error {
 	default:
 		s.printf("\nwatch to play on, sub/mentality to make changes, continue to finish the match.\n")
 	}
+	if l.View.Stats.Available {
+		s.printf("Type stats for the match statistics so far.\n")
+	}
 	return nil
+}
+
+// liveStats shows the statistics of the live match so far.
+func (s *session) liveStats() error {
+	l, live := s.w.LiveMatch()
+	if !live {
+		return errors.New("your match has not kicked off; statistics are shown during your match and at full time")
+	}
+	if !l.View.Stats.Available {
+		return fmt.Errorf("the %s match engine keeps no match statistics", s.w.MatchEngine().ID)
+	}
+	s.printf("\n%d'", l.Position.Minute)
+	s.showStats(l.Home, l.Away, l.View.Stats)
+	return nil
+}
+
+// showStats prints a match statistics table; nothing when the engine keeps
+// none.
+func (s *session) showStats(home, away app.TeamLabel, stats matches.MatchStats) {
+	rows := app.StatLines(stats)
+	if len(rows) == 0 {
+		return
+	}
+	s.printf("\nStatistics  %11s  %s\n", home.ShortName, away.ShortName)
+	for _, r := range rows {
+		s.printf("  %-10s %11s  %s\n", r.Label, r.Home, r.Away)
+	}
 }
 
 // playerNames maps both sides' selected players to names.

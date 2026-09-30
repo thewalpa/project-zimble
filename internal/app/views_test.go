@@ -150,3 +150,23 @@ func TestAgendaListsExpiringContractsAndBids(t *testing.T) {
 		t.Fatalf("the seller sees its own pending bid: %+v", w.Agenda())
 	}
 }
+
+// Statistics rows: none without statistics, possession adds up to 100 and
+// every row has a label.
+func TestStatLines(t *testing.T) {
+	if rows := StatLines(matches.MatchStats{}); rows != nil {
+		t.Fatalf("unavailable statistics gave rows %v", rows)
+	}
+	s := matches.MatchStats{Available: true, Teams: [2]matches.TeamStats{
+		{Shots: 9, ShotsOnTarget: 4, Passes: 301, PassesCompleted: 250, PossessionPermille: 505},
+		{Shots: 3, ShotsOnTarget: 1, PossessionPermille: 495},
+	}}
+	rows := StatLines(s)
+	if len(rows) != 7 || rows[0] != (StatLine{"Possession", "51%", "49%"}) || rows[3] != (StatLine{"Passes", "301 (83%)", "0"}) {
+		t.Fatalf("rows %v", rows)
+	}
+	kickoff := StatLines(matches.MatchStats{Available: true})
+	if kickoff[0] != (StatLine{"Possession", "0%", "0%"}) {
+		t.Fatalf("possession before anyone had the ball: %v", kickoff[0])
+	}
+}

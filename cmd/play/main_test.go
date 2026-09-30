@@ -257,6 +257,21 @@ func TestWatchLiveWithHalfTimeChanges(t *testing.T) {
 	}
 }
 
+// On tick the live match and the full-time report show statistics; on
+// simple there are none, never zeros.
+func TestMatchStatistics(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3", "-engine", "tick"}, "c", "stats", "watch", "stats", "continue", "q", "q")
+	contains(t, out, "! your match has not kicked off; statistics are shown", "Type stats for the match statistics so far.",
+		"\n45'\nStatistics          QUI  BRK\n  Possession ", "  On target ", "  Passes ", "  Offsides ")
+	full := out[strings.Index(out, "\nFULL TIME  "):]
+	contains(t, full, "\nStatistics          QUI  BRK\n  Possession ")
+	plain := play(t, []string{"-seed", "42", "-club", "3"}, "c", "watch", "stats", "continue", "q", "q")
+	contains(t, plain, "! the simple match engine keeps no match statistics")
+	if strings.Contains(plain, "Statistics ") || strings.Contains(plain, "Type stats") {
+		t.Fatal("a simple career shows statistics")
+	}
+}
+
 func TestLiveMistakes(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"watch", "c", "sub 57 58", "watch", "swap 57 58", "watch 30", "sub 58 57", "sub 41 58", "watch 90", "watch", "sub 57 58", "q", "q")

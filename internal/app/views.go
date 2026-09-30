@@ -351,3 +351,45 @@ func (w *World) Agenda() []AgendaItem {
 	})
 	return out
 }
+
+// StatLine is one row of a match statistics table: a label and the home
+// and away values, formatted for display.
+type StatLine struct {
+	Label      string
+	Home, Away string
+}
+
+// StatLines formats match statistics as table rows, possession first, with
+// the same labels in every client. Possession is shown in whole percent
+// that add up to 100; passes carry their completion rate. Without
+// statistics (Available false) there are no rows: show nothing, never
+// zeros. Read-only.
+func StatLines(s matches.MatchStats) []StatLine {
+	if !s.Available {
+		return nil
+	}
+	h, a := s.Teams[0], s.Teams[1]
+	var possession [2]int
+	if total := int(h.PossessionPermille) + int(a.PossessionPermille); total > 0 {
+		possession[0] = (int(h.PossessionPermille)*100 + total/2) / total
+		possession[1] = 100 - possession[0]
+	}
+	passes := func(t matches.TeamStats) string {
+		if t.Passes == 0 {
+			return "0"
+		}
+		return fmt.Sprintf("%d (%d%%)", t.Passes, (int(t.PassesCompleted)*100+int(t.Passes)/2)/int(t.Passes))
+	}
+	row := func(label string, f func(matches.TeamStats) uint16) StatLine {
+		return StatLine{Label: label, Home: fmt.Sprint(f(h)), Away: fmt.Sprint(f(a))}
+	}
+	return []StatLine{
+		{Label: "Possession", Home: fmt.Sprintf("%d%%", possession[0]), Away: fmt.Sprintf("%d%%", possession[1])},
+		row("Shots", func(t matches.TeamStats) uint16 { return t.Shots }),
+		row("On target", func(t matches.TeamStats) uint16 { return t.ShotsOnTarget }),
+		{Label: "Passes", Home: passes(h), Away: passes(a)},
+		row("Tackles", func(t matches.TeamStats) uint16 { return t.Tackles }),
+		row("Saves", func(t matches.TeamStats) uint16 { return t.Saves }),
+		row("Offsides", func(t matches.TeamStats) uint16 { return t.Offsides }),
+	}
+}
