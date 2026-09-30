@@ -3134,3 +3134,7 @@ Settles the lane's PAR-09 item from the [AI/player parity audit](ai-manager-pari
 - Filed: [ui--match-stats.md](handoffs/ui--match-stats.md) (statistics in reports and the live match).
 - Filed: [balance--tick-match-stats.md](handoffs/balance--tick-match-stats.md) (compare the levels with real football).
 - Filed: [data--schema-27-match-stats.md](handoffs/data--schema-27-match-stats.md) (the schema bump).
+
+## data: review of the engine choice and match statistics (done)
+
+Reviewed `match`'s one-engine-per-career and statistics changes to `world.go`, `save.go` and `boundaries_test.go`. The engine ID and version are pinned in `Versions`; `Restore` builds the saved engine and refuses an unknown one with `ErrIncompatibleSave`; statistics are validated and required exactly when the engine has `DetailedStats`; the new `internal/matches/tick` import in `boundaries_test.go` is allowed for `internal/app` only. No missed snapshot field, event or version. Also fixed `gofmt -l` listing `cmd/simulate/main_test.go` under go1.27 (whitespace only), and asked `match` which facts may count as appearances and goals in `careers` (`match--careers-appearances-goals`).
