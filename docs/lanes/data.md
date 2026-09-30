@@ -30,7 +30,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 **Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
 
-**Next:** recover the previous valid save (see the backlog). The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 25.
+**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 27.
 
 ## Backlog
 
@@ -39,7 +39,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
 
 - **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them. `careers` would read them from events like the spells.
-- **Recover the previous valid save:** retain one verified previous save alongside atomic replacement and expose recovery explicitly to clients. A corrupt or incompatible load must not overwrite either file, and recovery must never silently replace the chosen career. Coordinate naming and the recovery action with `ui`; test interrupted writes and a damaged newest save.
+- **Complete save recovery UI:** deliver the explicit recovery choice in both clients from `ui--save-recovery`.
 
 ### AI/player rule parity audit
 

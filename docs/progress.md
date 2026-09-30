@@ -2991,3 +2991,13 @@ Answers `ui--report-lineups-delivered`.
 ### Verification
 
 - `TestPlayingAMatchday` and `TestGameReportsWhenClickingOnScores` (web) find both sides' lineups and two pitches on a report; `TestOtherTeamSquads` finds the forecast on another club's squad page and none on the user's. `TestEditedLineupIsPlayedAndSaved` (play) expects both clubs' pitches after full time; `TestClubShowsAnotherClubsProbableLineup` covers `club` and its rejections.
+
+
+## data: verified previous save and explicit recovery API (done)
+
+`storage.Save` now retains one prior save at `<path>.previous` when replacing a career. It validates the current file completely before rotating either file, so a damaged or incompatible current save is never overwritten by a normal save. The first save has no previous copy until it is replaced.
+
+`storage.RecoverPrevious(path)` validates that recovery copy and atomically restores it over the selected path. The API is explicit and documented as a player-choice operation; it never runs as part of `Load`. If recovery or an interrupted replacement fails, the current and recovery files remain loadable. No snapshot fields or save schema changed.
+
+- `TestSaveKeepsOneVerifiedPreviousSave`, `TestSaveRefusesDamagedOrIncompatibleCurrentWithoutChangingFiles`, `TestRecoverPreviousAfterNewestSaveIsDamaged`, and `TestFailedCurrentReplacementKeepsCurrentAndPrevious` cover rotation, damaged saves, explicit recovery, and interrupted replacement.
+- `ui--save-recovery` requests the terminal and browser flows that present recovery as an explicit choice.

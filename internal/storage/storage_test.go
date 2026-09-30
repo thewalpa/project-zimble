@@ -242,6 +242,163 @@ func TestFailedSaveKeepsExistingSave(t *testing.T) {
 	}
 }
 
+func TestSaveKeepsOneVerifiedPreviousSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "career.json")
+	old := world(t)
+	if err := Save(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(PreviousPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first save unexpectedly has previous file: %v", err)
+	}
+	newer := world(t)
+	advance(t, newer, 2)
+	if err := Save(path, newer); err != nil {
+		t.Fatal(err)
+	}
+	current, err := Load(path)
+	if err != nil || !reflect.DeepEqual(current.Snapshot(), newer.Snapshot()) {
+		t.Fatalf("current save did not advance: err=%v", err)
+	}
+	previous, err := Load(PreviousPath(path))
+	if err != nil || !reflect.DeepEqual(previous.Snapshot(), old.Snapshot()) {
+		t.Fatalf("previous save was not preserved: err=%v", err)
+	}
+}
+
+func TestSaveRefusesDamagedOrIncompatibleCurrentWithoutChangingFiles(t *testing.T) {
+	for name, current := range map[string][]byte{
+		"damaged":      []byte("not a save"),
+		"incompatible": withPayload(t, Format, SchemaVersion+1, mustJSON(t, world(t).Snapshot())),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "career.json")
+			backup := PreviousPath(path)
+			backupBytes := []byte("keep this file exactly")
+			if err := os.WriteFile(path, current, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(backup, backupBytes, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			beforeCurrent, _ := os.ReadFile(path)
+			beforePrevious, _ := os.ReadFile(backup)
+			if err := Save(path, world(t)); err == nil {
+				t.Fatal("save replaced a damaged or incompatible career")
+			}
+			afterCurrent, _ := os.ReadFile(path)
+			afterPrevious, _ := os.ReadFile(backup)
+			if !bytes.Equal(afterCurrent, beforeCurrent) || !bytes.Equal(afterPrevious, beforePrevious) {
+				t.Fatal("refused save modified one of the career files")
+			}
+		})
+	}
+}
+
+func TestRecoverPreviousExplicitlyRestoresSelectedPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "career.json")
+	old, newer := world(t), world(t)
+	advance(t, newer, 2)
+	if err := Save(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, newer); err != nil {
+		t.Fatal(err)
+	}
+	previousBefore, err := os.ReadFile(PreviousPath(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := RecoverPrevious(path)
+	if err != nil || !reflect.DeepEqual(recovered.Snapshot(), old.Snapshot()) {
+		t.Fatalf("recovery = %v, %v", recovered, err)
+	}
+	current, err := Load(path)
+	if err != nil || !reflect.DeepEqual(current.Snapshot(), old.Snapshot()) {
+		t.Fatalf("recovered selected path = %v, %v", current, err)
+	}
+	previousAfter, err := os.ReadFile(PreviousPath(path))
+	if err != nil || !bytes.Equal(previousAfter, previousBefore) {
+		t.Fatal("recovery changed its source file")
+	}
+}
+
+func TestRecoverPreviousAfterNewestSaveIsDamaged(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "career.json")
+	old, newer := world(t), world(t)
+	advance(t, newer, 2)
+	if err := Save(path, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("truncated newest save"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); !errors.Is(err, ErrMalformedSave) {
+		t.Fatalf("damaged newest save load error = %v", err)
+	}
+	recovered, err := RecoverPrevious(path)
+	if err != nil || !reflect.DeepEqual(recovered.Snapshot(), old.Snapshot()) {
+		t.Fatalf("recovery = %v, %v", recovered, err)
+	}
+	current, err := Load(path)
+	if err != nil || !reflect.DeepEqual(current.Snapshot(), old.Snapshot()) {
+		t.Fatalf("recovered selected path = %v, %v", current, err)
+	}
+}
+
+func TestFailedCurrentReplacementKeepsCurrentAndPrevious(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "career.json")
+	old, newer := world(t), world(t)
+	advance(t, newer, 1)
+	if err := Save(path, old); err != nil {
+		t.Fatal(err)
+	}
+	oldBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("injected target rename interruption")
+	fs := osFS
+	fs.rename = func(oldpath, newpath string) error {
+		if newpath == path {
+			return boom
+		}
+		return osFS.rename(oldpath, newpath)
+	}
+	if err := saveWith(path, newer, fs); !errors.Is(err, boom) {
+		t.Fatalf("save error = %v", err)
+	}
+	for _, savePath := range []string{path, PreviousPath(path)} {
+		got, err := os.ReadFile(savePath)
+		if err != nil || !bytes.Equal(got, oldBytes) {
+			t.Fatalf("%s after interruption differs from original: %v", savePath, err)
+		}
+		if _, err := Load(savePath); err != nil {
+			t.Fatalf("%s is not loadable after interruption: %v", savePath, err)
+		}
+	}
+	if names := dirEntries(t, dir); len(names) != 2 {
+		t.Fatalf("temporary file left behind: %v", names)
+	}
+}
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func TestSaveReplacesExistingFileAndReportsBadPaths(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "career.json")

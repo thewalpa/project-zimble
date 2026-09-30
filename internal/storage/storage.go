@@ -115,7 +115,47 @@ func saveWith(path string, w *app.World, fs fileOps) error {
 	if err != nil {
 		return err
 	}
+	previous, err := os.ReadFile(path)
+	switch {
+	case err == nil:
+		// A replacement may rotate only a save this build can load and
+		// validate. In particular, never turn a damaged or newer save into
+		// the new recovery point and then replace it.
+		if _, err := restoreData(previous); err != nil {
+			return fmt.Errorf("storage: refusing to replace %s: %w", path, err)
+		}
+		if err := writeFileAtomic(PreviousPath(path), previous, fs); err != nil {
+			return err
+		}
+	case errors.Is(err, os.ErrNotExist):
+		// The first save has no previous version to keep.
+	default:
+		return fmt.Errorf("storage: read existing save %s: %w", path, err)
+	}
 	return writeFileAtomic(path, data, fs)
+}
+
+// PreviousPath returns the path used for the one verified save kept before
+// the current file. It is exposed so clients can explain recovery choices.
+func PreviousPath(path string) string { return path + ".previous" }
+
+// RecoverPrevious explicitly restores the verified previous save over path.
+// Clients must call this only after the player chooses recovery for that path.
+// The recovery file is retained, and the returned world has been validated.
+func RecoverPrevious(path string) (*app.World, error) {
+	previousPath := PreviousPath(path)
+	data, err := os.ReadFile(previousPath)
+	if err != nil {
+		return nil, fmt.Errorf("storage: read previous save %s: %w", previousPath, err)
+	}
+	w, err := restoreData(data)
+	if err != nil {
+		return nil, fmt.Errorf("storage: previous save %s: %w", previousPath, err)
+	}
+	if err := writeFileAtomic(path, data, osFS); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
 
 // Load reads, decodes and restores a world. It returns a world only after
@@ -125,6 +165,10 @@ func Load(path string) (*app.World, error) {
 	if err != nil {
 		return nil, fmt.Errorf("storage: %w", err)
 	}
+	return restoreData(data)
+}
+
+func restoreData(data []byte) (*app.World, error) {
 	snap, err := Decode(data)
 	if err != nil {
 		return nil, err
