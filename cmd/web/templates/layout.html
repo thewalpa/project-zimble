@@ -156,6 +156,7 @@ details.save-details > summary { list-style: none; }
 </header>
 <main>
   {{range .Notes}}<div class="note{{if .Error}} error{{end}}">{{.Text}}</div>{{end}}
+  {{range .Offers}}<div class="note">{{template "recover" .}}</div>{{end}}
   {{template "content" .}}
 </main>
 <script>
@@ -272,3 +273,8 @@ document.addEventListener('DOMContentLoaded', function() {
 </div>
 {{end}}
 {{define "reportChip"}}<div class="chip" title="{{.Name}}{{if .Position}}, {{.Position}}{{end}}"><span class="nm"><a href="/player?id={{.Player}}">{{.Short}}</a></span>{{if .Position}}<span class="meta">{{.Position}}</span>{{end}}</div>{{end}}
+{{define "recover"}}<form method="post" action="/recover">
+  <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/"><input type="hidden" name="file" value="{{.Path}}">
+  <p>Recovering replaces <b>{{.Name}}</b> with the previous save (<b>{{.Previous}}</b>) and loads it.{{if .Unsaved}} The career you have open has unsaved changes that will be lost.{{end}} Nothing changes unless you choose it.</p>
+  <button>Replace {{.Name}} with the previous save</button>
+</form>{{end}}

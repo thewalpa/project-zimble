@@ -63,6 +63,8 @@
   <div class="panel">
     <h2>Saved career</h2>
     <p class="muted">Active file: <b>{{$d.SaveName}}</b></p>
+    {{with $d.Damaged}}<div class="note error">{{.Name}} cannot be loaded ({{.Damaged}}), so Save is refused and the file is kept as it is.</div>
+    <div class="note">{{template "recover" .Recover}}</div>{{end}}
     <div class="actions">
       <form class="inline" method="post" action="/save">
         <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/">
@@ -83,6 +85,9 @@
       <ul class="plain">
         {{range $d.OtherSaves}}
         <li style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          {{if .Recover}}
+          <div><b>{{.Name}}</b><br><span class="muted">Cannot be loaded: {{.Damaged}}</span>{{template "recover" .Recover}}</div>
+          {{else}}
           <div>
             <b>{{.Name}}</b><br><span class="muted">{{.Club}} · {{.Date}}</span>
           </div>
@@ -91,6 +96,7 @@
             <input type="hidden" name="file" value="{{.Path}}">
             <button>Load</button>
           </form>
+          {{end}}
         </li>
         {{end}}
       </ul>

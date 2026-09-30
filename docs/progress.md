@@ -3001,3 +3001,17 @@ Answers `ui--report-lineups-delivered`.
 
 - `TestSaveKeepsOneVerifiedPreviousSave`, `TestSaveRefusesDamagedOrIncompatibleCurrentWithoutChangingFiles`, `TestRecoverPreviousAfterNewestSaveIsDamaged`, and `TestFailedCurrentReplacementKeepsCurrentAndPrevious` cover rotation, damaged saves, explicit recovery, and interrupted replacement.
 - `ui--save-recovery` requests the terminal and browser flows that present recovery as an explicit choice.
+
+## ui: explicit recovery of a previous save in both clients (done)
+
+Answers `ui--save-recovery`. Recovery is never automatic: every path to `storage.RecoverPrevious` starts with the player choosing it, and a client only offers it for a save that cannot be loaded (or, in the terminal, one named in `recover`) and has a `.previous` beside it.
+
+- **Terminal.** `-load FILE` that fails while a previous save exists prints the error, says recovery replaces FILE with it, and asks `yes/no` (anything else, or end of input, declines and returns the original load error with both files untouched). In a session, a `save` refused because the selected file is damaged says the file was not changed and the game was not saved, and points to `recover`. `recover [FILE] [yes]` explains what it would do and changes nothing until confirmed with `yes`; confirming loads the previous career in place of the open one (unsaved progress is named as lost) and the selected path becomes the save file.
+- **Web.** The chooser lists a save that cannot be loaded but has a previous one as "Cannot be loaded: <reason>" with a recover button, and `-load` of such a file now starts on the chooser with the error instead of exiting. On a career's home page the active file in that state shows a warning and the button, and other damaged saves list it beside "Load". A failed Load or refused Save also shows the choice as a note on the next page. The form (`POST /recover`) states the two files and that nothing changes unless chosen, and warns when the open career has unsaved changes. Not choosing it is just browsing on.
+- A failed recovery (previous save damaged too) reports "no file was changed"; `storage` guarantees that. `resolveSave` (web) now also accepts files inside the saves directory when it is given as an absolute path, which the Load button already needed.
+- `cmd/simulate` is a headless one-shot with no prompt; it is unchanged and still reports the load error.
+
+### Verification
+
+- `cmd/play/recover_test.go`: declining (no, blank, other, end of input) leaves both files unchanged and returns the load error; choosing yes loads the previous career and restores the selected path with the previous file retained; a damaged previous save fails with both files unchanged; a refused save offers `recover`, which changes nothing until `yes`.
+- `cmd/web/recover_test.go`: the same four cases over HTTP, plus the offer on failed Load and refused Save and the persistent choice on the home page.

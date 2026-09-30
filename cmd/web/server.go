@@ -56,7 +56,8 @@ type server struct {
 	savedRevision app.Revision // ...at this revision
 	warnedYearEnd sim.GameInstant
 	notes         []note
-	report        *matchReport // the latest matchday, shown on the home page
+	offers        []recoverOffer // recovery choices for the next page
+	report        *matchReport   // the latest matchday, shown on the home page
 	pages         map[string]*template.Template
 	mux           *http.ServeMux
 }
@@ -91,7 +92,14 @@ func newServer(cfg config) (*server, error) {
 	case cfg.loadPath != "":
 		w, err := storage.Load(cfg.loadPath)
 		if err != nil {
-			return nil, fmt.Errorf("load %s: %w", cfg.loadPath, err)
+			if !previousAvailable(cfg.loadPath) {
+				return nil, fmt.Errorf("load %s: %w", cfg.loadPath, err)
+			}
+			// Start without a career: the chooser lists the file with the
+			// choice to recover its previous save, and changes nothing.
+			s.savePath = cfg.loadPath
+			s.notes = append(s.notes, note{Text: fmt.Sprintf("load %s: %v", cfg.loadPath, err), Error: true})
+			break
 		}
 		if _, ok := w.UserClub(); !ok {
 			return nil, fmt.Errorf("%s has no managed club; start a new career instead", cfg.loadPath)
@@ -119,7 +127,7 @@ func newServer(cfg config) (*server, error) {
 		act  func(url.Values) (string, error)
 	}{
 		{"/new", s.chooseClub}, {"/load", s.loadCareer}, {"/continue", s.next}, {"/season", s.playSeason}, {"/lineup", s.submitLineup},
-		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save}, {"/inbox/read", s.readInbox},
+		{"/renew", s.renew}, {"/release", s.release}, {"/sign", s.sign}, {"/list", s.listPlayer}, {"/bid", s.bid}, {"/answer", s.answer}, {"/save", s.save}, {"/recover", s.recoverCareer}, {"/inbox/read", s.readInbox},
 	} {
 		s.mux.HandleFunc("POST "+a.path, s.action(a.act))
 	}
@@ -139,7 +147,7 @@ func (s *server) page(view func(*http.Request) (string, any, error)) http.Handle
 			return
 		}
 		layout := s.layout(name, data)
-		s.notes = nil // shown now
+		s.notes, s.offers = nil, nil // shown now
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := s.pages[name].Execute(rw, layout); err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
@@ -281,6 +289,10 @@ func (s *server) save(form url.Values) (string, error) {
 		}
 	}
 	if err := storage.Save(targetPath, s.w); err != nil {
+		if o := s.offerFor(targetPath); o != nil {
+			s.offers = append(s.offers, *o)
+			return "", fmt.Errorf("%w; %s was not changed and the game was not saved", err, o.Name)
+		}
 		return "", err
 	}
 	s.savePath = targetPath
@@ -291,37 +303,19 @@ func (s *server) save(form url.Values) (string, error) {
 
 func (s *server) loadCareer(form url.Values) (string, error) {
 	file := strings.TrimSpace(form.Get("file"))
-	if file == "" {
-		return "/", errors.New("no save file specified")
-	}
-	clean := filepath.Clean(file)
-	if strings.Contains(clean, "..") || filepath.IsAbs(clean) {
-		return "/", errors.New("invalid save file path")
-	}
-	targetPath := clean
-	if _, err := os.Stat(targetPath); err != nil {
-		inSaves := filepath.Join(s.savesDir, filepath.Base(clean))
-		if _, err := os.Stat(inSaves); err == nil {
-			targetPath = inSaves
-		} else {
-			return "/", fmt.Errorf("save file %s not found", file)
-		}
+	targetPath, err := s.resolveSave(file, fileExists)
+	if err != nil {
+		return "/", err
 	}
 	w, err := storage.Load(targetPath)
 	if err != nil {
+		s.offerRecovery(targetPath)
 		return "/", fmt.Errorf("load %s: %w", file, err)
 	}
-	club, ok := w.UserClub()
-	if !ok {
-		return "/", fmt.Errorf("%s has no managed club", file)
+	if err := s.adopt(w, targetPath); err != nil {
+		return "/", fmt.Errorf("%s: %w", file, err)
 	}
-	s.w = w
-	s.seed = w.Summary().Seed
-	s.savePath = targetPath
-	s.saved = true
-	s.savedRevision = w.Revision()
-	s.report = nil
-	s.warnedYearEnd = 0
+	club, _ := w.UserClub()
 	clubName := fmt.Sprintf("Club %d", club)
 	for _, cr := range w.Summary().ClubRows {
 		if cr.ID == club {
@@ -331,6 +325,21 @@ func (s *server) loadCareer(form url.Values) (string, error) {
 	}
 	s.say("Loaded %s (%s, %s). Welcome back!", filepath.Base(targetPath), clubName, s.w.Calendar().Format(s.w.Now()))
 	return "/", nil
+}
+
+// adopt makes a loaded career the one being played, saved at path.
+func (s *server) adopt(w *app.World, path string) error {
+	if _, ok := w.UserClub(); !ok {
+		return errors.New("has no managed club")
+	}
+	s.w = w
+	s.seed = w.Summary().Seed
+	s.savePath = path
+	s.saved = true
+	s.savedRevision = w.Revision()
+	s.report = nil
+	s.warnedYearEnd = 0
+	return nil
 }
 
 // --- progression ---------------------------------------------------------------

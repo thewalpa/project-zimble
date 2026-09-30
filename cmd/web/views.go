@@ -49,6 +49,7 @@ type layout struct {
 	Unsaved  bool
 	Pending  bool // a matchday of the club is waiting
 	Notes    []note
+	Offers   []recoverOffer
 	Data     any
 	SaveName string
 	SavesDir string
@@ -59,6 +60,7 @@ func (s *server) layout(page string, data any) layout {
 	l := layout{
 		Page:     page,
 		Notes:    s.notes,
+		Offers:   s.offers,
 		Data:     data,
 		SaveName: filepath.Base(s.savePath),
 		SavesDir: filepath.Clean(s.savesDir),
@@ -275,6 +277,8 @@ type saveInfo struct {
 	Season   string
 	Modified string
 	ModTime  time.Time
+	Damaged  string        // why the file cannot be loaded, when a previous save can replace it
+	Recover  *recoverOffer // the choice to do so
 }
 
 type homeView struct {
@@ -296,6 +300,7 @@ type homeView struct {
 	Inbox       []messageView
 	SaveName    string
 	OtherSaves  []saveInfo
+	Damaged     *saveInfo // the active file, when it cannot be loaded but has a previous save
 }
 
 type chooseClubRow struct {
@@ -405,8 +410,11 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	slices.Reverse(v.Inbox)
 	v.SaveName = filepath.Base(s.savePath)
 	for _, sv := range s.listSaves() {
-		if filepath.Clean(sv.Path) != filepath.Clean(s.savePath) {
+		switch {
+		case filepath.Clean(sv.Path) != filepath.Clean(s.savePath):
 			v.OtherSaves = append(v.OtherSaves, sv)
+		case sv.Recover != nil:
+			v.Damaged = &sv
 		}
 	}
 	return "home", v, nil
@@ -1525,6 +1533,9 @@ func (s *server) listSaves() []saveInfo {
 		}
 		w, err := storage.Load(p)
 		if err != nil {
+			if o := s.offerFor(p); o != nil {
+				saves = append(saves, saveInfo{Name: filepath.Base(p), Path: p, Modified: fi.ModTime().Format("2006-01-02 15:04"), ModTime: fi.ModTime(), Damaged: err.Error(), Recover: o})
+			}
 			continue
 		}
 		clubID, ok := w.UserClub()

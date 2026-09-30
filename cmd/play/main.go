@@ -81,7 +81,12 @@ func run(args []string, in io.Reader, out, errOut io.Writer, newSeed func() (uin
 	if set["load"] {
 		w, err := storage.Load(*load)
 		if err != nil {
-			return fmt.Errorf("load %s: %w", *load, err)
+			if !previousAvailable(*load) {
+				return fmt.Errorf("load %s: %w", *load, err)
+			}
+			if w, err = s.recoverAtStartup(*load, err); err != nil {
+				return err
+			}
 		}
 		if _, ok := w.UserClub(); !ok {
 			return fmt.Errorf("%s has no managed club; start a new career instead", *load)
@@ -313,6 +318,8 @@ func (s *session) loop() {
 			err = s.season()
 		case "save":
 			err = s.save(args)
+		case "recover":
+			err = s.recover(args)
 		case "quit", "exit", "q":
 			if s.unsaved() && !s.quitWarned {
 				s.quitWarned = true
@@ -370,6 +377,7 @@ func (s *session) help() {
                         transfer window is open: to the next transfer news)
   season                play the rest of the season (edited lineup used once)
   save [FILE]           save the career (default: %s)
+  recover [FILE] [yes]  replace a save with the previous one kept beside it and load it
   quit (q)              leave
 `, s.savePath)
 }
@@ -1733,6 +1741,12 @@ func (s *session) save(args []string) error {
 		s.savePath = args[0]
 	}
 	if err := storage.Save(s.savePath, s.w); err != nil {
+		if previousAvailable(s.savePath) {
+			if _, loadErr := storage.Load(s.savePath); loadErr != nil {
+				return fmt.Errorf("%w\n  %s was not changed and the game was not saved.\n  Type recover %s to replace it with the previous save; that loads the previous career in place of this one",
+					err, s.savePath, s.savePath)
+			}
+		}
 		return err
 	}
 	s.saved, s.savedRevision = true, s.w.Revision()
@@ -2254,5 +2268,69 @@ func (s *session) player(args []string) error {
 	}
 	s.printf("Overall:   %d\n", p.Overall)
 	s.printf("%s\n%s\n", attributeHeader, ratings(p.Attributes))
+	return nil
+}
+
+// previousAvailable reports whether storage holds a previous save for path.
+func previousAvailable(path string) bool {
+	fi, err := os.Stat(storage.PreviousPath(path))
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// recoverAtStartup is the choice offered when -load cannot load a save that
+// has a previous one: nothing changes unless the player answers yes.
+func (s *session) recoverAtStartup(path string, loadErr error) (*app.World, error) {
+	s.printf("! load %s: %v\n", path, loadErr)
+	s.printf("%s has a previous save, %s. Recovering replaces %s with it and loads it.\n", path, storage.PreviousPath(path), path)
+	answer, _ := s.prompt("Recover the previous save? (yes/no) ")
+	if a := strings.ToLower(answer); a != "yes" && a != "y" {
+		s.printf("Nothing was changed.\n")
+		return nil, fmt.Errorf("load %s: %w", path, loadErr)
+	}
+	w, err := storage.RecoverPrevious(path)
+	if err != nil {
+		return nil, fmt.Errorf("recover %s: %w; no file was changed", path, err)
+	}
+	s.printf("Recovered %s from %s.\n", path, storage.PreviousPath(path))
+	return w, nil
+}
+
+// recover replaces a save with the previous one kept beside it and plays that
+// career. It changes nothing until the player confirms with yes.
+func (s *session) recover(args []string) error {
+	confirmed := len(args) > 0 && strings.EqualFold(args[len(args)-1], "yes")
+	if confirmed {
+		args = args[:len(args)-1]
+	}
+	if len(args) > 1 {
+		return errors.New("usage: recover [FILE] [yes]")
+	}
+	path := s.savePath
+	if len(args) == 1 {
+		path = args[0]
+	}
+	if !previousAvailable(path) {
+		return fmt.Errorf("%s has no previous save to recover", path)
+	}
+	if !confirmed {
+		s.printf("Recovering replaces %s with the previous save, %s, and loads that career", path, storage.PreviousPath(path))
+		if s.unsaved() {
+			s.printf(" in place of the one you have open, whose unsaved progress is lost")
+		}
+		s.printf(".\nType recover %s yes to do it. Nothing has changed.\n", path)
+		return nil
+	}
+	w, err := storage.RecoverPrevious(path)
+	if err != nil {
+		return fmt.Errorf("recover %s: %w; no file was changed", path, err)
+	}
+	if _, ok := w.UserClub(); !ok {
+		return fmt.Errorf("%s has no managed club", storage.PreviousPath(path))
+	}
+	s.w, s.savePath = w, path
+	s.saved, s.savedRevision = true, w.Revision()
+	s.draft, s.planDraft, s.planMode, s.liveShown, s.quitWarned, s.warnedYearEnd = nil, nil, false, 0, false, 0
+	s.printf("Recovered %s from %s.\n", path, storage.PreviousPath(path))
+	s.welcome()
 	return nil
 }
