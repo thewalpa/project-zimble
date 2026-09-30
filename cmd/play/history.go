@@ -9,20 +9,26 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 )
 
-// history lists every league season and cup edition with its champion, or,
-// given a competition and a season, shows that season's table or bracket.
+// history lists every league season, cup edition and play-off with its
+// champion (a play-off has none), or, given a competition and a season,
+// shows that season's table, bracket or ties.
 func (s *session) history(args []string) error {
 	if len(args) != 0 && len(args) != 2 {
 		return errors.New("usage: history [COMPETITION SEASON]")
 	}
 	records := s.w.History()
 	if len(args) == 0 {
+		names := make([]string, len(records))
 		width := len("NAME")
-		for _, h := range records {
-			width = max(width, len(h.CompetitionName))
+		for i, h := range records {
+			names[i] = h.CompetitionName
+			if title := s.w.PlayoffTitle(h.Season.Competition); title != "" {
+				names[i] = title
+			}
+			width = max(width, len(names[i]))
 		}
 		s.printf("\n%-4s %-*s %6s  %s\n", "COMP", width, "NAME", "SEASON", "CHAMPION")
-		for _, h := range records {
+		for i, h := range records {
 			champion := "in progress"
 			switch {
 			case h.Champion != nil:
@@ -30,10 +36,12 @@ func (s *session) history(args []string) error {
 				if h.Champion.Club == s.club() {
 					champion += " *"
 				}
+			case h.Complete && names[i] != h.CompetitionName:
+				champion = "ties decided"
 			case h.Complete:
 				champion = "none"
 			}
-			s.printf("%-4d %-*s %6d  %s\n", h.Season.Competition, width, h.CompetitionName, h.Season.Season, champion)
+			s.printf("%-4d %-*s %6d  %s\n", h.Season.Competition, width, names[i], h.Season.Season, champion)
 		}
 		s.printf("\nType history COMP SEASON for a season's final table or bracket.\n")
 		return nil
@@ -47,6 +55,10 @@ func (s *session) history(args []string) error {
 	for _, h := range records {
 		if h.Season != ref {
 			continue
+		}
+		if p, ok := s.w.Playoff(ref); ok {
+			s.printPlayoff(p)
+			return nil
 		}
 		if h.Format == competitions.FormatKnockout {
 			if c, ok := s.w.Cup(ref); ok {

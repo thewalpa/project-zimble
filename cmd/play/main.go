@@ -256,6 +256,8 @@ func (s *session) loop() {
 			err = s.tables(args)
 		case "history":
 			err = s.history(args)
+		case "playoffs", "playoff":
+			s.playoffs()
 		case "cup":
 			err = s.cup(args)
 		case "fixtures", "f":
@@ -360,6 +362,7 @@ func (s *session) help() {
   table (t)             the league table
   tables                every league table
   cup                   the Continental Cup: this edition's bracket and results
+  playoffs              the promotion play-offs: this season's ties and results
   history [COMP SEASON] every season's champion; one season's final table or bracket
   fixtures (f)          your club's fixtures and results this season
   inbox (i) [N]         the latest N inbox messages (default 10); * marks unread
@@ -440,8 +443,12 @@ func (s *session) fixtureInfo(id ids.FixtureID) app.FixtureInfo {
 }
 
 // matchName names a fixture's round: "round 3" in the league, "Continental
-// Cup quarter-final" in a cup.
+// Cup quarter-final" in a cup, "Promotion Play-off" in a play-off (one
+// round).
 func matchName(info app.FixtureInfo) string {
+	if info.Playoff {
+		return info.CompetitionName
+	}
 	if info.Cup {
 		return info.CompetitionName + " " + info.RoundName
 	}
@@ -469,6 +476,13 @@ func (s *session) nextFixture() (app.FixtureInfo, bool) {
 	}
 	for _, c := range s.w.Cups() {
 		for _, r := range c.Rounds {
+			for _, f := range r.Ties {
+				consider(f.ID, f.Home.Club, f.Away.Club, f.Played)
+			}
+		}
+	}
+	for _, p := range s.w.Playoffs() {
+		for _, r := range p.Rounds {
 			for _, f := range r.Ties {
 				consider(f.ID, f.Home.Club, f.Away.Club, f.Played)
 			}
@@ -788,30 +802,42 @@ func (s *session) printTable(t app.Table, rows []app.TableRow) {
 	}
 }
 
-// promotionMoves returns each rank's mark in a league table ("up", "down" or
-// "") for the places the promotion links move at the season end, and a legend.
+// promotionMoves returns each rank's mark in a league table (see
+// app.TableMark): "playoff" for a play-off place, "up" or "down" once the
+// play-offs have moved the team; and a legend for the marks the table uses.
 func (s *session) promotionMoves(t app.Table) (mark func(rank int) string, legend string) {
-	up, down := s.w.PromotionPlaces(t.Competition)
-	are := "are"
-	if t.Complete {
-		are = "were"
-	}
-	mark = func(rank int) string {
-		switch {
-		case rank >= 1 && rank <= up:
-			return "up"
-		case down > 0 && rank > len(t.Rows)-down:
-			return "down"
+	ref := competitions.SeasonRef{Competition: t.Competition, Season: t.Season}
+	marks := map[int]string{}
+	used := map[string]bool{}
+	for _, row := range t.Rows {
+		m := ""
+		switch s.w.TableMark(ref, row.Rank) {
+		case app.MarkPlayoffUp, app.MarkPlayoffDown:
+			m = "playoff"
+		case app.MarkPromoted:
+			m = "up"
+		case app.MarkRelegated:
+			m = "down"
 		}
-		return ""
+		marks[row.Rank], used[m] = m, true
+	}
+	up, down := s.w.PromotionPlaces(t.Competition)
+	var lines []string
+	if up > 0 {
+		lines = append(lines, fmt.Sprintf("playoff: the top %d play off for promotion to the division above (type playoffs).", up))
+	}
+	if down > 0 {
+		lines = append(lines, fmt.Sprintf("playoff: the bottom %d play off to stay in this division (type playoffs).", down))
 	}
 	switch {
-	case up > 0:
-		legend = fmt.Sprintf("up: the top %d %s promoted to the division above.", up, are)
-	case down > 0:
-		legend = fmt.Sprintf("down: the bottom %d %s relegated to the division below.", down, are)
+	case used["up"] && used["down"]:
+		lines = append(lines, "up/down: promoted/relegated in the play-offs.")
+	case used["up"]:
+		lines = append(lines, "up: promoted in the play-offs.")
+	case used["down"]:
+		lines = append(lines, "down: relegated in the play-offs.")
 	}
-	return mark, legend
+	return func(rank int) string { return marks[rank] }, strings.Join(lines, "\n")
 }
 
 func (s *session) fixtures(args []string) error {
@@ -978,10 +1004,23 @@ func (s *session) printMessage(m app.InboxItem) {
 	s.printf("%s %s  ", mark, cal.Format(m.At))
 	switch m.Kind {
 	case inbox.KindMatchday:
-		s.printf("matchday: %s v %s (%s)\n", itemMatchName(m), m.OpponentLabel.ClubName, venue)
+		s.printf("matchday: %s v %s (%s)\n", s.itemMatchName(m), m.OpponentLabel.ClubName, venue)
 	case inbox.KindResult:
 		s.printf("result: %d-%d%s v %s (%s)\n", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue)
 	case inbox.KindSeasonEnded:
+		if title := s.w.PlayoffTitle(m.Competition); title != "" {
+			upper, _, _ := s.w.PlayoffDivisions(m.Competition)
+			s.printf("%s season %d decided: each tie's winner plays in %s next season", title, m.Season, upper)
+			if tie, ok := s.playoffTie(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}); ok {
+				if outcome(tie, s.club()) == "W" {
+					s.printf("; you won your tie")
+				} else {
+					s.printf("; you lost your tie")
+				}
+			}
+			s.printf("\n")
+			break
+		}
 		if m.Cup {
 			s.printf("%s %d won by %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 			switch m.Stage {
@@ -996,7 +1035,7 @@ func (s *session) printMessage(m app.InboxItem) {
 		}
 		s.printf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 		if m.Position > 0 {
-			s.printf("; you finished %s", ordinal(m.Position))
+			s.printf("; you finished %s", app.Ordinal(m.Position))
 			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
 			case up:
 				s.printf(": promoted to the division above")
@@ -1006,6 +1045,10 @@ func (s *session) printMessage(m app.InboxItem) {
 		}
 		s.printf("\n")
 	case inbox.KindSeasonStarted:
+		if title := s.w.PlayoffTitle(m.Competition); title != "" {
+			s.printf("%s season %d drawn: kickoff %s (type playoffs)\n", title, m.Season, cal.Format(m.Kickoff))
+			break
+		}
 		if m.Cup {
 			s.printf("%s %d drawn: first kickoff %s (type cup)\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
 			break
@@ -1032,21 +1075,6 @@ func (s *session) printMessage(m app.InboxItem) {
 	default:
 		s.printTransferMessage(m)
 	}
-}
-
-func ordinal(n int) string {
-	suffix := "th"
-	if n%100 < 11 || n%100 > 13 {
-		switch n % 10 {
-		case 1:
-			suffix = "st"
-		case 2:
-			suffix = "nd"
-		case 3:
-			suffix = "rd"
-		}
-	}
-	return strconv.Itoa(n) + suffix
 }
 
 // markInboxRead acknowledges every unread inbox message.
@@ -2124,7 +2152,10 @@ func penalties(p [2]uint16) string {
 }
 
 // itemMatchName names an inbox message's round like matchName.
-func itemMatchName(m app.InboxItem) string {
+func (s *session) itemMatchName(m app.InboxItem) string {
+	if s.w.PlayoffTitle(m.Competition) != "" {
+		return m.CompetitionName
+	}
 	if m.Cup {
 		return m.CompetitionName + " " + m.RoundName
 	}
@@ -2228,6 +2259,60 @@ func (s *session) printEdition(c app.CupEdition, sorted bool, col string, desc b
 			s.printf("\nWinner: %s\n", c.Champion.ClubName)
 		}
 	}
+}
+
+// playoffs prints the latest edition of each promotion play-off.
+func (s *session) playoffs() {
+	editions := s.w.Playoffs()
+	if len(editions) == 0 {
+		s.printf("No play-off has been drawn yet: when the linked leagues' seasons end, their play-off places meet in single matches a week later.\n")
+		return
+	}
+	for _, p := range editions {
+		s.printPlayoff(p)
+	}
+}
+
+// printPlayoff prints a play-off edition's ties and results; it has no
+// winner, since each tie decides two places.
+func (s *session) printPlayoff(p app.PlayoffEdition) {
+	upper, lower, _ := s.w.PlayoffDivisions(p.Competition)
+	s.printf("\n%s season %d\n", s.w.PlayoffTitle(p.Competition), p.Edition)
+	s.printf("Each tie's winner plays in %s next season, its loser in %s. A level match goes to penalties.\n", upper, lower)
+	for _, r := range p.Rounds {
+		state := ""
+		if p.Complete {
+			state = ", decided"
+		}
+		s.printf("\nTies, %s%s\n", s.w.Calendar().Format(r.Kickoff), state)
+		for _, f := range r.Ties {
+			result := "v"
+			if f.Played {
+				result = fmt.Sprintf("%d-%d", f.Score[0], f.Score[1])
+			}
+			mark := "  "
+			if f.Home.Club == s.club() || f.Away.Club == s.club() {
+				mark = "* "
+			}
+			s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, penalties(f.Shootout))
+		}
+	}
+}
+
+// playoffTie is the user club's tie in a play-off edition, once played.
+func (s *session) playoffTie(ref competitions.SeasonRef) (app.FixtureLine, bool) {
+	p, ok := s.w.Playoff(ref)
+	if !ok {
+		return app.FixtureLine{}, false
+	}
+	for _, r := range p.Rounds {
+		for _, f := range r.Ties {
+			if f.Played && (f.Home.Club == s.club() || f.Away.Club == s.club()) {
+				return f, true
+			}
+		}
+	}
+	return app.FixtureLine{}, false
 }
 
 // player prints the profile of any player, at any club, free or retired.

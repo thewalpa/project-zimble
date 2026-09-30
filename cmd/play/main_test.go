@@ -647,13 +647,26 @@ func TestNationalitiesAndAttributes(t *testing.T) {
 // Tables mark the promotion and relegation places; the history's name column
 // fits the longest competition name.
 func TestPromotionMarksAndHistory(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "table", "season", "history", "quit", "quit")
-	contains(t, out, "down: the bottom 2 are relegated to the division below.")
-	if strings.Count(out, "  down\n") < 2 {
-		t.Fatalf("want two relegation places marked:\n%s", out)
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "table", "playoffs", "season", "playoffs", "continue", "table", "playoffs", "history", "history 1000 1", "inbox 60", "quit", "quit")
+	contains(t, out, "playoff: the bottom 2 play off to stay in this division (type playoffs).", "No play-off has been drawn yet")
+	if strings.Count(out, "  playoff\n") < 2 {
+		t.Fatalf("want the play-off places marked:\n%s", out)
 	}
-	contains(t, out, "down: the bottom 2 were relegated to the division below.")
-	contains(t, out, fmt.Sprintf("COMP %-24s SEASON  CHAMPION", "NAME"), "Harbour Second Division")
+	// After the season the ties are drawn; after the play-off matchday they
+	// have decided who moved.
+	contains(t, out, "\nPromotion Play-off (Founders League / Founders Second Division) season 1\n",
+		"Each tie's winner plays in Founders League next season, its loser in Founders Second Division.", ", decided\n",
+		"down: relegated in the play-offs.")
+	if strings.Count(out, "  down\n") < 1 {
+		t.Fatalf("want decided movement marked:\n%s", out)
+	}
+	contains(t, out, fmt.Sprintf("COMP %-63s SEASON  CHAMPION", "NAME"), "Harbour Second Division",
+		"Promotion Play-off (Harbour League / Harbour Second Division)", "ties decided",
+		"Promotion Play-off (Founders League / Founders Second Division) season 1 drawn: kickoff ",
+		"Promotion Play-off (Founders League / Founders Second Division) season 1 decided: each tie's winner plays in Founders League next season\n")
+	if strings.Contains(out, "Promotion Play-off season 1 ended") || strings.Contains(out, "your tie") {
+		t.Fatal("a play-off crowned a champion, or told a club not in it about its tie")
+	}
 }
 
 // Matches hurt players: the inbox and squad say who is out, and the client
@@ -675,7 +688,8 @@ func TestInjuriesInTheTerminal(t *testing.T) {
 // once the play-offs have decided its place.
 func TestSeasonEndSaysMovement(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "20"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
-	contains(t, out, "you finished 2nd: promoted to the division above")
+	contains(t, out, "you finished 2nd: promoted to the division above", "matchday: Promotion Play-off v ",
+		"Founders Second Division) season 1 decided: each tie's winner plays in Founders League next season; you won your tie\n")
 }
 
 // club shows another club's forecast lineup and players, and points the user

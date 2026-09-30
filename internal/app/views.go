@@ -51,6 +51,22 @@ func FormationLabel(l selection.Lineup) string {
 	return fmt.Sprintf("%d-%d-%d", count[matches.Defender], count[matches.Midfielder], count[matches.Forward])
 }
 
+// Ordinal writes a place in a table or ranking: "1st", "2nd", "11th".
+func Ordinal(n int) string {
+	suffix := "th"
+	if n%100 < 11 || n%100 > 13 {
+		switch n % 10 {
+		case 1:
+			suffix = "st"
+		case 2:
+			suffix = "nd"
+		case 3:
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}
+
 // NaturalRole is the role a player of the position plays in: a starter in
 // any other role plays out of position. Read-only.
 func NaturalRole(p players.Position) matches.Role { return roleOf(p) }
@@ -294,6 +310,13 @@ func (w *World) Agenda() []AgendaItem {
 			}
 		}
 	}
+	for _, p := range w.Playoffs() {
+		for _, r := range p.Rounds {
+			for _, f := range r.Ties {
+				consider(f)
+			}
+		}
+	}
 	slices.SortFunc(fixtures, func(a, b FixtureInfo) int {
 		return cmp.Or(cmp.Compare(a.Kickoff, b.Kickoff), cmp.Compare(a.ID, b.ID))
 	})
@@ -304,6 +327,9 @@ func (w *World) Agenda() []AgendaItem {
 			against = info.Home.ClubName + " (away)"
 		}
 		match := fmt.Sprintf("%s %s v %s", info.CompetitionName, info.RoundName, against)
+		if info.Playoff {
+			match = fmt.Sprintf("%s v %s", info.CompetitionName, against) // one round: no round name
+		}
 		switch {
 		case pending[info.ID]:
 			out = append(out, AgendaItem{Kind: AgendaMatchday, At: info.Kickoff, Now: true, Fixture: info.ID,
@@ -392,4 +418,58 @@ func StatLines(s matches.MatchStats) []StatLine {
 		row("Saves", func(t matches.TeamStats) uint16 { return t.Saves }),
 		row("Offsides", func(t matches.TeamStats) uint16 { return t.Offsides }),
 	}
+}
+
+// PlayoffDivisions names the two leagues a promotion play-off decides
+// between: each tie's winner plays in the upper next season, its loser in
+// the lower. ok is false for any other competition. Read-only.
+func (w *World) PlayoffDivisions(comp ids.CompetitionID) (upper, lower string, ok bool) {
+	l, ok := w.playoffLink(comp)
+	if !ok {
+		return "", "", false
+	}
+	return w.competitionName(l.Upper), w.competitionName(l.Lower), true
+}
+
+// PlayoffTitle names a promotion play-off with its divisions, e.g.
+// "Promotion Play-off (Founders League / Founders Second Division)", since
+// every play-off has the same competition name. Empty for any other
+// competition. Read-only.
+func (w *World) PlayoffTitle(comp ids.CompetitionID) string {
+	upper, lower, ok := w.PlayoffDivisions(comp)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%s (%s / %s)", w.competitionName(comp), upper, lower)
+}
+
+// TableMark is what a league place means for the team's next season.
+type TableMark uint8
+
+const (
+	MarkNone        TableMark = 0
+	MarkPlayoffUp   TableMark = 1 // plays off for a place in the division above
+	MarkPlayoffDown TableMark = 2 // plays off to stay in this division
+	MarkPromoted    TableMark = 3 // decided: plays in the division above next season
+	MarkRelegated   TableMark = 4 // decided: plays in the division below next season
+)
+
+// TableMark marks the team finishing a league season at the position:
+// promoted or relegated once the play-offs have decided (SeasonMove), and
+// otherwise a play-off place (InPlayoff) at the top or the bottom of the
+// table, which a place keeps after winning its tie the other way. Read-only.
+func (w *World) TableMark(ref competitions.SeasonRef, position int) TableMark {
+	switch promoted, relegated := w.SeasonMove(ref, position); {
+	case promoted:
+		return MarkPromoted
+	case relegated:
+		return MarkRelegated
+	}
+	if !w.InPlayoff(ref, position) {
+		return MarkNone
+	}
+	if up, _ := w.PromotionPlaces(ref.Competition); position <= up {
+		return MarkPlayoffUp
+	}
+	return MarkPlayoffDown
 }

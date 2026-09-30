@@ -1,0 +1,10 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if not $d}}
+<h1>Promotion play-offs</h1>
+<div class="panel"><p class="muted">No play-off has been drawn yet. When the linked leagues' seasons end, the play-off places of each division meet in single matches a week later: the winners play in the division above next season, the losers in the division below.</p></div>
+{{end}}
+{{range $d}}
+{{template "playoffedition" .}}
+{{end}}
+{{end}}

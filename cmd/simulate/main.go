@@ -268,12 +268,20 @@ func printInbox(out io.Writer, w *app.World, n int) error {
 		case inbox.KindResult:
 			fmt.Fprintf(out, "result: F%d %d-%d v %s (%s)\n", m.Fixture, m.Goals[0], m.Goals[1], m.OpponentLabel.ClubName, venue)
 		case inbox.KindSeasonEnded:
+			if title := w.PlayoffTitle(m.Competition); title != "" {
+				fmt.Fprintf(out, "%s season %d decided\n", title, m.Season) // no champion: each tie decides two places
+				break
+			}
 			fmt.Fprintf(out, "%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 			if m.Position > 0 {
 				fmt.Fprintf(out, "; your position: %d", m.Position)
 			}
 			fmt.Fprintln(out)
 		case inbox.KindSeasonStarted:
+			if title := w.PlayoffTitle(m.Competition); title != "" {
+				fmt.Fprintf(out, "%s season %d drawn: kickoff %s\n", title, m.Season, cal.Format(m.Kickoff))
+				break
+			}
 			fmt.Fprintf(out, "%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
 		case inbox.KindRenewed:
 			fmt.Fprintf(out, "renewed: player %d %s until %s at %s a week\n", m.Player, m.PlayerName, cal.Format(m.Expires), m.WeeklyWage)
@@ -449,7 +457,7 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 			continue
 		}
 		final := p.Rounds[len(p.Rounds)-1].Kickoff + sim.GameInstant(sim.Day)
-		fmt.Fprintf(out, "\n%s %d: playing to %s\n", p.Name, p.Edition, cal.Format(final))
+		fmt.Fprintf(out, "\n%s season %d: playing to %s\n", w.PlayoffTitle(p.Competition), p.Edition, cal.Format(final))
 		for {
 			ok, err := playBatch(out, w, final, mentality)
 			if err != nil {
@@ -519,9 +527,12 @@ func playBatch(out io.Writer, w *app.World, end sim.GameInstant, mentality match
 	for _, r := range resolved.Rounds {
 		if len(resolved.Matches) > 0 {
 			info, _ := w.FixtureInfo(firstFixture(resolved, r))
-			if info.Cup || info.Playoff {
+			switch {
+			case info.Playoff:
+				fmt.Fprintf(out, "\n%s  %s  (competition %d)\n", w.PlayoffTitle(r.Season.Competition), cal.Format(resolved.At), r.Season.Competition)
+			case info.Cup:
 				fmt.Fprintf(out, "\n%s %s  %s  (competition %d)\n", info.CompetitionName, info.RoundName, cal.Format(resolved.At), r.Season.Competition)
-			} else {
+			default:
 				fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)
 			}
 		}
@@ -561,13 +572,15 @@ func printTable(out io.Writer, w *app.World, t app.Table) error {
 	}
 	fmt.Fprintf(out, "\n%s: %s season %d (%d/%d rounds)\n", title, t.CompetitionName, t.Season, t.RoundsCompleted, t.Rounds)
 	fmt.Fprintf(out, "%3s  %-3s  %-22s %3s %3s %3s %3s %4s %4s %4s %4s\n", "POS", "ABB", "CLUB", "P", "W", "D", "L", "GF", "GA", "GD", "PTS")
-	up, down := w.PromotionPlaces(t.Competition)
+	ref := competitions.SeasonRef{Competition: t.Competition, Season: t.Season}
 	for _, r := range t.Rows {
 		move := ""
-		switch {
-		case r.Rank <= up:
+		switch w.TableMark(ref, r.Rank) {
+		case app.MarkPlayoffUp, app.MarkPlayoffDown:
+			move = "  playoff"
+		case app.MarkPromoted:
 			move = "  up"
-		case down > 0 && r.Rank > len(t.Rows)-down:
+		case app.MarkRelegated:
 			move = "  down"
 		}
 		fmt.Fprintf(out, "%3d  %-3s  %-22s %3d %3d %3d %3d %4d %4d %+4d %4d%s\n", r.Rank, r.Label.ShortName, r.Label.ClubName,

@@ -28,3 +28,23 @@
   {{end}}
 </div>
 {{end}}
+{{define "playoffedition"}}
+<h1>{{.Title}} season {{.Edition}}</h1>
+<p class="muted">The boundary places of {{.Upper}} and {{.Lower}} meet in single matches, the lower-placed {{.Upper}} team at home; a level match goes to penalties. Each tie's winner plays in {{.Upper}} next season, its loser in {{.Lower}}.{{if .Mine}} Your club is in it.{{end}}</p>
+<div class="panel">
+  <p class="muted" style="margin-top:0">{{.Ties.When}}{{if .Complete}} · decided{{end}}</p>
+  {{if .Ties.Ties}}
+  <table>
+    <tr><th>Home</th><th class="n">Result</th><th>Away</th></tr>
+    {{range .Ties.Ties}}
+    <tr {{if .Mine}}class="me"{{end}}>
+      <td>{{if .HomeWins}}<b>{{.Home.ClubName}}</b>{{else}}{{.Home.ClubName}}{{end}}</td>
+      <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
+      <td>{{if .AwayWins}}<b>{{.Away.ClubName}}</b>{{else}}{{.Away.ClubName}}{{end}}</td>
+    </tr>
+    {{end}}
+  </table>
+  {{else}}<p class="muted">To be decided.</p>{{end}}
+</div>
+{{end}}
+{{define "tableMark"}}{{if eq . "up"}} <span class="up" title="Promoted">▲</span>{{else if eq . "down"}} <span class="out" title="Relegated">▼</span>{{else if eq . "po-up"}} <span class="up" title="Play-off place: plays off for promotion">△</span>{{else if eq . "po-down"}} <span class="out" title="Play-off place: plays off to stay up">▽</span>{{end}}{{end}}

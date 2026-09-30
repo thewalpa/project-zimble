@@ -171,7 +171,7 @@ func TestSeasonModePlaysEveryRound(t *testing.T) {
 	if rounds != 56 || matchLines != 224+4+7 {
 		t.Fatalf("printed %d rounds and %d matches, want 56 and 235", rounds, matchLines)
 	}
-	for _, want := range []string{"Promotion Play-off round 1  Sat 2025-11-15 15:00 UTC", "Continental Cup quarter-final  Sat 2025-11-22 15:00 UTC", "Continental Cup final  Sat 2025-12-06 15:00 UTC", "Continental Cup 1 winner: "} {
+	for _, want := range []string{"Promotion Play-off (Founders League / Founders Second Division)  Sat 2025-11-15 15:00 UTC", "  playoff\n", "Promotion Play-off (Harbour League / Harbour Second Division) season 1: playing to ", "Continental Cup quarter-final  Sat 2025-11-22 15:00 UTC", "Continental Cup final  Sat 2025-12-06 15:00 UTC", "Continental Cup 1 winner: "} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -490,7 +490,7 @@ func TestSecondSeasonAfterSaveAndLoad(t *testing.T) {
 	// play-offs and the cup added their messages; the champions block and
 	// the play-off, cup and next-season messages remain.
 	if err != nil || !strings.Contains(status, "\nchampion: Founders League season 1: ") ||
-		!strings.Contains(status, "Promotion Play-off season 1 ended: ") ||
+		!strings.Contains(status, "Promotion Play-off (Harbour League / Harbour Second Division) season 1 decided\n") ||
 		!strings.Contains(status, "Continental Cup season 1 ended: champion ") ||
 		!strings.Contains(status, "Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC") ||
 		!strings.Contains(status, "Table: Founders League season 2 (0/14 rounds)") {

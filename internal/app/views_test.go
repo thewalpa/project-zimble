@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -168,5 +169,51 @@ func TestStatLines(t *testing.T) {
 	kickoff := StatLines(matches.MatchStats{Available: true})
 	if kickoff[0] != (StatLine{"Possession", "0%", "0%"}) {
 		t.Fatalf("possession before anyone had the ball: %v", kickoff[0])
+	}
+}
+
+// Table marks: play-off places before the ties, then the decided movement;
+// a play-off place that won its tie the other way keeps its play-off mark.
+// Play-off names carry their divisions.
+func TestTableMarksAndPlayoffNames(t *testing.T) {
+	w := newWorld(t, 42)
+	playLeagues(t, w)
+	count := func() map[TableMark]int {
+		marks := map[TableMark]int{}
+		for _, l := range w.Promotions() {
+			for _, comp := range []ids.CompetitionID{l.Upper, l.Lower} {
+				ref := competitions.SeasonRef{Competition: comp, Season: 1}
+				table, _ := w.Table(ref)
+				for pos := 1; pos <= len(table.Rows); pos++ {
+					m := w.TableMark(ref, pos)
+					if (m != MarkNone) != w.InPlayoff(ref, pos) {
+						t.Fatalf("%s position %d: mark %d outside the play-off places", ref, pos, m)
+					}
+					marks[m]++
+				}
+			}
+		}
+		return marks
+	}
+	places := 0
+	for _, l := range w.Promotions() {
+		places += l.Places
+	}
+	if m := count(); m[MarkPlayoffUp] != places || m[MarkPlayoffDown] != places || m[MarkPromoted]+m[MarkRelegated] != 0 {
+		t.Fatalf("marks before the play-offs: %v", m)
+	}
+	playPlayoffs(t, w)
+	if m := count(); m[MarkPromoted] != m[MarkRelegated] || m[MarkPromoted]+m[MarkPlayoffUp] != places || m[MarkRelegated]+m[MarkPlayoffDown] != places {
+		t.Fatalf("marks after the play-offs: %v", m)
+	}
+
+	for _, p := range w.Playoffs() {
+		upper, lower, ok := w.PlayoffDivisions(p.Competition)
+		if !ok || upper == "" || lower == "" || w.PlayoffTitle(p.Competition) != fmt.Sprintf("%s (%s / %s)", p.Name, upper, lower) {
+			t.Fatalf("play-off %d: divisions %q, %q, %v; title %q", p.Competition, upper, lower, ok, w.PlayoffTitle(p.Competition))
+		}
+	}
+	if _, _, ok := w.PlayoffDivisions(1); ok || w.PlayoffTitle(1) != "" {
+		t.Fatal("a league is named as a play-off")
 	}
 }

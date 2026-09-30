@@ -2,7 +2,7 @@
 {{$d := .Data}}
 {{range $d.Tables}}{{$t := .}}
 <h1>{{.CompetitionName}} season {{.Season}}</h1>
-<p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}{{range .CupPlaces}} · the top {{.Places}} qualify for {{.Name}}{{end}}{{if .Legend}} · {{.Legend}}{{end}}</p>
+<p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}{{range .CupPlaces}} · the top {{.Places}} qualify for {{.Name}}{{end}}{{if .Legend}} · {{.Legend}} (<a href="/playoffs">play-offs</a>){{end}}</p>
 <div class="panel scroll">
 <table>
   <tr>
@@ -19,7 +19,7 @@
   </tr>
   {{range .Marked}}
   <tr {{if eq .Label.Club $d.Club}}class="me"{{end}}>
-    <td class="n">{{.Rank}}</td><td><a href="/squad?club={{.Label.Club}}">{{.Label.ClubName}}</a>{{if eq .Mark "up"}} <span class="up" title="{{if $t.Complete}}Promoted{{else}}Would go up{{end}}">▲</span>{{else if eq .Mark "down"}} <span class="out" title="{{if $t.Complete}}Relegated{{else}}Would go down{{end}}">▼</span>{{end}}</td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
+    <td class="n">{{.Rank}}</td><td><a href="/squad?club={{.Label.Club}}">{{.Label.ClubName}}</a>{{template "tableMark" .Mark}}</td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
     <td class="n">{{.GoalsFor}}</td><td class="n">{{.GoalsAgainst}}</td><td class="n">{{.GoalDifference}}</td><td class="n"><b>{{.Points}}</b></td>
   </tr>
   {{end}}

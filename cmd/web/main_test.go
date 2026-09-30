@@ -1188,7 +1188,9 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Hollowick Town</b>", "← All seasons")
+	contains(t, all, "final table", "▽ the bottom 2 play off to stay up", `title="Relegated"`, "Quarter-finals", "Won by <b>Hollowick Town</b>", "← All seasons",
+		"Promotion Play-off (Founders League / Founders Second Division) season 1</h1>", "Each tie's winner plays in Founders League next season")
+	contains(t, page, "Promotion Play-off (Harbour League / Harbour Second Division)", "ties decided")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
 	if err != nil {
 		t.Fatal(err)
@@ -1353,21 +1355,75 @@ func TestInjuriesInTheBrowser(t *testing.T) {
 	contains(t, c.post("/lineup", form), fmt.Sprintf("player %d is injured", out.Player))
 }
 
-// Tables mark the places that change division: the current table says who
-// would move, a finished season's who did.
+// Tables mark the play-off places until the play-offs decide, then who
+// moved. The play-off has its page, its name on the matchday and in the
+// inbox, and no champion.
 func TestPromotionAndRelegationMarks(t *testing.T) {
 	c := career(t)
 	page := c.get("/table")
-	contains(t, page, "▼ the bottom 2 are relegated", "▲ the top 2 are promoted", "Harbour Second Division")
+	contains(t, page, "▽ the bottom 2 play off to stay up", "△ the top 2 play off for promotion", `(<a href="/playoffs">play-offs</a>)`, "Harbour Second Division")
 	if up, down := strings.Count(page, `class="up"`), strings.Count(page, `class="out"`); up != 4 || down != 4 {
-		t.Fatalf("%d promotion and %d relegation marks in four leagues, want 4 and 4", up, down)
+		t.Fatalf("%d promotion and %d relegation play-off marks in four leagues, want 4 and 4", up, down)
 	}
 	if strings.Count(page, "qualify for Continental Cup") != 2 {
 		t.Fatal("only the first divisions send their top four to the cup")
 	}
+	contains(t, c.get("/playoffs"), "No play-off has been drawn yet")
+
 	c.post("/season", nil)
-	// The finished season's table shows the past tense until season 2 starts.
-	contains(t, c.get("/table"), "▼ the bottom 2 were relegated", "▲ the top 2 were promoted", "final table", `title="Relegated"`, `title="Promoted"`)
+	// The leagues are over, but the play-offs have not decided anything.
+	page = c.get("/table")
+	contains(t, page, "final table", `title="Play-off place: plays off to stay up"`, `title="Play-off place: plays off for promotion"`)
+	if strings.Contains(page, "▲ promoted") || strings.Contains(page, "▼ relegated") {
+		t.Fatal("movement shown before the play-offs")
+	}
+	contains(t, c.get("/playoffs"), "Promotion Play-off (Founders League / Founders Second Division) season 1", `<span class="muted">v</span>`)
+	if strings.Contains(c.get("/playoffs"), "Your club is in it.") {
+		t.Fatal("club 3 finished mid-table but is in a play-off")
+	}
+	c.post("/continue", nil) // other clubs' play-off matchday
+	page = c.get("/table")
+	contains(t, page, "▲ promoted", "▼ relegated", `title="Promoted"`, `title="Relegated"`)
+	contains(t, c.get("/playoffs"), " · decided", `/report?fixture=`)
+	inbox := c.get("/inbox")
+	contains(t, inbox, "Promotion Play-off (Founders League / Founders Second Division) season 1 decided: each tie&#39;s winner plays in Founders League next season.",
+		"Promotion Play-off (Harbour League / Harbour Second Division) season 1 drawn: kickoff ")
+	if strings.Contains(inbox, "your tie") || strings.Contains(inbox, "Promotion Play-off season 1 ended") {
+		t.Fatalf("play-off messages for a club not in it: %q", notesOf(inbox))
+	}
+}
+
+// A club in a play-off place plays its tie: named on the matchday, in the
+// fixtures and the inbox, and told whether it won.
+func TestPlayingAPlayoffTie(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 20, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c.post("/season", nil)
+	contains(t, c.get("/playoffs"), "Your club is in it.")
+	var tie app.FixtureLine
+	for _, p := range c.s.w.Playoffs() {
+		for _, f := range p.Rounds[0].Ties {
+			if f.Home.Club == 20 || f.Away.Club == 20 {
+				tie = f
+			}
+		}
+	}
+	opponent, venue := tie.Home.ClubName, "away"
+	if tie.Home.Club == 20 {
+		opponent, venue = tie.Away.ClubName, "home"
+	}
+	match := fmt.Sprintf("Promotion Play-off v %s (%s)", opponent, venue)
+	contains(t, c.get("/"), "Next match", match)
+	contains(t, c.get("/fixtures"), "Promotion Play-off")
+	contains(t, c.post("/continue", nil), "Matchday: "+match)
+	c.post("/continue", nil) // plays the tie
+	c.post("/continue", nil) // the play-off end decides the movement
+	played, _ := c.s.w.FixtureInfo(tie.ID)
+	result := "you lost your tie."
+	if outcome(played.Score, played.Shootout, tie.Home.Club == 20) == "W" {
+		result = "you won your tie."
+	}
+	contains(t, c.get("/inbox"), "season 1 decided: each tie&#39;s winner plays in Founders League next season; "+result, ", Promotion Play-off\n")
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", tie.ID)), "Promotion Play-off (Founders League / Founders Second Division) season 1")
 }
 
 // The market says which clubs will not sell at their price, and the window's
@@ -1407,5 +1463,5 @@ func TestSeasonEndSaysMovement(t *testing.T) {
 	for range 3 { // the play-off matchday and its match decide the movement
 		c.post("/continue", nil)
 	}
-	contains(t, c.get("/inbox"), "you finished 2: promoted to the division above.")
+	contains(t, c.get("/inbox"), "you finished 2nd: promoted to the division above.")
 }

@@ -106,8 +106,12 @@ func (s *server) seasonDone(sc app.Schedule) bool {
 func (s *server) fixtureInfo(id ids.FixtureID) (app.FixtureInfo, bool) { return s.w.FixtureInfo(id) }
 
 // matchName names a fixture's round for display: "Round 3" in a league,
-// "Continental Cup quarter-final" in a cup.
+// "Continental Cup quarter-final" in a cup, "Promotion Play-off" in a
+// play-off (one round).
 func matchName(info app.FixtureInfo) string {
+	if info.Playoff {
+		return info.CompetitionName
+	}
 	if info.Cup {
 		return info.CompetitionName + " " + info.RoundName
 	}
@@ -394,6 +398,22 @@ func (s *server) home(r *http.Request) (string, any, error) {
 					continue
 				}
 				fv := &fixtureView{Name: c.Name + " " + r.Name, Round: int(r.Round), Opponent: s.opponent(f), When: cal.Format(r.Kickoff), kickoff: r.Kickoff}
+				switch {
+				case r.Status == competitions.RoundAwaitingResults && v.Matchday == nil:
+					v.Matchday = fv
+				case r.Status == competitions.RoundScheduled && (v.Next == nil || r.Kickoff < v.Next.kickoff):
+					v.Next = fv
+				}
+			}
+		}
+	}
+	for _, p := range s.w.Playoffs() {
+		for _, r := range p.Rounds {
+			for _, f := range r.Ties {
+				if f.Home.Club != s.club() && f.Away.Club != s.club() {
+					continue
+				}
+				fv := &fixtureView{Name: p.Name, Round: int(r.Round), Opponent: s.opponent(f), When: cal.Format(r.Kickoff), kickoff: r.Kickoff}
 				switch {
 				case r.Status == competitions.RoundAwaitingResults && v.Matchday == nil:
 					v.Matchday = fv
@@ -864,30 +884,43 @@ type tableView struct {
 	Sort   SortState
 }
 
-// promotionMarks marks the places the promotion links move at the season end
-// ("up" or "down") by rank, and gives a legend for the league.
+// promotionMarks marks each place by what it means for next season (see
+// app.TableMark): "po-up" or "po-down" for a play-off place, "up" or "down"
+// once the play-offs have moved the team. The legend explains the marks the
+// table uses.
 func (s *server) promotionMarks(t app.Table) (mark func(rank int) string, legend string) {
-	up, down := s.w.PromotionPlaces(t.Competition)
-	are := "are"
-	if t.Complete {
-		are = "were"
-	}
-	mark = func(rank int) string {
-		switch {
-		case rank >= 1 && rank <= up:
-			return "up"
-		case down > 0 && rank > len(t.Rows)-down:
-			return "down"
+	ref := competitions.SeasonRef{Competition: t.Competition, Season: t.Season}
+	marks := map[int]string{}
+	used := map[string]bool{}
+	for _, row := range t.Rows {
+		m := ""
+		switch s.w.TableMark(ref, row.Rank) {
+		case app.MarkPlayoffUp:
+			m = "po-up"
+		case app.MarkPlayoffDown:
+			m = "po-down"
+		case app.MarkPromoted:
+			m = "up"
+		case app.MarkRelegated:
+			m = "down"
 		}
-		return ""
+		marks[row.Rank], used[m] = m, true
 	}
-	switch {
-	case up > 0:
-		legend = fmt.Sprintf("▲ the top %d %s promoted", up, are)
-	case down > 0:
-		legend = fmt.Sprintf("▼ the bottom %d %s relegated", down, are)
+	up, down := s.w.PromotionPlaces(t.Competition)
+	var parts []string
+	if up > 0 {
+		parts = append(parts, fmt.Sprintf("△ the top %d play off for promotion", up))
 	}
-	return mark, legend
+	if down > 0 {
+		parts = append(parts, fmt.Sprintf("▽ the bottom %d play off to stay up", down))
+	}
+	if used["up"] {
+		parts = append(parts, "▲ promoted")
+	}
+	if used["down"] {
+		parts = append(parts, "▼ relegated")
+	}
+	return func(rank int) string { return marks[rank] }, strings.Join(parts, " · ")
 }
 
 func (s *server) table(r *http.Request) (string, any, error) {
@@ -998,6 +1031,25 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 				opp, oppClub := s.clubOpponent(f, viewClub)
 				row := fixtureRow{
 					Fixture: f.ID, Name: c.Name + " " + rd.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff),
+					Opponent: opp, OpponentClub: oppClub, Played: f.Played,
+				}
+				if f.Played {
+					row.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
+					row.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
+				}
+				v.Rows = append(v.Rows, row)
+			}
+		}
+	}
+	for _, c := range s.w.Playoffs() {
+		for _, rd := range c.Rounds {
+			for _, f := range rd.Ties {
+				if f.Home.Club != viewClub && f.Away.Club != viewClub {
+					continue
+				}
+				opp, oppClub := s.clubOpponent(f, viewClub)
+				row := fixtureRow{
+					Fixture: f.ID, Name: c.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff),
 					Opponent: opp, OpponentClub: oppClub, Played: f.Played,
 				}
 				if f.Played {
@@ -1123,7 +1175,9 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		v.Away = f.Away
 		v.Played = f.Played
 		v.Score = f.Score
-		if info.Cup {
+		if info.Playoff {
+			v.Context = fmt.Sprintf("%s season %d", s.w.PlayoffTitle(info.Round.Season.Competition), info.Round.Season.Season)
+		} else if info.Cup {
 			v.Context = fmt.Sprintf("%s %d · %s", info.CompetitionName, info.Round.Season.Season, capitalize(info.RoundName))
 		} else {
 			v.Context = fmt.Sprintf("%s season %d · %s", info.CompetitionName, info.Round.Season.Season, capitalize(info.RoundName))
@@ -1287,10 +1341,22 @@ func (s *server) messageText(m app.InboxItem) string {
 	}
 	switch m.Kind {
 	case inbox.KindMatchday:
-		return fmt.Sprintf("Matchday: %s v %s (%s)", itemMatchName(m), m.OpponentLabel.ClubName, venue)
+		return fmt.Sprintf("Matchday: %s v %s (%s)", s.itemMatchName(m), m.OpponentLabel.ClubName, venue)
 	case inbox.KindResult:
-		return fmt.Sprintf("Result: %d-%d%s v %s (%s), %s", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue, itemMatchName(m))
+		return fmt.Sprintf("Result: %d-%d%s v %s (%s), %s", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue, s.itemMatchName(m))
 	case inbox.KindSeasonEnded:
+		if title := s.w.PlayoffTitle(m.Competition); title != "" {
+			upper, _, _ := s.w.PlayoffDivisions(m.Competition)
+			text := fmt.Sprintf("%s season %d decided: each tie's winner plays in %s next season", title, m.Season, upper)
+			if tie, ok := s.playoffTie(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}); ok {
+				if outcome(tie.Score, tie.Shootout, tie.Home.Club == s.club()) == "W" {
+					text += "; you won your tie"
+				} else {
+					text += "; you lost your tie"
+				}
+			}
+			return text + "."
+		}
 		if m.Cup {
 			text := fmt.Sprintf("%s %d won by %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 			switch m.Stage {
@@ -1304,7 +1370,7 @@ func (s *server) messageText(m app.InboxItem) string {
 		}
 		text := fmt.Sprintf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
 		if m.Position > 0 {
-			text += fmt.Sprintf("; you finished %d", m.Position)
+			text += fmt.Sprintf("; you finished %s", app.Ordinal(m.Position))
 			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
 			case up:
 				text += ": promoted to the division above"
@@ -1315,6 +1381,9 @@ func (s *server) messageText(m app.InboxItem) string {
 		}
 		return text
 	case inbox.KindSeasonStarted:
+		if title := s.w.PlayoffTitle(m.Competition); title != "" {
+			return fmt.Sprintf("%s season %d drawn: kickoff %s", title, m.Season, s.w.Calendar().Format(m.Kickoff))
+		}
 		if m.Cup {
 			return fmt.Sprintf("%s %d drawn: first kickoff %s", m.CompetitionName, m.Season, s.w.Calendar().Format(m.Kickoff))
 		}
@@ -1385,7 +1454,10 @@ func (s *server) finances(r *http.Request) (string, any, error) {
 }
 
 // itemMatchName names an inbox message's round like matchName.
-func itemMatchName(m app.InboxItem) string {
+func (s *server) itemMatchName(m app.InboxItem) string {
+	if s.w.PlayoffTitle(m.Competition) != "" {
+		return m.CompetitionName
+	}
 	if m.Cup {
 		return m.CompetitionName + " " + m.RoundName
 	}
@@ -1457,6 +1529,61 @@ func (s *server) cupView(c app.CupEdition, sortState SortState) cupView {
 	return v
 }
 
+// --- promotion play-offs ------------------------------------------------------
+
+type playoffView struct {
+	Title        string // with the divisions
+	Edition      int
+	Upper, Lower string
+	Complete     bool
+	Ties         cupRoundView
+	Mine         bool // the user club plays a tie
+}
+
+// playoffs shows the latest edition of each promotion play-off.
+func (s *server) playoffs(r *http.Request) (string, any, error) {
+	var out []playoffView
+	for _, p := range s.w.Playoffs() {
+		out = append(out, s.playoffView(p))
+	}
+	return "playoffs", out, nil
+}
+
+func (s *server) playoffView(p app.PlayoffEdition) playoffView {
+	v := playoffView{Title: s.w.PlayoffTitle(p.Competition), Edition: int(p.Edition), Complete: p.Complete}
+	v.Upper, v.Lower, _ = s.w.PlayoffDivisions(p.Competition)
+	for _, r := range p.Rounds {
+		v.Ties = cupRoundView{Title: "Ties", When: s.w.Calendar().Format(r.Kickoff)}
+		for _, f := range r.Ties {
+			t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
+			if f.Played {
+				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
+				home := outcome(f.Score, f.Shootout, true) == "W"
+				t.HomeWins, t.AwayWins = home, !home
+			}
+			v.Mine = v.Mine || t.Mine
+			v.Ties.Ties = append(v.Ties.Ties, t)
+		}
+	}
+	return v
+}
+
+// playoffTie is the user club's tie in a play-off edition, once played.
+func (s *server) playoffTie(ref competitions.SeasonRef) (app.FixtureLine, bool) {
+	p, ok := s.w.Playoff(ref)
+	if !ok {
+		return app.FixtureLine{}, false
+	}
+	for _, r := range p.Rounds {
+		for _, f := range r.Ties {
+			if f.Played && (f.Home.Club == s.club() || f.Away.Club == s.club()) {
+				return f, true
+			}
+		}
+	}
+	return app.FixtureLine{}, false
+}
+
 // --- history ---------------------------------------------------------------
 
 type historyRow struct {
@@ -1466,16 +1593,18 @@ type historyRow struct {
 	Complete    bool
 	Champion    *app.TeamLabel
 	Mine        bool // the user club won it
+	Playoff     bool // a promotion play-off: no champion
 }
 
 type historyView struct {
 	Rows []historyRow
 	// Detail is set when one season is chosen: a league's table or a cup's
 	// bracket.
-	Title string
-	Table *leagueTable
-	Cup   *cupView
-	Club  ids.ClubID
+	Title   string
+	Table   *leagueTable
+	Cup     *cupView
+	Playoff *playoffView
+	Club    ids.ClubID
 }
 
 // history lists every league season and cup edition with its champion, and
@@ -1484,6 +1613,9 @@ func (s *server) history(r *http.Request) (string, any, error) {
 	v := historyView{Club: s.club()}
 	for _, h := range s.w.History() {
 		row := historyRow{Competition: h.Season.Competition, Season: int(h.Season.Season), Name: h.CompetitionName, Complete: h.Complete, Champion: h.Champion}
+		if title := s.w.PlayoffTitle(h.Season.Competition); title != "" {
+			row.Name, row.Playoff = title, true
+		}
 		row.Mine = h.Champion != nil && h.Champion.Club == s.club()
 		v.Rows = append(v.Rows, row)
 	}
@@ -1500,7 +1632,10 @@ func (s *server) history(r *http.Request) (string, any, error) {
 			continue
 		}
 		v.Title = fmt.Sprintf("%s season %d", h.CompetitionName, ref.Season)
-		if h.Format == competitions.FormatKnockout {
+		if p, ok := s.w.Playoff(ref); ok {
+			pv := s.playoffView(p)
+			v.Title, v.Playoff = fmt.Sprintf("%s season %d", pv.Title, p.Edition), &pv
+		} else if h.Format == competitions.FormatKnockout {
 			if c, ok := s.w.Cup(ref); ok {
 				cv := s.cupView(c, newSortState(r, "fixture", "asc"))
 				v.Title = fmt.Sprintf("%s %d", c.Name, c.Edition)
