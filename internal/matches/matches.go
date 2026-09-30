@@ -339,6 +339,50 @@ type MatchView struct {
 	Mentality         [2]Mentality
 	SubstitutionsUsed [2]uint8
 	OnPitch           [2][StartersPerTeam]ids.PlayerID // slot order
+	Stats             MatchStats                       // so far
+}
+
+// TeamStats are one side's match statistics. A shot is on target when it
+// scores or the goalkeeper saves it; a save is the goalkeeper stopping a
+// shot on target (a shot blocked by an outfield player is neither). A pass
+// is completed when a team-mate controls it. Tackles are challenges that
+// take the ball off the carrier. PossessionPermille is the side's share of
+// the time a player had the ball under control.
+type TeamStats struct {
+	Shots, ShotsOnTarget    uint16
+	Passes, PassesCompleted uint16
+	Tackles, Saves          uint16
+	PossessionPermille      uint16
+}
+
+// MatchStats are both sides' statistics, indexed by Side.Index(), from an
+// engine with the DetailedStats capability. Without it Available is false
+// and the statistics are unavailable, not zero.
+type MatchStats struct {
+	Available bool
+	Teams     [2]TeamStats
+}
+
+// Validate checks that the statistics are consistent: none without
+// Available; on-target shots within shots, completed passes within passes,
+// saves within the opponents' shots on target, and possession shares that
+// add up to 1000, or are both zero before anyone has had the ball.
+func (s MatchStats) Validate() error {
+	if !s.Available {
+		if s.Teams != [2]TeamStats{} {
+			return fmt.Errorf("%w: statistics %+v marked unavailable", ErrInvalidInput, s.Teams)
+		}
+		return nil
+	}
+	for i, t := range s.Teams {
+		if t.ShotsOnTarget > t.Shots || t.PassesCompleted > t.Passes || t.Saves > s.Teams[1-i].ShotsOnTarget {
+			return fmt.Errorf("%w: %s statistics %+v are inconsistent", ErrInvalidInput, Side(i+1), t)
+		}
+	}
+	if p := int(s.Teams[0].PossessionPermille) + int(s.Teams[1].PossessionPermille); p != 1000 && p != 0 {
+		return fmt.Errorf("%w: possession shares add up to %d permille", ErrInvalidInput, p)
+	}
+	return nil
 }
 
 type ResultStatus uint8
@@ -377,9 +421,10 @@ type Participation struct {
 func (p Participation) Minutes() uint16 { return p.OffMinute - p.OnMinute }
 
 // MatchOutcome is the result. Only a ResultCompleted outcome is a result;
-// score, goals and participants are empty while ResultPending. Goals are in
-// match order; participants are home then away, starters in slot order,
-// then substitutes in the order they came on.
+// score, goals, participants and stats are empty while ResultPending. Goals
+// are in match order; participants are home then away, starters in slot
+// order, then substitutes in the order they came on. The live statistics
+// are in MatchView.
 type MatchOutcome struct {
 	Match         ids.FixtureID
 	Status        ResultStatus
@@ -390,6 +435,7 @@ type MatchOutcome struct {
 	Shootout      [2]uint16 // shootout penalties scored; zero unless Resolution is ResolutionPenalties
 	Goals         []Goal
 	Participants  []Participation
+	Stats         MatchStats
 }
 
 // Winner returns the side that won a completed outcome: by score, else by

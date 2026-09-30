@@ -428,10 +428,8 @@ func (s *session) shoot(side, slot int) {
 	speed := s.p.MinShotSpeed + (s.p.MaxShotSpeed-s.p.MinShotSpeed)*skill/per10k
 	s.kick(side, slot, aim, speed, s.p.AirDecel)
 	s.ball.shot, s.ball.finishing = true, c.eff[effFinishing]
+	s.ball.onGoal = abs64(aim.y-pitchW/2) < postHalf
 	s.stats.shots[side]++
-	if abs64(aim.y-pitchW/2) < postHalf {
-		s.stats.onTarget[side]++
-	}
 }
 
 func (s *session) kick(side, slot int, aim vec, speed, decel int64) {
@@ -601,8 +599,8 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 		}
 		chance = chance * (3*reach - c.d) / (3 * reach)
 		if s.chance(min(max(chance, s.p.MinControlPPM), s.p.MaxControlPPM)) {
-			if s.ball.shot && c.side != s.lastSide {
-				s.stats.saves[c.side]++
+			if c.hands && s.ball.shot && c.side != s.lastSide {
+				s.saved(c.side)
 			}
 			s.gain(c.side, c.slot)
 			return
@@ -615,7 +613,7 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 				continue // beaten
 			}
 			// Parried away from goal.
-			s.stats.saves[c.side]++
+			s.saved(c.side)
 			s.deflect(c, contact, vec{s.goal(c.side).x - contact.x, s.spread(2000)}.withLength(speed/3))
 			return
 		case s.chance(s.p.DeflectPPM):
@@ -640,6 +638,14 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 		// At rest it is anybody's ball.
 		s.ball.vel = vec{}
 		s.ball.shot, s.ball.passTo = false, -1
+	}
+}
+
+// saved counts keeper's side stopping a shot, a save if it was on target.
+func (s *session) saved(keeper int) {
+	if s.ball.onGoal {
+		s.stats.saves[keeper]++
+		s.stats.onTarget[1-keeper]++
 	}
 }
 
@@ -692,6 +698,9 @@ func (s *session) scored(dst *matches.MatchStepResult, side int) {
 	}
 	scorer := t.players[idx].id
 	s.score[side]++
+	if s.ball.shot && s.ball.side == side {
+		s.stats.onTarget[side]++
+	}
 	s.goals = append(s.goals, matches.Goal{Minute: s.minute, Side: matches.Side(side + 1), Scorer: scorer})
 	dst.Events = append(dst.Events, matches.MatchEvent{
 		Seq: s.nextSeq(), Minute: s.minute, Kind: matches.EventGoal, Side: matches.Side(side + 1), Player: scorer,

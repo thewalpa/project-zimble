@@ -3102,3 +3102,35 @@ Settles the lane's PAR-09 item from the [AI/player parity audit](ai-manager-pari
 
 - Filed: [ui--tick-career-and-pitch-view.md](handoffs/ui--tick-career-and-pitch-view.md) (choose the engine for a new career; a pitch view in `cmd/web` from `LiveFrames`).
 - Filed: [balance--tick-career-seasons.md](handoffs/balance--tick-career-seasons.md) (compare careers on `tick` and `simple`).
+
+
+## match: match statistics from tick (done)
+
+`tick` roadmap phase 3. A career on `tick` now has statistics for every match, live and in its report; a `simple` career marks them unavailable. Match results, frames and goldens are unchanged, so no model version moved; the save schema is 27.
+
+### Changes
+
+- **Contract.** `matches.TeamStats` (shots, shots on target, passes, completed passes, tackles, saves, possession in permille) and `matches.MatchStats{Available, Teams [2]TeamStats}`. `MatchView.Stats` holds them so far; `MatchOutcome.Stats` holds the final ones once completed. `MatchStats.Validate` checks consistency: nothing when unavailable, on-target shots within shots, completions within passes, saves within the opponents' shots on target, and possession shares adding up to 1000 (or both zero before anyone has had the ball).
+- **`tick`** advertises `DetailedStats` and reports the counters it already kept for tuning, with two definitions tightened: a shot is on target when it scores or the goalkeeper saves it, and a save is the goalkeeper stopping a shot aimed between the posts. A shot blocked by an outfield player used to count as a save; it is now neither.
+- **`simple`** is unchanged: `Available` false, all zero.
+- **Reports.** `app.MatchReport.Stats` keeps the outcome's statistics; `restoreResolve` and recorded live steps (`restoreStep`) validate them and require them exactly when the career's engine has `DetailedStats`. `storage.SchemaVersion` is 27 with its fixture.
+- **Contract suite.** `CheckOutcome` checks the final statistics; a new `Stats` case checks them after every five-minute step: consistent, never falling (possession aside), absent from a pending outcome, equal in view and outcome at full time, and unavailable without the capability.
+
+### Decisions
+
+- **Unavailable is not zero.** `Available` travels with the numbers into the report, so a client never shows "0 shots" for a `simple` match.
+- **Live statistics sit in the view.** They cost `tick` nothing, and the live match shows the same numbers the report will keep.
+- **Levels, measured on 200 equal-team matches (60 v 60):** 11.8 shots (4.5 on target) for the home side and 10.4 (4.0) away, 3.1 saves a side, 51 % home possession. Passes (about 900 a side, 79 % completed) and tackles (about 49 a side) run roughly twice real football. A 55 v 65 mismatch gives the stronger side 12.6 shots to 9.3 but only 52 % possession. These are tuning questions for `balance`, not contract ones.
+
+### Verification
+
+- `TestMatchStatsValidate` (matches): accepted and rejected statistics.
+- The contract suite's `Stats` case and `CheckOutcome`, for both engines.
+- `TestModelTrends` (tick) now reads the outcome's statistics and checks that a stronger side has more shots on target and more possession.
+- `TestMatchReportStats` (app): live statistics at half time, reports with statistics equal to the live match's final view, the same after a save and load, and none from `simple`. `TestRestoreRejectsInvalidReportStats`: inconsistent, missing or unexpected statistics in a report, and inconsistent statistics in a recorded live view.
+
+### Handoffs
+
+- Filed: [ui--match-stats.md](handoffs/ui--match-stats.md) (statistics in reports and the live match).
+- Filed: [balance--tick-match-stats.md](handoffs/balance--tick-match-stats.md) (compare the levels with real football).
+- Filed: [data--schema-27-match-stats.md](handoffs/data--schema-27-match-stats.md) (the schema bump).

@@ -496,3 +496,78 @@ func TestLiveFramesNeedAnEngineWithFrames(t *testing.T) {
 		t.Fatalf("frames from the simple engine: %v", err)
 	}
 }
+
+// A career on an engine with statistics keeps them in every report and
+// shows them live; the live match's final statistics are the report's. A
+// career on an engine without them marks them unavailable.
+func TestMatchReportStats(t *testing.T) {
+	w := engineWorld(t, 42, "tick")
+	playBatches(t, w, 1)
+	fixture := readyBatch(t, w).UserFixtures[0]
+	half := playTo(t, w, fixture, 45)
+	if err := half.View.Stats.Validate(); err != nil || !half.View.Stats.Available || half.View.Stats.Teams[0].Passes == 0 {
+		t.Fatalf("live stats at half time %+v: %v", half.View.Stats, err)
+	}
+	final := playTo(t, w, fixture, 90)
+	for _, m := range resolveNow(t, w).Matches {
+		if err := m.Stats.Validate(); err != nil || !m.Stats.Available {
+			t.Fatalf("fixture %d stats %+v: %v", m.Fixture, m.Stats, err)
+		}
+		if m.Fixture == fixture && m.Stats != final.View.Stats {
+			t.Fatalf("report stats %+v, the live match ended with %+v", m.Stats, final.View.Stats)
+		}
+	}
+	report, _ := w.MatchReport(fixture)
+	if after, ok := roundTrip(t, w).MatchReport(fixture); !ok || after.Stats != report.Stats {
+		t.Fatal("the report's statistics differ after load")
+	}
+
+	plain, fixture := liveReady(t)
+	if live := playTo(t, plain, fixture, 90); live.View.Stats != (matches.MatchStats{}) {
+		t.Fatalf("simple engine live stats %+v", live.View.Stats)
+	}
+	for _, m := range resolveNow(t, plain).Matches {
+		if m.Stats != (matches.MatchStats{}) {
+			t.Fatalf("simple engine report stats %+v", m.Stats)
+		}
+	}
+}
+
+func TestRestoreRejectsInvalidReportStats(t *testing.T) {
+	build := func(engine string) WorldSnapshot {
+		w := engineWorld(t, 42, engine)
+		playBatches(t, w, 1)
+		return w.Snapshot()
+	}
+	stats := func(s *WorldSnapshot) *matches.MatchStats {
+		return &s.ResolveCommands[len(s.ResolveCommands)-1].Result.Matches[0].Stats
+	}
+	cases := map[string]struct {
+		engine string
+		mutate func(*WorldSnapshot)
+	}{
+		"inconsistent":         {"tick", func(s *WorldSnapshot) { st := stats(s); st.Teams[0].ShotsOnTarget = st.Teams[0].Shots + 1 }},
+		"missing":              {"tick", func(s *WorldSnapshot) { *stats(s) = matches.MatchStats{} }},
+		"from a simple career": {"simple", func(s *WorldSnapshot) { *stats(s) = matches.MatchStats{Available: true} }},
+	}
+	for name, c := range cases {
+		snap := build(c.engine)
+		c.mutate(&snap)
+		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
+			t.Errorf("%s: Restore = %v", name, err)
+		}
+	}
+	if _, err := Restore(build("tick")); err != nil {
+		t.Fatal(err)
+	}
+
+	// A recorded live step's view.
+	w := engineWorld(t, 42, "tick")
+	playBatches(t, w, 1)
+	playTo(t, w, readyBatch(t, w).UserFixtures[0], 30)
+	snap := w.Snapshot()
+	snap.PlayCommands[len(snap.PlayCommands)-1].Result.Live.View.Stats.Teams[1].Saves = 99
+	if _, err := Restore(snap); !errors.Is(err, ErrInvalidSave) {
+		t.Errorf("live view with inconsistent stats: Restore = %v", err)
+	}
+}

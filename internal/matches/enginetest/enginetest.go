@@ -188,7 +188,7 @@ func Outcome(t testing.TB, e matches.Engine, in *matches.MatchInput) matches.Mat
 }
 
 // CheckOutcome verifies the invariants every completed regulation match
-// satisfies: header, event log, score and participation.
+// satisfies: header, event log, score, participation and statistics.
 func CheckOutcome(t testing.TB, e matches.Engine, in *matches.MatchInput, events []matches.MatchEvent, final matches.MatchStepResult) {
 	t.Helper()
 	o := final.Outcome
@@ -202,6 +202,12 @@ func CheckOutcome(t testing.TB, e matches.Engine, in *matches.MatchInput, events
 	}
 	checkEvents(t, events, o.Goals)
 	CheckScoreAndParticipation(t, in, final)
+	if err := o.Stats.Validate(); err != nil || o.Stats.Available != e.Capabilities().DetailedStats || o.Stats != final.View.Stats {
+		t.Fatalf("outcome stats %+v (view %+v): %v", o.Stats, final.View.Stats, err)
+	}
+	if o.Stats.Available && o.Stats.Teams[0].PossessionPermille+o.Stats.Teams[1].PossessionPermille != 1000 {
+		t.Fatalf("nobody had the ball in a whole match: %+v", o.Stats)
+	}
 }
 
 func checkEvents(t testing.TB, events []matches.MatchEvent, goals []matches.Goal) {
@@ -317,6 +323,7 @@ func Contract(t *testing.T, e matches.Engine, cfg Config) {
 		{"Checkpoints", c.checkpoints},
 		{"Knockouts", c.knockouts},
 		{"Frames", c.frames},
+		{"Stats", c.stats},
 	} {
 		t.Run(test.name, test.run)
 	}
@@ -811,5 +818,49 @@ func (c contract) frames(t *testing.T) {
 	plainEvents, plain := Play(t, Start(t, c.e, Input(15, 60, 60)), []uint16{1, 45, 46, 90}, nil)
 	if !reflect.DeepEqual(events, plainEvents) || !reflect.DeepEqual(dst.Outcome, plain.Outcome) {
 		t.Fatal("asking for frames changed the match")
+	}
+}
+
+// Statistics are consistent after every step, only grow (possession aside),
+// stay in the view while the outcome is pending, and are unavailable
+// without the DetailedStats capability.
+func (c contract) stats(t *testing.T) {
+	available := c.e.Capabilities().DetailedStats
+	for fixture := ids.FixtureID(1); fixture <= 5; fixture++ {
+		s := Start(t, c.e, Input(fixture, 50+5*int(fixture), 60))
+		var dst matches.MatchStepResult
+		var prev matches.MatchStats
+		applied := 0
+		for dst.Status != matches.MatchFinished {
+			advance(t, s, matches.AdvanceRequest{ToMinute: min(dst.Position.Minute+5, matches.RegulationMinutes)}, &dst)
+			for _, cmd := range StandardCommands[applied:] {
+				if cmd.Minute != dst.Position.Minute {
+					break
+				}
+				if err := s.Apply(cmd.Cmd); err != nil {
+					t.Fatal(err)
+				}
+				applied++
+			}
+			st := dst.View.Stats
+			if err := st.Validate(); err != nil || st.Available != available {
+				t.Fatalf("minute %d stats %+v (available %t): %v", dst.Position.Minute, st, available, err)
+			}
+			for side, now := range st.Teams {
+				was := prev.Teams[side]
+				now.PossessionPermille, was.PossessionPermille = 0, 0
+				if now.Shots < was.Shots || now.ShotsOnTarget < was.ShotsOnTarget || now.Passes < was.Passes ||
+					now.PassesCompleted < was.PassesCompleted || now.Tackles < was.Tackles || now.Saves < was.Saves {
+					t.Fatalf("minute %d: %s stats fell from %+v to %+v", dst.Position.Minute, matches.Side(side+1), was, now)
+				}
+			}
+			prev = st
+			if dst.Status != matches.MatchFinished && dst.Outcome.Stats != (matches.MatchStats{}) {
+				t.Fatalf("pending outcome has stats %+v", dst.Outcome.Stats)
+			}
+		}
+		if dst.Outcome.Stats != dst.View.Stats {
+			t.Fatalf("outcome stats %+v, view %+v", dst.Outcome.Stats, dst.View.Stats)
+		}
 	}
 }

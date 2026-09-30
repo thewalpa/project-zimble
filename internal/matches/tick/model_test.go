@@ -17,7 +17,8 @@ import (
 type tally struct {
 	matches, homeWins, awayWins, goals int
 	scored                             [2]int
-	shots, passes, completed           [2]int
+	shots, onTarget, passes, completed [2]int
+	tackles, saves, possession         [2]int // possession: permille summed over matches
 }
 
 // simulate plays fixtures 1..n in parallel and folds them in fixture order.
@@ -26,7 +27,7 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 	e := engine(t)
 	type result struct {
 		score [2]uint16
-		stats stats
+		stats matches.MatchStats
 		err   error
 	}
 	results := make([]result, n)
@@ -48,7 +49,7 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 					results[i].err = err
 					continue
 				}
-				results[i] = result{score: dst.Outcome.Score, stats: ms.(*session).stats}
+				results[i] = result{score: dst.Outcome.Score, stats: dst.Outcome.Stats}
 			}
 		})
 	}
@@ -63,10 +64,14 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 		r.goals += h + a
 		r.scored[0] += h
 		r.scored[1] += a
-		for k := range 2 {
-			r.shots[k] += res.stats.shots[k]
-			r.passes[k] += res.stats.passes[k]
-			r.completed[k] += res.stats.completed[k]
+		for k, st := range res.stats.Teams {
+			r.shots[k] += int(st.Shots)
+			r.onTarget[k] += int(st.ShotsOnTarget)
+			r.passes[k] += int(st.Passes)
+			r.completed[k] += int(st.PassesCompleted)
+			r.tackles[k] += int(st.Tackles)
+			r.saves[k] += int(st.Saves)
+			r.possession[k] += int(st.PossessionPermille)
 		}
 		switch {
 		case h > a:
@@ -80,10 +85,13 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 
 func (r tally) String() string {
 	n := float64(r.matches)
-	return fmt.Sprintf("%.2f goals/match, home %d away %d draws %d, shots %.1f v %.1f, passes %.0f (%.0f%% completed)",
+	return fmt.Sprintf("%.2f goals/match, home %d away %d draws %d, shots %.1f (%.1f on target) v %.1f (%.1f), "+
+		"possession %.0f%%, passes %.0f (%.0f%% completed), tackles %.1f, saves %.1f",
 		float64(r.goals)/n, r.homeWins, r.awayWins, r.matches-r.homeWins-r.awayWins,
-		float64(r.shots[0])/n, float64(r.shots[1])/n, float64(r.passes[0]+r.passes[1])/2/n,
-		100*float64(r.completed[0]+r.completed[1])/float64(r.passes[0]+r.passes[1]))
+		float64(r.shots[0])/n, float64(r.onTarget[0])/n, float64(r.shots[1])/n, float64(r.onTarget[1])/n,
+		float64(r.possession[0])/n/10, float64(r.passes[0]+r.passes[1])/2/n,
+		100*float64(r.completed[0]+r.completed[1])/float64(r.passes[0]+r.passes[1]),
+		float64(r.tackles[0]+r.tackles[1])/2/n, float64(r.saves[0]+r.saves[1])/2/n)
 }
 
 // Seeded batches show the intended trends. Bounds are loose on purpose:
@@ -109,6 +117,10 @@ func TestModelTrends(t *testing.T) {
 	t.Logf("55 v 65: %v", mismatch)
 	if mismatch.awayWins < n*45/100 || mismatch.shots[1] <= mismatch.shots[0] {
 		t.Errorf("the stronger away team won %d/%d with %d shots to %d", mismatch.awayWins, n, mismatch.shots[1], mismatch.shots[0])
+	}
+	if mismatch.onTarget[1] <= mismatch.onTarget[0] || mismatch.possession[1] <= mismatch.possession[0] {
+		t.Errorf("the stronger away team had %d shots on target to %d and %d permille of possession to %d",
+			mismatch.onTarget[1], mismatch.onTarget[0], mismatch.possession[1], mismatch.possession[0])
 	}
 
 	withMentality := func(m matches.Mentality) func(ids.FixtureID) *matches.MatchInput {

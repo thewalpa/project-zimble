@@ -113,6 +113,10 @@ type MatchReport struct {
 	// substitutions, mentality changes and the two period ends, including
 	// those of a live match before ResolveRounds.
 	Events []matches.MatchEvent
+	// Stats are both sides' match statistics, when the career's engine has
+	// the DetailedStats capability; otherwise Available is false. Not
+	// available for a result recorded without a report.
+	Stats matches.MatchStats
 }
 
 // RoundsResolved is the recorded result of a ResolveRounds command.
@@ -265,7 +269,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 			Home: w.teamLabel(p.fixture.Home), Away: w.teamLabel(p.fixture.Away),
 			Selected: p.selected, Lineups: [2]selection.Lineup{lineupOf(p.input.Home), lineupOf(p.input.Away)},
 			Score: outcomes[i].Score, Shootout: outcomes[i].Shootout, Goals: outcomes[i].Goals,
-			Events: played[i],
+			Events: played[i], Stats: outcomes[i].Stats,
 		})
 	}
 	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()

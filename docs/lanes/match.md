@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine: phase 2 is delivered on the `app` side; its UI and career comparison are with other lanes.** A career chooses its engine once (`app.Config.Engine`: `simple` by default, or `tick`); the save pins it, and it plays every fixture, watched or not, which settles PAR-09 ([progress](../progress.md#match-one-engine-per-career-live-frames-done)). `World.LiveFrames` serves the live match's positional frames and `World.MatchEngine` says whether the engine has them. `ui` has the note for an `-engine` flag and a pitch view; `balance` has the note to compare careers on both engines. `tick` stays opt-in: a season costs 12.5 s on it against 0.26 s on `simple`. Next: roadmap phase 3, match statistics from `tick`'s counters.
+**Tick engine: phase 3 (match statistics) is delivered.** `tick` reports shots, shots on target, passes and completions, tackles, saves and possession (`matches.MatchStats`) live in `MatchView.Stats`, final in `MatchOutcome.Stats` and kept in `MatchReport.Stats`; `simple` marks them unavailable. Schema 27 ([progress](../progress.md#match-match-statistics-from-tick-done)). `ui` has the notes for an `-engine` flag, a pitch view and the statistics; `balance` has the notes to compare careers on both engines and the statistics with real football (passes, tackles and the possession spread look off). `tick` stays opt-in: a season costs 12.5 s on it against 0.26 s on `simple`. Next: roadmap phase 4 (offside first), or the tuning `balance` asks for.
 
 ## Tick engine roadmap
 
@@ -40,7 +40,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
    - One engine per career (`Config.Engine`), pinned by the save's existing `Versions.EngineID`; no per-match split (PAR-09). No schema bump.
    - `World.LiveFrames` and `World.MatchEngine`; the `ui` note asks for an `-engine` flag and a pitch view in `cmd/web`.
    - The `balance` note asks for a career-season comparison of `tick` and `simple`.
-3. **Match statistics** (the backlog item) from `tick`'s counters: shots, shots on target, possession, passes and completion, tackles, saves. Advertised through `DetailedStats`, "unavailable" from `simple`. Needs a contract addition and a `ui` note for reports.
+3. **Done: match statistics.** `matches.MatchStats` in the view, the outcome and reports, advertised through `DetailedStats`, unavailable from `simple`; schema 27; notes to `ui` and `balance`.
 4. **Richer football**, one rule per step, each with its trend test:
    - offside, instead of capping runs at the last defender;
    - fouls, free kicks, penalties and cards (`Cards` capability, with `competitions` for suspensions);
@@ -54,8 +54,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison is requested ([note](../handoffs/balance--tick-career-seasons.md)).
-- **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)).
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison ([note](../handoffs/balance--tick-career-seasons.md)) and a statistics comparison with real football ([note](../handoffs/balance--tick-match-stats.md)) are requested.
+- **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)); statistics in reports and the live match ([note](../handoffs/ui--match-stats.md)).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.
 
@@ -63,7 +63,6 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.
-- **Match statistics** in the outcome (shots, possession share), with a `ui` note for reports. `tick` counts them already; see roadmap phase 3. Reports already keep every match event (`MatchReport.Events`); statistics would sit beside them and need another schema bump.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.
 - **Formations and roles** beyond GK/DF/MF/FW, when selection needs them (roadmap phase 4 for `tick`).

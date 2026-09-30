@@ -536,8 +536,9 @@ func checkVersions(saved, current Versions) error {
 
 // restoreResolve validates a recorded ResolveRounds against the restored
 // official state and adds it to the command log. A recorded result must
-// describe completed rounds whose official results it matches exactly, and
-// say a side played a submitted lineup exactly when one is stored.
+// describe completed rounds whose official results it matches exactly, say
+// a side played a submitted lineup exactly when one is stored, and carry
+// statistics exactly when the career's engine keeps them.
 func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 	req, res := c.Request, c.Result
 	if err := w.checkRecordID(req.ID, res.Command); err != nil {
@@ -586,6 +587,9 @@ func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 			return fmt.Errorf("fixture %d goals %v disagree with score %v", m.Fixture, goals, m.Score)
 		}
 		if err := checkMatchEvents(m.Events, m.Goals); err != nil {
+			return fmt.Errorf("fixture %d: %w", m.Fixture, err)
+		}
+		if err := w.checkStats(m.Stats); err != nil {
 			return fmt.Errorf("fixture %d: %w", m.Fixture, err)
 		}
 		for i, team := range []ids.TeamID{official.Home, official.Away} {
@@ -655,8 +659,9 @@ type LiveSnapshot struct {
 }
 
 // restoreStep validates a recorded PlayMatch or MatchDecision: a fresh ID,
-// a result for it within the revision range, and a fixture the user team
-// plays. Its recorded view is returned to retries as saved.
+// a result for it within the revision range, a fixture the user team plays
+// and consistent statistics from the career's engine. Its recorded view is
+// returned to retries as saved.
 func (w *World) restoreStep(id CommandID, expected Revision, fixture ids.FixtureID, res MatchStepped, revision Revision) error {
 	if err := w.checkRecordID(id, res.Command); err != nil {
 		return err
@@ -668,6 +673,18 @@ func (w *World) restoreStep(id CommandID, expected Revision, fixture ids.Fixture
 	f, found := w.competitions.Fixture(fixture)
 	if !ok || !found || (f.Home != team && f.Away != team) || res.Live.Fixture != fixture {
 		return fmt.Errorf("fixture %d is not the user team's", fixture)
+	}
+	return w.checkStats(res.Live.View.Stats)
+}
+
+// checkStats rejects inconsistent match statistics, and statistics that
+// are present exactly when the career's engine keeps none.
+func (w *World) checkStats(s matches.MatchStats) error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if s.Available != w.engine.Capabilities().DetailedStats {
+		return fmt.Errorf("statistics available %t from engine %s", s.Available, w.engine.ID())
 	}
 	return nil
 }

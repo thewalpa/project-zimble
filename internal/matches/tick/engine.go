@@ -40,7 +40,7 @@ func (e *Engine) ID() string      { return EngineID }
 func (e *Engine) Version() uint32 { return e.p.Version }
 
 func (e *Engine) Capabilities() matches.Capabilities {
-	return matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true, PositionalFrames: true}
+	return matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true, PositionalFrames: true, DetailedStats: true}
 }
 
 // Start validates and copies input; the session never references input's
@@ -216,6 +216,7 @@ type ball struct {
 	carried      bool
 	side, slot   int   // carrier, while carried; the kicker's side and slot after a kick
 	shot         bool  // loose after a shot
+	onGoal       bool  // the shot was aimed between the posts
 	finishing    int64 // the shooter's effective Finishing, while shot
 	passTo       int   // receiving slot of a pass in flight, or -1
 	aim          vec
@@ -225,10 +226,26 @@ type ball struct {
 	setPieceFrom uint32
 }
 
-// stats are counters for tests and tuning; not part of the outcome yet.
+// stats count what matches.TeamStats reports, per side.
 type stats struct {
 	shots, onTarget, passes, completed, tackles, saves [2]int
 	possession                                         [2]int // ticks with the ball
+}
+
+func (st *stats) report() matches.MatchStats {
+	out := matches.MatchStats{Available: true}
+	held := st.possession[0] + st.possession[1]
+	for side := range out.Teams {
+		t := &out.Teams[side]
+		t.Shots, t.ShotsOnTarget = uint16(st.shots[side]), uint16(st.onTarget[side])
+		t.Passes, t.PassesCompleted = uint16(st.passes[side]), uint16(st.completed[side])
+		t.Tackles, t.Saves = uint16(st.tackles[side]), uint16(st.saves[side])
+	}
+	if held > 0 {
+		home := (st.possession[0]*permille + held/2) / held
+		out.Teams[0].PossessionPermille, out.Teams[1].PossessionPermille = uint16(home), uint16(permille-home)
+	}
+	return out
 }
 
 // session owns all match state. It is not safe for concurrent use.
@@ -329,7 +346,7 @@ func (s *session) fill(dst *matches.MatchStepResult) {
 	default:
 		dst.Status, dst.Stop = matches.MatchRunning, matches.StopTarget
 	}
-	dst.View = matches.MatchView{Score: s.score, Shootout: s.pens}
+	dst.View = matches.MatchView{Score: s.score, Shootout: s.pens, Stats: s.stats.report()}
 	for side := range s.teams {
 		t := &s.teams[side]
 		dst.View.Mentality[side] = t.mentality
@@ -349,7 +366,7 @@ func (s *session) fill(dst *matches.MatchStepResult) {
 		return
 	}
 	o.Status = matches.ResultCompleted
-	o.Score = s.score
+	o.Score, o.Stats = s.score, dst.View.Stats
 	if s.decided {
 		o.Resolution, o.Shootout = matches.ResolutionPenalties, s.pens
 	}
