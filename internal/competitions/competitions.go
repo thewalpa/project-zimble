@@ -5,7 +5,8 @@
 // A league season is a double round robin ranked by its table. A knockout
 // season is a fixed bracket of single-match ties (see knockout.go): each
 // round's fixtures are created from the previous round's winners when that
-// round's results are recorded.
+// round's results are recorded. A ties season is one round of parallel
+// single-match ties (see ties.go), the format of a promotion play-off.
 //
 // Whether an entrant team exists is checked by the application, which can
 // read the registry; this package does not import other domain modules.
@@ -26,7 +27,9 @@ import (
 // calendar (SeasonKickoff). Bump it when the same seed, season and entrants
 // would produce different fixtures or kickoffs. Version 2 anchored seasons to
 // their first kickoff's anniversary; pairings are drawn from pairingDraw's
-// stream and did not change.
+// stream and did not change. Version 3 will cover ties seasons (promotion
+// play-offs) once the application creates them and they shift later fixture
+// IDs.
 const ScheduleVersion = 2
 
 // pairingDraw keys the stream that places entrants in schedule slots. It is
@@ -62,9 +65,10 @@ type Format uint8
 const (
 	FormatLeague   Format = 1 // double round robin, ranked by the table
 	FormatKnockout Format = 2 // single-match ties in a fixed bracket; a level tie goes to penalties
+	FormatTies     Format = 3 // one round of parallel single-match ties, pairs in entrant order; a level tie goes to penalties
 )
 
-func (f Format) Valid() bool { return f == FormatLeague || f == FormatKnockout }
+func (f Format) Valid() bool { return f == FormatLeague || f == FormatKnockout || f == FormatTies }
 
 func (f Format) String() string {
 	switch f {
@@ -72,6 +76,8 @@ func (f Format) String() string {
 		return "league"
 	case FormatKnockout:
 		return "knockout"
+	case FormatTies:
+		return "ties"
 	}
 	return fmt.Sprintf("Format(%d)", uint8(f))
 }
@@ -124,7 +130,8 @@ func New() *Store {
 }
 
 // NewSeason describes one season to create. A league's entrant order does
-// not matter; a knockout's entrants are its bracket (see knockout.go).
+// not matter; a knockout's entrants are its bracket (see knockout.go); a
+// ties season's entrants are its pairs flattened in order (see ties.go).
 type NewSeason struct {
 	Ref      SeasonRef
 	Format   Format
@@ -172,6 +179,14 @@ func (s *Store) CreateSeasons(seed random.Seed, specs []NewSeason) error {
 		}
 		if spec.Format == FormatKnockout {
 			se, err := newKnockout(ref, spec.Entrants, spec.Timing, &next)
+			if err != nil {
+				return err
+			}
+			staged = append(staged, se)
+			continue
+		}
+		if spec.Format == FormatTies {
+			se, err := newTies(ref, spec.Entrants, spec.Timing, &next)
 			if err != nil {
 				return err
 			}
@@ -321,6 +336,8 @@ func (se *season) checkFormat() error {
 		return nil
 	case FormatKnockout:
 		return se.checkKnockout()
+	case FormatTies:
+		return se.checkTies()
 	}
 	return fmt.Errorf("invalid format %d", se.format)
 }

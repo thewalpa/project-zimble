@@ -107,6 +107,12 @@ func Restore(snap Snapshot) (*Store, error) {
 				return fail("%v", err)
 			}
 			want, _ = knockoutRounds(len(ss.Entrants))
+		case FormatTies:
+			// Entrants stay in pair order; checkTies replays the fixtures.
+			if err := checkTiesEntrants(ss.Entrants); err != nil {
+				return fail("%v", err)
+			}
+			want = 1
 		default:
 			return fail("invalid format %d", ss.Format)
 		}

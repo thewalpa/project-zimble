@@ -67,19 +67,20 @@ type result struct {
 }
 
 // checkScore applies a format's result rules: a league result has no
-// shootout; a knockout result has one exactly when the goals are level, and
-// it has a winner. Goals and penalties are at most MaxGoals.
+// shootout; a knockout or ties result has one exactly when the goals are
+// level, and it has a winner. Goals and penalties are at most MaxGoals.
 func checkScore(format Format, fixture ids.FixtureID, goals, pens [2]uint16) error {
 	level := goals[0] == goals[1]
+	decided := format == FormatKnockout || format == FormatTies
 	switch {
 	case goals[0] > MaxGoals || goals[1] > MaxGoals || pens[0] > MaxGoals || pens[1] > MaxGoals:
 		return fmt.Errorf("competitions: fixture %d score %v (penalties %v) exceeds %d", fixture, goals, pens, MaxGoals)
 	case format == FormatLeague && pens != [2]uint16{}:
 		return fmt.Errorf("competitions: league fixture %d has a shootout", fixture)
-	case format == FormatKnockout && level && pens[0] == pens[1]:
-		return fmt.Errorf("competitions: knockout fixture %d is level after penalties %v", fixture, pens)
-	case format == FormatKnockout && !level && pens != [2]uint16{}:
-		return fmt.Errorf("competitions: knockout fixture %d was won in regulation but has a shootout", fixture)
+	case decided && level && pens[0] == pens[1]:
+		return fmt.Errorf("competitions: %s fixture %d is level after penalties %v", format, fixture, pens)
+	case decided && !level && pens != [2]uint16{}:
+		return fmt.Errorf("competitions: %s fixture %d was won in regulation but has a shootout", format, fixture)
 	}
 	return nil
 }
@@ -327,27 +328,35 @@ func (s *Store) SeasonCompleted(ref SeasonRef) bool {
 // knockout by the round each team reached, a team still in (or the
 // champion) ahead of one that lost in that round, then bracket order. For a
 // completed knockout that is the champion, the runner-up, the semi-final
-// losers, and so on. Nil for an unknown season.
+// losers, and so on. A ties season ranks its winners first, in tie order
+// (see ties.go). Nil for an unknown season.
 func (s *Store) Ranking(ref SeasonRef) []ids.TeamID {
 	i, ok := s.seasonIdx[ref]
 	if !ok {
 		return nil
 	}
 	se := &s.seasons[i]
-	if se.format == FormatLeague {
+	switch se.format {
+	case FormatLeague:
 		var out []ids.TeamID
 		for _, st := range s.Standings(ref) {
 			out = append(out, st.Team)
 		}
 		return out
+	case FormatTies:
+		return se.tiesRanking()
 	}
 	return se.knockoutRanking()
 }
 
 // Champion returns the winner of a completed season: the top of a league's
-// table or the winner of a knockout's final.
+// table or the winner of a knockout's final. A ties season has no champion:
+// every tie stands alone.
 func (s *Store) Champion(ref SeasonRef) (ids.TeamID, bool) {
 	if !s.SeasonCompleted(ref) {
+		return 0, false
+	}
+	if f, ok := s.Format(ref); ok && f != FormatLeague && f != FormatKnockout {
 		return 0, false
 	}
 	r := s.Ranking(ref)
