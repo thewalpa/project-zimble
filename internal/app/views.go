@@ -1,13 +1,17 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/selection"
+	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
 // OpponentName returns the name of the opponent club for the user team in fixture.
@@ -178,4 +182,132 @@ func (w *World) SeasonMove(ref competitions.SeasonRef, position int) (promoted, 
 	}
 	t, ok := w.Table(ref)
 	return position <= up, ok && down > 0 && position > len(t.Rows)-down
+}
+
+// AgendaKind says what an agenda item asks of the manager. The values order
+// the items that fall on the same instant.
+type AgendaKind uint8
+
+const (
+	AgendaMatchday    AgendaKind = 1 // a match waits for the manager's lineup, now
+	AgendaBidToAnswer AgendaKind = 2 // a bid for one of the club's players waits for an answer
+	AgendaContract    AgendaKind = 3 // a contract in its final year ends
+	AgendaFixture     AgendaKind = 4 // an upcoming match
+	AgendaBidPending  AgendaKind = 5 // the club's own bid waits for the seller's answer
+	AgendaWindow      AgendaKind = 6 // the transfer window opens, or its last bidding day
+)
+
+// AgendaItem is one thing the manager may need to act on. Text is the same
+// sentence in every client. Fixture, Player and Offer name what the item is
+// about, when it is about one.
+type AgendaItem struct {
+	Kind    AgendaKind
+	At      sim.GameInstant // the kickoff, deadline or date it falls on
+	Now     bool            // the manager must act before play can go on
+	Text    string
+	Fixture ids.FixtureID
+	Player  ids.PlayerID
+	Offer   ids.OfferID
+}
+
+// agendaFixtures is how many upcoming matches the agenda lists.
+const agendaFixtures = 3
+
+// Agenda lists what the user club has ahead in the order it falls due: the
+// matchday, bids to answer, the next matches, contracts ending at the next
+// contract-year end, the club's own bids and the transfer window's dates.
+// An item the manager must act on before play can go on has Now set. It
+// combines existing queries and changes nothing.
+func (w *World) Agenda() []AgendaItem {
+	if w.userClub == 0 {
+		return nil
+	}
+	cal := w.calendar
+	var out []AgendaItem
+
+	pending := map[ids.FixtureID]bool{}
+	if ready, ok := w.Pending(); ok {
+		for _, id := range ready.UserFixtures {
+			pending[id] = true
+		}
+	}
+	var fixtures []FixtureInfo
+	consider := func(f FixtureLine) {
+		if f.Played || (f.Home.Club != w.userClub && f.Away.Club != w.userClub) {
+			return
+		}
+		if info, ok := w.FixtureInfo(f.ID); ok {
+			fixtures = append(fixtures, info)
+		}
+	}
+	for _, sc := range w.Schedules() {
+		for _, r := range sc.Rounds {
+			for _, f := range r.Fixtures {
+				consider(f)
+			}
+		}
+	}
+	for _, c := range w.Cups() {
+		for _, r := range c.Rounds {
+			for _, f := range r.Ties {
+				consider(f)
+			}
+		}
+	}
+	slices.SortFunc(fixtures, func(a, b FixtureInfo) int {
+		return cmp.Or(cmp.Compare(a.Kickoff, b.Kickoff), cmp.Compare(a.ID, b.ID))
+	})
+	upcoming := 0
+	for _, info := range fixtures {
+		against := info.Away.ClubName + " (home)"
+		if info.Away.Club == w.userClub {
+			against = info.Home.ClubName + " (away)"
+		}
+		match := fmt.Sprintf("%s %s v %s", info.CompetitionName, info.RoundName, against)
+		switch {
+		case pending[info.ID]:
+			out = append(out, AgendaItem{Kind: AgendaMatchday, At: info.Kickoff, Now: true, Fixture: info.ID,
+				Text: fmt.Sprintf("Matchday: %s. Set the lineup, then play.", match)})
+		case upcoming < agendaFixtures:
+			upcoming++
+			out = append(out, AgendaItem{Kind: AgendaFixture, At: info.Kickoff, Fixture: info.ID,
+				Text: fmt.Sprintf("%s, %s", match, cal.Format(info.Kickoff))})
+		}
+	}
+
+	for _, o := range w.Offers() {
+		if o.Status != transfers.StatusOpen {
+			continue
+		}
+		switch w.userClub {
+		case o.Seller:
+			out = append(out, AgendaItem{Kind: AgendaBidToAnswer, At: o.Deadline, Now: true, Offer: o.ID, Player: o.Player,
+				Text: fmt.Sprintf("%s bid %s for %s. Answer by %s.", o.BuyerName, o.Fee, o.PlayerName, cal.Format(o.Deadline))})
+		case o.Buyer:
+			out = append(out, AgendaItem{Kind: AgendaBidPending, At: o.Deadline, Offer: o.ID, Player: o.Player,
+				Text: fmt.Sprintf("Your bid of %s for %s waits for %s, due %s.", o.Fee, o.PlayerName, o.SellerName, cal.Format(o.Deadline))})
+		}
+	}
+
+	end := w.ContractYearEnd()
+	squad, _ := w.Squad(w.userClub)
+	for _, p := range squad {
+		if p.Contract.Expires == end {
+			out = append(out, AgendaItem{Kind: AgendaContract, At: end, Player: p.Player,
+				Text: fmt.Sprintf("%s (%s, %d): the contract ends %s. He asks %s a week to stay.", p.Name, p.Position, p.Age, cal.Format(end), p.Demand)})
+		}
+	}
+
+	if win := w.TransferWindow(); win.Open {
+		out = append(out, AgendaItem{Kind: AgendaWindow, At: win.BidsClose,
+			Text: fmt.Sprintf("Transfer window: the last day to bid is %s; it closes %s.", cal.Format(win.BidsClose), cal.Format(win.Closes))})
+	} else {
+		out = append(out, AgendaItem{Kind: AgendaWindow, At: win.Opens,
+			Text: fmt.Sprintf("Transfer window: opens %s.", cal.Format(win.Opens))})
+	}
+
+	slices.SortStableFunc(out, func(a, b AgendaItem) int {
+		return cmp.Or(cmp.Compare(a.At, b.At), cmp.Compare(a.Kind, b.Kind))
+	})
+	return out
 }

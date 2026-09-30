@@ -33,6 +33,15 @@
       <div class="actions"><form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Continue</button></form></div>
     {{end}}
   </div>
+  {{if $d.Agenda}}
+  <div class="panel">
+    <h2>Ahead</h2>
+    <ul class="plain">
+      {{range $d.Agenda}}<li>{{if .Now}}<b>Now:</b> {{end}}<a href="{{.Href}}">{{.Text}}</a></li>
+      {{end}}
+    </ul>
+  </div>
+  {{end}}
   {{with $d.Report}}
   <div class="panel">
     <h2>Latest result</h2>

@@ -136,8 +136,10 @@ func TestNewCareerFromTheBrowser(t *testing.T) {
 // result.
 func TestPlayingAMatchday(t *testing.T) {
 	c := career(t)
+	contains(t, c.get("/"), "<h2>Ahead</h2>", `href="/fixtures"`, "the last day to bid", "contract ends")
 	page := c.post("/continue", nil)
 	contains(t, page, "Matchday: Round 1 v Brackenmoor Town (home)", "Pick lineup", "Play match")
+	contains(t, page, "<h2>Ahead</h2>", "<b>Now:</b> <a href=\"/lineup\">Matchday: ")
 
 	page = c.get("/lineup")
 	if n := strings.Count(page, `name="slot-`); n != 20 {
@@ -672,6 +674,7 @@ func TestTransfersInTheBrowser(t *testing.T) {
 		"Callum Doyle is on the transfer list")
 	page = c.post("/continue", nil)
 	contains(t, page, "Eldhaven United bid 1,200,000.00 for Callum Doyle", "1 bids for your players await your answer")
+	contains(t, c.get("/"), "<b>Now:</b> <a href=\"/transfers\">Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by ")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")

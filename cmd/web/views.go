@@ -221,6 +221,32 @@ type fixtureView struct {
 	kickoff      sim.GameInstant
 }
 
+// agendaRow is one thing the manager has ahead, linked to where to act on it.
+type agendaRow struct {
+	Text string
+	Now  bool
+	Href string
+}
+
+// agenda turns app.Agenda into rows. The wording comes from app; the client
+// only picks the page each kind is handled on.
+func (s *server) agenda() []agendaRow {
+	var rows []agendaRow
+	for _, it := range s.w.Agenda() {
+		href := "/transfers"
+		switch it.Kind {
+		case app.AgendaMatchday:
+			href = "/lineup"
+		case app.AgendaFixture:
+			href = "/fixtures"
+		case app.AgendaContract:
+			href = fmt.Sprintf("/player?id=%d", it.Player)
+		}
+		rows = append(rows, agendaRow{Text: it.Text, Now: it.Now, Href: href})
+	}
+	return rows
+}
+
 type otherResult struct {
 	Fixture ids.FixtureID
 	Title   string
@@ -263,6 +289,7 @@ type homeView struct {
 	Bids        int    // bids for the club's players awaiting an answer
 	FreeAgents  int    // players without a club, while a transfer window is open
 	Live        string
+	Agenda      []agendaRow
 	Matchday    *fixtureView
 	Next        *fixtureView
 	Report      *matchReport
@@ -311,7 +338,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 		}, nil
 	}
 	cal := s.w.Calendar()
-	v := homeView{Report: s.report, ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
+	v := homeView{Report: s.report, Agenda: s.agenda(), ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
 	if s.w.TransferWindow().Open {
 		v.Window, v.Bids, v.FreeAgents = s.windowText(), s.openBidsForUs(), len(s.w.FreeAgents())
 	}

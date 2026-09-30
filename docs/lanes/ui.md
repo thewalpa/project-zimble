@@ -26,13 +26,13 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Delivered the drag-and-drop formation editor (priority user request). The web lineup and team-plan pages open on a pitch. Dragging, tapping or using the keyboard edits the lineup form, and a new `order` field keeps each line's slot order. The terminal draws the same pitch with its formation above the lineup table. `match--line-slot-flank` is open: if the first slot of a line turns out to be the right flank, mirror the pitch in both clients. See [progress](../progress.md). Before this: the saved team-plan editor in both clients (`World.TeamPlan`/`SetTeamPlan`), cup qualifiers in league tables, match-report timelines, career history on player profiles, player comparison, squad's refusal and free-agent-date handoffs, lineup eligibility in both editors, per-nation names, and the season-review flow.
+Delivered the decision overview: `World.Agenda()` feeds an "Ahead" panel on the web home page and the `agenda` command in the terminal (the matchday, bids to answer, next matches, expiring contracts, own bids, the window). See [progress](../progress.md). Before this: the drag-and-drop formation editor (`match--line-slot-flank` is open: if the first slot of a line turns out to be the right flank, mirror the pitch in both clients), the saved team-plan editor in both clients, cup qualifiers in league tables, match-report timelines, career history on player profiles, player comparison, squad's refusal and free-agent-date handoffs, lineup eligibility in both editors, per-nation names, and the season-review flow.
 
 ## Backlog
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
-- **Decision overview:** show upcoming fixtures, expiring contracts and unanswered bids together, with links or commands for the next action. Use `app` dates and eligibility; ask `squad` for the contract-planning view in [its backlog](squad.md#backlog) before showing renewal urgency. Both clients should make the next deadline clear without opening several screens.
+- **Decision overview, next step:** replace the home notes and `status` lines that the agenda now duplicates, and show renewal urgency (positions at risk) once `squad` delivers its [contract-planning view](squad.md#backlog). Show the deadline on the season-review stop when `competitions` delivers it.
 - **Formation View:** following the squad formation editor we should show the same visual also for other clubs and in match reports
 
 ### AI/player rule parity audit

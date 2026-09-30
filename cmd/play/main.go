@@ -220,6 +220,8 @@ func (s *session) loop() {
 			s.help()
 		case "status", "s":
 			s.status()
+		case "agenda", "todo":
+			s.agenda()
 		case "squad":
 			err = s.squad(args)
 		case "player", "p":
@@ -329,6 +331,7 @@ func (s *session) loop() {
 func (s *session) help() {
 	s.printf(`Commands:
   status (s)            date, season progress and your next match
+  agenda (todo)         what is ahead: the matchday, bids to answer, matches, contracts ending
   squad                 your players: ID, position, rating, condition
   player ID             one player of any club: attributes, contract, status
   compare PLAYER PLAYER  compare players (quote squad names with spaces; others by ID)
@@ -504,6 +507,36 @@ func (s *session) status() {
 		return
 	}
 	s.printf("Season finished. Type continue for the next season.\n")
+}
+
+// agenda lists what the club has ahead in the order it falls due, with the
+// command to act on each item. The wording comes from app.
+func (s *session) agenda() {
+	items := s.w.Agenda()
+	if len(items) == 0 {
+		s.printf("Nothing ahead.\n")
+		return
+	}
+	for _, it := range items {
+		mark, hint := "     ", ""
+		if it.Now {
+			mark = "NOW  "
+		}
+		switch it.Kind {
+		case app.AgendaMatchday:
+			hint = "type lineup, then continue"
+		case app.AgendaBidToAnswer:
+			hint = fmt.Sprintf("type accept %d or reject %d", it.Offer, it.Offer)
+		case app.AgendaContract:
+			hint = fmt.Sprintf("type renew %d", it.Player)
+		case app.AgendaBidPending, app.AgendaWindow:
+			hint = "type transfers"
+		}
+		if hint != "" {
+			hint = " (" + hint + ")"
+		}
+		s.printf("%s%s%s\n", mark, it.Text, hint)
+	}
 }
 
 func (s *session) squad(args []string) error {

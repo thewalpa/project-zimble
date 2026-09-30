@@ -60,3 +60,85 @@ func TestFormationLabel(t *testing.T) {
 		t.Fatalf("empty formation %q", got)
 	}
 }
+
+func agendaOf(w *World, kind AgendaKind) []AgendaItem {
+	var out []AgendaItem
+	for _, it := range w.Agenda() {
+		if it.Kind == kind {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// The agenda is ordered by date, has no user club to plan for in a headless
+// world, and lists the matchday as the one item the manager must act on.
+func TestAgendaOrdersWhatIsAhead(t *testing.T) {
+	if got := newWorld(t, 42).Agenda(); got != nil {
+		t.Fatalf("world without a user club has an agenda: %+v", got)
+	}
+	w := userWorld(t, 42, userClub3)
+	items := w.Agenda()
+	if len(agendaOf(w, AgendaFixture)) == 0 || len(agendaOf(w, AgendaWindow)) != 1 {
+		t.Fatalf("kickoff agenda %+v", items)
+	}
+	for i, it := range items {
+		if it.Text == "" || it.Now {
+			t.Fatalf("item %d before the first matchday: %+v", i, it)
+		}
+		if i > 0 && it.At < items[i-1].At {
+			t.Fatalf("agenda not in date order at %d: %+v", i, items)
+		}
+	}
+	if n := len(agendaOf(w, AgendaFixture)); n > agendaFixtures {
+		t.Fatalf("%d upcoming matches listed", n)
+	}
+
+	mustContinue(t, w, w.ContractYearEnd()) // stops at the first matchday
+	match := agendaOf(w, AgendaMatchday)
+	if len(match) != 1 || !match[0].Now {
+		t.Fatalf("matchday agenda %+v", w.Agenda())
+	}
+	ready, _ := w.Pending()
+	if match[0].Fixture != ready.UserFixtures[0] {
+		t.Fatalf("matchday item is fixture %d, pending %v", match[0].Fixture, ready.UserFixtures)
+	}
+	if w.Agenda()[0].Kind != AgendaMatchday {
+		t.Fatalf("the matchday is not first: %+v", w.Agenda())
+	}
+}
+
+// Contracts in their final year appear once each, and an agenda read changes
+// nothing.
+func TestAgendaListsExpiringContractsAndBids(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	before := w.Revision()
+	want := 0
+	squad, _ := w.Squad(userClub3)
+	for _, p := range squad {
+		if p.Contract.Expires == w.ContractYearEnd() {
+			want++
+		}
+	}
+	got := agendaOf(w, AgendaContract)
+	if len(got) != want {
+		t.Fatalf("%d contract items, %d final-year players", len(got), want)
+	}
+	for _, it := range got {
+		if it.Player == 0 || it.At != w.ContractYearEnd() {
+			t.Fatalf("contract item %+v", it)
+		}
+	}
+	if w.Revision() != before {
+		t.Fatal("Agenda changed the revision")
+	}
+
+	w, offer := bidScenario(t)(t)
+	bids := agendaOf(w, AgendaBidToAnswer)
+	if len(bids) != 1 || !bids[0].Now || bids[0].Offer != offer.ID || bids[0].At != offer.Deadline {
+		t.Fatalf("bid items %+v for offer %+v", bids, offer)
+	}
+	if len(agendaOf(w, AgendaBidPending)) != 0 {
+		t.Fatalf("the seller sees its own pending bid: %+v", w.Agenda())
+	}
+}

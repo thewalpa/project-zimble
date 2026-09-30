@@ -253,6 +253,14 @@ func TestLiveMistakes(t *testing.T) {
 	)
 }
 
+// The agenda lists what is ahead in date order and marks what waits for the
+// manager now.
+func TestAgenda(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "todo", "continue", "agenda", "q", "q")
+	contains(t, out, "     Founders League round 2 v Hollowick Town (away), Sat 2025-08-16 15:00 UTC", "(type transfers)", "(type renew ",
+		"NOW  Matchday: Founders League round 1 v Brackenmoor Town (home). Set the lineup, then play. (type lineup, then continue)")
+}
+
 func TestMoneyViews(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "squad", "finances", "season", "finances 3", "finances x", "q", "q")
 	contains(t, out, "Balance 2,000,000.00 | weekly wages ", "WAGE/WEEK CONTRACT", "Contracts end on 1 July of the year shown.",
@@ -371,7 +379,7 @@ func TestTransfers(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
 		"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "continue", // the cup run
 		"market fw", "market", "bid 344", "bid 547", "bid 617", "bid 238 500000", "bid 238",
-		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "free", "save "+path, "accept 99", "q", "q")
+		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "agenda", "free", "save "+path, "accept 99", "q", "q")
 	contains(t, out, "9 free agents wait for a club (type free).",
 		"Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
@@ -390,6 +398,7 @@ func TestTransfers(t *testing.T) {
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Rhys Underwood           Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
+		"NOW  Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 84 or reject 84)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
 	accepted := play(t, []string{"-load", path}, "accept 84", "finances 2", "list", "q", "q")

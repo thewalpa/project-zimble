@@ -2925,3 +2925,18 @@ A priority request from the user: edit the lineup by dragging players around a p
 - `match--line-slot-flank`: which flank a line's first slot is on.
 - Closes `ui--team-plan-editor` (delivered in the previous ui session; the note had not been deleted).
 
+
+## ui: decision overview in both clients (done)
+
+The manager can see what is ahead in one place: `World.Agenda()` (in `internal/app/views.go`, read-only, built from `Pending`, `Schedules`, `Cups`, `FixtureInfo`, `Offers`, `Squad` and `TransferWindow`) returns items in date order. Each has a kind, the instant it falls on, a `Now` flag for what must be dealt with before play goes on, and one sentence of text shared by both clients.
+
+- **Items.** The waiting matchday (`Now`), bids for the club's players (`Now`, with the answer deadline from the offer), the next three matches across league and cups, every contract ending at the next contract-year end with what the player asks, the club's own open bids with their answer date, and the transfer window (its opening, or its last bidding day).
+- **Web.** The home page has an "Ahead" panel. Each row links to where it is handled: lineup, transfers, the fixtures page or the player profile.
+- **Terminal.** `agenda` (`todo`) prints the same rows, `NOW` marking what waits, each with the command that handles it (`lineup`, `accept 84 or reject 84`, `renew 56`, `transfers`).
+- **Decision.** The existing home notes and `status` lines stay for now. The stop rules are unchanged: `competitions--shared-manager-decision-stops` will decide them.
+- **Forecast vs. agreement.** The contract row shows the player's current ask, which is a forecast. When `squad` delivers its contract-planning view (which positions are at risk if contracts lapse), the row can show that too.
+
+### Verification
+
+- `TestAgendaOrdersWhatIsAhead` and `TestAgendaListsExpiringContractsAndBids` (app) check date order, the matchday as the one item that must be acted on, at most three matches, one item per final-year player, a bid to answer with its deadline, and that a read changes no revision.
+- `TestAgenda` (play), and additions to `TestPlayingAMatchday` and `TestTransfersInTheBrowser` (web), check what a player sees.
