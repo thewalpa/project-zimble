@@ -60,7 +60,7 @@ func TestEditedLineupIsPlayedAndSaved(t *testing.T) {
 	contains(t, out, "MATCHDAY Sat 2025-08-09 15:00 UTC: round 1 v Brackenmoor Town (home).",
 		"Squad availability (20 selectable; use lineup available to hide unavailable players):",
 		"your changes (used when you continue)", "Mentality: attacking", "(out of position)",
-		"FULL TIME  Quillford FC", "Lineup: your lineup\nFormation ", ", attacking upwards:\n", "45'  Half time", "90'  Full time", "Other results:", "New in your inbox:", "Saved to "+path)
+		"FULL TIME  Quillford FC", "Lineup: your lineup\nQuillford FC\nFormation ", ", attacking upwards:\n", "\nBrackenmoor Town\nFormation ", "45'  Half time", "90'  Full time", "Other results:", "New in your inbox:", "Saved to "+path)
 	if strings.Contains(out, "player ") {
 		t.Fatal("a scorer was printed without a name")
 	}
@@ -639,4 +639,12 @@ func TestInjuriesInTheTerminal(t *testing.T) {
 func TestSeasonEndSaysRelegation(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "8"}, "season", "continue", "continue", "inbox 20", "quit", "quit")
 	contains(t, out, "you finished 8th: relegated to the division below")
+}
+
+// club shows another club's forecast lineup and players, and points the user
+// club's own to its editors.
+func TestClubShowsAnotherClubsProbableLineup(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "club 1", "club 3", "club nope", "club", "quit")
+	contains(t, out, "Probable lineup if it played today", "Formation ", ", attacking upwards:\n", "POS NAME",
+		"that is your club: type squad, lineup or teamplan", `"nope" is not a club`, "usage: club CLUB")
 }

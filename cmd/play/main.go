@@ -224,6 +224,8 @@ func (s *session) loop() {
 			s.agenda()
 		case "squad":
 			err = s.squad(args)
+		case "club":
+			err = s.showClub(args)
 		case "player", "p":
 			err = s.player(args)
 		case "compare":
@@ -333,6 +335,7 @@ func (s *session) help() {
   status (s)            date, season progress and your next match
   agenda (todo)         what is ahead: the matchday, bids to answer, matches, contracts ending
   squad                 your players: ID, position, rating, condition
+  club CLUB             another club's probable lineup and players (ID or short name)
   player ID             one player of any club: attributes, contract, status
   compare PLAYER PLAYER  compare players (quote squad names with spaces; others by ID)
   table (t)             the league table
@@ -1311,7 +1314,12 @@ func ratings(r players.Attributes) string {
 }
 
 func (s *session) squadByID() map[ids.PlayerID]app.SquadPlayer {
-	players, _ := s.w.Squad(s.club())
+	return s.squadOf(s.club())
+}
+
+// squadOf indexes a club's senior players by ID.
+func (s *session) squadOf(club ids.ClubID) map[ids.PlayerID]app.SquadPlayer {
+	players, _ := s.w.Squad(club)
 	out := map[ids.PlayerID]app.SquadPlayer{}
 	for _, p := range players {
 		out[p.Player] = p
@@ -1580,13 +1588,11 @@ func (s *session) play() error {
 			} else {
 				s.printf("Lineup: the assistant's suggestion\n")
 			}
-			if l, ok := s.w.SubmittedLineup(m.Fixture); ok {
-				squad, _ := s.w.Squad(s.club())
-				bySquad := map[ids.PlayerID]app.SquadPlayer{}
-				for _, p := range squad {
-					bySquad[p.Player] = p
+			for i, label := range []app.TeamLabel{m.Home, m.Away} {
+				if l := m.Lineups[i]; len(l.Starters) > 0 {
+					s.printf("%s\n", label.ClubName)
+					s.showPitch(l, s.squadOf(label.Club), "")
 				}
-				s.showPitch(l, bySquad, "")
 			}
 			names := map[ids.PlayerID]string{}
 			for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {

@@ -2978,3 +2978,16 @@ The match report shows the lineup the user's club played: formation, starters by
 
 - `TestReportsKeepBothPlayedLineups`: the manager's side equals his stored lineup and the AI's side equals what `ProbableLineup` said just before the round; reports are equal after a save and load and are returned as copies.
 - `TestRestoreRejectsInvalidReportLineups`, `TestProbableLineupRejections`.
+
+
+## ui: both formations in match reports, other clubs' probable lineup (done)
+
+Answers `ui--report-lineups-delivered`.
+
+- **Report.** Both clients draw each side's played lineup from `MatchReport.Lineups`, the assistant's picks and the AI's side included. Web: two pitch panels ("<Club> lineup", home first) with the bench; the pitch is not mirrored (`match` fixed the flank: slot order runs left to right with the attack at the top). Terminal: after `FULL TIME` each club's name and its text pitch (out-of-position stars use that club's squad). A result recorded without a report (empty `Lineups`) shows none.
+- **Other clubs.** The web squad page of another club opens with a "Probable lineup" panel from `World.ProbableLineup`, captioned as a forecast. The terminal gets `club CLUB` (ID or short name): the same forecast pitch and the club's players; it points the user club to `squad`, `lineup` and `teamplan`. The shared web pitch is the `pitchPanel` template in `layout.html`.
+- `SubmittedLineup` is no longer used by the web report; `cmd/simulate` prints no lineups beyond the source of a pending fixture, so it is unchanged.
+
+### Verification
+
+- `TestPlayingAMatchday` and `TestGameReportsWhenClickingOnScores` (web) find both sides' lineups and two pitches on a report; `TestOtherTeamSquads` finds the forecast on another club's squad page and none on the user's. `TestEditedLineupIsPlayedAndSaved` (play) expects both clubs' pitches after full time; `TestClubShowsAnotherClubsProbableLineup` covers `club` and its rejections.

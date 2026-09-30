@@ -161,7 +161,10 @@ func TestPlayingAMatchday(t *testing.T) {
 
 	page = c.post("/continue", nil)
 	contains(t, page, "Latest result", "Brackenmoor Town", "Other results")
-	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Quillford FC lineup</h2>", "Formation ", `aria-label="Attack"`, `aria-label="Bench"`, `href="/player?id=`)
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Quillford FC lineup</h2>", "Brackenmoor Town lineup</h2>", "Formation ", `aria-label="Attack"`, `aria-label="Bench"`, `href="/player?id=`)
+	if n := strings.Count(c.get(fmt.Sprintf("/report?fixture=%d", fixture)), `class="pitch"`); n != 2 {
+		t.Fatalf("%d pitches in the report, want both sides'", n)
+	}
 	if c.s.report == nil || !strings.Contains(page, c.s.report.Title) {
 		t.Fatalf("report %+v not shown", c.s.report)
 	}
@@ -578,6 +581,10 @@ func TestOtherTeamSquads(t *testing.T) {
 	contains(t, tablePage, `<a href="/squad?club=1">`, `<a href="/squad?club=2">`, `<a href="/squad?club=3">`)
 
 	club1Page := c.get("/squad?club=1")
+	contains(t, club1Page, "Probable lineup</h2>", "the squad changes by kickoff")
+	if strings.Contains(c.get("/squad"), "Probable lineup") {
+		t.Fatal("the user club's squad page shows a forecast of its own lineup")
+	}
 	contains(t, club1Page, "Hollowick Town squad", "GK", "DEF", "PAS", "FIN", "PAC", "STA")
 	if strings.Contains(club1Page, `action="/renew"`) {
 		t.Fatal("other club's squad has renewal form")
@@ -600,8 +607,8 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 
 	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", c.s.report.Fixture))
 	contains(t, reportPage, "Game report", "Founders League", "Round 1", "Match timeline", "Half time", "Full time", "Back to fixtures", "League table")
-	if strings.Contains(reportPage, "lineup</h2>") {
-		t.Fatal("a match played on the assistant's suggestion shows a stored lineup")
+	if n := strings.Count(reportPage, "lineup</h2>"); n != 2 {
+		t.Fatalf("%d lineups in a match played on the assistant's suggestion, want both sides'", n)
 	}
 
 	for _, other := range c.s.report.Others {

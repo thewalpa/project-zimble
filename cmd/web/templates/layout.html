@@ -250,3 +250,25 @@ document.addEventListener('DOMContentLoaded', function() {
 {{define "cond"}}{{.Condition}}%{{if .DaysOut}} <span class="out" title="Injured: misses matches until he recovers">out {{.DaysOut}} d</span>{{end}}{{end}}
 {{define "attrHeads"}}<th class="n">{{sortHeader . "gk" "GK" "desc"}}</th><th class="n">{{sortHeader . "def" "DEF" "desc"}}</th><th class="n">{{sortHeader . "pas" "PAS" "desc"}}</th><th class="n">{{sortHeader . "fin" "FIN" "desc"}}</th><th class="n">{{sortHeader . "pac" "PAC" "desc"}}</th><th class="n">{{sortHeader . "sta" "STA" "desc"}}</th><th class="n">{{sortHeader . "dri" "DRI" "desc"}}</th><th class="n">{{sortHeader . "hea" "HEA" "desc"}}</th><th class="n">{{sortHeader . "str" "STR" "desc"}}</th><th class="n">{{sortHeader . "acc" "ACC" "desc"}}</th><th class="n">{{sortHeader . "psn" "PSN" "desc"}}</th>{{end}}
 {{define "attrLegend"}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina, DRI dribbling, HEA heading, STR strength, ACC acceleration, PSN positioning. COND is fitness; "out 12 d" is an injury with 12 recovery days to go.{{end}}
+{{define "pitchPanel"}}
+<div class="panel">
+  <div class="board-head">
+    <h2>{{.Title}}</h2>
+    <span class="muted">Formation {{.Formation}}</span>
+  </div>
+  {{if .Note}}<p class="muted board-hint">{{.Note}}</p>{{end}}
+  <div class="board">
+    <div class="pitch" aria-label="The lineup, attacking upwards">
+      <div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>
+      {{range .Lines}}
+      <div class="zone line" aria-label="{{.Label}}"><span class="line-label">{{.Label}}</span>{{range .Players}}{{template "reportChip" .}}{{end}}</div>
+      {{end}}
+    </div>
+    <div>
+      <h3>Bench</h3>
+      <div class="zone shelf" aria-label="Bench">{{range .Bench}}{{template "reportChip" .}}{{else}}<span class="muted">Nobody on the bench.</span>{{end}}</div>
+    </div>
+  </div>
+</div>
+{{end}}
+{{define "reportChip"}}<div class="chip" title="{{.Name}}{{if .Position}}, {{.Position}}{{end}}"><span class="nm"><a href="/player?id={{.Player}}">{{.Short}}</a></span>{{if .Position}}<span class="meta">{{.Position}}</span>{{end}}</div>{{end}}

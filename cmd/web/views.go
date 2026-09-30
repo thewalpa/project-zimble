@@ -469,6 +469,7 @@ type squadView struct {
 	SquadText   string
 	YearOptions []int
 	Sort        SortState
+	Probable    *reportPitch // another club's lineup if it played today
 }
 
 func (s *server) squad(r *http.Request) (string, any, error) {
@@ -511,6 +512,13 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 			Selected:  c.ID == viewClub,
 			IsUser:    c.ID == s.club(),
 		})
+		if c.ID == viewClub && !isUserClub {
+			if l, err := s.w.ProbableLineup(c.SeniorTeam); err == nil {
+				v.Probable = s.pitchOf(c.Name, l)
+				v.Probable.Title = "Probable lineup"
+				v.Probable.Note = "What the club would field if it played today; the squad changes by kickoff."
+			}
+		}
 	}
 	for _, p := range squad {
 		c, _ := s.w.Calendar().Civil(p.Contract.Expires)
@@ -1011,12 +1019,13 @@ type reportView struct {
 	AwaySelected string
 	Goals        []goalView
 	Events       []eventView
-	Lineup       *reportPitch // the club's own starting lineup, when one is stored
+	Lineups      []*reportPitch // what each side started with, home first
 }
 
-// reportPitch is the lineup the user's club played, drawn read-only.
+// reportPitch is a lineup drawn read-only.
 type reportPitch struct {
-	Club      string
+	Title     string
+	Note      string // a caveat shown under the title
 	Formation string
 	Lines     []reportLine
 	Bench     []reportChip
@@ -1111,7 +1120,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		}
 		v.HomeSelected = selectedText(rep.Selected[0])
 		v.AwaySelected = selectedText(rep.Selected[1])
-		v.Lineup = s.reportPitch(fixID, rep)
+		v.Lineups = s.reportPitches(rep)
 
 		for _, g := range rep.Goals {
 			team := rep.Home.ShortName
@@ -1166,20 +1175,8 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 	return "report", v, nil
 }
 
-// reportPitch draws the lineup the user's club played in the fixture, or nil
-// when the club did not play in it or no lineup of it is stored. Only the
-// manager's lineups are stored: the other side's is not.
-func (s *server) reportPitch(fixture ids.FixtureID, rep app.MatchReport) *reportPitch {
-	label := rep.Home
-	if rep.Away.Club == s.club() {
-		label = rep.Away
-	} else if rep.Home.Club != s.club() {
-		return nil
-	}
-	l, ok := s.w.SubmittedLineup(fixture)
-	if !ok {
-		return nil
-	}
+// pitchOf draws a lineup read-only: starters by line, then the bench.
+func (s *server) pitchOf(club string, l selection.Lineup) *reportPitch {
 	chip := func(id ids.PlayerID) reportChip {
 		name, _ := s.w.PlayerName(id)
 		if name == "" {
@@ -1194,7 +1191,7 @@ func (s *server) reportPitch(fixture ids.FixtureID, rep app.MatchReport) *report
 		}
 		return c
 	}
-	v := &reportPitch{Club: label.ClubName, Formation: app.FormationLabel(l)}
+	v := &reportPitch{Title: club + " lineup", Formation: app.FormationLabel(l)}
 	for _, line := range []struct {
 		role  matches.Role
 		label string
@@ -1211,6 +1208,18 @@ func (s *server) reportPitch(fixture ids.FixtureID, rep app.MatchReport) *report
 		v.Bench = append(v.Bench, chip(id))
 	}
 	return v
+}
+
+// reportPitches draws what each side started the match with, home first;
+// none for a result recorded without a report.
+func (s *server) reportPitches(rep app.MatchReport) []*reportPitch {
+	var out []*reportPitch
+	for i, label := range []app.TeamLabel{rep.Home, rep.Away} {
+		if l := rep.Lineups[i]; len(l.Starters) > 0 {
+			out = append(out, s.pitchOf(label.ClubName, l))
+		}
+	}
+	return out
 }
 
 type inboxView struct {
