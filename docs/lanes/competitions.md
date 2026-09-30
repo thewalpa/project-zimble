@@ -25,11 +25,9 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. Calendar drift and `CupQualifiers` are delivered (see `docs/progress.md`); `data` dropped `League.SeasonInterval` and its `checkPromotions` comparison along with it. Take the top backlog item.
+Nothing queued. Promotion play-offs are delivered (`docs/progress.md`): ties over the movement links, derived play-off competitions from `PlayoffBase` 1000, per-group deferred next seasons, decided-only `SeasonMove`, `ScheduleVersion` 3. Open handoffs from it: `ui--promotion-playoffs`, `match--playoff-match-rules`, `data--playoff-content-ids`. Take the top backlog item.
 
 ## Backlog
-
-- **Play-offs** between divisions, as a different rule over the same links.
 
 - **Auto-resolving batches:** `Continue` resolves rounds with no user fixture without stopping. Agree with `match`, which owns `resolve.go`.
 - **Cup prize money:** the rule is here, and the ledger entries go through a note to `squad`.

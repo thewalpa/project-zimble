@@ -3192,3 +3192,34 @@ Real top divisions average about 2 offsides a side. A deep block rarely catches 
 ## data: review of the engine choice and match statistics (done)
 
 Reviewed `match`'s one-engine-per-career and statistics changes to `world.go`, `save.go` and `boundaries_test.go`. The engine ID and version are pinned in `Versions`; `Restore` builds the saved engine and refuses an unknown one with `ErrIncompatibleSave`; statistics are validated and required exactly when the engine has `DetailedStats`; the new `internal/matches/tick` import in `boundaries_test.go` is allowed for `internal/app` only. No missed snapshot field, event or version. Also fixed `gofmt -l` listing `cmd/simulate/main_test.go` under go1.27 (whitespace only), and asked `match` which facts may count as appearances and goals in `careers` (`match--careers-appearances-goals`).
+
+## competitions: promotion play-offs over the movement links (done)
+
+The boundary places of every movement link now play one round of single-match ties between the linked leagues' seasons before anyone moves: each tie's winner takes a place in the upper division next season, its loser a place in the lower. The direct swap of the same places is the seating rule underneath (`ApplyPlayoffs` re-partitions the boundary teams by tie outcome), not a separate fate — a division always keeps its size. A level tie goes to penalties.
+
+| Package | Change |
+| --- | --- |
+| `internal/competitions` | `FormatTies = 3` (one round of parallel single-match ties, pairs in entrant order); `PlayoffBase = 1000` and `PlayoffCompetitions(links)` (derived play-off competition IDs, one per link, from the base up in link order); `PlayoffPairings`, `ApplyPlayoffs`, `NextEntrantsAfterPlayoffs`; `ScheduleVersion` 3 |
+| `internal/app` | When a link group's leagues end together, their play-off season is created (`PlayoffDelay` = one week after the last of them) and the linked leagues' next seasons wait until those ties decide; the cup is drawn at that same end. `matchRules` resolves a play-off fixture as knockout rules from the link's lower league definition (engine must do penalties). `Playoffs()`, `Playoff(ref)` (bracket-shaped like a cup, no champion), `FixtureInfo.Playoff`, `InPlayoff`, and `SeasonMove` is decided-only (reads next season's entrants). No `storage.SchemaVersion` bump of its own: play-off seasons are ordinary competition seasons and restore already keeps past ones |
+
+### Decisions
+
+- **A different rule over the same links.** `Link{Upper, Lower, Places}` still names the boundary places; the play-off re-seats exactly those teams. Tie i pairs the upper division's (Places−i)th-bottom home to the lower's (i+1)th-top. No team moves twice and every division keeps its size.
+- **Derived competition IDs from 1000.** A play-off edition is a real `FormatTies` season keyed `PlayoffBase + link index`, so results, history and restore need no new storage; authored content IDs must stay below the base (see [data note](handoffs/data--playoff-content-ids.md)). History lists them as "Promotion Play-off N" with no champion.
+- **Per-group deferred creation.** Each link group (linked leagues that end in one cohort, e.g. {1,4} and {2,5}) draws its play-offs when its leagues end and creates its next seasons only when its own ties decide, so one group never waits on the other. The cup is drawn once the play-offs decide (its qualifying leagues' final rankings seed it).
+- **One round, one week later.** `FormatTies` is a single matchday of parallel ties a `PlayoffDelay` after the leagues end; two-legged ties and extra time need engine support first (backlog).
+- **Movement messages are decided-only.** `SeasonMove` asks next season's entrants, so the season-end inbox message gains "promoted to the division above" / "relegated to the division below" only once the ties (or the unopposed places) settle — a view-time render, not a stored rewrite.
+- **ScheduleVersion 3** covers the play-off insertion in the calendar and the deferred next seasons; the world fingerprint is unchanged (competition work never touches it). Cup draw `goldenCupSeed42` moved to `bf8c05dd…`; season goldens follow the new fixture-ID layout.
+
+### Verification
+
+- `internal/competitions`: pairing, seating and entrant invariants over chains and odd link shapes; rejected shapes; `PlayoffCompetitions` IDs are stable and collision-free.
+- `internal/app/playoff_test.go`: a seeded season's ties decide every boundary place, next-season entrants equal `NextEntrantsAfterPlayoffs`, restore replays identically, and validation rejects a season whose movement skips or fakes the ties. Fixture IDs at seed 42: play-offs 225–228 between the leagues' rounds and the next seasons'.
+- Client drivers step through the new stops (a managed club in a play-off stops on its matchday): `TestSeasonEndSaysMovement` (both clients; seed 42's club 20 is promoted — no club's tie loss relegates at this seed), the cup/history/transfer retimings in both UIs' tests. Presentation gaps are in [ui's note](handoffs/ui--promotion-playoffs.md).
+- `storage.TestSaveFixtures` green (no schema bump of its own).
+
+### Notes
+
+- `ui--promotion-playoffs`, `match--playoff-match-rules`, `data--playoff-content-ids` (stale "direct swap" comment).
+- Small blocking fixes landed in `cmd/simulate`/`cmd/play`/`cmd/web` tests (continue retiming, result strings, one rename); production UI code is untouched.
+- Also absorbed `data`'s `SeasonInterval` drop into `checkPromotions` (closing its note).
