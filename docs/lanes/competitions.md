@@ -25,7 +25,7 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. Calendar drift and `CupQualifiers` are delivered (see `docs/progress.md`); `data` decides whether `League.SeasonInterval` goes ([note](../handoffs/data--season-interval-unused.md)), and if it does, drop its comparison in `checkPromotions`. Take the top backlog item.
+Nothing queued. Calendar drift and `CupQualifiers` are delivered (see `docs/progress.md`); `data` dropped `League.SeasonInterval` and its `checkPromotions` comparison along with it. Take the top backlog item.
 
 ## Backlog
 
