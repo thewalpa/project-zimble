@@ -34,7 +34,7 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 
 - **Decision overview, next step:** replace the home notes and `status` lines that the agenda now duplicates, and show renewal urgency (positions at risk) once `squad` delivers its [contract-planning view](squad.md#backlog). Show the deadline on the season-review stop when `competitions` delivers it.
 - **Formation View, rest:** the formation is shown for both sides of a report and for other clubs' squads, and the live match has a pitch replay on engines with frames. Left: a formation view of the live match with substitutions applied on `simple`, if `match` wants one.
-- **Live match, next steps:** text commentary from frames in the terminal (waits for `match`'s phase 3); a per-match statistics line in `cmd/simulate` if balance wants one.
+- **Live match, next steps:** text commentary from frames in the terminal (waits for `match`'s phase 3); a per-match statistics line in `cmd/simulate` if balance wants one; live statistics and score line instead of the end result when watching a live game; simple engine games should start at minute 0 and not at half time
 
 ### AI/player rule parity audit
 
