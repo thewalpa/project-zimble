@@ -76,6 +76,8 @@ Priorities below are proposed backlog order, not changes to the lanes' current w
 
 **Avoid it:** choose a career's football model independently of whether a club is human or a fixture is watched. Prefer one engine for interacting competitions, with optional presentation frames. If simulation tiers become necessary, define and save their eligibility at a stable boundary and require parity measurements before using them in the same competition.
 
+**Resolved by match (2026-09-30):** one engine per career, chosen at creation (`Config.Engine`: `simple` by default, or `tick`) and pinned by the save; it plays every fixture, watched or not. No tier split exists. `TestTickLiveMatchEqualsDirectResolution` and `TestLiveFrames` check that watching and reading frames leave the result unchanged; `TestTickCareerSavesAndContinues` checks that a restored career keeps its engine and continues identically. See [progress](progress.md#match-one-engine-per-career-live-frames-done).
+
 **Acceptance:** watch/skip must not select different rules for an otherwise identical fixture and decisions. Before permitting a mixed tier, compare points, goals, upsets, penalties, workload and injuries over matched seasons; engine identity/version must survive replay and restore. Do not claim statistical equivalence implies identical per-fixture output across engines.
 
 ## PAR-10: shared knowledge and durable actor provenance are future safeguards

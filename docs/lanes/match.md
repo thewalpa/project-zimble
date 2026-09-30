@@ -8,7 +8,7 @@ The match engine and everything on matchday: the match contract, the engine that
 - `internal/matches/simple`, `internal/matches/tick`, and any future engine.
 - `internal/matches/enginetest`: the contract suite every engine's tests run.
 - `internal/selection` (submitted lineups) and `internal/ai/selection.go`.
-- `internal/app/lineup.go`, `live.go`, `resolve.go`: preparing match input from world state, the live-match replay log, and recording outcomes.
+- `internal/app/lineup.go`, `live.go`, `resolve.go`: preparing match input from world state, the live-match replay log, recording outcomes, and the career's match engine (`Config.Engine`, `LiveFrames`).
 - Versions: `simple.ModelVersion`, `tick.ModelVersion`, `ai.SelectionVersion`, with their goldens.
 
 ## Rules for this lane
@@ -29,17 +29,17 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine: phase 2 is next.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Mentality is a trade-off since `tick.ModelVersion` 4. Since v5, every skill is rated against the opposing skill it meets, so goals follow the gap between the sides and not their level: equal sides score about 2.5 at 40, 60 and 80, and 70 v 50 scores 3.4 with 87% home wins ([progress](../progress.md#match-tick-goals-follow-the-gap-not-the-level-done)). The tuning notes from `balance` are all delivered; its refresh of the tick tables at v5 is pending. Before phase 2, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
+**Tick engine: phase 2 is delivered on the `app` side; its UI and career comparison are with other lanes.** A career chooses its engine once (`app.Config.Engine`: `simple` by default, or `tick`); the save pins it, and it plays every fixture, watched or not, which settles PAR-09 ([progress](../progress.md#match-one-engine-per-career-live-frames-done)). `World.LiveFrames` serves the live match's positional frames and `World.MatchEngine` says whether the engine has them. `ui` has the note for an `-engine` flag and a pitch view; `balance` has the note to compare careers on both engines. `tick` stays opt-in: a season costs 12.5 s on it against 0.26 s on `simple`. Next: roadmap phase 3, match statistics from `tick`'s counters.
 
 ## Tick engine roadmap
 
 Each phase ends with all three checks green, `tick.ModelVersion` bumped when output changes, and the trend tests in `internal/matches/tick/model_test.go` still holding (2.0–3.5 goals between equal teams, home advantage, stronger sides and attacking mentality score more).
 
 1. **Done: first playable model.** Formation spots, marking, pressing, passing, dribbling, shooting, tackles, saves, deflections, restarts and a shootout; `PositionalFrames` in the contract; the shared contract suite; about 20 ms per match.
-2. **Playable in a career.**
-   - Choose the engine per match in `app`: the manager's live match on `tick`, background matches on `simple` until `tick` is fast enough. The engine ID and version already travel in `MatchOutcome` and the live-match log; check with `data` whether the save needs to record the choice (a schema bump) or can derive it.
-   - Expose frames for the live match through an `app` query and file a `ui` note: a 2D pitch view in `cmd/web` (canvas, frames decimated to a few per second), text commentary in `cmd/play`.
-   - Ask `balance` to compare `tick` with `simple` over league seasons: goals, home and draw rates, upsets.
+2. **Done: playable in a career.**
+   - One engine per career (`Config.Engine`), pinned by the save's existing `Versions.EngineID`; no per-match split (PAR-09). No schema bump.
+   - `World.LiveFrames` and `World.MatchEngine`; the `ui` note asks for an `-engine` flag and a pitch view in `cmd/web`.
+   - The `balance` note asks for a career-season comparison of `tick` and `simple`.
 3. **Match statistics** (the backlog item) from `tick`'s counters: shots, shots on target, possession, passes and completion, tackles, saves. Advertised through `DetailedStats`, "unavailable" from `simple`. Needs a contract addition and a `ui` note for reports.
 4. **Richer football**, one rule per step, each with its trend test:
    - offside, instead of capping runs at the last defender;
@@ -54,8 +54,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison follows phase 2.
-- **`ui`:** a pitch view once frames are reachable through `app` (phase 2; the note follows that work).
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison is requested ([note](../handoffs/balance--tick-career-seasons.md)).
+- **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.
 
@@ -72,4 +72,4 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ### AI/player rule parity audit
 
 - **P2 — Equal management capabilities (PAR-08):** extend the existing AI in-match/delegated-lineup items to cover live and background fixtures through the same legal commands and decision opportunities. AI currently always starts Balanced and never substitutes; a human can do both. Replay deterministic AI choices independently of user stepping frequency and verify minutes, fatigue, injuries and saved delegation. See [audit](../ai-manager-parity.md#par-08-only-the-human-currently-uses-in-match-management).
-- **P3 — Engine choice independent of controller (PAR-09):** before roadmap phase 2, agree one career football model for interacting competitions, with frames optional. The proposed human-live `tick`/background `simple` split changes football outcomes, not just presentation. If retaining tiers, pin their rule explicitly with data and require balance's career evidence; watch/skip must not change the model for the same fixture and decisions. See [audit](../ai-manager-parity.md#par-09-planned-engine-split-could-make-watching-change-football-rules).
+- **Done — engine choice independent of controller (PAR-09):** one engine per career, saved, for every fixture; see [progress](../progress.md#match-one-engine-per-career-live-frames-done). A future cheaper tier for background matches needs saved eligibility and `balance`'s evidence first.

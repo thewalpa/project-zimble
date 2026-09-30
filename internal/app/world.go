@@ -23,7 +23,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
-	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
@@ -41,6 +40,9 @@ type Config struct {
 	// UserClub is the club the human manages. Zero means none: every club
 	// is AI-managed. It is fixed for the career.
 	UserClub ids.ClubID
+	// Engine names the match engine that plays every fixture of the career
+	// (one of Engines); empty means the default. It is fixed for the career.
+	Engine string
 }
 
 // DefaultEpoch is the start of a new career: 2025-07-01 00:00 UTC.
@@ -134,8 +136,13 @@ const firstSeason competitions.Season = 1
 // NewWorld generates a world from the built-in content and cfg.Seed, loads
 // it into the owning modules, schedules the first league season and
 // validates cross-module invariants. A non-zero cfg.UserClub must name a
-// generated club; choosing one does not change the generated world.
+// generated club; choosing one does not change the generated world. An
+// unknown cfg.Engine is rejected with ErrUnknownEngine.
 func NewWorld(cfg Config) (*World, error) {
+	engine, err := newEngine(cfg.Engine)
+	if err != nil {
+		return nil, err
+	}
 	defs := content.Default()
 	snap, err := worldgen.Generate(defs, cfg.Seed)
 	if err != nil {
@@ -145,6 +152,7 @@ func NewWorld(cfg Config) (*World, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.engine = engine
 	if cfg.UserClub != 0 {
 		if _, ok := w.registry.Club(cfg.UserClub); !ok {
 			return nil, fmt.Errorf("%w: %d", ErrUnknownClub, cfg.UserClub)
@@ -198,7 +206,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	if err != nil {
 		return nil, err
 	}
-	engine, err := simple.New(simple.DefaultParams())
+	engine, err := newEngine("")
 	if err != nil {
 		return nil, err
 	}

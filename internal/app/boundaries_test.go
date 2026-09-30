@@ -61,7 +61,7 @@ var allowedImports = map[string][]string{
 	"internal/app": {
 		"internal/competitions", "internal/content", "internal/core/ids", "internal/core/random",
 		"internal/core/sim", "internal/employment", "internal/players", "internal/registry", "internal/worldgen",
-		"internal/ai", "internal/matches", "internal/matches/simple", "internal/selection",
+		"internal/ai", "internal/matches", "internal/matches/simple", "internal/matches/tick", "internal/selection",
 		"internal/medical", "internal/events", "internal/inbox", "internal/core/money", "internal/finance",
 		"internal/transfers", "internal/careers",
 	},

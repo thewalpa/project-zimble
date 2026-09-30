@@ -317,7 +317,7 @@ Two engines exist: `simple` (first generation) and `tick`, which starts the thir
 
 Presentation frames and detailed metrics are optional capabilities. A summary engine need not invent coordinates or pretend to know pass completion. The UI falls back to commentary and summary statistics when detail is absent. Keep “unavailable” distinct from zero.
 
-For background matches, run a session to completion without rendering. A cheaper engine may implement the same contract. Keep one engine pinned for an active session; switching engines requires finishing the session or an explicit compatible conversion. Save at world boundaries first; mid-match saves can be added through the checkpoint seam.
+A career has one football model: the engine chosen when it starts (`app.Config.Engine`, default `simple`) plays every fixture of every competition, the manager's watched match and background matches alike, and the save pins its ID and version (`Versions.EngineID`, `EngineVersion`). Watching a match only asks for frames; it never selects different rules. Background matches run the same engine to completion without rendering. A cheaper engine for background matches would be a simulation tier: allow one only with its eligibility defined and saved at a stable boundary, and with `balance`'s evidence that it matches the full engine over seasons ([audit PAR-09](ai-manager-parity.md#par-09-planned-engine-split-could-make-watching-change-football-rules)). Keep one engine pinned for an active session; switching engines requires finishing the session or an explicit compatible conversion. Save at world boundaries first; mid-match saves can be added through the checkpoint seam.
 
 ## Selected leagues and world completeness
 

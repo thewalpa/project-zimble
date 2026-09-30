@@ -12,6 +12,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/matches"
@@ -606,5 +607,84 @@ func TestMatchReportAndQueries(t *testing.T) {
 	}
 	if _, ok := w.ClubLabel(99999); ok {
 		t.Fatal("ClubLabel(99999) found")
+	}
+}
+
+// engineWorld is a career of club 3 on the named match engine.
+func engineWorld(t *testing.T, seed uint64, engine string) *World {
+	t.Helper()
+	cfg := DefaultConfig(random.Seed(seed))
+	cfg.UserClub, cfg.Engine = userClub, engine
+	w, err := NewWorld(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+func TestNewWorldChoosesTheEngine(t *testing.T) {
+	for _, engine := range append(Engines(), "") {
+		w := engineWorld(t, 42, engine)
+		want := engine
+		if want == "" {
+			want = Engines()[0]
+		}
+		if got := w.Snapshot().Versions.EngineID; got != want || w.MatchEngine().ID != want {
+			t.Errorf("engine %q: the save names %q, the career %q", engine, got, w.MatchEngine().ID)
+		}
+		if frames := w.MatchEngine().Capabilities.PositionalFrames; frames != (want == "tick") {
+			t.Errorf("engine %q: positional frames %v", engine, frames)
+		}
+	}
+	cfg := DefaultConfig(42)
+	cfg.Engine = "detailed"
+	if w, err := NewWorld(cfg); !errors.Is(err, ErrUnknownEngine) || w != nil {
+		t.Fatalf("unknown engine: err = %v", err)
+	}
+}
+
+// A career on the tick engine plays its rounds with it, survives a save and
+// continues exactly as the unsaved career does.
+func TestTickCareerSavesAndContinues(t *testing.T) {
+	w := engineWorld(t, 42, "tick")
+	playBatches(t, w, 2)
+	r := roundTrip(t, w)
+	if v := r.Snapshot().Versions; v.EngineID != "tick" || v.EngineVersion != r.engine.Version() {
+		t.Fatalf("restored engine %s v%d", v.EngineID, v.EngineVersion)
+	}
+	want, got := playBatches(t, w, 1), playBatches(t, r, 1)
+	if len(want) != 1 || !reflect.DeepEqual(got, want) {
+		t.Fatal("the restored tick career continued differently")
+	}
+	if err := r.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	// A save names its engine and version; another version is refused.
+	snap := w.Snapshot()
+	snap.Versions.EngineVersion++
+	if r, err := Restore(snap); !errors.Is(err, ErrIncompatibleSave) || r != nil {
+		t.Fatalf("tick save of another version: err = %v", err)
+	}
+}
+
+// Watching the manager's match on the tick engine plays it by the same rules
+// as skipping it: without decisions the result is the direct resolution.
+func TestTickLiveMatchEqualsDirectResolution(t *testing.T) {
+	ready := func() (*World, ids.FixtureID) {
+		w := engineWorld(t, 42, "tick")
+		playBatches(t, w, 1)
+		return w, readyBatch(t, w).UserFixtures[0]
+	}
+	direct, _ := ready()
+	want := resolveNow(t, direct)
+
+	w, fixture := ready()
+	for _, m := range []uint16{30, 45, 60, 90} {
+		playTo(t, w, fixture, m)
+	}
+	got := resolveNow(t, w)
+	if !reflect.DeepEqual(comparable(got), comparable(want)) || !reflect.DeepEqual(conditions(w), conditions(direct)) {
+		t.Fatal("watching the tick match changed its result")
 	}
 }

@@ -21,7 +21,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
-	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
@@ -247,8 +246,8 @@ func (w *World) Snapshot() WorldSnapshot {
 }
 
 // Restore builds a new world from a snapshot, as the composition root: it
-// rebuilds each module from its own section, constructs the match engine and
-// checks it against the saved versions, and validates the whole world before
+// rebuilds each module from its own section, constructs the saved match
+// engine and checks it against the saved versions, and validates the whole world before
 // returning it. It runs no tasks, resolves nothing, allocates no IDs and
 // leaves the revision as saved. On error nothing is returned; no existing
 // world is touched. The snapshot is copied, never retained.
@@ -256,9 +255,9 @@ func Restore(snap WorldSnapshot) (*World, error) {
 	invalid := func(format string, args ...any) (*World, error) {
 		return nil, fmt.Errorf("%w: "+format, append([]any{ErrInvalidSave}, args...)...)
 	}
-	engine, err := simple.New(simple.DefaultParams())
+	engine, err := newEngine(snap.Versions.EngineID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrIncompatibleSave, err)
 	}
 	if err := checkVersions(snap.Versions, currentVersions(engine)); err != nil {
 		return nil, err

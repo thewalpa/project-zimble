@@ -437,3 +437,62 @@ func TestRestoreRejectsInvalidReportEvents(t *testing.T) {
 func isHalfTime(e matches.MatchEvent) bool {
 	return e.Kind == matches.EventPeriodEnd && e.Period == matches.FirstHalf
 }
+
+// The live match's frames cover the segment since the previous stop, are
+// thinned to the asked interval, and reading them changes nothing.
+func TestLiveFrames(t *testing.T) {
+	w := engineWorld(t, 42, "tick")
+	playBatches(t, w, 1)
+	fixture := readyBatch(t, w).UserFixtures[0]
+	if _, err := w.LiveFrames(0); !errors.Is(err, ErrNoLiveMatch) {
+		t.Fatalf("frames before the match: %v", err)
+	}
+	const minute = 60_000
+	segment := func(every uint32, from, to uint32) []matches.Frame {
+		t.Helper()
+		before := w.Snapshot()
+		frames, err := w.LiveFrames(every)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(w.Snapshot(), before) {
+			t.Fatal("reading frames changed the world")
+		}
+		if len(frames) == 0 || frames[0].Millis <= from || frames[len(frames)-1].Millis != to {
+			t.Fatalf("%d frames, want them in (%d, %d] ms ending at %d", len(frames), from, to, to)
+		}
+		for i := 1; i < len(frames); i++ {
+			if every > 0 && frames[i].Millis/every == frames[i-1].Millis/every {
+				t.Fatalf("two frames in one %d ms interval: %d, %d", every, frames[i-1].Millis, frames[i].Millis)
+			}
+		}
+		return frames
+	}
+	playTo(t, w, fixture, 30)
+	all := segment(0, 0, 30*minute)
+	if thin := segment(1000, 0, 30*minute); len(thin) != 30*60+1 || len(all) <= len(thin) {
+		t.Fatalf("%d frames, %d at one a second over 30 minutes (one per second and full time)", len(all), len(thin))
+	}
+	ht := playTo(t, w, fixture, 60) // stops at half time
+	segment(1000, 30*minute, 45*minute)
+	decide(t, w, fixture, forwardSub(ht))
+	segment(1000, 30*minute, 45*minute) // a decision plays no football
+
+	// The frames never change the match: it resolves as if never shown.
+	plain := engineWorld(t, 42, "tick")
+	playBatches(t, plain, 1)
+	readyBatch(t, plain)
+	playTo(t, plain, fixture, 60)
+	decide(t, plain, fixture, forwardSub(ht))
+	if got, want := resolveNow(t, w), resolveNow(t, plain); !reflect.DeepEqual(comparable(got), comparable(want)) {
+		t.Fatal("reading frames changed the result")
+	}
+}
+
+func TestLiveFramesNeedAnEngineWithFrames(t *testing.T) {
+	w, fixture := liveReady(t)
+	playTo(t, w, fixture, 30)
+	if _, err := w.LiveFrames(0); !errors.Is(err, matches.ErrUnsupported) {
+		t.Fatalf("frames from the simple engine: %v", err)
+	}
+}

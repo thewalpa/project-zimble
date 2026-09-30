@@ -13,6 +13,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
+	"github.com/thewalpa/project-zimble/internal/matches/tick"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/registry"
@@ -33,7 +34,50 @@ var (
 	ErrNoPendingRounds  = errors.New("app: no rounds await results")
 	ErrBatchMismatch    = errors.New("app: rounds differ from the pending batch")
 	ErrOverlappingTeams = errors.New("app: a team appears in more than one fixture of the batch")
+	ErrUnknownEngine    = errors.New("app: unknown match engine")
 )
+
+// Engines lists the match engines a career can be played on; the first is
+// the default.
+//
+// A career has one football model: the engine chosen when it starts plays
+// every fixture of every competition, the manager's watched match and all
+// background matches alike, and the save pins it (Versions.EngineID and
+// EngineVersion). Watching a match never changes the rules it is played by.
+func Engines() []string { return []string{simple.EngineID, tick.EngineID} }
+
+// MatchEngine names the career's match engine and what it can do; a client
+// offers a pitch view when Capabilities.PositionalFrames is set.
+type MatchEngine struct {
+	ID           string
+	Version      uint32
+	Capabilities matches.Capabilities
+}
+
+// MatchEngine returns the engine that plays every fixture of the career.
+func (w *World) MatchEngine() MatchEngine {
+	return MatchEngine{ID: w.engine.ID(), Version: w.engine.Version(), Capabilities: w.engine.Capabilities()}
+}
+
+// newEngine builds the named match engine at this build's version. The empty
+// name is the default engine.
+func newEngine(id string) (matches.Engine, error) {
+	switch id {
+	case "", simple.EngineID:
+		return simple.New(simple.DefaultParams())
+	case tick.EngineID:
+		return tick.New(tick.DefaultParams())
+	}
+	return nil, fmt.Errorf("%w: %q", ErrUnknownEngine, id)
+}
+
+// engineMaxBench is the largest bench the engine accepts.
+func engineMaxBench(e matches.Engine) int {
+	if e.ID() == tick.EngineID {
+		return tick.MaxBench
+	}
+	return simple.MaxBench
+}
 
 // Revision returns the current world revision.
 func (w *World) Revision() Revision { return w.revision }
@@ -319,7 +363,7 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 				p.stamina[pl.Player] = pl.Ratings.Stamina
 			}
 		}
-		if err := p.input.Validate(simple.MaxBench); err != nil {
+		if err := p.input.Validate(engineMaxBench(w.engine)); err != nil {
 			return nil, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
 	}

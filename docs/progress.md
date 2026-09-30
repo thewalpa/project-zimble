@@ -3071,3 +3071,34 @@ Balance's sweep, `ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBala
 - Delivered: `match--tick-goals-by-level`.
 - Updated: [balance--tick-mentality-delivered.md](handoffs/balance--tick-mentality-delivered.md) now asks for the tick tables at v5.
 - Filed: [ui--simulate-test-gofmt.md](handoffs/ui--simulate-test-gofmt.md) (information only).
+
+## match: one engine per career, live frames (done)
+
+Settles the lane's PAR-09 item from the [AI/player parity audit](ai-manager-parity.md#par-09-planned-engine-split-could-make-watching-change-football-rules) and delivers the first two steps of `tick` roadmap phase 2. No seeded output changes: the default career still plays on `simple`, so no version or golden moved.
+
+### Changes
+
+- **The engine is chosen per career, not per match.** `app.Config.Engine` names it (`app.Engines()` lists `simple`, the default, and `tick`); an unknown name is `ErrUnknownEngine`. That engine plays every fixture of every competition, the manager's watched match and every background match alike.
+- **The save already pinned it.** `Versions.EngineID` and `EngineVersion` have always been saved and checked. `Restore` now builds the engine the save names instead of always `simple`, and refuses an unknown engine or another version with `ErrIncompatibleSave`. No schema bump: no field changed and old saves name `simple`.
+- **`World.MatchEngine()`** returns the career's engine ID, version and capabilities, so a client knows whether to offer a pitch view.
+- **`World.LiveFrames(everyMillis)`** returns the positional frames of the live match from the previous stop to the current one, keeping one frame per `everyMillis` of match time (zero keeps all five a second). It replays the live match from its log with frames asked for on the last segment only. It is a read: not saved, no revision, no events. Without frames (`simple`) it wraps `matches.ErrUnsupported`.
+- `resolve.go` validates match input against the career engine's bench limit instead of `simple.MaxBench` (both are 7).
+
+### Decisions
+
+- **One football model per career, no tiers.** The roadmap planned `tick` for the manager's live match and `simple` for background games. The audit points out, and `balance`'s synthetic comparison shows, that the two engines play different football: a split would let watching a match change its rules and give the human's matches a different model from everyone else's. Choosing the engine once per career keeps watch and skip identical, and needs no new save state.
+- **`tick` is opt-in; `simple` stays the default.** A full season (231 matches, three cup shootouts) takes 12.5 s on `tick` against 0.26 s on `simple` on this container: about 0.8 s a matchday, fine interactively but slow for long seeded runs and the existing test suite. Making `tick` the default changes every seeded career and waits for roadmap phase 5 (speed) and `balance`'s sign-off.
+- **Frames are a query, not part of `PlayMatch`'s result.** Command results are recorded in the command log and saved; frames are presentation, so they are recomputed on demand from the replay log, which a replay reproduces exactly.
+
+### Verification
+
+- `TestNewWorldChoosesTheEngine`: each engine and the empty default reach the save and `MatchEngine`; only `tick` reports frames; an unknown engine is refused.
+- `TestTickCareerSavesAndContinues`: a `tick` career plays two matchdays, round-trips through JSON, and the restored career plays the next matchday exactly as the unsaved one; a `tick` save of another version is refused.
+- `TestTickLiveMatchEqualsDirectResolution`: watching the manager's `tick` match in four chunks resolves exactly as skipping it, conditions included.
+- `TestLiveFrames`: frames cover exactly the segment since the previous stop, a decision at a stop plays no football, thinning keeps one frame per interval, reading changes no snapshot, and the match resolves as if never shown. `TestLiveFramesNeedAnEngineWithFrames`: `simple` refuses.
+- Checked by hand (not committed): a full seed-42 season on `tick` completes and validates, with shootouts in the cup.
+
+### Handoffs
+
+- Filed: [ui--tick-career-and-pitch-view.md](handoffs/ui--tick-career-and-pitch-view.md) (choose the engine for a new career; a pitch view in `cmd/web` from `LiveFrames`).
+- Filed: [balance--tick-career-seasons.md](handoffs/balance--tick-career-seasons.md) (compare careers on `tick` and `simple`).

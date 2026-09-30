@@ -117,6 +117,7 @@ type replayed struct {
 	session matches.MatchSession
 	step    matches.MatchStepResult // after the last stop
 	events  []matches.MatchEvent    // every event so far
+	frames  []matches.Frame         // from the previous stop to the last, if asked
 }
 
 // livePlan builds the frozen input of fixture from the pending batch,
@@ -156,14 +157,21 @@ func matchRandom(w *World, fixture ids.FixtureID) matches.RandomState {
 // recorded it), then its commands, then a no-op Advance that delivers their
 // events. It never touches world state.
 func (w *World) replay(p plannedMatch, stops []LiveStop) (*replayed, error) {
+	return w.replayFrames(p, stops, false)
+}
+
+// replayFrames is replay that also keeps, when frames is set, the positional
+// frames of the Advance that reached the last stop. Asking for frames never
+// changes the match.
+func (w *World) replayFrames(p plannedMatch, stops []LiveStop, frames bool) (*replayed, error) {
 	rs := matchRandom(w, p.fixture.ID)
 	session, err := w.engine.Start(&p.input, rs)
 	if err != nil {
 		return nil, fmt.Errorf("app: start fixture %d: %w", p.fixture.ID, err)
 	}
 	r := &replayed{plan: p, session: session}
-	advance := func(minute uint16) error {
-		if err := session.Advance(matches.AdvanceRequest{ToMinute: minute}, &r.step); err != nil {
+	advance := func(minute uint16, frames bool) error {
+		if err := session.Advance(matches.AdvanceRequest{ToMinute: minute, Frames: frames}, &r.step); err != nil {
 			return err
 		}
 		r.events = append(r.events, r.step.Events...)
@@ -173,8 +181,12 @@ func (w *World) replay(p plannedMatch, stops []LiveStop) (*replayed, error) {
 		if st.Minute == 0 || (i > 0 && st.Minute <= stops[i-1].Minute) {
 			return nil, fmt.Errorf("app: live stop minutes %d not increasing", st.Minute)
 		}
-		if err := advance(st.Minute); err != nil {
+		last := frames && i == len(stops)-1
+		if err := advance(st.Minute, last); err != nil {
 			return nil, err
+		}
+		if last {
+			r.frames = slices.Clone(r.step.Frames)
 		}
 		if r.step.Position.Minute != st.Minute {
 			return nil, fmt.Errorf("app: live stop at minute %d reached %d", st.Minute, r.step.Position.Minute)
@@ -185,7 +197,7 @@ func (w *World) replay(p plannedMatch, stops []LiveStop) (*replayed, error) {
 			}
 		}
 		if len(st.Commands) > 0 {
-			if err := advance(st.Minute); err != nil {
+			if err := advance(st.Minute, false); err != nil {
 				return nil, err
 			}
 		}
@@ -224,6 +236,42 @@ func (w *World) LiveMatch() (LiveMatch, bool) {
 		return LiveMatch{}, false
 	}
 	return w.view(r), true
+}
+
+// LiveFrames returns the positional frames of the manager's match in
+// progress from the previous stop to the current one (from kickoff for the
+// first stop), keeping one frame in each everyMillis of match time: the
+// first frame at or after each multiple of everyMillis. Zero keeps every
+// frame the engine produced. Frames only present the match, which plays the
+// same whether or not they are read; they are not saved and never change the
+// world. Without a live match it returns ErrNoLiveMatch; when the career's
+// engine has no PositionalFrames capability, an error wrapping
+// matches.ErrUnsupported.
+func (w *World) LiveFrames(everyMillis uint32) ([]matches.Frame, error) {
+	if w.live == nil {
+		return nil, ErrNoLiveMatch
+	}
+	if !w.engine.Capabilities().PositionalFrames {
+		return nil, fmt.Errorf("app: the %s engine: %w", w.engine.ID(), matches.ErrUnsupported)
+	}
+	p, err := w.livePlan(w.live.fixture)
+	if err != nil {
+		return nil, err
+	}
+	r, err := w.replayFrames(p, w.live.stops, true)
+	if err != nil {
+		return nil, err
+	}
+	if everyMillis <= 1 {
+		return r.frames, nil
+	}
+	var out []matches.Frame
+	for _, f := range r.frames {
+		if len(out) == 0 || f.Millis/everyMillis != out[len(out)-1].Millis/everyMillis {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 // PlayMatch starts or continues the manager's match live. The fixture must
