@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math/bits"
+	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -190,12 +191,13 @@ type FixtureInfo struct {
 	Round           competitions.RoundRef
 	CompetitionName string
 	Cup             bool
+	Playoff         bool
 	RoundName       string
 	Kickoff         sim.GameInstant
 }
 
-// FixtureInfo describes a fixture of any league season or cup edition.
-// Read-only.
+// FixtureInfo describes a fixture of any league season, cup edition or
+// promotion play-off. Read-only.
 func (w *World) FixtureInfo(id ids.FixtureID) (FixtureInfo, bool) {
 	f, ok := w.competitions.Fixture(id)
 	if !ok {
@@ -203,14 +205,15 @@ func (w *World) FixtureInfo(id ids.FixtureID) (FixtureInfo, bool) {
 	}
 	ref := competitions.RoundRef{Season: f.Season, Round: f.Round}
 	_, cup := w.cupIndex(f.Season.Competition)
+	_, playoff := w.playoffLink(f.Season.Competition)
 	return FixtureInfo{
 		FixtureLine: w.fixtureLine(f), Round: ref, CompetitionName: w.competitionName(f.Season.Competition),
-		Cup: cup, RoundName: w.RoundName(ref), Kickoff: f.Kickoff,
+		Cup: cup, Playoff: playoff, RoundName: w.RoundName(ref), Kickoff: f.Kickoff,
 	}, true
 }
 
-// CupRound is one round of a cup edition. Ties are empty until the previous
-// round is complete.
+// CupRound is one round of a cup edition or a promotion play-off's ties.
+// Ties are empty until the previous round is complete.
 type CupRound struct {
 	Round   competitions.Round
 	Name    string // see RoundName
@@ -288,6 +291,64 @@ func (w *World) Cup(ref competitions.SeasonRef) (CupEdition, bool) {
 	if champion, ok := w.competitions.Champion(ref); ok {
 		label := w.teamLabel(champion)
 		v.Champion = &label
+	}
+	return v, true
+}
+
+// PlayoffEdition is a derived view of one promotion play-off's ties (see
+// competitions.FormatTies): the placements' tie order, no champion — the
+// winners move up, the losers stay down.
+type PlayoffEdition struct {
+	Competition ids.CompetitionID
+	Name        string
+	Edition     competitions.Season
+	Entrants    []TeamLabel // tie order: competitions.PlayoffPairings
+	Rounds      []CupRound  // one
+	Complete    bool
+}
+
+// Playoffs returns the latest edition of each promotion play-off that has
+// one, in competition ID order. Read-only.
+func (w *World) Playoffs() []PlayoffEdition {
+	links := w.movementLinks()
+	comps := make([]ids.CompetitionID, 0, len(links))
+	for comp := range competitions.PlayoffCompetitions(links) {
+		comps = append(comps, comp)
+	}
+	slices.Sort(comps)
+	var out []PlayoffEdition
+	for _, comp := range comps {
+		if e := w.latestEdition(comp); e > 0 {
+			v, _ := w.Playoff(competitions.SeasonRef{Competition: comp, Season: e})
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// Playoff returns any edition of a promotion play-off. Read-only.
+func (w *World) Playoff(ref competitions.SeasonRef) (PlayoffEdition, bool) {
+	if _, ok := w.playoffLink(ref.Competition); !ok {
+		return PlayoffEdition{}, false
+	}
+	entrants, exists := w.competitions.Entrants(ref)
+	if !exists {
+		return PlayoffEdition{}, false
+	}
+	v := PlayoffEdition{
+		Competition: ref.Competition, Name: w.competitionName(ref.Competition), Edition: ref.Season,
+		Complete: w.competitions.SeasonCompleted(ref),
+	}
+	for _, t := range entrants {
+		v.Entrants = append(v.Entrants, w.teamLabel(t))
+	}
+	for _, r := range w.competitions.Rounds(ref) {
+		cr := CupRound{Round: r.Ref.Round, Name: w.RoundName(r.Ref), Kickoff: r.Kickoff, Status: r.Status}
+		for _, id := range r.Fixtures {
+			f, _ := w.competitions.Fixture(id)
+			cr.Ties = append(cr.Ties, w.fixtureLine(f))
+		}
+		v.Rounds = append(v.Rounds, cr)
 	}
 	return v, true
 }

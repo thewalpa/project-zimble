@@ -172,16 +172,56 @@ func (w *World) PromotionPlaces(league ids.CompetitionID) (up, down int) {
 	return up, down
 }
 
-// SeasonMove says whether finishing a league season at the position gets a
-// club promoted to the division above or relegated to the division below.
-// Read-only.
-func (w *World) SeasonMove(ref competitions.SeasonRef, position int) (promoted, relegated bool) {
+// InPlayoff says whether the team finishing a league season at the position
+// plays off at the season's end: for a place in the division above, from the
+// top of a linked table, or to stay in this division, from its bottom. These
+// zones are PromotionPlaces' places. Read-only.
+func (w *World) InPlayoff(ref competitions.SeasonRef, position int) bool {
 	up, down := w.PromotionPlaces(ref.Competition)
 	if position < 1 {
-		return false, false
+		return false
 	}
 	t, ok := w.Table(ref)
-	return position <= up, ok && down > 0 && position > len(t.Rows)-down
+	if !ok {
+		return false
+	}
+	return position <= up || (down > 0 && position > len(t.Rows)-down)
+}
+
+// SeasonMove says where the team that finished a league season at the
+// position went next season: promoted to the division above or relegated to
+// the division below. Movement is decided once the season's play-offs are
+// played (competitions.ApplyPlayoffs); until the next seasons exist — or for
+// a play-off place that lost its tie the other way — both are false. A team
+// can do both over chained links. Read-only.
+func (w *World) SeasonMove(ref competitions.SeasonRef, position int) (promoted, relegated bool) {
+	t, ok := w.Table(ref)
+	if !ok || position < 1 || position > len(t.Rows) {
+		return false, false
+	}
+	team := t.Rows[position-1].Team
+	movedTo := func(comp ids.CompetitionID) bool {
+		entrants, exists := w.competitions.Entrants(competitions.SeasonRef{Competition: comp, Season: ref.Season + 1})
+		return exists && slices.Contains(entrants, team)
+	}
+	for _, p := range w.Promotions() {
+		var up, down ids.CompetitionID
+		switch ref.Competition {
+		case p.Lower:
+			up = p.Upper
+		case p.Upper:
+			down = p.Lower
+		default:
+			continue
+		}
+		if movedTo(up) {
+			promoted = true
+		}
+		if movedTo(down) {
+			relegated = true
+		}
+	}
+	return promoted, relegated
 }
 
 // AgendaKind says what an agenda item asks of the manager. The values order

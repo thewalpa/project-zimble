@@ -374,8 +374,8 @@ func (w *World) prepareBatch(rounds []competitions.RoundRef) ([]plannedMatch, er
 	return plan, nil
 }
 
-// matchRules returns a competition's match rules. Cup matches are knockout
-// matches, which need an engine that can take penalty shootouts.
+// matchRules returns a competition's match rules. Cup and play-off matches
+// are knockout matches, which need an engine that can take penalty shootouts.
 func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 	if li, ok := w.leagueIndex(comp); ok {
 		d := w.leagues[li].def
@@ -388,7 +388,15 @@ func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 		d := w.cups[ci]
 		return matches.Rules{MaxSubstitutions: d.MaxSubstitutions, MaxBench: d.MaxBench, Knockout: true}, nil
 	}
-	return matches.Rules{}, fmt.Errorf("app: competition %d has no league or cup definition", comp)
+	if l, ok := w.playoffLink(comp); ok {
+		if !w.engine.Capabilities().Penalties {
+			return matches.Rules{}, fmt.Errorf("app: the %s engine cannot decide play-off matches: no penalties", w.engine.ID())
+		}
+		li, _ := w.leagueIndex(l.Lower) // the link's lower division supplies the match rules
+		d := w.leagues[li].def
+		return matches.Rules{MaxSubstitutions: d.MaxSubstitutions, MaxBench: d.MaxBench, Knockout: true}, nil
+	}
+	return matches.Rules{}, fmt.Errorf("app: competition %d has no league, cup or play-off definition", comp)
 }
 
 // sideSelection returns the lineup a side plays: the manager's (submitted

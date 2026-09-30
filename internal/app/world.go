@@ -492,17 +492,25 @@ func (w *World) validateCompetitions() []error {
 
 // checkCups validates cup definitions against the leagues and returns them
 // in competition ID order: each is valid, no competition ID is used twice,
-// and every qualifier is a league with at least that many entrants.
+// every qualifier is a league with at least that many entrants, and content
+// competition IDs stay below competitions.PlayoffBase (the derived play-off
+// IDs live at and above it).
 func checkCups(leagueDefs []content.League, cupDefs []content.Cup) ([]content.Cup, error) {
 	cupDefs = slices.Clone(cupDefs)
 	slices.SortFunc(cupDefs, func(a, b content.Cup) int { return cmp.Compare(a.ID, b.ID) })
 	entrants := map[ids.CompetitionID]int{}
 	for _, l := range leagueDefs {
+		if l.ID >= competitions.PlayoffBase {
+			return nil, fmt.Errorf("app: league %d collides with play-off competition IDs (from %d)", l.ID, competitions.PlayoffBase)
+		}
 		entrants[l.ID] = l.Entrants
 	}
 	for i, c := range cupDefs {
 		if err := c.Validate(); err != nil {
 			return nil, err
+		}
+		if c.ID >= competitions.PlayoffBase {
+			return nil, fmt.Errorf("app: cup %d collides with play-off competition IDs (from %d)", c.ID, competitions.PlayoffBase)
 		}
 		if _, clash := entrants[c.ID]; clash || (i > 0 && cupDefs[i-1].ID == c.ID) {
 			return nil, fmt.Errorf("app: competition ID %d is used twice", c.ID)
@@ -528,13 +536,16 @@ func (w *World) cupIndex(comp ids.CompetitionID) (int, bool) {
 	return 0, false
 }
 
-// competitionName names a league or cup.
+// competitionName names a league, cup or play-off.
 func (w *World) competitionName(comp ids.CompetitionID) string {
 	if li, ok := w.leagueIndex(comp); ok {
 		return w.leagues[li].def.Name
 	}
 	if ci, ok := w.cupIndex(comp); ok {
 		return w.cups[ci].Name
+	}
+	if _, ok := w.playoffLink(comp); ok {
+		return "Promotion Play-off"
 	}
 	return fmt.Sprintf("competition %d", comp)
 }

@@ -221,7 +221,7 @@ func TestContractYearsOverSeveralSeasons(t *testing.T) {
 			moved++
 		}
 	}
-	if moved == 0 || len(w.History()) != 4*4+3 { // four leagues' four seasons, three cup editions
+	if moved == 0 || len(w.History()) != 4*4+3+2*3 { // four leagues' four seasons, three cup editions, two links' three play-offs
 		t.Fatalf("%d signings over %d seasons", moved, len(w.History()))
 	}
 	if err := w.Validate(); err != nil {

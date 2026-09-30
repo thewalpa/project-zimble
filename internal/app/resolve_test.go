@@ -30,11 +30,13 @@ import (
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
-// edition have their own goldens.
+// edition have their own goldens. The cup golden last moved with
+// competitions.ScheduleVersion 3: the promotion play-offs take fixture IDs
+// before the cup the moved-on leagues draw, so the cup's fixtures shifted.
 const (
 	goldenSeasonSeed42       = "8ce20082fb04e9c55e43aef5808ddf8f0eaa437cf46d3dc5c17ca4d3a2ff1f4a"
 	goldenSecondLeagueSeed42 = "f77b19c9e381c90ef87cc870db59b2387732441b84d337d97eccc8bac8dec789"
-	goldenCupSeed42          = "f13eee7fcd1d65b42e4affce86f5a7e9408ef6c612bb6c3096a6825dd4eabca6"
+	goldenCupSeed42          = "bf8c05dd1c74e26e1c8649d90a8b48b4640f42f39f765178115a7e195153df7a"
 )
 
 // seasonEnd is one day after the last kickoff of every league.
@@ -48,7 +50,9 @@ func seasonEnd(w *World) sim.GameInstant {
 
 func readyBatch(t *testing.T, w *World) FixtureRoundReady {
 	t.Helper()
-	res := mustContinue(t, w, seasonEnd(w))
+	// Past the play-off hop a linked league's current season has not
+	// advanced yet, so bound the walk by everything still scheduled.
+	res := mustContinue(t, w, max(seasonEnd(w), playoffEnd(w), cupEnd(w)))
 	ready, ok := res.(FixtureRoundReady)
 	if !ok {
 		t.Fatalf("Continue = %#v, want FixtureRoundReady", res)
@@ -73,11 +77,13 @@ func cupEnd(w *World) sim.GameInstant {
 	return end
 }
 
-// playSeason plays the leagues' current seasons and then the cup editions
-// they qualify teams for, to one day after each cup final.
+// playSeason plays the leagues' current seasons, then their promotion
+// play-offs and then the cup editions they qualify teams for, to one day
+// after each final.
 func playSeason(t *testing.T, w *World) []RoundsResolved {
 	t.Helper()
 	out := playLeagues(t, w)
+	out = append(out, playPlayoffs(t, w)...)
 	return append(out, playCup(t, w)...)
 }
 
@@ -87,11 +93,35 @@ func playCup(t *testing.T, w *World) []RoundsResolved {
 	return playUntil(t, w, cupEnd)
 }
 
+// playPlayoffs plays the promotion play-offs, to one day after their ties
+// (which applies the movement and draws any cup edition). It does nothing in
+// a world without links.
+func playPlayoffs(t *testing.T, w *World) []RoundsResolved {
+	t.Helper()
+	return playUntil(t, w, playoffEnd)
+}
+
 // playLeagues plays the leagues' current seasons, to one day after their
-// last kickoff (which creates the next seasons and any cup edition).
+// last kickoff (which creates the promotion play-offs, and the next seasons
+// of leagues without links).
 func playLeagues(t *testing.T, w *World) []RoundsResolved {
 	t.Helper()
 	return playUntil(t, w, seasonEnd)
+}
+
+// playoffEnd is one day after the last kickoff of every promotion play-off,
+// or now when none exists.
+func playoffEnd(w *World) sim.GameInstant {
+	end := w.Now()
+	for _, ref := range w.competitions.Seasons() {
+		if f, _ := w.competitions.Format(ref); f != competitions.FormatTies {
+			continue
+		}
+		if rounds := w.competitions.Rounds(ref); len(rounds) > 0 {
+			end = max(end, rounds[len(rounds)-1].Kickoff+day)
+		}
+	}
+	return end
 }
 
 // playUntil alternates Continue and ResolveRounds until Continue reaches
@@ -168,8 +198,12 @@ func TestFullSeasonIntegrity(t *testing.T) {
 		t.Fatalf("after the season Continue = %#v", res)
 	}
 	season := competitions.SeasonRef{Competition: 1, Season: 1}
-	if len(w.competitions.PendingRounds()) != 0 || w.leagues[0].season.Season != 2 {
-		t.Fatal("rounds pending, or the next season was not created")
+	if len(w.competitions.PendingRounds()) != 0 {
+		t.Fatal("rounds pending after the season ended")
+	}
+	// A linked league's next season waits for its play-offs.
+	if _, ok := w.competitions.Entrants(competitions.SeasonRef{Competition: 1, Season: 2}); ok {
+		t.Fatal("the next season was created before the play-offs")
 	}
 	for _, task := range kickoffTasks(w) {
 		if w.payloads[task.PayloadID].Season == season {

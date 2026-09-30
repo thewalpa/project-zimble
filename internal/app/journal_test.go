@@ -49,9 +49,10 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 	}
 	weeks := int(w.Now() / (7 * day)) // one wage run per elapsed week
 	want := map[events.Kind]int{
-		// Four leagues, then their second seasons and the first cup edition.
+		// Four leagues end together and create their play-offs; their second
+		// seasons and the first cup edition wait for those to decide.
 		events.KindRoundStarted: 56, events.KindMatchCompleted: 224, events.KindLineupSubmitted: 14,
-		events.KindSeasonEnded: 4, events.KindSeasonStarted: 5, events.KindLedgerPosted: 14 + weeks,
+		events.KindSeasonEnded: 4, events.KindSeasonStarted: 2, events.KindLedgerPosted: 14 + weeks,
 	}
 	// The AI clubs' transfer market: one event per offer made, completed or
 	// closed, one ledger posting per run that moved fees, and the listings.
@@ -131,9 +132,18 @@ func TestJournalRecordsEveryCommit(t *testing.T) {
 		}
 	}
 	table, _ := w.Table(competitions.SeasonRef{Competition: 1, Season: 1})
-	if last[0].Kind != events.KindSeasonEnded || last[0].SeasonEnded.Ranking[0] != table.Rows[0].Team ||
-		last[1].Kind != events.KindSeasonStarted || last[1].SeasonStarted.Season != 2 || last[0].Cause != last[1].Cause || last[0].Cause.Kind != events.CauseTask {
+	// The cohort ends the four leagues and creates the two play-offs the
+	// movement waits for; their starts share its last task's cause.
+	if len(last) != 6 || last[0].Kind != events.KindSeasonEnded || last[0].SeasonEnded.Ranking[0] != table.Rows[0].Team ||
+		last[4].Kind != events.KindSeasonStarted || last[5].Kind != events.KindSeasonStarted ||
+		last[4].SeasonStarted.Season != 1 || last[5].SeasonStarted.Season != 1 ||
+		last[3].Cause != last[4].Cause || last[4].Cause != last[5].Cause {
 		t.Fatalf("season events %+v", last)
+	}
+	for _, e := range last {
+		if e.Cause.Kind != events.CauseTask {
+			t.Fatalf("season event %+v has no task cause", e)
+		}
 	}
 }
 
@@ -194,7 +204,7 @@ func TestInboxIsAProjectionOfTheJournal(t *testing.T) {
 		}
 	}
 	// The manager hears of every injury and recovery in the team.
-	want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 4, inbox.KindSeasonStarted: 5}
+	want := map[inbox.Kind]int{inbox.KindMatchday: 14, inbox.KindResult: 14, inbox.KindSeasonEnded: 4, inbox.KindSeasonStarted: 2}
 	for _, e := range w.Events() {
 		if p := e.PlayerInjured; p != nil && p.Team == team {
 			want[inbox.KindInjured]++
@@ -266,7 +276,7 @@ func TestJournalRetention(t *testing.T) {
 			injuries++
 		}
 	}
-	if len(w.Inbox()) != 14+14+4+5+injuries { // matchdays, results, season ends and starts
+	if len(w.Inbox()) != 14+14+4+2+injuries { // matchdays, results, season ends and starts
 		t.Fatalf("inbox lost messages when the journal was trimmed: %d", len(w.Inbox()))
 	}
 	roundTrip(t, w)

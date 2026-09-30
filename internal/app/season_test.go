@@ -33,18 +33,14 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if civil, _ := w.Calendar().Civil(first2); first2-first1 != 364*day || civil != (sim.CivilTime{Year: 2026, Month: 8, Day: 8, Hour: 15}) {
 		t.Fatalf("season 2 starts %v (%d after season 1)", civil, first2-first1)
 	}
-	// Two places move between each nation's divisions on the final tables;
-	// every team is in exactly one league each season.
+	// The play-offs decide who moves between the divisions; the first
+	// division keeps its size and takes exactly the entrants the decided
+	// ties call for.
 	e1, _ := w.competitions.Entrants(s1)
 	e2, _ := w.competitions.Entrants(s2)
-	down := w.competitions.Ranking(s1)[6:]
-	if len(e2) != len(e1) || slices.Equal(e1, e2) {
-		t.Fatalf("season 2 entrants %v after %v, relegated %v", e2, e1, down)
-	}
-	for _, team := range down {
-		if slices.Contains(e2, team) {
-			t.Fatalf("relegated team %d is still in the first division", team)
-		}
+	want, err := w.entrantsAfter(w.leagues[0].def.ID, 1)
+	if len(e2) != len(e1) || err != nil || !slices.Equal(e2, want) {
+		t.Fatalf("season 2 entrants %v after %v, want %v (%v)", e2, e1, want, err)
 	}
 	pairings := func(ref competitions.SeasonRef) (out [][3]uint64) {
 		for _, f := range w.competitions.Fixtures(ref) {
@@ -55,7 +51,7 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if reflect.DeepEqual(pairings(s1), pairings(s2)) {
 		t.Fatal("season 2 repeats season 1's draw")
 	}
-	if n := len(kickoffTasks(w)); n != 56 { // all four leagues; the cup was played
+	if n := len(kickoffTasks(w)); n != 56 { // all four leagues' season 2; the play-offs and cup were played
 		t.Fatalf("%d kickoff tasks queued for season 2", n)
 	}
 	// Nine months of rest: everyone starts season 2 fully fit.
@@ -71,7 +67,8 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 		t.Fatalf("current season %s after season 2", w.leagues[0].season)
 	}
 	// Fixture IDs are never reused and each season's follow the previous
-	// one's (the other league and the cup take IDs in between).
+	// one's (the other leagues, the cup and the play-offs take IDs in
+	// between).
 	seen := map[ids.FixtureID]bool{}
 	var last ids.FixtureID
 	for i, ref := range []competitions.SeasonRef{s1, s2, s3} {
@@ -94,10 +91,16 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 
 	// History in competition ID order: the two first divisions' three
 	// seasons each, then two complete cup editions won by their final's
-	// winner, then the second divisions' six.
+	// winner, the second divisions' six, and the play-offs' decided
+	// editions, which have no champion.
 	all := w.History()
-	if len(all) != 14 {
+	if len(all) != 18 {
 		t.Fatalf("history %+v", all)
+	}
+	for _, rec := range all[14:] {
+		if rec.Format != competitions.FormatTies || !rec.Complete || rec.Champion != nil {
+			t.Fatalf("play-off history %+v", rec)
+		}
 	}
 	for _, rec := range all[6:8] {
 		cup, ok := w.Cup(rec.Season)
@@ -157,8 +160,19 @@ func TestSeasonEndsAfterTheLastRoundIsResolved(t *testing.T) {
 	if res := mustContinue(t, w, last); res != (ReachedTarget{Now: last}) {
 		t.Fatalf("Continue at the last kickoff = %#v", res)
 	}
-	if w.leagues[0].season.Season != 2 || w.Revision() != rev+1 || w.Now() != last {
+	// The end cohort runs at the last kickoff: the seasons end together and
+	// create their play-offs, and the next seasons wait for those to decide.
+	if w.Revision() != rev+1 || w.Now() != last || w.leagues[0].season.Season != 1 {
 		t.Fatalf("season %s, revision %d (was %d), now %d", w.leagues[0].season, w.Revision(), rev, w.Now())
+	}
+	for _, link := range w.movementLinks() {
+		comp, ok := w.playoffCompetition(link)
+		if !ok {
+			t.Fatalf("link %+v has no play-off competition", link)
+		}
+		if _, exists := w.competitions.Entrants(competitions.SeasonRef{Competition: comp, Season: 1}); !exists {
+			t.Fatalf("link %+v: no play-off after the season ended", link)
+		}
 	}
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)

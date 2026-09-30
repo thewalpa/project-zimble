@@ -9,9 +9,10 @@ import (
 	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
-// The promotion views follow the pinned links: the first divisions send their
-// bottom places down, the second divisions their top places up, and a cup or
-// an unlinked league none.
+// The promotion views follow the pinned links: the first divisions mark
+// their bottom places as play-off places, the second divisions their top
+// places, and a cup or an unlinked league none. Until the play-offs decide,
+// no place has a movement.
 func TestPromotionViews(t *testing.T) {
 	w := newWorld(t, 42)
 	for _, l := range w.Promotions() {
@@ -26,18 +27,25 @@ func TestPromotionViews(t *testing.T) {
 		table, _ := w.Table(upper)
 		n := len(table.Rows)
 		for pos := 1; pos <= n; pos++ {
-			promoted, relegated := w.SeasonMove(upper, pos)
-			if promoted || relegated != (pos > n-l.Places) {
-				t.Fatalf("upper position %d: promoted %v, relegated %v", pos, promoted, relegated)
+			if got := w.InPlayoff(upper, pos); got != (pos > n-l.Places) {
+				t.Fatalf("upper position %d: in play-off %v", pos, got)
 			}
-			promoted, relegated = w.SeasonMove(lower, pos)
-			if relegated || promoted != (pos <= l.Places) {
-				t.Fatalf("lower position %d: promoted %v, relegated %v", pos, promoted, relegated)
+			if promoted, relegated := w.SeasonMove(upper, pos); promoted || relegated {
+				t.Fatalf("upper position %d moved before the play-offs: promoted %v, relegated %v", pos, promoted, relegated)
+			}
+			if got := w.InPlayoff(lower, pos); got != (pos <= l.Places) {
+				t.Fatalf("lower position %d: in play-off %v", pos, got)
+			}
+			if promoted, relegated := w.SeasonMove(lower, pos); promoted || relegated {
+				t.Fatalf("lower position %d moved before the play-offs: promoted %v, relegated %v", pos, promoted, relegated)
 			}
 		}
 	}
 	if up, down := w.PromotionPlaces(3); up != 0 || down != 0 { // the Continental Cup
 		t.Fatalf("cup: up %d, down %d", up, down)
+	}
+	if w.InPlayoff(competitions.SeasonRef{Competition: 1, Season: 1}, 0) {
+		t.Fatal("position 0 is in a play-off")
 	}
 	if p, r := w.SeasonMove(competitions.SeasonRef{Competition: 1, Season: 1}, 0); p || r {
 		t.Fatal("position 0 moved")

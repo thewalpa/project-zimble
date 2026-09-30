@@ -20,16 +20,17 @@ func top(w *World, league ids.CompetitionID, pos int) ids.TeamID {
 	return w.competitions.Ranking(competitions.SeasonRef{Competition: league, Season: 1})[pos-1]
 }
 
-// The first edition is created when both leagues' first seasons end: the
-// top four of each, seeded so the champions can meet only in the final, the
-// better-placed team at home in every quarter-final; it starts two weeks
-// after the leagues' last round.
+// The first edition is created when the play-offs after both leagues' first
+// seasons decide: the top four of each, seeded so the champions can meet
+// only in the final, the better-placed team at home in every quarter-final;
+// it starts two weeks after the leagues' last round.
 func TestCupEditionIsCreatedFromTheLeagues(t *testing.T) {
 	w := newWorld(t, 42)
 	if len(w.Cups()) != 0 {
 		t.Fatal("a cup edition exists before any league season ended")
 	}
 	playLeagues(t, w)
+	playPlayoffs(t, w)
 	e, ok := w.Cup(cup1)
 	if !ok || e.Name != "Continental Cup" || len(e.Rounds) != 3 || e.Complete {
 		t.Fatalf("edition %+v, %v", e, ok)
@@ -92,6 +93,7 @@ func TestCupQualifiers(t *testing.T) {
 	}
 
 	playLeagues(t, w)
+	playPlayoffs(t, w)
 	e, _ := w.Cup(cup1)
 	var drawn, qualified []ids.TeamID
 	for _, l := range e.Entrants {
@@ -119,6 +121,7 @@ func TestCupIsPlayedToAChampion(t *testing.T) {
 	for _, seed := range []uint64{42, 7, 11, 23} {
 		w := newWorld(t, seed)
 		playLeagues(t, w)
+		playPlayoffs(t, w)
 		resolved := playCup(t, w)
 		if len(resolved) != 3 {
 			t.Fatalf("seed %d: %d cup batches", seed, len(resolved))
@@ -187,7 +190,8 @@ func TestCupIsPlayedToAChampion(t *testing.T) {
 	}
 }
 
-// Only cup fixtures are knockout matches for the engine.
+// League fixtures are never knockout matches for the engine; the cup's and
+// the play-offs' are.
 func TestOnlyCupMatchesAreKnockouts(t *testing.T) {
 	w := newWorld(t, 42)
 	ready := readyBatch(t, w)
@@ -201,6 +205,16 @@ func TestOnlyCupMatchesAreKnockouts(t *testing.T) {
 		}
 	}
 	playLeagues(t, w)
+	ready = readyBatch(t, w)
+	if plan, err = w.prepareBatch(commandFor(ready, 0).Rounds); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range plan {
+		if !p.input.Rules.Knockout || p.fixture.Season == cup1 {
+			t.Fatalf("play-off fixture %d of %s: knockout %t", p.fixture.ID, p.fixture.Season, p.input.Rules.Knockout)
+		}
+	}
+	playPlayoffs(t, w)
 	ready = readyBatch(t, w)
 	if plan, err = w.prepareBatch(commandFor(ready, 0).Rounds); err != nil {
 		t.Fatal(err)
@@ -221,6 +235,7 @@ func TestCupSurvivesSaves(t *testing.T) {
 	}
 	w := newWorld(t, 42)
 	playLeagues(t, w)
+	playPlayoffs(t, w)
 	for range 3 { // before each cup round, and while it awaits results
 		w = roundTrip(t, w)
 		readyBatch(t, w)
@@ -244,6 +259,7 @@ func TestManagedClubInTheCup(t *testing.T) {
 
 	w := userWorld(t, 42, champion)
 	playLeagues(t, w)
+	playPlayoffs(t, w)
 	ready := readyBatch(t, w)
 	if len(ready.UserFixtures) != 1 {
 		t.Fatalf("user fixtures %v in the quarter-finals", ready.UserFixtures)
@@ -291,6 +307,7 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 	built := func() WorldSnapshot {
 		w := newWorld(t, 42)
 		playLeagues(t, w)
+		playPlayoffs(t, w)
 		readyBatch(t, w)
 		resolveNow(t, w) // the quarter-finals are played
 		return w.Snapshot()

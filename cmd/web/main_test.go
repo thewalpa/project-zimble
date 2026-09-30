@@ -396,7 +396,7 @@ func TestStaleFormsAndCrossSiteRequests(t *testing.T) {
 func TestContractsInTheBrowser(t *testing.T) {
 	c := career(t)
 	contains(t, c.post("/season", nil), "Founders League season 1 is finished", "final table")
-	for range 6 { // the cup run: quarter-final, semi-final and final, each a matchday and a match
+	for range 2 { // the cup quarter-final, then its post-match pause
 		c.post("/continue", nil)
 	}
 	page := c.post("/continue", nil)
@@ -624,17 +624,21 @@ func TestCupInTheBrowser(t *testing.T) {
 	c := newClient(t, config{seed: 42, club: 4, savePath: filepath.Join(t.TempDir(), "career.json")}) // Brackenmoor Town
 	contains(t, c.get("/cup"), "No edition has been drawn yet")
 	c.post("/season", nil)
-	contains(t, c.get("/"), "Next match", "Continental Cup quarter-final v Ironbridge Wanderers (home)")
+	// The play-offs decide and draw the cup before its first matchday.
 	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Ironbridge Wanderers (home).")
 	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Ironbridge Wanderers (home)")
 	page := c.post("/continue", nil) // the quarter-final
-	contains(t, page, "Brackenmoor Town 1-1 Ironbridge Wanderers (2-4 on penalties)", `class="pill L"`)
-	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "1-1 (2-4 on penalties)", "Your club is in it.")
+	contains(t, page, "Brackenmoor Town 2-0 Ironbridge Wanderers", `class="pill W"`)
+	// The win leaves the semi-final as the home page's next match.
+	contains(t, c.get("/"), "Next match", "Continental Cup semi-final v Larkspur Rovers (home)")
+	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "1-1 (4-1 on penalties)", "Your club is in it.")
 	contains(t, c.get("/fixtures"), "Continental Cup quarter-final")
 	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
-	c.post("/continue", nil) // the rest of the cup, without the club
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final.", "(2-4 on penalties) v Ironbridge Wanderers (home), Continental Cup quarter-final")
-	contains(t, c.get("/cup"), "Won by <b>Saltmere Athletic</b>")
+	for range 5 { // the semi-final and the final, each a matchday and a match; then the cup ends
+		c.post("/continue", nil)
+	}
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Hollowick Town; you went out in the final.", "1-1 (4-1 on penalties) v Larkspur Rovers (home), Continental Cup semi-final")
+	contains(t, c.get("/cup"), "Won by <b>Hollowick Town</b>")
 
 	// Hollowick Athletic (club 6 of seed 1) wins it.
 	c = newClient(t, config{seed: 1, club: 6, savePath: filepath.Join(t.TempDir(), "career.json")})
@@ -651,7 +655,7 @@ func TestCupInTheBrowser(t *testing.T) {
 func TestTransfersInTheBrowser(t *testing.T) {
 	c := career(t)
 	c.post("/season", nil)
-	for range 7 { // the cup run to the final, then the contract year
+	for range 3 { // the cup quarter-final, then the off-season
 		c.post("/continue", nil)
 	}
 	page := c.post("/continue", nil)
@@ -684,14 +688,14 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
 		"Callum Doyle is on the transfer list")
 	page = c.post("/continue", nil)
-	contains(t, page, "Eldhaven United bid 1,200,000.00 for Callum Doyle", "1 bids for your players await your answer")
-	contains(t, c.get("/"), "<b>Now:</b> <a href=\"/transfers\">Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by ")
+	contains(t, page, "Glenrock Town bid 1,200,000.00 for Callum Doyle", "1 bids for your players await your answer")
+	contains(t, c.get("/"), "<b>Now:</b> <a href=\"/transfers\">Glenrock Town bid 1,200,000.00 for Callum Doyle. Answer by ")
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"84"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
-	contains(t, c.get("/inbox"), "Callum Doyle left for Eldhaven United for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 84")
+	contains(t, c.post("/answer", url.Values{"offer": {"86"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.get("/inbox"), "Callum Doyle left for Glenrock Town for 1,200,000.00")
+	contains(t, c.get("/finances"), "transfer fee, offer 86")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
@@ -1106,7 +1110,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Saltmere Athletic</b>", "← All seasons")
+	contains(t, all, "final table", "▼ the bottom 2 were relegated", `title="Relegated"`, "Quarter-finals", "Won by <b>Hollowick Town</b>", "← All seasons")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
 	if err != nil {
 		t.Fatal(err)
@@ -1284,9 +1288,7 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 		t.Fatal("only the first divisions send their top four to the cup")
 	}
 	c.post("/season", nil)
-	for range 7 {
-		c.post("/continue", nil)
-	}
+	// The finished season's table shows the past tense until season 2 starts.
 	contains(t, c.get("/table"), "▼ the bottom 2 were relegated", "▲ the top 2 were promoted", "final table", `title="Relegated"`, `title="Promoted"`)
 }
 
@@ -1295,7 +1297,7 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 func TestMarketRefusalsInTheBrowser(t *testing.T) {
 	c := career(t)
 	c.post("/season", nil)
-	for range 8 {
+	for range 4 { // the cup quarter-final and the off-season to the window
 		c.post("/continue", nil)
 	}
 	if !c.s.w.TransferWindow().Open {
@@ -1319,10 +1321,13 @@ func TestMarketRefusalsInTheBrowser(t *testing.T) {
 	contains(t, c.get("/free"), "Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.")
 }
 
-// The season-end message says when the club goes up or down a division.
-func TestSeasonEndSaysRelegation(t *testing.T) {
-	c := newClient(t, config{seed: 42, club: 8, savePath: filepath.Join(t.TempDir(), "career.json")})
+// The season-end message says when the club goes up or down a division,
+// once the play-offs have decided its place.
+func TestSeasonEndSaysMovement(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 20, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
-	c.post("/continue", nil)
-	contains(t, c.get("/inbox"), "you finished 8: relegated to the division below.")
+	for range 3 { // the play-off matchday and its match decide the movement
+		c.post("/continue", nil)
+	}
+	contains(t, c.get("/inbox"), "you finished 2: promoted to the division above.")
 }

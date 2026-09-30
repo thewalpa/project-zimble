@@ -398,8 +398,9 @@ func demoContinue(out io.Writer, w *app.World) error {
 // limit < 0), printing each, then prints those seasons' tables. It stops a
 // day after their last kickoff, past the season end that creates the next
 // seasons, so a later run plays the next season. With limit < 0 it then
-// plays the cup editions that season end created, to a day after their
-// finals, and names their winners. With a mentality, it first submits the
+// plays the promotion play-offs those seasons set up (which decide the
+// movement and draw the cups), and the cup editions, to a day after their
+// finals, naming each cup's winners. With a mentality, it first submits the
 // suggested lineup with that mentality for each of the managed club's
 // fixtures. Command IDs continue after any recorded in the world, so a
 // loaded career never reuses one.
@@ -429,6 +430,24 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 	}
 	if limit >= 0 {
 		return nil
+	}
+	// The promotion play-offs follow; playing them decides the movement and
+	// draws the cups.
+	for _, p := range w.Playoffs() {
+		if p.Complete {
+			continue
+		}
+		final := p.Rounds[len(p.Rounds)-1].Kickoff + sim.GameInstant(sim.Day)
+		fmt.Fprintf(out, "\n%s %d: playing to %s\n", p.Name, p.Edition, cal.Format(final))
+		for {
+			ok, err := playBatch(out, w, final, mentality)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				break
+			}
+		}
 	}
 	for _, c := range w.Cups() {
 		if c.Complete {
@@ -489,7 +508,7 @@ func playBatch(out io.Writer, w *app.World, end sim.GameInstant, mentality match
 	for _, r := range resolved.Rounds {
 		if len(resolved.Matches) > 0 {
 			info, _ := w.FixtureInfo(firstFixture(resolved, r))
-			if info.Cup {
+			if info.Cup || info.Playoff {
 				fmt.Fprintf(out, "\n%s %s  %s  (competition %d)\n", info.CompetitionName, info.RoundName, cal.Format(resolved.At), r.Season.Competition)
 			} else {
 				fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)

@@ -156,12 +156,13 @@ func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 		": the assistant's suggestion\n")
 }
 
-// season plays the rest of the season; continue then crosses into the next,
-// through the cup run (three matches, to the final), stopping before the
-// contract-year end and at the transfer window.
+// season plays the rest of the season; continue then crosses the play-offs
+// (played for the linked leagues), the manager's cup quarter-final and the
+// off-season, stopping at the contract-year end, the transfer window and
+// the next season's first matchday.
 func TestSeasonAndNextSeason(t *testing.T) {
 	script := []string{"season"}
-	for range 9 {
+	for range 5 {
 		script = append(script, "continue")
 	}
 	out := play(t, []string{"-seed", "42", "-club", "3"}, append(script, "status", "q", "q")...)
@@ -277,7 +278,7 @@ func TestMoneyViews(t *testing.T) {
 // are locked).
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", // the cup run, to the final
+		"season", "continue", "continue", "continue", // the cup quarter-final, then the contract-year eve
 		"contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
 		"continue", "free", "sign 44", "sign 168 1", "squad", "inbox 12", "continue", "bid 300", "q", "q")
 	contains(t, out,
@@ -320,8 +321,8 @@ func TestPlayerYearMessages(t *testing.T) {
 	}
 }
 
-// The cup is drawn when the leagues end and shown by cup; its results reach
-// the inbox, penalties included.
+// The cup is drawn when the play-offs decide and shown by cup; its results
+// reach the inbox, penalties included.
 func TestCup(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "cup", "season",
 		"continue", "continue", "continue", "continue", "continue", "continue", "continue", // the manager's cup run, and on
@@ -329,11 +330,12 @@ func TestCup(t *testing.T) {
 	contains(t, out,
 		"No cup has been drawn yet",
 		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Quillford FC: your club won it!",
+		"Continental Cup 1 won by Hollowick Town; you went out in the quarter-final",
 		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
-		"  Brackenmoor Town         1-1 Ironbridge Wanderers (2-4 on penalties)",
+		"  Brackenmoor Town         2-0 Ironbridge Wanderers",
+		"  Juniper Vale United      1-1 Eldhaven United (4-1 on penalties)",
 		"Final, Sat 2025-12-06 15:00 UTC",
-		"Winner: Quillford FC",
+		"Winner: Hollowick Town",
 	)
 }
 
@@ -341,20 +343,23 @@ func TestCup(t *testing.T) {
 // result can be decided on penalties, and the inbox says how far it went.
 func TestManagedCupRun(t *testing.T) {
 	script := []string{"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q"}
-	// Brackenmoor Town (club 4) goes out on penalties in the quarter-final.
+	// Brackenmoor Town (club 4) wins a shoot-out in the semi-final and goes
+	// out in the final.
 	out := play(t, []string{"-seed", "42", "-club", "4"}, script...)
 	contains(t, out,
 		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final v Ironbridge Wanderers (home).",
 		"matchday: Continental Cup quarter-final v Ironbridge Wanderers (home)",
-		"FULL TIME  Brackenmoor Town 1-1 Ironbridge Wanderers (2-4 on penalties)  (L)",
-		"result: 1-1 (2-4 on penalties) v Ironbridge Wanderers (home)",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final",
+		"FULL TIME  Brackenmoor Town 2-0 Ironbridge Wanderers  (W)",
+		"result: 2-0 v Ironbridge Wanderers (home)",
+		"FULL TIME  Brackenmoor Town 1-1 Larkspur Rovers (4-1 on penalties)  (W)",
+		"result: 1-1 (4-1 on penalties) v Larkspur Rovers (home)",
+		"Continental Cup 1 won by Hollowick Town; you went out in the final",
 	)
 	// Hollowick Athletic (club 6 of seed 1) wins it.
 	out = play(t, []string{"-seed", "1", "-club", "6"}, script...)
 	contains(t, out,
 		"matchday: Continental Cup final v Osterholm Athletic (home)",
-		"FULL TIME  Hollowick Athletic 4-0 Osterholm Athletic  (W)",
+		"FULL TIME  Hollowick Athletic 2-0 Osterholm Athletic  (W)",
 		"Continental Cup 1 won by Hollowick Athletic: your club won it!",
 	)
 }
@@ -377,7 +382,7 @@ func TestRefusedOfferInboxWording(t *testing.T) {
 func TestTransfers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "continue", // the cup run
+		"season", "continue", "continue", "continue", "continue", // the cup quarter-final, then the transfer window
 		"market fw", "market", "bid 344", "bid 547", "bid 617", "bid 238 500000", "bid 238",
 		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "agenda", "free", "save "+path, "accept 99", "q", "q")
 	contains(t, out, "9 free agents wait for a club (type free).",
@@ -393,23 +398,23 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Callum Doyle             Westmark   DF   18    75   1,200,000.00",
 		"transfer: Rhys Underwood joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
 		"transfer: your bid of 500,000.00 for Leif Dekker of Ironbridge Wanderers was rejected",
-		"bid: Eldhaven United bid 1,200,000.00 for Callum Doyle (offer 84); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
+		"bid: Glenrock Town bid 1,200,000.00 for Callum Doyle (offer 86); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Rhys Underwood           Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
-		"NOW  Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 84 or reject 84)",
+		"NOW  Glenrock Town bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 86 or reject 86)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 84", "finances 2", "list", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 86", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O84")
+		"transfer: Callum Doyle left for Glenrock Town for 1,200,000.00", "transfer fee O86")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
-	rejected := play(t, []string{"-load", path}, "reject 84", "unlist 44", "unlist 44", "continue", "q", "q")
+	rejected := play(t, []string{"-load", path}, "reject 86", "unlist 44", "unlist 44", "continue", "q", "q")
 	contains(t, rejected, "Rejected.", "Callum Doyle is off the transfer list.", "! app: the player is not on the transfer list: player 44",
-		"transfer: the bid of 1,200,000.00 from Eldhaven United for Callum Doyle was rejected")
+		"transfer: the bid of 1,200,000.00 from Glenrock Town for Callum Doyle was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {
 		t.Fatal("a rejected bid moved the player")
 	}
@@ -538,10 +543,10 @@ func TestHistory(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
 	contains(t, out,
 		"Founders League", "in progress",
-		"Quillford FC *",                         // the manager's club is marked where it is champion
+		"3* QUI",                                 // the manager's club is marked in the table
 		"Continental Cup   ", "Brackenmoor Town", // the league champion
 		"Founders League season 1 (14/14 rounds)",
-		"Winner: Quillford FC",
+		"Winner: Hollowick Town",
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)
@@ -635,10 +640,11 @@ func TestInjuriesInTheTerminal(t *testing.T) {
 	}
 }
 
-// The season-end message says when the club goes up or down a division.
-func TestSeasonEndSaysRelegation(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "8"}, "season", "continue", "continue", "inbox 20", "quit", "quit")
-	contains(t, out, "you finished 8th: relegated to the division below")
+// The season-end message says when the club goes up or down a division,
+// once the play-offs have decided its place.
+func TestSeasonEndSaysMovement(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "20"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
+	contains(t, out, "you finished 2nd: promoted to the division above")
 }
 
 // club shows another club's forecast lineup and players, and points the user

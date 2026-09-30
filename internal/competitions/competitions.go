@@ -27,10 +27,10 @@ import (
 // calendar (SeasonKickoff). Bump it when the same seed, season and entrants
 // would produce different fixtures or kickoffs. Version 2 anchored seasons to
 // their first kickoff's anniversary; pairings are drawn from pairingDraw's
-// stream and did not change. Version 3 will cover ties seasons (promotion
-// play-offs) once the application creates them and they shift later fixture
-// IDs.
-const ScheduleVersion = 2
+// stream and did not change. Version 3 covers ties seasons (promotion
+// play-offs): the application creates them before the cups that follow, so
+// later fixture IDs shift.
+const ScheduleVersion = 3
 
 // pairingDraw keys the stream that places entrants in schedule slots. It is
 // the ScheduleVersion that last changed pairings, so a calendar change does

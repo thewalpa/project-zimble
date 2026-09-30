@@ -54,18 +54,25 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 	return 0, false
 }
 
-// endSeasons closes every season in the cohort, creates each ending
-// league's next season, and creates the next edition of every cup whose
-// qualifying league seasons are now all over (see cupEditionDue):
+// endSeasons closes every season in the cohort and creates what follows:
 //
-//   - A league's next season starts in the week of its first kickoff's
-//     anniversary (competitions.SeasonKickoff). Its entrants are the ending season's, moved along the
-//     promotion links by every linked league's final ranking
-//     (competitions.NextEntrants); linked leagues end in one cohort.
+//   - A linked league season's end runs the promotion play-offs over each of
+//     its links (competitions.FormatTies): one tie per place, the bottom of
+//     Upper at home to the top of Lower (competitions.PlayoffPairings), one
+//     round after competitions.PlayoffDelay. The linked leagues end in one
+//     cohort. The winners cross the link, the losers stay, and the next
+//     league seasons follow only once every play-off of that edition is
+//     decided (competitions.NextEntrantsAfterPlayoffs) — or immediately,
+//     from the plain swap, in a world without links.
+//   - A league with no link just keeps its teams into its next season, which
+//     starts in the week of its first kickoff's anniversary
+//     (competitions.SeasonKickoff), whether or not links exist elsewhere.
 //   - A cup edition's bracket seeds the qualifying seasons' final rankings
 //     (content.Cup.Seeding); its first round kicks off FirstRoundDelay after
-//     the latest of their last kickoffs.
-//   - An ending cup edition just closes.
+//     the latest of their last kickoffs. With play-offs an edition is drawn
+//     only once its qualifying leagues have moved past the season it is
+//     drawn from (see cupEditionDue), so after the play-offs are decided.
+//   - An ending cup or play-off edition just closes.
 //
 // Everything is checked and every new season is created in one
 // all-or-nothing competitions call before anything else changes; scheduling
@@ -76,16 +83,24 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 // results; their rankings and champions remain derivable (see History).
 func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	type ending struct {
-		league  int // -1 for a cup edition
+		league  int // index into w.leagues, or -1 when no league season follows here
 		task    sim.TaskID
 		payload sim.PayloadID
 		ref     competitions.SeasonRef
-		next    competitions.SeasonRef // zero for a cup edition
+		next    competitions.SeasonRef // the league's next season; zero otherwise
 		first   sim.GameInstant        // next's first kickoff
 	}
 	var ends []ending
+	var created []ending                  // next seasons the play-offs decide
+	var editions []competitions.SeasonRef // new play-off and cup editions to schedule
 	var specs []competitions.NewSeason
-	rankings := map[ids.CompetitionID][]ids.TeamID{}
+	rankings := map[ids.CompetitionID][]ids.TeamID{} // ended leagues' final rankings
+	endedSeason := map[ids.CompetitionID]competitions.Season{}
+	links := w.movementLinks()
+	linked := map[ids.CompetitionID]bool{}
+	for _, l := range links {
+		linked[l.Upper], linked[l.Lower] = true, true
+	}
 	advanced := map[ids.CompetitionID]competitions.Season{} // leagues' current seasons once this cohort commits
 	for _, l := range w.leagues {
 		advanced[l.def.ID] = l.season.Season
@@ -102,35 +117,116 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 			ends = append(ends, ending{league: -1, task: t.ID, payload: t.PayloadID, ref: ref})
 			continue
 		}
+		if _, ok := w.playoffLink(ref.Competition); ok {
+			ends = append(ends, ending{league: -1, task: t.ID, payload: t.PayloadID, ref: ref})
+			continue
+		}
 		li, ok := w.leagueIndex(ref.Competition)
 		if !ok || w.leagues[li].season != ref {
-			return fmt.Errorf("app: season-end task %d for %s, which is not a league's current season or a cup edition", t.ID, ref)
+			return fmt.Errorf("app: season-end task %d for %s, which is not a league's current season, a cup edition or a play-off", t.ID, ref)
+		}
+		rankings[ref.Competition] = w.competitions.Ranking(ref)
+		endedSeason[ref.Competition] = ref.Season
+		if linked[ref.Competition] {
+			// Its next season waits for the play-offs below.
+			ends = append(ends, ending{league: li, task: t.ID, payload: t.PayloadID, ref: ref})
+			continue
 		}
 		next := competitions.SeasonRef{Competition: ref.Competition, Season: ref.Season + 1}
 		first, err := competitions.SeasonKickoff(w.calendar, w.leagues[li].def.FirstKickoff, next.Season)
 		if err != nil || first <= at {
 			return fmt.Errorf("app: %s first kickoff %d is invalid or not after %d: %v", next, first, at, err)
 		}
-		rankings[ref.Competition] = w.competitions.Ranking(ref)
-		advanced[ref.Competition] = next.Season
 		ends = append(ends, ending{league: li, task: t.ID, payload: t.PayloadID, ref: ref, next: next, first: first})
 	}
+
+	// A league with no link keeps its teams; its next season follows now.
 	if len(rankings) > 0 {
-		entrants, err := competitions.NextEntrants(rankings, w.movementLinks())
+		kept, err := competitions.NextEntrants(rankings, nil)
 		if err != nil {
 			return fmt.Errorf("app: season end at %d: %w", at, err)
 		}
 		for _, e := range ends {
-			if e.league < 0 {
+			if !e.next.Valid() {
 				continue
 			}
 			specs = append(specs, competitions.NewSeason{
-				Ref: e.next, Format: competitions.FormatLeague, Entrants: entrants[e.ref.Competition],
+				Ref: e.next, Format: competitions.FormatLeague, Entrants: kept[e.ref.Competition],
 				Timing: competitions.Timing{FirstKickoff: e.first, RoundInterval: w.leagues[e.league].def.RoundInterval},
 			})
+			advanced[e.ref.Competition] = e.next.Season
 		}
 	}
-	var editions []competitions.SeasonRef
+
+	// Linked leagues end together; each of their links plays off its places.
+	for _, l := range links {
+		nU, endedU := endedSeason[l.Upper]
+		nL, endedL := endedSeason[l.Lower]
+		switch {
+		case endedU != endedL:
+			return fmt.Errorf("app: season end at %d: link %+v needs both leagues to end together", at, l)
+		case !endedU:
+			continue
+		case nU != nL:
+			return fmt.Errorf("app: season end at %d: link %+v ends seasons %d and %d", at, l, nU, nL)
+		}
+		comp, ok := w.playoffCompetition(l)
+		if !ok {
+			return fmt.Errorf("app: link %+v has no play-off competition", l)
+		}
+		spec, err := w.playoffEdition(l, comp, nU, rankings)
+		if err != nil {
+			return err
+		}
+		if spec.Timing.FirstKickoff <= at {
+			return fmt.Errorf("app: %s would kick off at %d, not after %d", spec.Ref, spec.Timing.FirstKickoff, at)
+		}
+		specs = append(specs, spec)
+		editions = append(editions, spec.Ref)
+	}
+
+	// A play-off end just closes its edition until every play-off of its
+	// group is decided (see linkGroups); then the group's leagues move on to
+	// their next seasons from the decided movement.
+	var decided []competitions.Season
+	for _, e := range ends {
+		if _, ok := w.playoffLink(e.ref.Competition); ok {
+			decided = append(decided, e.ref.Season)
+		}
+	}
+	slices.Sort(decided)
+	for _, n := range slices.Compact(decided) {
+		for _, g := range linkGroups(links) {
+			if !w.groupPlayoffsDecided(g, n) {
+				continue
+			}
+			entrants, err := w.playoffMovement(g, n)
+			if err != nil {
+				return fmt.Errorf("app: play-offs of season %d end at %d: %w", n, at, err)
+			}
+			for _, comp := range groupLeagues(g) {
+				if advanced[comp] != n {
+					continue
+				}
+				next := competitions.SeasonRef{Competition: comp, Season: n + 1}
+				if _, exists := w.competitions.Entrants(next); exists {
+					continue
+				}
+				li, _ := w.leagueIndex(comp)
+				first, err := competitions.SeasonKickoff(w.calendar, w.leagues[li].def.FirstKickoff, next.Season)
+				if err != nil || first <= at {
+					return fmt.Errorf("app: %s first kickoff %d is invalid or not after %d: %v", next, first, at, err)
+				}
+				specs = append(specs, competitions.NewSeason{
+					Ref: next, Format: competitions.FormatLeague, Entrants: entrants[comp],
+					Timing: competitions.Timing{FirstKickoff: first, RoundInterval: w.leagues[li].def.RoundInterval},
+				})
+				advanced[comp] = next.Season
+				created = append(created, ending{league: li, next: next})
+			}
+		}
+	}
+
 	for _, c := range w.cups {
 		edition, due := w.cupEditionDue(c, advanced)
 		if !due {
@@ -145,6 +241,9 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		}
 		specs = append(specs, spec)
 		editions = append(editions, spec.Ref)
+	}
+	if err := w.checkNoTeamClash(specs); err != nil {
+		return fmt.Errorf("app: season end at %d: %w", at, err)
 	}
 	if len(specs) > 0 {
 		if err := w.competitions.CreateSeasons(w.seed, specs); err != nil {
@@ -172,15 +271,20 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		delete(w.seasonEnds, e.payload)
 		ended := &events.SeasonEnded{Competition: e.ref.Competition, Season: uint16(e.ref.Season), Ranking: w.competitions.Ranking(e.ref)}
 		w.emit(at, taskCause(e.task), events.Event{Kind: events.KindSeasonEnded, SeasonEnded: ended})
-		if e.league < 0 {
+		if !e.next.Valid() {
 			continue
 		}
 		w.leagues[e.league].season = e.next
 		schedule(e.next)
 		w.emit(at, taskCause(e.task), events.Event{Kind: events.KindSeasonStarted, SeasonStarted: started(e.next)})
 	}
-	// A new cup edition is caused by the cohort's last season end: the one
-	// that completed its qualification.
+	for _, e := range created {
+		w.leagues[e.league].season = e.next
+		schedule(e.next)
+		w.emit(at, taskCause(cohort[len(cohort)-1].ID), events.Event{Kind: events.KindSeasonStarted, SeasonStarted: started(e.next)})
+	}
+	// A new play-off or cup edition is caused by the cohort's last season
+	// end: the one that completed its qualification.
 	for _, ref := range editions {
 		schedule(ref)
 		w.emit(at, taskCause(cohort[len(cohort)-1].ID), events.Event{Kind: events.KindSeasonStarted, SeasonStarted: started(ref)})
@@ -188,10 +292,270 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	return nil
 }
 
-// Promotions returns the links between divisions: at a season's end the
-// bottom Places teams of Upper's final table swap leagues with the top
-// Places of Lower's. A table's promotion and relegation places follow from
-// them. Read-only.
+// playoffLink returns the link a play-off competition decides, if any (see
+// competitions.PlayoffCompetitions).
+func (w *World) playoffLink(comp ids.CompetitionID) (competitions.Link, bool) {
+	l, ok := competitions.PlayoffCompetitions(w.movementLinks())[comp]
+	return l, ok
+}
+
+// playoffCompetition returns a link's play-off competition ID, if any.
+func (w *World) playoffCompetition(l competitions.Link) (ids.CompetitionID, bool) {
+	for comp, link := range competitions.PlayoffCompetitions(w.movementLinks()) {
+		if link == l {
+			return comp, true
+		}
+	}
+	return 0, false
+}
+
+// linkGroups returns the promotion links in connected groups over shared
+// leagues (a chained league is one link's lower and another's upper end).
+// A group decides as one: every play-off of its edition is complete before
+// any of its leagues moves on (see playoffMovement). Groups, and the links
+// inside them, are in (Upper, Lower) order.
+func linkGroups(links []competitions.Link) [][]competitions.Link {
+	ordered := slices.Clone(links)
+	slices.SortFunc(ordered, func(a, b competitions.Link) int {
+		return cmp.Or(cmp.Compare(a.Upper, b.Upper), cmp.Compare(a.Lower, b.Lower))
+	})
+	sharesEnd := func(a, b competitions.Link) bool {
+		return a.Upper == b.Upper || a.Upper == b.Lower || a.Lower == b.Upper || a.Lower == b.Lower
+	}
+	var groups [][]competitions.Link
+	used := make([]bool, len(ordered))
+	for i := range ordered {
+		if used[i] {
+			continue
+		}
+		used[i] = true
+		g := []competitions.Link{ordered[i]}
+		for queue := []int{i}; len(queue) > 0; {
+			k := queue[0]
+			queue = queue[1:]
+			for j := range ordered {
+				if !used[j] && sharesEnd(ordered[k], ordered[j]) {
+					used[j] = true
+					g = append(g, ordered[j])
+					queue = append(queue, j)
+				}
+			}
+		}
+		slices.SortFunc(g, func(a, b competitions.Link) int {
+			return cmp.Or(cmp.Compare(a.Upper, b.Upper), cmp.Compare(a.Lower, b.Lower))
+		})
+		groups = append(groups, g)
+	}
+	return groups
+}
+
+// groupLeagues returns the group's league competition IDs in ascending order.
+func groupLeagues(g []competitions.Link) []ids.CompetitionID {
+	seen := map[ids.CompetitionID]bool{}
+	var out []ids.CompetitionID
+	for _, l := range g {
+		for _, c := range []ids.CompetitionID{l.Upper, l.Lower} {
+			if !seen[c] {
+				seen[c] = true
+				out = append(out, c)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// groupPlayoffsDecided reports whether every play-off of the group's edition
+// exists and is complete.
+func (w *World) groupPlayoffsDecided(g []competitions.Link, season competitions.Season) bool {
+	for _, l := range g {
+		comp, ok := w.playoffCompetition(l)
+		if !ok {
+			return false
+		}
+		ref := competitions.SeasonRef{Competition: comp, Season: season}
+		if _, exists := w.competitions.Entrants(ref); !exists || !w.competitions.SeasonCompleted(ref) {
+			return false
+		}
+	}
+	return true
+}
+
+// entrantsAfter replays one league's entrants for the season after n from
+// the finished season's results: the plain swap (competitions.NextEntrants)
+// for a league with no link, and its group's decided play-offs
+// (competitions.NextEntrantsAfterPlayoffs) otherwise. An error names the
+// broken invariant.
+func (w *World) entrantsAfter(comp ids.CompetitionID, n competitions.Season) ([]ids.TeamID, error) {
+	ref := competitions.SeasonRef{Competition: comp, Season: n}
+	links := w.movementLinks()
+	linked := false
+	for _, l := range links {
+		if l.Upper == comp || l.Lower == comp {
+			linked = true
+			break
+		}
+	}
+	if linked {
+		for _, g := range linkGroups(links) {
+			if slices.Contains(groupLeagues(g), comp) {
+				if !w.groupPlayoffsDecided(g, n) {
+					return nil, fmt.Errorf("app: play-offs of season %d over %+v are not decided", n, g)
+				}
+				want, err := w.playoffMovement(g, n)
+				if err != nil {
+					return nil, err
+				}
+				return want[comp], nil
+			}
+		}
+		return nil, fmt.Errorf("app: league %d is in no link group", comp)
+	}
+	kept, err := competitions.NextEntrants(map[ids.CompetitionID][]ids.TeamID{comp: w.competitions.Ranking(ref)}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return kept[comp], nil
+}
+
+// playoffMovement returns the group's entrants for the season after the
+// given one, from the finished seasons' rankings and the decided play-off
+// outcomes (competitions.NextEntrantsAfterPlayoffs). Every play-off of the
+// edition must be decided (see groupPlayoffsDecided).
+func (w *World) playoffMovement(g []competitions.Link, season competitions.Season) (map[ids.CompetitionID][]ids.TeamID, error) {
+	finals := map[ids.CompetitionID][]ids.TeamID{}
+	for _, comp := range groupLeagues(g) {
+		ref := competitions.SeasonRef{Competition: comp, Season: season}
+		if !w.competitions.SeasonCompleted(ref) {
+			return nil, fmt.Errorf("app: %s is not complete", ref)
+		}
+		finals[comp] = w.competitions.Ranking(ref)
+	}
+	winners, err := w.playoffWinners(g, season)
+	if err != nil {
+		return nil, err
+	}
+	return competitions.NextEntrantsAfterPlayoffs(finals, g, winners)
+}
+
+// playoffWinners returns each link's tie winners in tie order from its
+// play-off edition's results, one per tie of competitions.PlayoffPairings.
+func (w *World) playoffWinners(links []competitions.Link, season competitions.Season) (map[competitions.Link][]ids.TeamID, error) {
+	out := map[competitions.Link][]ids.TeamID{}
+	for _, l := range links {
+		comp, ok := w.playoffCompetition(l)
+		if !ok {
+			return nil, fmt.Errorf("app: link %+v has no play-off competition", l)
+		}
+		ref := competitions.SeasonRef{Competition: comp, Season: season}
+		if !w.competitions.SeasonCompleted(ref) {
+			return nil, fmt.Errorf("app: %s is not complete", ref)
+		}
+		results := w.competitions.Results(ref) // fixture order is tie order
+		winners := make([]ids.TeamID, len(results))
+		for i, r := range results {
+			winner, ok := r.Winner()
+			if !ok {
+				return nil, fmt.Errorf("app: %s fixture %d has no winner", ref, r.Fixture)
+			}
+			winners[i] = winner
+		}
+		out[l] = winners
+	}
+	return out, nil
+}
+
+// playoffEdition builds a link's promotion play-off for the finished season:
+// one FormatTies round over competitions.PlayoffPairings, kicking off
+// competitions.PlayoffDelay after the linked leagues' last kickoffs.
+func (w *World) playoffEdition(l competitions.Link, comp ids.CompetitionID, season competitions.Season, rankings map[ids.CompetitionID][]ids.TeamID) (competitions.NewSeason, error) {
+	ref := competitions.SeasonRef{Competition: comp, Season: season}
+	pairs, err := competitions.PlayoffPairings(l, rankings)
+	if err != nil {
+		return competitions.NewSeason{}, fmt.Errorf("app: %s: %w", ref, err)
+	}
+	var entrants []ids.TeamID
+	for _, p := range pairs {
+		entrants = append(entrants, p[0], p[1])
+	}
+	var last sim.GameInstant
+	for _, c := range []ids.CompetitionID{l.Upper, l.Lower} {
+		s := competitions.SeasonRef{Competition: c, Season: season}
+		rounds := w.competitions.Rounds(s)
+		if len(rounds) == 0 {
+			return competitions.NewSeason{}, fmt.Errorf("app: %s needs %s, which has no rounds", ref, s)
+		}
+		last = max(last, rounds[len(rounds)-1].Kickoff)
+	}
+	first, err := last.Add(competitions.PlayoffDelay)
+	if err != nil {
+		return competitions.NewSeason{}, fmt.Errorf("app: %s first kickoff: %w", ref, err)
+	}
+	return competitions.NewSeason{
+		Ref: ref, Format: competitions.FormatTies, Entrants: entrants,
+		Timing: competitions.Timing{FirstKickoff: first, RoundInterval: sim.Week},
+	}, nil
+}
+
+// checkNoTeamClash rejects new seasons that would put a team in two fixtures
+// at the same instant, against each other and against every fixture already
+// in the store. A rest gap between a team's matches stays future work. A
+// knockout season's later rounds are created from its results, so only its
+// first round takes part.
+func (w *World) checkNoTeamClash(specs []competitions.NewSeason) error {
+	type slot struct {
+		team ids.TeamID
+		at   sim.GameInstant
+	}
+	seen := map[slot]bool{}
+	mark := func(team ids.TeamID, at sim.GameInstant, what string) error {
+		s := slot{team, at}
+		if seen[s] {
+			return fmt.Errorf("app: team %d plays two fixtures at %d (%s)", team, at, what)
+		}
+		seen[s] = true
+		return nil
+	}
+	for _, ref := range w.competitions.Seasons() {
+		for _, f := range w.competitions.Fixtures(ref) {
+			if err := mark(f.Home, f.Kickoff, ref.String()); err != nil {
+				return err
+			}
+			if err := mark(f.Away, f.Kickoff, ref.String()); err != nil {
+				return err
+			}
+		}
+	}
+	for _, spec := range specs {
+		kickoffs := []sim.GameInstant{spec.Timing.FirstKickoff}
+		if spec.Format == competitions.FormatLeague {
+			kickoffs = nil
+			at := spec.Timing.FirstKickoff
+			for r := 2 * (len(spec.Entrants) - 1); r > 0; r-- {
+				kickoffs = append(kickoffs, at)
+				next, err := at.Add(spec.Timing.RoundInterval)
+				if err != nil {
+					return fmt.Errorf("app: %s round kickoffs: %w", spec.Ref, err)
+				}
+				at = next
+			}
+		}
+		for _, team := range spec.Entrants {
+			for _, at := range kickoffs {
+				if err := mark(team, at, spec.Ref.String()); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// Promotions returns the links between divisions: at a season's end each
+// link's places are played off (competitions.PlayoffPairings), the winners
+// taking a place in Upper next season and the losers one in Lower
+// (competitions.NextEntrantsAfterPlayoffs). A table's promotion and
+// relegation places follow from them. Read-only.
 func (w *World) Promotions() []content.Promotion { return slices.Clone(w.promotions) }
 
 // movementLinks returns the promotion links as competitions' rule.
@@ -283,103 +647,40 @@ func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competit
 
 // validateSeasons checks each competition's seasons and season-end tasks:
 //
-//   - every competition season belongs to a league or a cup, in its format;
+//   - every competition season belongs to a league, a cup or a link's
+//     play-off, in its format;
 //   - a league's seasons in the store are exactly 1..current; every earlier
-//     season is complete and is followed by the entrants NextEntrants
-//     derives from every league's final ranking of it; each season starts
-//     at its competitions.SeasonKickoff;
+//     season is complete and is followed by the entrants its movement
+//     derives: the plain swap (competitions.NextEntrants) for a league with
+//     no link, and otherwise its group's decided play-offs
+//     (competitions.NextEntrantsAfterPlayoffs). A linked league's finished
+//     season may still be current while its group's play-offs are undecided.
+//     Each season starts at its competitions.SeasonKickoff;
+//   - a link's play-off editions exist exactly for the finished seasons whose
+//     season ends have run, each the one playoffEdition builds. Once every
+//     play-off of a group's edition is decided and its ends have run, the
+//     group's leagues have their next seasons (see linkGroups);
 //   - a cup's editions are exactly 1..N, where edition n exists exactly when
 //     every qualifying league has moved past season n; each edition is the
 //     one cupEdition builds (bracket and timing);
-//   - each league has exactly one season-end task: for its current season,
-//     due at that season's last kickoff in the Consequences phase; each cup
-//     edition not yet complete has exactly one, a complete one at most one
-//     (its end may still be due at this instant); every season-end payload is
-//     used by exactly one task.
+//   - a league has one season-end task for its current season while anything
+//     of that season is still to run (its results or, for a linked league,
+//     its end creating the play-offs); a cup or play-off edition that is not
+//     yet complete has exactly one, a complete one at most one (its end may
+//     still be due at this instant); every season-end payload is used by
+//     exactly one task.
 func (w *World) validateSeasons() []error {
 	var errs []error
 	fail := func(format string, args ...any) { errs = append(errs, fmt.Errorf("app: "+format, args...)) }
 
-	perCompetition := map[ids.CompetitionID][]competitions.SeasonRef{}
-	for _, ref := range w.competitions.Seasons() {
-		format, _ := w.competitions.Format(ref)
-		_, isLeague := w.leagueIndex(ref.Competition)
-		_, isCup := w.cupIndex(ref.Competition)
-		switch {
-		case isLeague && format == competitions.FormatLeague, isCup && format == competitions.FormatKnockout:
-			perCompetition[ref.Competition] = append(perCompetition[ref.Competition], ref)
-		default:
-			fail("%s (%s) belongs to no league or cup of its format", ref, format)
-		}
-	}
-	current := map[ids.CompetitionID]competitions.Season{}
-	moved := map[competitions.Season]map[ids.CompetitionID][]ids.TeamID{} // NextEntrants after each season number
-	for _, l := range w.leagues {
-		current[l.def.ID] = l.season.Season
-		seasons := perCompetition[l.def.ID]
-		slices.SortFunc(seasons, func(a, b competitions.SeasonRef) int { return cmp.Compare(a.Season, b.Season) })
-		if len(seasons) != int(l.season.Season) || len(seasons) == 0 || seasons[len(seasons)-1] != l.season {
-			fail("league %d has seasons %v, want 1..%d", l.def.ID, seasons, l.season.Season)
-			continue
-		}
-		for i, ref := range seasons[:len(seasons)-1] {
-			if !w.competitions.SeasonCompleted(ref) {
-				fail("%s is not complete but %s has begun", ref, l.season)
-			} else {
-				want, ok := moved[ref.Season]
-				if !ok {
-					rankings := map[ids.CompetitionID][]ids.TeamID{}
-					for _, other := range w.leagues {
-						o := competitions.SeasonRef{Competition: other.def.ID, Season: ref.Season}
-						if w.competitions.SeasonCompleted(o) {
-							rankings[other.def.ID] = w.competitions.Ranking(o)
-						}
-					}
-					var err error
-					if want, err = competitions.NextEntrants(rankings, w.movementLinks()); err != nil {
-						fail("movement after season %d: %v", ref.Season, err)
-					}
-					moved[ref.Season] = want
-				}
-				if got, _ := w.competitions.Entrants(seasons[i+1]); !slices.Equal(got, want[l.def.ID]) {
-					fail("%s entrants %v, want %v after %s", seasons[i+1], got, want[l.def.ID], ref)
-				}
-			}
-			want, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, seasons[i+1].Season)
-			if next := w.competitions.Rounds(seasons[i+1]); err != nil || len(next) == 0 || next[0].Kickoff != want {
-				fail("%s does not start at %d: %v", seasons[i+1], want, err)
-			}
-		}
-	}
-	for _, c := range w.cups {
-		editions := perCompetition[c.ID]
-		slices.SortFunc(editions, func(a, b competitions.SeasonRef) int { return cmp.Compare(a.Season, b.Season) })
-		for i, ref := range editions {
-			if ref.Season != competitions.Season(i+1) {
-				fail("cup %d has editions %v, want 1..%d", c.ID, editions, len(editions))
-				break
-			}
-			want, err := w.cupEdition(c, ref.Season)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			entrants, _ := w.competitions.Entrants(ref)
-			rounds := w.competitions.Rounds(ref)
-			if !slices.Equal(entrants, want.Entrants) || len(rounds) == 0 || rounds[0].Kickoff != want.Timing.FirstKickoff {
-				fail("%s has entrants %v from %d, want %v from %d", ref, entrants, rounds[0].Kickoff, want.Entrants, want.Timing.FirstKickoff)
-			}
-			for j := 1; j < len(rounds); j++ {
-				if rounds[j].Kickoff != rounds[j-1].Kickoff+sim.GameInstant(c.RoundInterval) {
-					fail("%s round %d kicks off at %d, want %d after round %d", ref, j+1, rounds[j].Kickoff, c.RoundInterval, j)
-				}
-			}
-		}
-		if _, due := w.cupEditionDue(c, current); due {
-			fail("cup %d edition %d is due but was not created", c.ID, len(editions)+1)
-		}
+	links := w.movementLinks()
+	playComps := competitions.PlayoffCompetitions(links)
+	linked := map[ids.CompetitionID]bool{}
+	for _, l := range links {
+		linked[l.Upper], linked[l.Lower] = true, true
 	}
 
+	// Season-end tasks, before the rules that count them.
 	uses := map[sim.PayloadID]int{}
 	perSeason := map[competitions.SeasonRef]int{}
 	for _, t := range w.scheduler.Pending() {
@@ -398,26 +699,197 @@ func (w *World) validateSeasons() []error {
 			fail("season-end task %d for %s due %d phase %d order %d", t.ID, ref, t.DueAt, t.Phase, t.StableOrder)
 		}
 	}
+	// The rules below read the counts while the orphan check consumes
+	// them, so they need a copy of the map before any delete.
+	endTasks := maps.Clone(perSeason)
+
+	perCompetition := map[ids.CompetitionID][]competitions.SeasonRef{}
+	for _, ref := range w.competitions.Seasons() {
+		format, _ := w.competitions.Format(ref)
+		_, isLeague := w.leagueIndex(ref.Competition)
+		_, isCup := w.cupIndex(ref.Competition)
+		_, isPlayoff := playComps[ref.Competition]
+		switch {
+		case isLeague && format == competitions.FormatLeague, isCup && format == competitions.FormatKnockout, isPlayoff && format == competitions.FormatTies:
+			perCompetition[ref.Competition] = append(perCompetition[ref.Competition], ref)
+		default:
+			fail("%s (%s) belongs to no league, cup or play-off of its format", ref, format)
+		}
+	}
+	current := map[ids.CompetitionID]competitions.Season{}
 	for _, l := range w.leagues {
-		if perSeason[l.season] != 1 {
-			fail("%s has %d season-end tasks, want 1", l.season, perSeason[l.season])
+		current[l.def.ID] = l.season.Season
+	}
+
+	// entrantsAfter replays one league's entrants for the season after n from
+	// the finished season's results, the play-off outcomes included for a
+	// linked league: its whole group decides together.
+	entrantsAfter := w.entrantsAfter
+
+	for _, l := range w.leagues {
+		seasons := perCompetition[l.def.ID]
+		slices.SortFunc(seasons, func(a, b competitions.SeasonRef) int { return cmp.Compare(a.Season, b.Season) })
+		if len(seasons) != int(l.season.Season) || len(seasons) == 0 || seasons[len(seasons)-1] != l.season {
+			fail("league %d has seasons %v, want 1..%d", l.def.ID, seasons, l.season.Season)
+			continue
+		}
+		for i, ref := range seasons[:len(seasons)-1] {
+			if !w.competitions.SeasonCompleted(ref) {
+				fail("%s is not complete but %s has begun", ref, l.season)
+			} else {
+				want, err := entrantsAfter(l.def.ID, ref.Season)
+				if err != nil {
+					fail("movement of league %d after %s: %v", l.def.ID, ref, err)
+				} else if got, _ := w.competitions.Entrants(seasons[i+1]); !slices.Equal(got, want) {
+					fail("%s entrants %v, want %v after %s", seasons[i+1], got, want, ref)
+				}
+			}
+			want, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, seasons[i+1].Season)
+			if next := w.competitions.Rounds(seasons[i+1]); err != nil || len(next) == 0 || next[0].Kickoff != want {
+				fail("%s does not start at %d: %v", seasons[i+1], want, err)
+			}
+		}
+		// A finished current season waits for its end to run (any league) or
+		// for its play-offs to decide (a linked league that has created
+		// them); a linked season with its end still due has both to come.
+		n := endTasks[l.season]
+		complete := w.competitions.SeasonCompleted(l.season)
+		switch {
+		case !complete && n != 1:
+			fail("%s has %d season-end tasks, want 1", l.season, n)
+		case complete && !linked[l.def.ID] && n != 1:
+			fail("%s has %d season-end tasks, want 1", l.season, n)
+		case complete && linked[l.def.ID] && n > 1:
+			fail("%s has %d season-end tasks, want at most 1", l.season, n)
 		}
 		delete(perSeason, l.season)
 	}
-	for _, c := range w.cups {
-		for _, ref := range perCompetition[c.ID] {
-			if n := perSeason[ref]; n > 1 || (n == 0 && !w.competitions.SeasonCompleted(ref)) {
-				fail("%s has %d season-end tasks", ref, n)
+
+	for _, l := range links {
+		comp, _ := w.playoffCompetition(l)
+		top := max(current[l.Upper], current[l.Lower])
+		for _, ref := range perCompetition[comp] {
+			top = max(top, ref.Season)
+		}
+		for n := competitions.Season(1); n <= top; n++ {
+			ref := competitions.SeasonRef{Competition: comp, Season: n}
+			_, exists := w.competitions.Entrants(ref)
+			uRef := competitions.SeasonRef{Competition: l.Upper, Season: n}
+			lRef := competitions.SeasonRef{Competition: l.Lower, Season: n}
+			uOk := w.competitions.SeasonCompleted(uRef)
+			lOk := w.competitions.SeasonCompleted(lRef)
+			pending := endTasks[uRef] + endTasks[lRef]
+			switch {
+			case exists && (!uOk || !lOk):
+				fail("%s exists but %s and %s are not both complete", ref, uRef, lRef)
+			case exists && pending > 0:
+				fail("%s exists while season ends of season %d are still due", ref, n)
+			case !exists && uOk && lOk && pending == 0:
+				fail("%s was not created: both linked seasons are finished and their ends have run", ref)
+			case pending == 1:
+				fail("link %+v has one season end of season %d still due, want both together", l, n)
+			}
+			if !exists {
+				continue
+			}
+			if uOk && lOk {
+				want, err := w.playoffEdition(l, comp, n, map[ids.CompetitionID][]ids.TeamID{
+					l.Upper: w.competitions.Ranking(uRef),
+					l.Lower: w.competitions.Ranking(lRef),
+				})
+				if err != nil {
+					errs = append(errs, err)
+				} else {
+					entrants, _ := w.competitions.Entrants(ref)
+					rounds := w.competitions.Rounds(ref)
+					if !slices.Equal(entrants, want.Entrants) || len(rounds) == 0 || rounds[0].Kickoff != want.Timing.FirstKickoff {
+						fail("%s has entrants %v from %d, want %v from %d", ref, entrants, rounds[0].Kickoff, want.Entrants, want.Timing.FirstKickoff)
+					}
+				}
+			}
+			if tasks := endTasks[ref]; tasks > 1 || (tasks == 0 && !w.competitions.SeasonCompleted(ref)) {
+				fail("%s has %d season-end tasks", ref, tasks)
 			}
 			delete(perSeason, ref)
 		}
 	}
+
+	// A group's decided play-offs must have moved its leagues on, and only
+	// after its play-off ends have run.
+	for _, g := range linkGroups(links) {
+		comps := groupLeagues(g)
+		top := competitions.Season(0)
+		for _, c := range comps {
+			top = max(top, current[c])
+		}
+		for n := competitions.Season(1); n <= top; n++ {
+			endPending := false
+			for _, l := range g {
+				comp, _ := w.playoffCompetition(l)
+				endPending = endPending || endTasks[competitions.SeasonRef{Competition: comp, Season: n}] > 0
+			}
+			decided := w.groupPlayoffsDecided(g, n)
+			for _, c := range comps {
+				ref := competitions.SeasonRef{Competition: c, Season: n}
+				if !w.competitions.SeasonCompleted(ref) {
+					continue
+				}
+				next := competitions.SeasonRef{Competition: c, Season: n + 1}
+				_, exists := w.competitions.Entrants(next)
+				switch {
+				case endPending && exists:
+					fail("%s exists but the play-offs of season %d have not ended", next, n)
+				case decided && !endPending && !exists:
+					fail("%s should exist: the play-offs of season %d are decided", next, n)
+				}
+			}
+		}
+	}
+
+	for _, c := range w.cups {
+		editions := perCompetition[c.ID]
+		slices.SortFunc(editions, func(a, b competitions.SeasonRef) int { return cmp.Compare(a.Season, b.Season) })
+		for i, ref := range editions {
+			if ref.Season != competitions.Season(i+1) {
+				fail("cup %d has editions %v, want 1..%d", c.ID, editions, len(editions))
+				break
+			}
+			for _, q := range c.Qualifiers {
+				if current[q.League] <= ref.Season {
+					fail("%s was drawn before league %d moved past season %d", ref, q.League, ref.Season)
+				}
+			}
+			want, err := w.cupEdition(c, ref.Season)
+			if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			entrants, _ := w.competitions.Entrants(ref)
+			rounds := w.competitions.Rounds(ref)
+			if !slices.Equal(entrants, want.Entrants) || len(rounds) == 0 || rounds[0].Kickoff != want.Timing.FirstKickoff {
+				fail("%s has entrants %v from %d, want %v from %d", ref, entrants, rounds[0].Kickoff, want.Entrants, want.Timing.FirstKickoff)
+			}
+			for j := 1; j < len(rounds); j++ {
+				if rounds[j].Kickoff != rounds[j-1].Kickoff+sim.GameInstant(c.RoundInterval) {
+					fail("%s round %d kicks off at %d, want %d after round %d", ref, j+1, rounds[j].Kickoff, c.RoundInterval, j)
+				}
+			}
+			if tasks := endTasks[ref]; tasks > 1 || (tasks == 0 && !w.competitions.SeasonCompleted(ref)) {
+				fail("%s has %d season-end tasks", ref, tasks)
+			}
+			delete(perSeason, ref)
+		}
+		if _, due := w.cupEditionDue(c, current); due {
+			fail("cup %d edition %d is due but was not created", c.ID, len(editions)+1)
+		}
+	}
+
 	for _, id := range slices.Sorted(maps.Keys(w.seasonEnds)) {
 		if uses[id] != 1 {
 			fail("season-end payload %d is used by %d tasks", id, uses[id])
 		}
 		if ref := w.seasonEnds[id]; perSeason[ref] > 0 {
-			fail("season-end payload %d is for %s, not a current season or cup edition", id, ref)
+			fail("season-end payload %d is for %s, not a current season, cup edition or play-off", id, ref)
 		}
 	}
 	return errs
@@ -447,9 +919,10 @@ type SeasonRecord struct {
 	Champion        *TeamLabel
 }
 
-// History lists every league season and cup edition in (competition,
-// season) order, with the champion of each complete one. It is derived from
-// retained seasons and their results, not stored. Read-only.
+// History lists every league season, cup edition and promotion play-off in
+// (competition, season) order, with the champion of each complete one (a
+// play-off has none). It is derived from retained seasons and their results,
+// not stored. Read-only.
 func (w *World) History() []SeasonRecord {
 	refs := w.competitions.Seasons()
 	slices.SortFunc(refs, func(a, b competitions.SeasonRef) int {
