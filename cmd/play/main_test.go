@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -39,11 +40,26 @@ func contains(t *testing.T, out string, wants ...string) {
 func TestChooseAClubAtThePrompt(t *testing.T) {
 	out := play(t, nil, "99", "abc", "3", "status", "quit", "quit")
 	contains(t, out, "New career (seed 42). Choose your club:", "Please enter one of the club IDs above.",
-		"New career, seed 42 (start again with -seed 42 -club 3).",
+		"New career, seed 42, simple match engine (start again with -seed 42 -club 3).",
 		"You manage Quillford FC (QUI).", "Next: round 1 v Brackenmoor Town (home)",
 		"You have unsaved progress.", "Goodbye.")
 	if strings.Count(out, "Please enter one of the club IDs above.") != 2 {
 		t.Fatal("both invalid club choices should be rejected")
+	}
+}
+
+// -engine picks the match engine of a new career; a saved career keeps it
+// and refuses the flag.
+func TestEngineFlag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	out := play(t, []string{"-seed", "42", "-club", "3", "-engine", "tick"}, "save "+path, "quit")
+	contains(t, out, "New career, seed 42, tick match engine (start again with -seed 42 -club 3 -engine tick).",
+		"Matches are played on the tick engine")
+	contains(t, play(t, []string{"-load", path}, "quit"), "Matches are played on the tick engine")
+	for _, args := range [][]string{{"-load", path, "-engine", "tick"}, {"-seed", "42", "-engine", "turbo"}} {
+		if err := run(args, strings.NewReader(""), io.Discard, io.Discard, nil); err == nil || !strings.Contains(err.Error(), "-engine") {
+			t.Errorf("%v: err = %v, want an -engine error", args, err)
+		}
 	}
 }
 

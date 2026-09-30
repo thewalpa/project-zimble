@@ -8,6 +8,9 @@
 //	-load FILE   continue a saved career; its seed and configuration come from
 //	             the file, so -seed is rejected rather than silently ignored
 //
+// A new world may pick its match engine with -engine (simple, the default,
+// or tick); a loaded career keeps the engine it was saved with.
+//
 // Mode (at most one):
 //
 //	-season      resolve every remaining round and print results and tables
@@ -28,6 +31,7 @@
 //	go run ./cmd/simulate -seed 42 -rounds 7 -save career.json
 //	go run ./cmd/simulate -load career.json -season
 //	go run ./cmd/simulate -seed 42 -club 3 -mentality attacking -season
+//	go run ./cmd/simulate -engine tick -seed 42 -season
 package main
 
 import (
@@ -38,6 +42,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -82,6 +88,7 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 	rounds := fs.Int("rounds", 0, "resolve at most `N` more fixture batches")
 	club := fs.Uint64("club", 0, "manage club `N` in a new world")
 	mentalityName := fs.String("mentality", "", "submit the suggested lineup with mentality `M` for each of the managed club's matches")
+	engine := fs.String("engine", app.Engines()[0], "match `ENGINE` for a new world: "+strings.Join(app.Engines(), ", "))
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -103,6 +110,10 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 		return errors.New("-save needs a file name")
 	case set["load"] && set["club"]:
 		return errors.New("-club cannot be used with -load: a loaded career keeps its saved club")
+	case set["load"] && set["engine"]:
+		return errors.New("-engine cannot be used with -load: a loaded career keeps its saved match engine")
+	case !slices.Contains(app.Engines(), *engine):
+		return fmt.Errorf("-engine must be one of %s", strings.Join(app.Engines(), ", "))
 	case set["club"] && *club == 0:
 		return errors.New("-club must name a club ID (1 or more)")
 	case set["mentality"] && !*season && !set["rounds"]:
@@ -134,7 +145,7 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 			fmt.Fprintf(stderr, "simulate: using random seed %d (rerun with -seed %d to reproduce)\n", drawn, drawn)
 		}
 		cfg := app.DefaultConfig(random.Seed(*seed))
-		cfg.UserClub = ids.ClubID(*club)
+		cfg.UserClub, cfg.Engine = ids.ClubID(*club), *engine
 		created, err := app.NewWorld(cfg)
 		if err != nil {
 			return err
@@ -145,7 +156,7 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 		return errors.New("-mentality needs a managed club: use -club, or load a career that has one")
 	}
 
-	if err := printSummary(stdout, w.Summary()); err != nil {
+	if err := printSummary(stdout, w.Summary(), w.MatchEngine()); err != nil {
 		return err
 	}
 	printManager(stdout, w)
@@ -306,9 +317,9 @@ func printSquad(out io.Writer, w *app.World) error {
 	return nil
 }
 
-func printSummary(out io.Writer, s app.Summary) error {
-	fmt.Fprintf(out, "world seed=%d generator=v%d random=v%d content=v%d\n",
-		s.Seed, s.GeneratorVersion, s.RandomVersion, s.ContentVersion)
+func printSummary(out io.Writer, s app.Summary, e app.MatchEngine) error {
+	fmt.Fprintf(out, "world seed=%d generator=v%d random=v%d content=v%d engine=%s/v%d\n",
+		s.Seed, s.GeneratorVersion, s.RandomVersion, s.ContentVersion, e.ID, e.Version)
 	fmt.Fprintf(out, "fingerprint %s\n", s.Fingerprint)
 	fmt.Fprintf(out, "clubs=%d teams=%d players=%d free agents=%d retired=%d\n\n", s.Clubs, s.Teams, s.Players, s.FreeAgents, s.Retired)
 

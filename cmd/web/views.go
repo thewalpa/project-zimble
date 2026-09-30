@@ -299,6 +299,7 @@ type homeView struct {
 	Report      *matchReport
 	Inbox       []messageView
 	SaveName    string
+	Engine      string // the career's match engine and its version
 	OtherSaves  []saveInfo
 	Damaged     *saveInfo // the active file, when it cannot be loaded but has a previous save
 }
@@ -310,10 +311,12 @@ type chooseClubRow struct {
 }
 
 type chooseView struct {
-	Seed  uint64
-	Clubs []chooseClubRow
-	Sort  SortState
-	Saves []saveInfo
+	Seed    uint64
+	Engine  string   // match engine the new career will be played on
+	Engines []string // the choices, the default first
+	Clubs   []chooseClubRow
+	Sort    SortState
+	Saves   []saveInfo
 }
 
 func (s *server) home(r *http.Request) (string, any, error) {
@@ -335,11 +338,17 @@ func (s *server) home(r *http.Request) (string, any, error) {
 			clubs = append(clubs, chooseClubRow{ClubSummary: c, League: t.CompetitionName, leagueOrder: t.Competition})
 		}
 		sortChooseRows(clubs, sortState.Col, sortState.Dir)
+		engine := s.engineID()
+		if e := r.URL.Query().Get("engine"); slices.Contains(app.Engines(), e) {
+			engine = e
+		}
 		return "choose", chooseView{
-			Seed:  uint64(s.seed),
-			Clubs: clubs,
-			Sort:  sortState,
-			Saves: s.listSaves(),
+			Seed:    uint64(s.seed),
+			Engine:  engine,
+			Engines: app.Engines(),
+			Clubs:   clubs,
+			Sort:    sortState,
+			Saves:   s.listSaves(),
 		}, nil
 	}
 	cal := s.w.Calendar()
@@ -409,6 +418,8 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	v.Inbox = msgs[max(len(msgs)-8, 0):]
 	slices.Reverse(v.Inbox)
 	v.SaveName = filepath.Base(s.savePath)
+	e := s.w.MatchEngine()
+	v.Engine = fmt.Sprintf("%s v%d", e.ID, e.Version)
 	for _, sv := range s.listSaves() {
 		switch {
 		case filepath.Clean(sv.Path) != filepath.Clean(s.savePath):

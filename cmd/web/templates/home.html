@@ -62,7 +62,7 @@
   </div>
   <div class="panel">
     <h2>Saved career</h2>
-    <p class="muted">Active file: <b>{{$d.SaveName}}</b></p>
+    <p class="muted">Active file: <b>{{$d.SaveName}}</b> · match engine {{$d.Engine}}</p>
     {{with $d.Damaged}}<div class="note error">{{.Name}} cannot be loaded ({{.Damaged}}), so Save is refused and the file is kept as it is.</div>
     <div class="note">{{template "recover" .Recover}}</div>{{end}}
     <div class="actions">

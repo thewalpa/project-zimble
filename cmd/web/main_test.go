@@ -131,6 +131,26 @@ func TestNewCareerFromTheBrowser(t *testing.T) {
 	contains(t, bad.post("/new", url.Values{"club": {"99"}}), "unknown club", "New career")
 }
 
+// The chooser offers the match engines; the chosen one plays the career and
+// the home page names it.
+func TestChooseTheMatchEngine(t *testing.T) {
+	c := newClient(t, config{seed: 42, savePath: filepath.Join(t.TempDir(), "c.json")})
+	contains(t, c.get("/"), "Match engine", `<option value="simple" selected>`, `name="engine" value="simple"`)
+	contains(t, c.get("/?engine=tick"), `<option value="tick" selected>`, `name="engine" value="tick"`)
+	contains(t, c.post("/new", url.Values{"club": {"3"}, "engine": {"tick"}}), "match engine tick v")
+	if got := c.s.w.MatchEngine().ID; got != "tick" {
+		t.Fatalf("career engine %q", got)
+	}
+	if err := run([]string{"-load", "x.json", "-engine", "tick"}, io.Discard, io.Discard, nil, nil); err == nil || !strings.Contains(err.Error(), "-engine") {
+		t.Fatalf("-engine with -load: err = %v", err)
+	}
+	var out bytes.Buffer
+	serve := func(string, http.Handler) error { return nil }
+	if err := run([]string{"-seed", "42", "-club", "3", "-engine", "tick"}, &out, io.Discard, nil, serve); err != nil || !strings.Contains(out.String(), "tick match engine") {
+		t.Fatalf("run -engine tick: err = %v, out %q", err, out.String())
+	}
+}
+
 // Continue goes to the matchday; the lineup form edits the suggestion and
 // submits it as the club's lineup; Play match plays it and reports the
 // result.

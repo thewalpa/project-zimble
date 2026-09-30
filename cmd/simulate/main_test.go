@@ -435,6 +435,8 @@ func TestManagementOptionsAreValidated(t *testing.T) {
 	}
 	cases := map[string][]string{
 		"-club cannot be used with -load":       {"-load", path, "-club", "3"},
+		"-engine cannot be used with -load":     {"-load", path, "-engine", "tick"},
+		"-engine must be one of simple, tick":   {"-seed", "42", "-engine", "turbo"},
 		"-club must name a club":                {"-seed", "42", "-club", "0"},
 		"unknown club":                          {"-seed", "42", "-club", "99"},
 		"-mentality needs -season or -rounds":   {"-seed", "42", "-club", "3", "-mentality", "attacking"},
@@ -446,6 +448,29 @@ func TestManagementOptionsAreValidated(t *testing.T) {
 		if _, err := runCLI(t, args...); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%v: err = %v, want %q", args, err, want)
 		}
+	}
+}
+
+// -engine picks the new world's match engine; the header names it, and a
+// saved career keeps it.
+func TestEngineChoice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	out, err := runCLI(t, "-seed", "42", "-engine", "tick", "-rounds", "1", "-save", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, " engine=tick/v") {
+		t.Fatalf("header does not name the tick engine:\n%s", out)
+	}
+	loaded, err := runCLI(t, "-load", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(loaded, " engine=tick/v") {
+		t.Fatalf("loaded career lost its engine:\n%s", loaded)
+	}
+	if plain, _ := runCLI(t, "-seed", "42"); !strings.Contains(plain, " engine=simple/v") {
+		t.Fatalf("default engine is not simple:\n%s", plain)
 	}
 }
 

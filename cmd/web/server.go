@@ -37,6 +37,7 @@ type config struct {
 	loadPath string
 	savePath string
 	savesDir string
+	engine   string // match engine of a new career; empty is the default
 }
 
 // server is the web client: one career and what the pages need between
@@ -50,6 +51,7 @@ type server struct {
 	mu            sync.Mutex
 	w             *app.World // nil until a club is chosen
 	seed          random.Seed
+	engine        string // match engine offered for a new career
 	savePath      string
 	savesDir      string
 	saved         bool         // the career exists on disk...
@@ -80,7 +82,7 @@ func newServer(cfg config) (*server, error) {
 	if savePath == "" {
 		savePath = "career.json"
 	}
-	s := &server{seed: cfg.seed, savePath: savePath, savesDir: savesDir, pages: map[string]*template.Template{}}
+	s := &server{seed: cfg.seed, engine: cfg.engine, savePath: savePath, savesDir: savesDir, pages: map[string]*template.Template{}}
 	for _, name := range pageNames {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/cupedition.html", "templates/"+name+".html")
 		if err != nil {
@@ -106,7 +108,7 @@ func newServer(cfg config) (*server, error) {
 		}
 		s.w, s.seed, s.saved, s.savedRevision = w, w.Summary().Seed, true, w.Revision()
 	case cfg.club != 0:
-		if err := s.newCareer(cfg.club); err != nil {
+		if err := s.newCareer(cfg.club, s.engine); err != nil {
 			return nil, err
 		}
 	}
@@ -227,6 +229,17 @@ func (s *server) say(format string, args ...any) {
 	s.notes = append(s.notes, note{Text: fmt.Sprintf(format, args...)})
 }
 
+// engineID names the career's match engine, or the one a new career gets.
+func (s *server) engineID() string {
+	if s.w != nil {
+		return s.w.MatchEngine().ID
+	}
+	if s.engine == "" {
+		return app.Engines()[0]
+	}
+	return s.engine
+}
+
 func (s *server) club() ids.ClubID {
 	c, _ := s.w.UserClub()
 	return c
@@ -234,9 +247,9 @@ func (s *server) club() ids.ClubID {
 
 // --- careers -----------------------------------------------------------------
 
-func (s *server) newCareer(club ids.ClubID) error {
+func (s *server) newCareer(club ids.ClubID, engine string) error {
 	cfg := app.DefaultConfig(s.seed)
-	cfg.UserClub = club
+	cfg.UserClub, cfg.Engine = club, engine
 	w, err := app.NewWorld(cfg)
 	if err != nil {
 		return err
@@ -253,7 +266,11 @@ func (s *server) chooseClub(form url.Values) (string, error) {
 	if err != nil {
 		return "", errors.New("choose a club")
 	}
-	if err := s.newCareer(ids.ClubID(n)); err != nil {
+	engine := s.engine
+	if e := form.Get("engine"); e != "" {
+		engine = e
+	}
+	if err := s.newCareer(ids.ClubID(n), engine); err != nil {
 		return "", err
 	}
 	s.say("Welcome! Start with Continue to go to your first matchday.")

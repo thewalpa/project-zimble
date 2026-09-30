@@ -5,6 +5,7 @@
 //
 //	go run ./cmd/web                  # new career: random seed, choose a club in the browser
 //	go run ./cmd/web -seed 42 -club 3
+//	go run ./cmd/web -engine tick     # new career on the tick match engine
 //	go run ./cmd/web -load career.json
 //
 // Then open http://127.0.0.1:8080. The server holds one career in memory;
@@ -20,8 +21,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
+	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 )
@@ -58,6 +62,7 @@ func run(args []string, out, errOut io.Writer, newSeed func() (uint64, error), s
 	load := fs.String("load", "", "continue the career saved in `FILE`")
 	save := fs.String("save", "career.json", "`FILE` the Save button writes (default: the -load file)")
 	saves := fs.String("saves", "saves", "`DIR` where multiple saves are stored")
+	engine := fs.String("engine", app.Engines()[0], "match `ENGINE` for a new career: "+strings.Join(app.Engines(), ", "))
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -66,10 +71,13 @@ func run(args []string, out, errOut io.Writer, newSeed func() (uint64, error), s
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if set["load"] && (set["seed"] || set["club"]) {
-		return errors.New("-seed and -club cannot be used with -load: a saved career keeps its own")
+	if set["load"] && (set["seed"] || set["club"] || set["engine"]) {
+		return errors.New("-seed, -club and -engine cannot be used with -load: a saved career keeps its own")
 	}
-	cfg := config{savePath: *save, loadPath: *load, savesDir: *saves}
+	if !slices.Contains(app.Engines(), *engine) {
+		return fmt.Errorf("-engine must be one of %s", strings.Join(app.Engines(), ", "))
+	}
+	cfg := config{savePath: *save, loadPath: *load, savesDir: *saves, engine: *engine}
 	if set["load"] && !set["save"] {
 		cfg.savePath = *load
 	}
@@ -87,6 +95,6 @@ func run(args []string, out, errOut io.Writer, newSeed func() (uint64, error), s
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "Serving the career at http://%s (seed %d). Stop with Ctrl+C; save first in the browser.\n", *addr, s.seed)
+	fmt.Fprintf(out, "Serving the career at http://%s (seed %d, %s match engine). Stop with Ctrl+C; save first in the browser.\n", *addr, s.seed, s.engineID())
 	return serve(*addr, s)
 }

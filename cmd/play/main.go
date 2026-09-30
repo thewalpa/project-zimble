@@ -65,6 +65,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer, newSeed func() (uin
 	seed := fs.Uint64("seed", 0, "world seed for a new career (default: random)")
 	club := fs.Uint64("club", 0, "club `ID` to manage in a new career (default: choose at the prompt)")
 	load := fs.String("load", "", "continue the career saved in `FILE`")
+	engine := fs.String("engine", app.Engines()[0], "match `ENGINE` for a new career: "+strings.Join(app.Engines(), ", "))
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -73,8 +74,11 @@ func run(args []string, in io.Reader, out, errOut io.Writer, newSeed func() (uin
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if set["load"] && (set["seed"] || set["club"]) {
-		return errors.New("-seed and -club cannot be used with -load: a saved career keeps its own")
+	if set["load"] && (set["seed"] || set["club"] || set["engine"]) {
+		return errors.New("-seed, -club and -engine cannot be used with -load: a saved career keeps its own")
+	}
+	if !slices.Contains(app.Engines(), *engine) {
+		return fmt.Errorf("-engine must be one of %s", strings.Join(app.Engines(), ", "))
 	}
 
 	s := &session{in: bufio.NewScanner(in), out: out, savePath: "career.json"}
@@ -100,7 +104,7 @@ func run(args []string, in io.Reader, out, errOut io.Writer, newSeed func() (uin
 			}
 			*seed = drawn
 		}
-		w, err := s.newCareer(random.Seed(*seed), ids.ClubID(*club))
+		w, err := s.newCareer(random.Seed(*seed), ids.ClubID(*club), *engine)
 		if err != nil {
 			return err
 		}
@@ -155,8 +159,9 @@ func (s *session) unsaved() bool { return !s.saved || s.w.Revision() != s.savedR
 
 // newCareer creates a world managing club; with club 0 the player chooses
 // from the generated clubs.
-func (s *session) newCareer(seed random.Seed, club ids.ClubID) (*app.World, error) {
+func (s *session) newCareer(seed random.Seed, club ids.ClubID, engine string) (*app.World, error) {
 	cfg := app.DefaultConfig(seed)
+	cfg.Engine = engine
 	if club == 0 {
 		preview, err := app.NewWorld(cfg)
 		if err != nil {
@@ -191,14 +196,19 @@ func (s *session) newCareer(seed random.Seed, club ids.ClubID) (*app.World, erro
 	cfg.UserClub = club
 	w, err := app.NewWorld(cfg)
 	if err == nil {
-		s.printf("New career, seed %d (start again with -seed %d -club %d).\n", seed, seed, club)
+		again := fmt.Sprintf("-seed %d -club %d", seed, club)
+		if engine != app.Engines()[0] {
+			again += " -engine " + engine
+		}
+		s.printf("New career, seed %d, %s match engine (start again with %s).\n", seed, w.MatchEngine().ID, again)
 	}
 	return w, err
 }
 
 func (s *session) welcome() {
 	label := s.clubLabel()
-	s.printf("\nYou manage %s (%s). Type help for commands.\n", label.ClubName, label.ShortName)
+	e := s.w.MatchEngine()
+	s.printf("\nYou manage %s (%s). Matches are played on the %s engine (v%d). Type help for commands.\n", label.ClubName, label.ShortName, e.ID, e.Version)
 	s.status()
 }
 

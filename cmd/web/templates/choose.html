@@ -43,6 +43,14 @@
 
 <h1>New career</h1>
 <p class="muted">World seed {{$d.Seed}}. Choose the club you will manage; OVR is the squad's average rating (1–100).</p>
+<form class="inline" method="get" action="/">
+  <label>Match engine
+    <select name="engine">{{range $d.Engines}}<option value="{{.}}"{{if eq . $d.Engine}} selected{{end}}>{{.}}</option>{{end}}</select>
+  </label>
+  {{if $d.Sort.Col}}<input type="hidden" name="sort" value="{{$d.Sort.Col}}"><input type="hidden" name="dir" value="{{$d.Sort.Dir}}">{{end}}
+  <button>Use</button>
+  <span class="muted">The engine plays every match of the career and cannot be changed later.</span>
+</form>
 <div class="panel scroll">
 <table>
   <tr>
@@ -57,7 +65,7 @@
   {{range $d.Clubs}}
   <tr>
     <td class="muted">{{.League}}</td><td>{{.Name}}</td><td>{{.Nation}}</td><td class="muted">{{.ShortName}}</td><td class="n">{{.Players}}</td><td class="n">{{.AverageOverall}}</td>
-    <td><form class="inline" method="post" action="/new"><input type="hidden" name="club" value="{{.ID}}"><button class="primary">Manage</button></form></td>
+    <td><form class="inline" method="post" action="/new"><input type="hidden" name="club" value="{{.ID}}"><input type="hidden" name="engine" value="{{$d.Engine}}"><button class="primary">Manage</button></form></td>
   </tr>
   {{end}}
 </table>
