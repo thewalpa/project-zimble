@@ -161,6 +161,7 @@ func TestPlayingAMatchday(t *testing.T) {
 
 	page = c.post("/continue", nil)
 	contains(t, page, "Latest result", "Brackenmoor Town", "Other results")
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Quillford FC lineup</h2>", "Formation ", `aria-label="Attack"`, `aria-label="Bench"`, `href="/player?id=`)
 	if c.s.report == nil || !strings.Contains(page, c.s.report.Title) {
 		t.Fatalf("report %+v not shown", c.s.report)
 	}
@@ -599,6 +600,9 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 
 	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", c.s.report.Fixture))
 	contains(t, reportPage, "Game report", "Founders League", "Round 1", "Match timeline", "Half time", "Full time", "Back to fixtures", "League table")
+	if strings.Contains(reportPage, "lineup</h2>") {
+		t.Fatal("a match played on the assistant's suggestion shows a stored lineup")
+	}
 
 	for _, other := range c.s.report.Others {
 		otherPage := c.get(fmt.Sprintf("/report?fixture=%d", other.Fixture))

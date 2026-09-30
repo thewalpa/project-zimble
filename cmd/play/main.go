@@ -1133,8 +1133,8 @@ const pitchWidth = 68
 // showPitch draws the starters line by line, attack at the top, each line in
 // slot order: the match spreads a line's players across the width in that
 // order. Cells are "ID Surname", starred when out of position.
-func (s *session) showPitch(l selection.Lineup, squad map[ids.PlayerID]app.SquadPlayer) {
-	s.printf("Formation %s, attacking upwards (swap two players in a line to change where they stand):\n", app.FormationLabel(l))
+func (s *session) showPitch(l selection.Lineup, squad map[ids.PlayerID]app.SquadPlayer, note string) {
+	s.printf("Formation %s, attacking upwards%s:\n", app.FormationLabel(l), note)
 	edge := "     +" + strings.Repeat("-", pitchWidth) + "+\n"
 	s.printf("%s", edge)
 	oop := false
@@ -1235,7 +1235,7 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		}
 	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
-	s.showPitch(d.lineup, squad)
+	s.showPitch(d.lineup, squad, " (swap two players in a line to change where they stand)")
 	s.printf("%3s  %-4s %4s  %-24s %-3s %5s %-12s  %s\n", "#", "ROLE", "ID", "NAME", "POS", "OVR", "COND", attributeHeader)
 	for i, sl := range d.lineup.Starters {
 		p, ok := squad[sl.Player]
@@ -1579,6 +1579,14 @@ func (s *session) play() error {
 				s.printf("Lineup: your lineup\n")
 			} else {
 				s.printf("Lineup: the assistant's suggestion\n")
+			}
+			if l, ok := s.w.SubmittedLineup(m.Fixture); ok {
+				squad, _ := s.w.Squad(s.club())
+				bySquad := map[ids.PlayerID]app.SquadPlayer{}
+				for _, p := range squad {
+					bySquad[p.Player] = p
+				}
+				s.showPitch(l, bySquad, "")
 			}
 			names := map[ids.PlayerID]string{}
 			for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {

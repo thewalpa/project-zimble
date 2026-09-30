@@ -2950,3 +2950,17 @@ The manager can see what is ahead in one place: `World.Agenda()` (in `internal/a
 
 - `TestAgendaOrdersWhatIsAhead` and `TestAgendaListsExpiringContractsAndBids` (app) check date order, the matchday as the one item that must be acted on, at most three matches, one item per final-year player, a bid to answer with its deadline, and that a read changes no revision.
 - `TestAgenda` (play), and additions to `TestPlayingAMatchday` and `TestTransfersInTheBrowser` (web), check what a player sees.
+
+
+## ui: the club's played formation in match reports (done)
+
+The match report shows the lineup the user's club played: formation, starters by line on the same pitch as the lineup editor (read-only, names link to the player page), and the bench.
+
+- **Web.** `/report` draws it below the timeline from `World.SubmittedLineup(fixture)`, with each player's name and position from `PlayerName` and `PlayerProfile`.
+- **Terminal.** After `FULL TIME` the play report prints the same text pitch as `lineup` (`showPitch` takes the hint text as a parameter).
+- **Limit.** Only the manager's lineups are stored (`sideSelection`). A match the club played on the assistant's suggestion, and the opponent's side, have no lineup to draw, so nothing is shown rather than a guess. `match--report-lineups` asks `match` for both sides' played lineups.
+- Closes `ui--academy-fills-managed-vacancies` (declined earlier; the note is deleted).
+
+### Verification
+
+- `TestPlayingAMatchday` (web) submits a lineup and finds the formation, the attack line, the bench and player links on its report. `TestGameReportsWhenClickingOnScores` checks that an assistant-picked match shows none. `TestEditedLineupIsPlayedAndSaved` (play) checks the formation follows the full-time line.

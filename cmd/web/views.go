@@ -1011,6 +1011,27 @@ type reportView struct {
 	AwaySelected string
 	Goals        []goalView
 	Events       []eventView
+	Lineup       *reportPitch // the club's own starting lineup, when one is stored
+}
+
+// reportPitch is the lineup the user's club played, drawn read-only.
+type reportPitch struct {
+	Club      string
+	Formation string
+	Lines     []reportLine
+	Bench     []reportChip
+}
+
+type reportLine struct {
+	Label   string
+	Players []reportChip
+}
+
+type reportChip struct {
+	Player   ids.PlayerID
+	Name     string
+	Short    string
+	Position string
 }
 
 func selectedText(b app.SelectedBy) string {
@@ -1090,6 +1111,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		}
 		v.HomeSelected = selectedText(rep.Selected[0])
 		v.AwaySelected = selectedText(rep.Selected[1])
+		v.Lineup = s.reportPitch(fixID, rep)
 
 		for _, g := range rep.Goals {
 			team := rep.Home.ShortName
@@ -1142,6 +1164,53 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 	}
 
 	return "report", v, nil
+}
+
+// reportPitch draws the lineup the user's club played in the fixture, or nil
+// when the club did not play in it or no lineup of it is stored. Only the
+// manager's lineups are stored: the other side's is not.
+func (s *server) reportPitch(fixture ids.FixtureID, rep app.MatchReport) *reportPitch {
+	label := rep.Home
+	if rep.Away.Club == s.club() {
+		label = rep.Away
+	} else if rep.Home.Club != s.club() {
+		return nil
+	}
+	l, ok := s.w.SubmittedLineup(fixture)
+	if !ok {
+		return nil
+	}
+	chip := func(id ids.PlayerID) reportChip {
+		name, _ := s.w.PlayerName(id)
+		if name == "" {
+			name = s.name(id)
+		}
+		c := reportChip{Player: id, Name: name, Short: name}
+		if i := strings.LastIndex(name, " "); i >= 0 {
+			c.Short = name[i+1:]
+		}
+		if p, ok := s.w.PlayerProfile(id); ok {
+			c.Position = p.Position.String()
+		}
+		return c
+	}
+	v := &reportPitch{Club: label.ClubName, Formation: app.FormationLabel(l)}
+	for _, line := range []struct {
+		role  matches.Role
+		label string
+	}{{matches.Forward, "Attack"}, {matches.Midfielder, "Midfield"}, {matches.Defender, "Defence"}, {matches.Goalkeeper, "Goal"}} {
+		rl := reportLine{Label: line.label}
+		for _, st := range l.Starters {
+			if st.Role == line.role {
+				rl.Players = append(rl.Players, chip(st.Player))
+			}
+		}
+		v.Lines = append(v.Lines, rl)
+	}
+	for _, id := range l.Bench {
+		v.Bench = append(v.Bench, chip(id))
+	}
+	return v
 }
 
 type inboxView struct {
