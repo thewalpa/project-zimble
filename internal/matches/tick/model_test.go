@@ -127,6 +127,37 @@ func TestModelTrends(t *testing.T) {
 	}
 }
 
+// Goals depend on the gap between the sides, not on their level: equal
+// sides score alike at 40, 60 and 80, and a 20-point mismatch shows in who
+// scores far more than in how many goals there are.
+func TestGoalsFollowTheGapNotTheLevel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("plays 800 matches")
+	}
+	const n = 200
+	avg := func(r tally) float64 { return float64(r.goals) / float64(r.matches) }
+	equal := map[int]tally{}
+	for _, level := range []int{40, 60, 80} {
+		r := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, level, level) })
+		t.Logf("%d v %d: %v", level, level, r)
+		if a := avg(r); a < 2.0 || a > 3.4 {
+			t.Errorf("%d v %d average %.2f goals, want 2.0..3.4", level, level, a)
+		}
+		equal[level] = r
+	}
+	if lo, hi := avg(equal[40]), avg(equal[80]); hi-lo > 0.6 || lo-hi > 0.6 {
+		t.Errorf("40 v 40 averages %.2f goals and 80 v 80 %.2f: goals follow the level", lo, hi)
+	}
+	gap := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, 70, 50) })
+	t.Logf("70 v 50: %v", gap)
+	if a := avg(gap); a > avg(equal[60])+1.5 {
+		t.Errorf("70 v 50 averages %.2f goals, 60 v 60 %.2f: a mismatch inflates goals", a, avg(equal[60]))
+	}
+	if gap.homeWins < n*3/4 || gap.scored[0] < 4*gap.scored[1] {
+		t.Errorf("the stronger side won %d/%d and outscored the weaker %d to %d", gap.homeWins, n, gap.scored[0], gap.scored[1])
+	}
+}
+
 // Mentality is a trade-off against a balanced side: attacking scores and
 // concedes more for a modest change in results, and defensive scores and
 // concedes less and draws more. The win-rate bound is several standard
@@ -231,6 +262,9 @@ func TestParamsValidation(t *testing.T) {
 		"restart never ends": func(p *Params) { p.RestartTimeoutTicks = 0 },
 		"marking radii":      func(p *Params) { p.TightMarkRadius = p.MarkRadius },
 		"no drift interval":  func(p *Params) { p.DriftTicks = 0 },
+		"no reference":       func(p *Params) { p.ContestReference = 0 },
+		"contest scale":      func(p *Params) { p.ContestPermille = -1 },
+		"home advantage":     func(p *Params) { p.HomeAdvantage = -1 },
 	}
 	for name, mutate := range cases {
 		p := DefaultParams()
@@ -243,7 +277,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "912570bde311838f"
+const goldenHash = "752774b3cc6224bb"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

@@ -3024,3 +3024,50 @@ The lineup editors already showed each player's overall. The read-only formation
 - **Terminal.** Pitch cells are now "ID Surname OVR", starred when out of position. Surnames are cut at 8 characters (was 10) so four players still fit a line. This also applies to the two lineups in a played match's report.
 - The overall is the player's current one (`PlayerProfile` / squad query), not a snapshot from the match. A report of an old match shows who they are today; `match` would have to record it in the report to show the overall at the time. A player who has left the club has no cell overall in the terminal.
 - `TestLineupPitch` (play) checks the attack lines and the goalkeeper with overalls; the web report test checks the overall chip and its tooltip.
+
+## match: tick goals follow the gap, not the level (done)
+
+Delivered `balance`'s note `match--tick-goals-by-level`. `tick.ModelVersion` 5.
+
+### Changes
+
+- **Contests, not absolute skills.** Tackles and shootouts already set one skill against another, but pass accuracy, ball control, shot accuracy, shot power, saves, interceptions and sprint speed each read a player's own rating. Two 80-rated sides were therefore better at attacking without being any better at defending. Now each of these is a contest rating: `ContestReference` (60 points) plus `ContestPermille` (34%) of the difference from the skill it meets. Passing (a pass's accuracy, a teammate's control) meets the opponents' average Defending. Finishing meets the opposing keeper's Goalkeeping, and a save meets the shooter's Finishing. An interception, or a keeper collecting any other ball, meets the passers' average Passing. Pace meets the opponents' average Pace. Averages are over the outfield players on the pitch, recomputed each minute and after a substitution.
+- **Pace was the largest level effect.** With every other contest relative, equal sides still scored 2.6 goals at 40 and 3.7 at 80, because faster players against a ball of fixed speed make more chances. Relative pace gives play the same tempo at every level. In frames, a player's top speed therefore depends on the opposition.
+- **Home advantage is additive:** `HomeAdvantage` is 3 effective points for every home player (it was `HomeAdvantagePermille` 1030), so it does not grow with the level either.
+- **Retuned:** `ShotErrorPermille` 1600 (from 1200) brings equal sides back to about 2.5 goals. `ContestPermille` sets how steeply a gap turns into goals. At 50%, a 20-point mismatch scored 5.1 goals a match. At 34%, a +10 home side wins 68% (balance found 72% reasonable) and 70 v 50 stays under 3.5 goals.
+
+### Results
+
+Balance's sweep, `ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v`, 3,000 matches a row:
+
+| Match | Goals | Home–away goals | H / D / A % | 0–0 % | 4+ goals % | v4 goals |
+| --- | --- | --- | --- | --- | --- | --- |
+| 40 v 40 | 2.64 | 1.50–1.14 | 44.9 / 26.1 / 29.0 | 7.0 | 26.7 | 1.84 |
+| 60 v 60 | 2.49 | 1.39–1.11 | 43.5 / 26.1 / 30.4 | 7.4 | 23.1 | 2.80 |
+| 80 v 80 | 2.48 | 1.38–1.10 | 43.1 / 26.6 / 30.2 | 7.6 | 23.6 | 4.46 |
+| 62 v 58 | 2.64 | 1.69–0.96 | 55.5 / 23.7 / 20.8 | 7.1 | 27.0 | |
+| 65 v 55 | 2.84 | 2.08–0.77 | 68.1 / 19.7 / 12.2 | 5.2 | 32.5 | 3.30 |
+| 70 v 50 | 3.44 | 2.95–0.50 | 87.1 / 9.2 / 3.7 | 2.6 | 44.1 | 4.52 |
+| 50 v 70 | 2.99 | 0.63–2.36 | 8.4 / 15.9 / 75.7 | 5.3 | 36.2 | |
+| home attacking | 3.29 | 1.81–1.48 | 46.2 / 21.9 / 31.9 | 3.1 | 41.7 | 3.62 |
+| home defensive | 1.81 | 1.02–0.79 | 39.6 / 33.9 / 26.5 | 17.1 | 10.6 | 1.97 |
+
+(v4 figures are from the note and the mentality section above.) Every row meets the note's criteria: equal sides score 2.3–3.2 at every level, and 70 v 50 stays under 3.5 goals while the stronger side wins 87%. A mismatch shows in who scores: in 70 v 50 the weaker side's goals fall to 0.50 while the stronger side's rise to 2.95. Mentality stays a trade-off: attacking scores and concedes more, defensive scores and concedes less and draws more. Draws match independent scores in every row.
+
+### Decisions
+
+- **Contest against the opponent, not a match-wide level.** Shifting every rating by the average level of both sides fixes equal teams, but leaves a mismatch as steep as before (70 v 50 at 4.6 goals). Rating each skill against the skill it meets also gives a single parameter for the gap's slope.
+- **The gap still makes goals.** Scores behave like a pair of rates whose ratio grows with the gap, so a big mismatch always adds some goals. Real football tempers this through game state (a side that leads eases off). That rule would lower goals in mismatches further; it is not needed for the note's criteria and is left for roadmap phase 4.
+- **No slowdown:** v4 and v5 both take 53–64 ms a match on this 4-core container (`BenchmarkCompleteMatch`).
+
+### Verification
+
+- `TestGoalsFollowTheGapNotTheLevel` (always on, 800 matches): equal sides at 40, 60 and 80 average 2.0–3.4 goals and 40 v 40 is within 0.6 of 80 v 80. 70 v 50 scores at most 1.5 more than 60 v 60, the stronger side wins at least three quarters and scores at least four times as many goals. At v4 the same test fails the level bounds (40 v 40 1.74, 80 v 80 4.37) and the mismatch bound (70 v 50 4.58).
+- `TestModelTrends`, `TestMentalityTradeOff`, `TestConditionMatters` and the contract suite hold. New validation for `ContestReference`, `ContestPermille` and `HomeAdvantage`. The golden hash was re-pinned for v5. No career match uses `tick` yet, so no other golden moved.
+- Found on main: `cmd/simulate/main_test.go` was not gofmt-clean. Fixed in its own whitespace-only commit, with an FYI note to `ui`.
+
+### Handoffs
+
+- Delivered: `match--tick-goals-by-level`.
+- Updated: [balance--tick-mentality-delivered.md](handoffs/balance--tick-mentality-delivered.md) now asks for the tick tables at v5.
+- Filed: [ui--simulate-test-gofmt.md](handoffs/ui--simulate-test-gofmt.md) (information only).

@@ -144,7 +144,14 @@ type team struct {
 	nEntered  int
 	subs      uint8
 	mentality matches.Mentality
-	lastTouch int // players index of the side's latest touch, or -1
+	lastTouch int    // players index of the side's latest touch, or -1
+	level     levels // this minute, from the players on the pitch
+}
+
+// levels are the effective ratings a side's opponents meet in contests:
+// its outfield averages and its keeper's.
+type levels struct {
+	defending, passing, pace, goalkeeping int64
 }
 
 func (t *team) find(id ids.PlayerID) int {
@@ -207,9 +214,10 @@ type ball struct {
 	decel    int64 // cm/tick lost per tick
 
 	carried      bool
-	side, slot   int  // carrier, while carried; the kicker's side and slot after a kick
-	shot         bool // loose after a shot
-	passTo       int  // receiving slot of a pass in flight, or -1
+	side, slot   int   // carrier, while carried; the kicker's side and slot after a kick
+	shot         bool  // loose after a shot
+	finishing    int64 // the shooter's effective Finishing, while shot
+	passTo       int   // receiving slot of a pass in flight, or -1
 	aim          vec
 	protect      uint32 // no tackle before this tick
 	free         uint32 // no control before this tick
@@ -423,6 +431,9 @@ func (s *session) Apply(cmd matches.MatchCommand) error {
 		}
 		t.layOut()
 		s.rate(cmd.Side.Index(), in)
+		s.measure(cmd.Side.Index())
+		s.setPace(0)
+		s.setPace(1)
 		s.pending = append(s.pending, matches.MatchEvent{
 			Seq: s.nextSeq(), Minute: s.minute, Kind: matches.EventSubstitution, Side: cmd.Side, Player: cmd.In, Other: cmd.Out,
 		})
@@ -436,18 +447,52 @@ func (s *session) Checkpoint() (matches.MatchCheckpoint, error) {
 	return matches.MatchCheckpoint{}, fmt.Errorf("%w: %s engine has no checkpoints", matches.ErrUnsupported, EngineID)
 }
 
-// refreshRatings recomputes every player's effective ratings for the
-// minute about to be played (s.minute, already incremented).
+// refreshRatings recomputes every player's effective ratings, each side's
+// levels and the sprint speeds for the minute about to be played
+// (s.minute, already incremented).
 func (s *session) refreshRatings() {
 	for side := range s.teams {
 		for i := range s.teams[side].n {
 			s.rate(side, i)
 		}
+		s.measure(side)
 	}
+	s.setPace(0)
+	s.setPace(1)
 }
 
-// rate sets one player's effective ratings and sprint speed. Minutes
-// already played this match (before the current one) drive fatigue.
+// measure sets side's levels from the effective ratings of its players on
+// the pitch.
+func (s *session) measure(side int) {
+	t := &s.teams[side]
+	var sum levels
+	n := int64(0)
+	for slot := range t.pitch {
+		p := t.at(slot)
+		if p.role == matches.Goalkeeper {
+			sum.goalkeeping = p.eff[effGoalkeeping]
+			continue
+		}
+		sum.defending += p.eff[effDefending]
+		sum.passing += p.eff[effPassing]
+		sum.pace += p.eff[effPace]
+		n++
+	}
+	sum.defending /= n
+	sum.passing /= n
+	sum.pace /= n
+	t.level = sum
+}
+
+// against is the contest rating of skill meeting an opposing skill or
+// level: ContestReference plus ContestPermille of the difference, within
+// [0, per10k].
+func (s *session) against(skill, opposing int64) int64 {
+	return min(max(s.p.ContestReference+(skill-opposing)*s.p.ContestPermille/permille, 0), per10k)
+}
+
+// rate sets one player's effective ratings. Minutes already played this
+// match (before the current one) drive fatigue.
 func (s *session) rate(side, i int) {
 	p := &s.teams[side].players[i]
 	played := max(int64(s.minute)-1-int64(p.on), 0)
@@ -456,12 +501,21 @@ func (s *session) rate(side, i int) {
 	}
 	perMinute := max(s.p.FatigueBasePer100k-int64(p.r.Stamina)*s.p.FatigueStaminaStepPer100k, 0)
 	fatigue := min(played*perMinute, s.p.FatigueCapPer100k)
-	home := int64(permille)
+	home := int64(0)
 	if side == matches.Home.Index() {
-		home = s.p.HomeAdvantagePermille
+		home = s.p.HomeAdvantage
 	}
 	for k, v := range [nEff]uint8{p.r.Goalkeeping, p.r.Defending, p.r.Passing, p.r.Finishing, p.r.Pace, p.r.Dribbling} {
-		p.eff[k] = int64(v) * pointUnits * p.ready / per10k * (per100k - fatigue) / per100k * home / permille
+		p.eff[k] = int64(v)*pointUnits*p.ready/per10k*(per100k-fatigue)/per100k + home
 	}
-	p.sprint = s.p.MinSprint + (s.p.MaxSprint-s.p.MinSprint)*min(p.eff[effPace], per10k)/per10k
+}
+
+// setPace sets side's sprint speeds from its players' Pace against the
+// opponents' average.
+func (s *session) setPace(side int) {
+	t := &s.teams[side]
+	for i := range t.n {
+		p := &t.players[i]
+		p.sprint = s.p.MinSprint + (s.p.MaxSprint-s.p.MinSprint)*s.against(p.eff[effPace], s.teams[1-side].level.pace)/per10k
+	}
 }

@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 4
+const ModelVersion uint32 = 5
 
 // The clock: a tick is one simulated instant.
 const (
@@ -34,10 +34,22 @@ const (
 
 // Params are the model's tunable constants. How play works each tick:
 //
-//   - Effective rating = rating * readiness * (1 - fatigue) * home
-//     advantage, as in the simple engine: readiness from condition at
+//   - Effective rating = rating * readiness * (1 - fatigue), plus
+//     HomeAdvantage for the home side: readiness from condition at
 //     kickoff, fatigue growing each minute on the pitch, less with more
 //     Stamina. It is recomputed once a minute.
+//   - Contests: a skill counts against the opposing skill it meets, never
+//     on its own, so two equal sides play the same football at every level
+//     and only the difference between them decides who scores. The contest
+//     rating is ContestReference plus ContestPermille of the difference:
+//     passing (a pass's accuracy, a teammate's control) against the
+//     opponents' average Defending; Finishing against the opposing
+//     keeper's Goalkeeping and a save against the shooter's Finishing; an
+//     interception against the passers' average Passing, and a keeper
+//     collecting any other ball against the same; Pace against the
+//     opponents' average Pace, so play has the same tempo at every level.
+//     Averages are over the outfield players on the pitch. Tackles and
+//     penalty shootouts were contests already.
 //   - Shape: each outfield player has a spot from his role's line depth
 //     (deeper out of possession) and an even share of the width among his
 //     line. The block follows the ball along the pitch (Shift) and across
@@ -62,7 +74,7 @@ const (
 //     is chased by the nearest player of each side.
 //   - Movement: a player jogs towards his spot, or sprints when he is far
 //     from it, chases a loose ball, presses the carrier or runs onto a pass.
-//     Sprint speed grows with Pace.
+//     Sprint speed grows with contest Pace.
 //   - The carrier shoots more often the nearer he is to goal, passes more
 //     often under pressure, and otherwise dribbles at goal. A pass goes to
 //     the teammate with the best mix of progress and space (with noise); it
@@ -87,12 +99,13 @@ const (
 type Params struct {
 	Version uint32
 
-	HomeAdvantagePermille                                            int64
+	HomeAdvantage                                                    int64 // effective-rating units
 	FatigueBasePer100k, FatigueStaminaStepPer100k, FatigueCapPer100k int64
 	ConditionFloorPer10k                                             int64
+	ContestReference, ContestPermille                                int64
 
 	// Movement.
-	MinSprint, MaxSprint         int64 // at effective Pace 0 and 100
+	MinSprint, MaxSprint         int64 // at contest Pace 0 and 100
 	JogPermille, DribblePermille int64 // of sprint speed
 	SprintDistance               int64 // farther than this from his spot, a player sprints
 
@@ -157,11 +170,13 @@ func DefaultParams() Params {
 	return Params{
 		Version: ModelVersion,
 
-		HomeAdvantagePermille:     1030,
+		HomeAdvantage:             300,
 		FatigueBasePer100k:        300,
 		FatigueStaminaStepPer100k: 2,
 		FatigueCapPer100k:         30_000,
 		ConditionFloorPer10k:      7000,
+		ContestReference:          6000,
+		ContestPermille:           340,
 
 		MinSprint:       110, // 5.5 m/s
 		MaxSprint:       170, // 8.5 m/s
@@ -228,7 +243,7 @@ func DefaultParams() Params {
 		MentalityShotPermille: [4]int64{0, 850, 1000, 1150},
 		MinShotSpeed:          380,
 		MaxShotSpeed:          520,
-		ShotErrorPermille:     1200,
+		ShotErrorPermille:     1600,
 
 		TackleRadius:     170,
 		TackleAttemptPPM: 80_000,
@@ -265,8 +280,10 @@ func (p Params) Validate() error {
 	switch {
 	case p.Version == 0:
 		return bad("version")
-	case p.HomeAdvantagePermille <= 0 || p.HomeAdvantagePermille > 2*permille:
+	case p.HomeAdvantage < 0 || p.HomeAdvantage > per10k/10:
 		return bad("home advantage")
+	case p.ContestReference <= 0 || p.ContestReference >= per10k || p.ContestPermille < 0 || p.ContestPermille > 2*permille:
+		return bad("contests")
 	case p.FatigueBasePer100k < 0 || p.FatigueStaminaStepPer100k < 0 || p.FatigueCapPer100k < 0 || p.FatigueCapPer100k >= per100k:
 		return bad("fatigue")
 	case p.ConditionFloorPer10k <= 0 || p.ConditionFloorPer10k > per10k:

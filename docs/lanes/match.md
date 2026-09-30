@@ -29,7 +29,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
-**Tick engine tuning before phase 2.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Mentality is a trade-off since `tick.ModelVersion` 4: drift in possession and gradual marking make results continuous in the line depths, and a mentality moves both lines. The saved team plan is done (`World.TeamPlan`, `SetTeamPlan`; the editor is with `ui` in [its note](../handoffs/ui--team-plan-editor.md)). Match reports now keep both sides' played lineups and `ProbableLineup` shows another club's (delivered to `ui`). Next is balance's note on [goals that depend on the gap, not the level](../handoffs/match--tick-goals-by-level.md). Phase 2 follows. Before it, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
+**Tick engine: phase 2 is next.** `internal/matches/tick` simulates the ball and all 22 players five times a second, behind the same contract as `simple`, and emits positional frames (phase 1). It reads all eleven attributes through `matches.Ratings`, but only Dribbling of the five new ones so far. No career match uses it yet. Mentality is a trade-off since `tick.ModelVersion` 4. Since v5, every skill is rated against the opposing skill it meets, so goals follow the gap between the sides and not their level: equal sides score about 2.5 at 40, 60 and 80, and 70 v 50 scores 3.4 with 87% home wins ([progress](../progress.md#match-tick-goals-follow-the-gap-not-the-level-done)). The tuning notes from `balance` are all delivered; its refresh of the tick tables at v5 is pending. Before phase 2, settle one career football model for interacting competitions (PAR-09 below). See the roadmap below.
 
 ## Tick engine roadmap
 
@@ -46,6 +46,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
    - fouls, free kicks, penalties and cards (`Cards` capability, with `competitions` for suspensions);
    - the ball in the air: crosses, headers, long balls, goalkeepers catching crosses (needs aerial attributes from `data`);
    - smarter movement: runs into space, overlaps, a compact block, keeper distribution;
+   - game state: a side that leads comfortably eases off, which would further temper goals in mismatches (v5 note);
    - formations and roles beyond GK/DF/MF/FW (the backlog item), fed from `selection`;
    - live injuries (`Injuries` capability) and workload from distance and sprints rather than minutes, handed to `squad` for condition.
 5. **Speed and persistence.** Under 5 ms per match (26 ms at v4; marking is the largest cost) so every fixture can use it (fewer square roots, cheaper marking), then checkpoints for mid-match saves. Switching the default engine changes every seeded career, so it needs `balance`'s sign-off and notes to all lanes.
@@ -53,7 +54,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout and mentality notes are answered (a refresh of the tick tables at v4 is requested). The goals-by-level note is accepted and comes next in the tick work; the career-season comparison follows phase 2.
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v5 is requested). The career-season comparison follows phase 2.
 - **`ui`:** a pitch view once frames are reachable through `app` (phase 2; the note follows that work).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.

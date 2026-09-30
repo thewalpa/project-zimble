@@ -397,7 +397,7 @@ func (s *session) pass(side, slot int) bool {
 	}
 	aim := t.at(best).pos
 	d := dist(c.pos, aim)
-	miss := d * (per10k - min(c.eff[effPassing], per10k)) / per10k * s.p.PassErrorPermille / permille
+	miss := d * (per10k - s.against(c.eff[effPassing], s.teams[1-side].level.defending)) / per10k * s.p.PassErrorPermille / permille
 	aim = clampPitch(aim.add(vec{s.spread(miss), s.spread(miss)}))
 	// Fast enough to arrive at PassArrivalSpeed: v0² = v1² + 2ad.
 	speed := isqrt(s.p.PassArrivalSpeed*s.p.PassArrivalSpeed + 2*s.p.GroundDecel*dist(c.pos, aim))
@@ -420,13 +420,14 @@ func (s *session) shoot(side, slot int) {
 	aim := s.goal(side)
 	aim.y += s.spread(postHalf - 60)
 	d := dist(c.pos, aim)
-	miss := d * (per10k - min(c.eff[effFinishing], per10k)) / per10k * s.p.ShotErrorPermille / permille
+	skill := s.against(c.eff[effFinishing], s.teams[1-side].level.goalkeeping)
+	miss := d * (per10k - skill) / per10k * s.p.ShotErrorPermille / permille
 	aim.y += s.spread(miss)
 	// Aim beyond the line so the ball crosses it.
 	aim = aim.add(aim.sub(c.pos).withLength(300))
-	speed := s.p.MinShotSpeed + (s.p.MaxShotSpeed-s.p.MinShotSpeed)*min(c.eff[effFinishing], per10k)/per10k
+	speed := s.p.MinShotSpeed + (s.p.MaxShotSpeed-s.p.MinShotSpeed)*skill/per10k
 	s.kick(side, slot, aim, speed, s.p.AirDecel)
-	s.ball.shot = true
+	s.ball.shot, s.ball.finishing = true, c.eff[effFinishing]
 	s.stats.shots[side]++
 	if abs64(aim.y-pitchW/2) < postHalf {
 		s.stats.onTarget[side]++
@@ -580,16 +581,18 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 		switch {
 		case c.hands && s.ball.shot && c.side != s.lastSide:
 			reach = s.p.KeeperReach
-			chance = s.p.SavePPM + (p.eff[effGoalkeeping]-5000)*s.p.SaveSkillPPM/5000 - max(speed-s.p.EasySpeed, 0)*s.p.SaveSpeedPenaltyPPM
+			skill := s.against(p.eff[effGoalkeeping], s.ball.finishing)
+			chance = s.p.SavePPM + (skill-5000)*s.p.SaveSkillPPM/5000 - max(speed-s.p.EasySpeed, 0)*s.p.SaveSpeedPenaltyPPM
 		default:
 			if c.hands {
 				reach = s.p.KeeperReach
 			}
-			skill := p.eff[effPassing]
+			opp := &s.teams[1-c.side].level
+			skill := s.against(p.eff[effPassing], opp.defending)
 			if c.hands {
-				skill = p.eff[effGoalkeeping]
+				skill = s.against(p.eff[effGoalkeeping], opp.passing)
 			} else if c.side != s.lastSide {
-				skill = p.eff[effDefending]
+				skill = s.against(p.eff[effDefending], opp.passing)
 			}
 			chance = s.p.ControlPPM + (skill-5000)*s.p.ControlSkillPPM/5000 - max(speed-s.p.EasySpeed, 0)*s.p.ControlSpeedPenaltyPPM
 			if c.side != s.lastSide {
