@@ -196,6 +196,27 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 	return lineupOf(in), nil
 }
 
+// ProbableLineup returns the lineup the AI would field for a senior team of
+// a current league if it played today: the selection ResolveRounds makes for
+// a club nobody manages, from the squad's current condition and injuries,
+// under the league's match rules. It is not a promise: the squad changes by
+// kickoff. The user club's team is rejected, since its lineup comes from the
+// manager (see MatchdayLineup and TeamPlan). Read-only.
+func (w *World) ProbableLineup(team ids.TeamID) (selection.Lineup, error) {
+	if mine, ok := w.userTeam(); ok && mine == team {
+		return selection.Lineup{}, fmt.Errorf("%w: team %d is the user club's; see TeamPlan", ErrInvalidCommand, team)
+	}
+	rules, err := w.leagueRules(team)
+	if err != nil {
+		return selection.Lineup{}, err
+	}
+	in, err := w.selectTeam(team, rules)
+	if err != nil {
+		return selection.Lineup{}, err
+	}
+	return lineupOf(in), nil
+}
+
 // lineupOf returns the lineup a team input fields.
 func lineupOf(in matches.TeamInput) selection.Lineup {
 	l := selection.Lineup{Tactics: in.Tactics}

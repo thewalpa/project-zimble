@@ -291,3 +291,35 @@ func TestGolden(t *testing.T) {
 		t.Fatalf("model v%d output hash %s, golden %s: bump ModelVersion if the change is intended", ModelVersion, got, goldenHash)
 	}
 }
+
+// The first slot of a line is on its side's left flank looking upfield, as
+// the contract says: at each kickoff the slots of a line run along Y in
+// increasing order for a side attacking towards X = PitchLength and in
+// decreasing order for the other.
+func TestLineSlotsRunLeftToRight(t *testing.T) {
+	in := input(1, 60, 60)
+	frames := playOut(t, start(t, in), true).Frames
+	check := func(f matches.Frame, homeUp bool) {
+		t.Helper()
+		for side, team := range []matches.TeamInput{in.Home, in.Away} {
+			up := homeUp == (side == 0)
+			for slot := 1; slot < matches.StartersPerTeam; slot++ {
+				if team.Starters[slot].Role != team.Starters[slot-1].Role {
+					continue
+				}
+				a, b := f.Players[side][slot-1].Y, f.Players[side][slot].Y
+				if (up && a >= b) || (!up && a <= b) {
+					t.Fatalf("side %d slots %d, %d at %d ms: Y %d then %d, attacking up: %t", side, slot-1, slot, f.Millis, a, b, up)
+				}
+			}
+		}
+	}
+	check(frames[0], true)
+	for _, f := range frames {
+		if f.Millis > matches.HalfTimeMinute*60_000 {
+			check(f, false)
+			return
+		}
+	}
+	t.Fatal("no second-half frame")
+}

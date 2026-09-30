@@ -49,13 +49,19 @@ type ResolveRounds struct {
 // MatchReport summarizes one resolved fixture. Goals and Events are match
 // detail kept with the report; only the score becomes the official result.
 // Selected says, per side (home, away), whether a submitted lineup or the AI
-// default was played.
+// default was played; Lineups holds the lineup each side started the match
+// with, whoever chose it.
 type MatchReport struct {
 	Fixture  ids.FixtureID
 	Round    competitions.RoundRef
 	Home     TeamLabel
 	Away     TeamLabel
 	Selected [2]SelectedBy
+	// Lineups are the selections each side (home, away) fielded: starters
+	// in slot order with the roles they played, the bench and the tactics
+	// they started with. Later substitutions and mentality changes are in
+	// Events. Empty for a result recorded without a report.
+	Lineups  [2]selection.Lineup
 	Score    [2]uint16
 	Shootout [2]uint16 // a knockout match level after regulation: penalties scored
 	Goals    []matches.Goal
@@ -213,7 +219,8 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		res.Matches = append(res.Matches, MatchReport{
 			Fixture: p.fixture.ID, Round: p.round,
 			Home: w.teamLabel(p.fixture.Home), Away: w.teamLabel(p.fixture.Away),
-			Selected: p.selected, Score: outcomes[i].Score, Shootout: outcomes[i].Shootout, Goals: outcomes[i].Goals,
+			Selected: p.selected, Lineups: [2]selection.Lineup{lineupOf(p.input.Home), lineupOf(p.input.Away)},
+			Score: outcomes[i].Score, Shootout: outcomes[i].Shootout, Goals: outcomes[i].Goals,
 			Events: played[i],
 		})
 	}
@@ -566,12 +573,17 @@ func (w *World) checkOutcome(p plannedMatch, o matches.MatchOutcome) error {
 	return nil
 }
 
+func cloneLineups(l [2]selection.Lineup) [2]selection.Lineup {
+	return [2]selection.Lineup{l[0].Clone(), l[1].Clone()}
+}
+
 func cloneResolved(r RoundsResolved) RoundsResolved {
 	r.Rounds = slices.Clone(r.Rounds)
 	r.Matches = slices.Clone(r.Matches)
 	for i := range r.Matches {
 		r.Matches[i].Goals = slices.Clone(r.Matches[i].Goals)
 		r.Matches[i].Events = slices.Clone(r.Matches[i].Events)
+		r.Matches[i].Lineups = cloneLineups(r.Matches[i].Lineups)
 	}
 	return r
 }
@@ -585,7 +597,7 @@ func (w *World) MatchReport(fixture ids.FixtureID) (MatchReport, bool) {
 		}
 		for _, m := range rec.resolve.Result.Matches {
 			if m.Fixture == fixture {
-				m.Goals, m.Events = slices.Clone(m.Goals), slices.Clone(m.Events)
+				m.Goals, m.Events, m.Lineups = slices.Clone(m.Goals), slices.Clone(m.Events), cloneLineups(m.Lineups)
 				return m, true
 			}
 		}

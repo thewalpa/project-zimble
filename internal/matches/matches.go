@@ -299,6 +299,14 @@ type MatchEvent struct {
 // pitch, Y across it; the goals are centred on Y = PitchWidth/2 at X = 0
 // and X = PitchLength. The home side attacks towards X = PitchLength in
 // the first half and towards X = 0 in the second.
+//
+// A side's flanks follow its own direction of play: the first slot of a
+// line (in selection.Lineup.Starters order, or MatchInput's starter order)
+// is on the side's left flank looking upfield from its own goal, and the
+// last slot of the line on its right. For a side attacking towards
+// X = PitchLength the left touchline is Y = 0; for one attacking towards
+// X = 0 it is Y = PitchWidth. A pitch drawn with the attack at the top has
+// each line's slots left to right in slot order for both sides.
 const (
 	PitchLength = 10_500
 	PitchWidth  = 6_800

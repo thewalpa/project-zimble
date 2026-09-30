@@ -2964,3 +2964,17 @@ The match report shows the lineup the user's club played: formation, starters by
 ### Verification
 
 - `TestPlayingAMatchday` (web) submits a lineup and finds the formation, the attack line, the bench and player links on its report. `TestGameReportsWhenClickingOnScores` checks that an assistant-picked match shows none. `TestEditedLineupIsPlayedAndSaved` (play) checks the formation follows the full-time line.
+
+
+## match: both sides' lineups in match reports (done)
+
+`MatchReport.Lineups` holds what each side started a match with (starters in slot order with roles, bench, starting mentality), for the AI's side as well as the manager's. It is stored, not re-derived: the AI's pick depends on condition, injuries and transfers at kickoff, which all move afterwards. That made it authoritative state, so `storage.SchemaVersion` is 26. `restoreResolve` checks each lineup's shape, that the manager's side equals the stored lineup, and that goal scorers and substitutes belong to the side's lineup.
+
+- **`World.ProbableLineup(team)`** shows what the AI would field for any senior team of a current league today, for other clubs' squad pages. The user club's team is rejected (its lineup is the manager's).
+- **Flank.** The `matches` contract now says a line's first slot is on the team's left flank looking upfield (Y = 0 for a side attacking towards X = PitchLength, Y = PitchWidth for the other), so the pitch is not mirrored. `TestLineSlotsRunLeftToRight` pins it for both sides and both halves in `tick`; `simple` has no geometry.
+- Notes: `ui--report-lineups-delivered`, `data--schema-26-report-lineups`.
+
+### Verification
+
+- `TestReportsKeepBothPlayedLineups`: the manager's side equals his stored lineup and the AI's side equals what `ProbableLineup` said just before the round; reports are equal after a save and load and are returned as copies.
+- `TestRestoreRejectsInvalidReportLineups`, `TestProbableLineupRejections`.

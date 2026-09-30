@@ -590,9 +590,24 @@ func (w *World) restoreResolve(c ResolveRecord, revision Revision) error {
 			return fmt.Errorf("fixture %d: %w", m.Fixture, err)
 		}
 		for i, team := range []ids.TeamID{official.Home, official.Away} {
-			_, submitted := w.selections.Lineup(m.Fixture, team)
+			stored, submitted := w.selections.Lineup(m.Fixture, team)
 			if by := m.Selected[i]; !by.Valid() || (by == SelectedByManager) != submitted {
 				return fmt.Errorf("fixture %d team %d selected by %s, lineup stored: %t", m.Fixture, team, by, submitted)
+			}
+			if err := m.Lineups[i].Validate(); err != nil {
+				return fmt.Errorf("fixture %d team %d: %w", m.Fixture, team, err)
+			}
+			if submitted && !m.Lineups[i].Equal(stored) {
+				return fmt.Errorf("fixture %d team %d: reported lineup differs from the stored one", m.Fixture, team)
+			}
+		}
+		for _, e := range m.Events {
+			if e.Kind != matches.EventGoal && e.Kind != matches.EventSubstitution {
+				continue
+			}
+			on := m.Lineups[e.Side.Index()].Players()
+			if !slices.Contains(on, e.Player) || (e.Kind == matches.EventSubstitution && !slices.Contains(on, e.Other)) {
+				return fmt.Errorf("fixture %d event %d names players %d and %d outside the %s lineup", m.Fixture, e.Seq, e.Player, e.Other, e.Side)
 			}
 		}
 	}

@@ -1164,3 +1164,140 @@ func TestRestoreRejectsInvalidTeamPlans(t *testing.T) {
 		t.Fatalf("unmodified snapshot rejected: %v", err)
 	}
 }
+
+// Every report keeps what both sides fielded: the manager's stored lineup on
+// his side, and on the AI's side exactly what ProbableLineup showed just
+// before the round.
+func TestReportsKeepBothPlayedLineups(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	mine := mustUserTeam(t, w)
+	var reports []MatchReport
+	for range 3 {
+		ready := readyBatch(t, w)
+		submit(t, w, ready.UserFixtures[0], changedLineup(t, w, ready.UserFixtures[0]))
+		probable := map[ids.TeamID]selection.Lineup{}
+		for _, r := range w.competitions.PendingRounds() {
+			for _, id := range r.Fixtures {
+				f, _ := w.competitions.Fixture(id)
+				for _, team := range []ids.TeamID{f.Home, f.Away} {
+					if team == mine {
+						continue
+					}
+					l, err := w.ProbableLineup(team)
+					if err != nil {
+						t.Fatal(err)
+					}
+					probable[team] = l
+				}
+			}
+		}
+		res := resolveNow(t, w)
+		for _, m := range res.Matches {
+			for i, team := range []ids.TeamID{m.Home.Team, m.Away.Team} {
+				want, ok := probable[team]
+				if team == mine {
+					want, ok = w.SubmittedLineup(m.Fixture)
+				}
+				if !ok || !m.Lineups[i].Equal(want) {
+					t.Fatalf("fixture %d team %d played %+v, expected %+v", m.Fixture, team, m.Lineups[i], want)
+				}
+			}
+			reports = append(reports, m)
+		}
+	}
+	if len(reports) == 0 {
+		t.Fatal("no reports")
+	}
+	loaded := roundTrip(t, w)
+	for _, m := range reports {
+		for i := range m.Lineups {
+			if err := m.Lineups[i].Validate(); err != nil {
+				t.Fatalf("fixture %d: %v", m.Fixture, err)
+			}
+		}
+		got, ok := loaded.MatchReport(m.Fixture)
+		if !ok || !reflect.DeepEqual(got, m) {
+			t.Fatalf("fixture %d report differs after load", m.Fixture)
+		}
+		// A returned report is a copy.
+		got.Lineups[0].Starters[0].Player = 0
+		if again, _ := loaded.MatchReport(m.Fixture); again.Lineups[0].Starters[0].Player == 0 {
+			t.Fatal("MatchReport exposes internal lineup storage")
+		}
+	}
+}
+
+func TestProbableLineupRejections(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	if _, err := w.ProbableLineup(mustUserTeam(t, w)); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("user team: err = %v", err)
+	}
+	if _, err := w.ProbableLineup(9999); err == nil {
+		t.Fatal("unknown team accepted")
+	}
+	before := w.Snapshot()
+	if _, err := w.ProbableLineup(1); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, w.Snapshot()) {
+		t.Fatal("ProbableLineup changed the world")
+	}
+}
+
+func TestRestoreRejectsInvalidReportLineups(t *testing.T) {
+	var team ids.TeamID
+	build := func() WorldSnapshot {
+		w := userWorld(t, 42, userClub)
+		team = mustUserTeam(t, w)
+		for range 2 {
+			ready := readyBatch(t, w)
+			submit(t, w, ready.UserFixtures[0], changedLineup(t, w, ready.UserFixtures[0]))
+			resolveNow(t, w)
+		}
+		return w.Snapshot()
+	}
+	base := build()
+	var withGoal int
+	for i, m := range base.ResolveCommands[0].Result.Matches {
+		if len(m.Goals) > 0 {
+			withGoal = i
+			break
+		}
+	}
+	cases := map[string]func(*WorldSnapshot){
+		"no lineup": func(s *WorldSnapshot) { s.ResolveCommands[0].Result.Matches[0].Lineups[1] = selection.Lineup{} },
+		"short lineup": func(s *WorldSnapshot) {
+			l := &s.ResolveCommands[0].Result.Matches[0].Lineups[0]
+			l.Starters = l.Starters[1:]
+		},
+		"manager side differs": func(s *WorldSnapshot) {
+			m := &s.ResolveCommands[1].Result.Matches[userMatch(s, 1, team)]
+			m.Lineups[userSide(*m, team)].Tactics.Mentality = matches.Defensive
+		},
+		"scorer outside lineup": func(s *WorldSnapshot) {
+			m := &s.ResolveCommands[0].Result.Matches[withGoal]
+			side := m.Goals[0].Side.Index()
+			m.Lineups[side].Starters = slices.Clone(m.Lineups[side].Starters)
+			for i := range m.Lineups[side].Starters {
+				if m.Lineups[side].Starters[i].Player == m.Goals[0].Scorer {
+					m.Lineups[side].Starters[i].Player = 999_999
+				}
+			}
+		},
+	}
+	for name, mutate := range cases {
+		snap := build()
+		mutate(&snap)
+		w, err := Restore(snap)
+		if err == nil || w != nil {
+			t.Errorf("%s: Restore succeeded", name)
+			continue
+		}
+		if !errors.Is(err, ErrInvalidSave) {
+			t.Errorf("%s: err = %v, want ErrInvalidSave", name, err)
+		}
+	}
+	if _, err := Restore(base); err != nil {
+		t.Fatalf("unmodified snapshot rejected: %v", err)
+	}
+}
