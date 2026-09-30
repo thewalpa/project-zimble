@@ -129,11 +129,11 @@ func TestLineupPitch(t *testing.T) {
 			forwards = append(forwards, strings.Join(strings.Fields(strings.Trim(line[6:], "|")), " "))
 		}
 	}
-	want := []string{"59 Bellamy 57 Haugen", "45 Rowntree* 59 Bellamy 57 Haugen", "45 Rowntree* 57 Haugen 59 Bellamy"}
+	want := []string{"59 Bellamy 65 57 Haugen 62", "45 Rowntree 70* 59 Bellamy 65 57 Haugen 62", "45 Rowntree 70* 57 Haugen 62 59 Bellamy 65"}
 	if !slices.Equal(forwards, want) {
 		t.Fatalf("attack lines %q, want %q", forwards, want)
 	}
-	if !strings.Contains(out, "  GK |                            42 Aldridge ") {
+	if !strings.Contains(out, "  GK |                           42 Aldridge 67 ") {
 		t.Fatal("the goalkeeper is not centred in goal")
 	}
 }

@@ -1049,6 +1049,7 @@ type reportChip struct {
 	Name     string
 	Short    string
 	Position string
+	Overall  int // the player's overall now; 0 when unknown
 }
 
 func selectedText(b app.SelectedBy) string {
@@ -1196,6 +1197,7 @@ func (s *server) pitchOf(club string, l selection.Lineup) *reportPitch {
 		}
 		if p, ok := s.w.PlayerProfile(id); ok {
 			c.Position = p.Position.String()
+			c.Overall = p.Overall
 		}
 		return c
 	}

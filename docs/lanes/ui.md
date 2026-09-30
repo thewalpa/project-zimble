@@ -26,7 +26,7 @@ The clients a player uses: the interactive terminal (`cmd/play`), the browser cl
 
 ## Now
 
-Delivered explicit recovery of a previous save in both clients (terminal prompt and `recover`, web chooser/home buttons and `POST /recover`; never automatic). Before this: both sides' played formations in the match report and another club's probable lineup (web squad page, `club` in the terminal), the manager's played formation, the decision overview: `World.Agenda()` feeds an "Ahead" panel on the web home page and the `agenda` command in the terminal (the matchday, bids to answer, next matches, expiring contracts, own bids, the window). See [progress](../progress.md). Before this: the drag-and-drop formation editor (the pitch is not mirrored: `match` confirmed slot order runs left to right), the saved team-plan editor in both clients, cup qualifiers in league tables, match-report timelines, career history on player profiles, player comparison, squad's refusal and free-agent-date handoffs, lineup eligibility in both editors, per-nation names, and the season-review flow.
+Delivered the player overall in the read-only formation views (report and probable lineups, both clients). Before this: explicit recovery of a previous save in both clients (terminal prompt and `recover`, web chooser/home buttons and `POST /recover`; never automatic). Before this: both sides' played formations in the match report and another club's probable lineup (web squad page, `club` in the terminal), the manager's played formation, the decision overview: `World.Agenda()` feeds an "Ahead" panel on the web home page and the `agenda` command in the terminal (the matchday, bids to answer, next matches, expiring contracts, own bids, the window). See [progress](../progress.md). Before this: the drag-and-drop formation editor (the pitch is not mirrored: `match` confirmed slot order runs left to right), the saved team-plan editor in both clients, cup qualifiers in league tables, match-report timelines, career history on player profiles, player comparison, squad's refusal and free-agent-date handoffs, lineup eligibility in both editors, per-nation names, and the season-review flow.
 
 ## Backlog
 
@@ -34,7 +34,6 @@ Player-facing gaps in the current clients. Check with the owning lane before sta
 
 - **Decision overview, next step:** replace the home notes and `status` lines that the agenda now duplicates, and show renewal urgency (positions at risk) once `squad` delivers its [contract-planning view](squad.md#backlog). Show the deadline on the season-review stop when `competitions` delivers it.
 - **Formation View, rest:** the formation is shown for both sides of a report and for other clubs' squads. Left: a live-match view of the formation with substitutions applied, if `match` wants one.
-- **Formation View, overall:** the formation view should show the player overall
 
 ### AI/player rule parity audit
 

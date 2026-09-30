@@ -3015,3 +3015,12 @@ Answers `ui--save-recovery`. Recovery is never automatic: every path to `storage
 
 - `cmd/play/recover_test.go`: declining (no, blank, other, end of input) leaves both files unchanged and returns the load error; choosing yes loads the previous career and restores the selected path with the previous file retained; a damaged previous save fails with both files unchanged; a refused save offers `recover`, which changes nothing until `yes`.
 - `cmd/web/recover_test.go`: the same four cases over HTTP, plus the offer on failed Load and refused Save and the persistent choice on the home page.
+
+## ui: player overall in the read-only formation views (done)
+
+The lineup editors already showed each player's overall. The read-only formations (a match report's two lineups, another club's probable lineup) did not, and neither did the terminal pitch.
+
+- **Web.** `reportChip` shows the overall above the surname; the tooltip says "overall N now".
+- **Terminal.** Pitch cells are now "ID Surname OVR", starred when out of position. Surnames are cut at 8 characters (was 10) so four players still fit a line. This also applies to the two lineups in a played match's report.
+- The overall is the player's current one (`PlayerProfile` / squad query), not a snapshot from the match. A report of an old match shows who they are today; `match` would have to record it in the report to show the overall at the time. A player who has left the club has no cell overall in the terminal.
+- `TestLineupPitch` (play) checks the attack lines and the goalkeeper with overalls; the web report test checks the overall chip and its tooltip.

@@ -1143,7 +1143,7 @@ const pitchWidth = 68
 
 // showPitch draws the starters line by line, attack at the top, each line in
 // slot order: the match spreads a line's players across the width in that
-// order. Cells are "ID Surname", starred when out of position.
+// order. Cells are "ID Surname overall", starred when out of position.
 func (s *session) showPitch(l selection.Lineup, squad map[ids.PlayerID]app.SquadPlayer, note string) {
 	s.printf("Formation %s, attacking upwards%s:\n", app.FormationLabel(l), note)
 	edge := "     +" + strings.Repeat("-", pitchWidth) + "+\n"
@@ -1159,13 +1159,16 @@ func (s *session) showPitch(l selection.Lineup, squad map[ids.PlayerID]app.Squad
 			if i := strings.LastIndex(name, " "); i >= 0 {
 				name = name[i+1:]
 			}
-			if r := []rune(name); len(r) > 10 {
-				name = string(r[:9]) + "."
+			if r := []rune(name); len(r) > 8 {
+				name = string(r[:7]) + "."
 			}
 			cell := fmt.Sprintf("%d %s", sl.Player, name)
-			if p, ok := squad[sl.Player]; ok && app.NaturalRole(p.Position) != role {
-				cell += "*"
-				oop = true
+			if p, ok := squad[sl.Player]; ok {
+				cell += fmt.Sprintf(" %d", p.Overall)
+				if app.NaturalRole(p.Position) != role {
+					cell += "*"
+					oop = true
+				}
 			}
 			cells = append(cells, cell)
 		}

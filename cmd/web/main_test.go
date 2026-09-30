@@ -161,7 +161,7 @@ func TestPlayingAMatchday(t *testing.T) {
 
 	page = c.post("/continue", nil)
 	contains(t, page, "Latest result", "Brackenmoor Town", "Other results")
-	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Quillford FC lineup</h2>", "Brackenmoor Town lineup</h2>", "Formation ", `aria-label="Attack"`, `aria-label="Bench"`, `href="/player?id=`)
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Quillford FC lineup</h2>", "Brackenmoor Town lineup</h2>", "Formation ", `aria-label="Attack"`, `aria-label="Bench"`, `href="/player?id=`, `<span class="ovr">`, ", overall ")
 	if n := strings.Count(c.get(fmt.Sprintf("/report?fixture=%d", fixture)), `class="pitch"`); n != 2 {
 		t.Fatalf("%d pitches in the report, want both sides'", n)
 	}
