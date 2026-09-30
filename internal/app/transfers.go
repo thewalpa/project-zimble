@@ -402,6 +402,9 @@ func failedStatus(err error) transfers.Status {
 func (m *market) complete(o transfers.Offer) error {
 	pos := m.position[o.Player]
 	q := m.w.defs.Quota(pos)
+	if err := m.w.checkAdmission(m.counts[o.Buyer], pos); err != nil {
+		return fmt.Errorf("%w: club %d has %d players, %d %s", err, o.Buyer, squadSize(m.counts[o.Buyer]), m.counts[o.Buyer][pos], pos)
+	}
 	switch {
 	case m.at < m.open || m.at >= m.close:
 		return fmt.Errorf("%w at %d", ErrWindowClosed, m.at)
@@ -412,8 +415,6 @@ func (m *market) complete(o transfers.Offer) error {
 	case !m.joins(o.Player, o.Buyer):
 		return fmt.Errorf("%w: player %d (%d) of club %d (average %d) to club %d (average %d)", ErrPlayerRefuses,
 			o.Player, m.overall(o.Player), o.Seller, m.average(o.Seller), o.Buyer, m.average(o.Buyer))
-	case !m.w.hasRoom(o.Buyer, m.counts[o.Buyer], pos):
-		return fmt.Errorf("%w: club %d has %d players, %d %s", ErrSquadFull, o.Buyer, squadSize(m.counts[o.Buyer]), m.counts[o.Buyer][pos], pos)
 	case m.balances[o.Buyer] < o.Fee:
 		return fmt.Errorf("%w: club %d has %s, fee %s", ErrCannotAfford, o.Buyer, m.balances[o.Buyer], o.Fee)
 	}
@@ -482,6 +483,10 @@ func (m *market) bid(player ids.PlayerID, buyer ids.ClubID, fee money.Money, ter
 // sign stages an AI club signing a free agent in the window, on
 // windowTerms.
 func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
+	p, _ := m.w.players.Profile(player)
+	if err := m.w.checkAdmission(m.counts[club], p.Position); err != nil {
+		return err
+	}
 	terms, err := m.w.windowTerms(player, m.open)
 	if err != nil {
 		return err
@@ -490,7 +495,6 @@ func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
 	if err != nil {
 		return err
 	}
-	p, _ := m.w.players.Profile(player)
 	team, _ := m.w.registry.SeniorTeam(club)
 	a := employment.Assignment{Player: player, Club: club, Team: team, Contract: contract}
 	wages, err := m.wages[club].Add(contract.WeeklyWage)
@@ -1029,12 +1033,13 @@ func (w *World) MakeTransferOffer(cmd MakeTransferOffer) (TransferOfferMade, err
 	pos := m.position[cmd.Player]
 	q := w.defs.Quota(pos)
 	switch {
-	case !w.hasRoom(w.userClub, m.counts[w.userClub], pos):
-		return TransferOfferMade{}, fmt.Errorf("%w: %d players of %d", ErrSquadFull, squadSize(m.counts[w.userClub]), w.defs.SquadLimit)
 	case m.counts[seller][pos] <= q.Min:
 		return TransferOfferMade{}, fmt.Errorf("%w: the selling club has %d %s", ErrSquadMinimum, m.counts[seller][pos], pos)
 	case cmd.Fee <= 0 || cmd.Fee > m.balances[w.userClub]:
 		return TransferOfferMade{}, fmt.Errorf("%w: fee %s, balance %s", ErrCannotAfford, cmd.Fee, m.balances[w.userClub])
+	}
+	if err := w.checkAdmission(m.counts[w.userClub], pos); err != nil {
+		return TransferOfferMade{}, fmt.Errorf("%w: %d players of %d", err, squadSize(m.counts[w.userClub]), w.defs.SquadLimit)
 	}
 	if err := w.checkOffer(cmd.Player, cmd.Offer); err != nil {
 		return TransferOfferMade{}, err

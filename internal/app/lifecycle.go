@@ -125,17 +125,28 @@ func (w *World) playerYear(at sim.GameInstant, cohort []sim.Task) error {
 	for _, c := range w.registry.Clubs() {
 		team, _ := w.registry.SeniorTeam(c.ID)
 		var intake []players.Position
+		counts := w.squadCounts(team)
 		for _, r := range retired {
 			if r.Club == c.ID {
 				old, _ := w.players.Profile(r.Player)
+				counts[old.Position]-- // departures are staged before admission
 				intake = append(intake, old.Position)
 			}
 		}
-		counts := w.squadCounts(team) // retirees are replaced one for one
+		for _, pos := range intake {
+			if err := w.checkAdmission(counts, pos); err != nil {
+				return fmt.Errorf("app: player year %d youth replacement for club %d: %w", year, c.ID, err)
+			}
+			counts[pos]++
+		}
 		size := squadSize(counts)
 		for _, q := range w.defs.Roster {
 			for n := counts[q.Position]; n < q.Count && size < w.defs.SquadLimit; n++ {
+				if err := w.checkAdmission(counts, q.Position); err != nil {
+					return fmt.Errorf("app: player year %d academy intake for club %d: %w", year, c.ID, err)
+				}
 				intake = append(intake, q.Position)
+				counts[q.Position]++
 				size++
 			}
 		}

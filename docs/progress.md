@@ -2795,6 +2795,16 @@ The player year's youth intake no longer depends on who manages a club (audit PA
 - Deliberate-bug check: both tests fail against the previous `playerYear` ("the player year differs when club 3 is managed").
 - `TestSquadsStayLegalAndBalancedOverTheYears` (AI-only and managed, fifteen years) and the rest of the suite pass unchanged.
 
+## squad: shared signing capacity (done)
+
+Delivered the accepted PAR-03 handoff. All signings use one app-level admission check against the staged squad counts: a signing is allowed at any rostered position while total squad size remains below `SquadLimit`. Position targets and surplus preferences stay in AI recruitment policy. The check covers human free-agent signings, completed transfers, AI window signings, contract-year recruitment and player-year youth intake. Youth replacement checks subtract staged retirements before admitting replacements.
+
+### Verification
+
+- `TestSharedAdmissionAllowsSurplusForHumanAndAI`: both actors may add a player to a 21-player squad that already has a surplus position.
+- `TestSharedAdmissionRejectsFullSquadWithPositionVacancy`: both actors reject a signing at 25 players despite a goalkeeper vacancy; staged transfer completion rejects it without staging employment or fees.
+- `gofmt -l .`, `go vet ./...` and `go test ./...` pass.
+
 ## match: tick mentality is a trade-off (done)
 
 Delivered `balance`'s note `match--tick-mentality`. In `tick`, attacking no longer wins 20 points more for free, and defensive no longer turns a match into a shoot-out. `tick.ModelVersion` 4.

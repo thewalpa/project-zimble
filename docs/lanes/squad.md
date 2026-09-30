@@ -27,7 +27,7 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-Next: PAR-03 (shared admission checks; the note is accepted). Delivered: one youth intake rule (PAR-01, see progress.md, "squad: one youth intake rule"): the academy fills every club's vacancies below the squad limit, whoever manages it. `ui` may warn before the intake ([note](../handoffs/ui--academy-fills-managed-vacancies.md)); `data` reviews the rule ([note](../handoffs/data--academy-intake-rule.md)).
+Next: PAR-04 (revalidate player consent at transfer completion; see the audit). Delivered: PAR-03, shared staged squad admission checks, and PAR-01's common youth intake rule (see progress.md). `ui` may warn before intake ([note](../handoffs/ui--academy-fills-managed-vacancies.md)); `data` reviews the rule ([note](../handoffs/data--academy-intake-rule.md)).
 
 ## Backlog
 
@@ -48,6 +48,5 @@ Next: PAR-03 (shared admission checks; the note is accepted). Delivered: one you
 Evidence, reproductions and acceptance criteria are in [the 2026-09-29 audit](../ai-manager-parity.md). These proposals extend the money, negotiation and thin-market work above.
 
 - **P1 — A competitive free-agent opportunity (PAR-02):** replace `holdBack` and the half-window AI signing ban with common decision windows, coordinated with competitions/ui. Keep any assistance explicit and saved; preserve a usable human recruitment opportunity.
-- **P1 — Common admission checks (PAR-03):** split `hasRoom`'s AI squad preferences from legal squad limits; run every signing path through the same staged capacity validator.
 - **P2 — Common transaction workflow and fuller AI choices (PAR-05):** give either actor the same offer/sign/release legality and costs; make one-upgrade, one-open-bid, listed-only and wage-reserve restrictions AI policies or explicit shared rules. Allow AI competition for targets and repeat recruitment where justified; extend the existing AI-money work rather than giving broke clubs exemptions.
 - **P2 — Renewal timing (PAR-06):** schedule AI renewals before expiry through the same terms/effective-wage validation as human renewals, with optional delegation. Agree decision/expiry ordering and transfer response clocks with competitions (PAR-07); hand the resulting app contract to ui.

@@ -335,7 +335,8 @@ func cheapestForSale(t *testing.T, w *World) SquadPlayer {
 
 // assertAISquadsFull checks that every AI squad holds at least its roster
 // count at each position, and at most one player more in all: the one an
-// upgrade replaced, listed until another club buys him (see hasRoom).
+// upgrade replaced, listed until another club buys him (see the shared
+// admission check).
 func assertAISquadsFull(t *testing.T, w *World) {
 	t.Helper()
 	assertAISquadsFullBut(t, w, 0)

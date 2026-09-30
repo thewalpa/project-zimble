@@ -139,22 +139,18 @@ func squadSize(counts map[players.Position]int) int {
 	return n
 }
 
-// hasRoom reports whether a club with these squad counts may take one more
-// player at pos: the user club while its squad is below the squad limit, at
-// any position; an AI club to fill a vacancy (a position below its roster
-// count), or for an upgrade while it holds no surplus (no position above
-// its roster count) and is below the squad limit. An AI squad therefore
-// exceeds its roster count by at most one player, whom it lists.
-func (w *World) hasRoom(club ids.ClubID, counts map[players.Position]int, pos players.Position) bool {
-	if club == w.userClub || counts[pos] >= w.defs.Quota(pos).Count {
-		for _, q := range w.defs.Roster {
-			if club != w.userClub && counts[q.Position] > q.Count {
-				return false
-			}
-		}
-		return squadSize(counts) < w.defs.SquadLimit
+// checkAdmission applies shared squad capacity rules to the staged counts
+// before a player joins. Position targets are recruitment preferences, not
+// legal caps; only positions absent from the roster are unavailable.
+func (w *World) checkAdmission(counts map[players.Position]int, pos players.Position) error {
+	q := w.defs.Quota(pos)
+	if !slices.Contains(players.Positions(), pos) || q.Count == 0 {
+		return fmt.Errorf("app: position %s is unavailable", pos)
 	}
-	return true
+	if squadSize(counts) >= w.defs.SquadLimit {
+		return ErrSquadFull
+	}
+	return nil
 }
 
 // squadCounts counts a team's players by position.
@@ -264,12 +260,15 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 		if err != nil {
 			return err
 		}
+		p, _ := w.players.Profile(s.Player)
 		team, _ := w.registry.SeniorTeam(s.Club)
+		if err := w.checkAdmission(counts[s.Club], p.Position); err != nil {
+			return fmt.Errorf("app: contract year %d signing player %d for club %d: %w", year, s.Player, s.Club, err)
+		}
 		changes.Signings = append(changes.Signings, employment.Assignment{
 			Player: s.Player, Club: s.Club, Team: team,
 			Contract: employment.Contract{Expires: expires, WeeklyWage: offer.WeeklyWage},
 		})
-		p, _ := w.players.Profile(s.Player)
 		counts[s.Club][p.Position]++
 	}
 	for _, c := range w.registry.Clubs() {
@@ -526,8 +525,9 @@ func (w *World) SignPlayer(cmd SignPlayer) (PlayerSigned, error) {
 	}
 	team, _ := w.userTeam()
 	p, _ := w.players.Profile(cmd.Player)
-	if counts := w.squadCounts(team); !w.hasRoom(w.userClub, counts, p.Position) {
-		return PlayerSigned{}, fmt.Errorf("%w: %d players of %d", ErrSquadFull, squadSize(counts), w.defs.SquadLimit)
+	counts := w.squadCounts(team)
+	if err := w.checkAdmission(counts, p.Position); err != nil {
+		return PlayerSigned{}, fmt.Errorf("%w: %d players of %d", err, squadSize(counts), w.defs.SquadLimit)
 	}
 	if err := w.checkOffer(cmd.Player, cmd.Offer); err != nil {
 		return PlayerSigned{}, err
