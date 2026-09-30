@@ -30,7 +30,9 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 **Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
 
-**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 27.
+**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 28 (27 is `match`'s statistics).
+
+**Reviewed match's engine choice and statistics (PAR-09):** the engine ID and version are pinned in `Versions`, an unknown engine is `ErrIncompatibleSave`, and `restoreResolve`/`restoreStep` require statistics exactly when the engine has `DetailedStats`. Nothing was missed; no data change needed.
 
 ## Backlog
 
@@ -38,7 +40,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
 - **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
 
-- **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them. `careers` would read them from events like the spells.
+- **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them (asked in handoff `match--careers-appearances-goals`). `careers` would read them from events like the spells.
 - **Complete save recovery UI:** deliver the explicit recovery choice in both clients from `ui--save-recovery`.
 
 ### AI/player rule parity audit
