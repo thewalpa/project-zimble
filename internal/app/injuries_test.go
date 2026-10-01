@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
@@ -234,6 +235,8 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 	seen := w.lastEvent
 	var playerSeasons, injuries, starters, tired, kickoffs, out, mostOut int
 	lowest := int(medical.MaxCondition)
+	lowestRested := lowest
+	lastPlayed := map[ids.TeamID]sim.GameInstant{}
 	for {
 		if w.Now() >= nextYear {
 			nextYear += 365 * day
@@ -277,7 +280,11 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 							tired++
 						}
 						lowest = min(lowest, c)
+						if last, played := lastPlayed[team]; !played || b.At-last >= sim.GameInstant(sim.Week) {
+							lowestRested = min(lowestRested, c)
+						}
 					}
+					lastPlayed[team] = b.At
 				}
 			}
 		}
@@ -299,7 +306,9 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 	if perHundred := out * 100 / kickoffs; perHundred < 40 || perHundred > 250 || mostOut > 10 {
 		t.Errorf("%d players out per 100 club kickoffs (most %d), want 40-250 and never more than 10", perHundred, mostOut)
 	}
-	if pct := tired * 100 / starters; pct < 15 || pct > 70 || lowest < 40 {
-		t.Errorf("%d%% of starters below full condition at kickoff (lowest %d), want 15-70%% and none below 40", pct, lowest)
+	// Midweek cup ties leave only three or four days to recover. Preserve
+	// the weekly-rest floor, with a separate broad bound for congestion.
+	if pct := tired * 100 / starters; pct < 15 || pct > 70 || lowest < 30 || lowestRested < 40 {
+		t.Errorf("%d%% of starters below full condition at kickoff (lowest %d, weekly-rest lowest %d), want 15-70%%, none below 30 and weekly-rest starters at least 40", pct, lowest, lowestRested)
 	}
 }

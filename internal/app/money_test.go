@@ -118,7 +118,7 @@ func TestGateReceiptsAndSeasonRollover(t *testing.T) {
 		}
 		cupHomes += receipts - 7
 	}
-	if cupHomes != 4+2+1+4 { // one per cup tie and play-off tie
+	if cupHomes != 4 { // one per play-off tie; the cup is played during season 2
 		t.Fatalf("%d cup and play-off home receipts, want one per tie", cupHomes)
 	}
 	before := w.finance.Snapshot()

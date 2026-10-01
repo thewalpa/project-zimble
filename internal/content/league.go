@@ -162,9 +162,10 @@ type Qualifier struct {
 }
 
 // Cup defines a knockout competition between leagues' best teams. Edition N
-// is played once every qualifying league's season N is complete: its first
-// round kicks off FirstRoundDelay after the latest of those seasons' last
-// kickoffs, and each later round RoundInterval after the previous one.
+// is drawn once every qualifying league's season N is complete and plays
+// during their season N+1. The application spaces rounds across that year's
+// league matchdays, four days after each chosen matchday. Season 1 has no
+// prior ranking, so no cup edition is played during it.
 //
 // Seeding interleaves the qualifiers by finishing position (every league's
 // champion, in Qualifiers order, then every runner-up, and so on) and places
@@ -172,9 +173,13 @@ type Qualifier struct {
 // the top two seeds can meet only in the final. With two leagues of four
 // places: A1 v B4, B2 v A3, B1 v A4, A2 v B3.
 type Cup struct {
-	ID              ids.CompetitionID
-	Name            string
-	Qualifiers      []Qualifier
+	ID         ids.CompetitionID
+	Name       string
+	Qualifiers []Qualifier
+	// Legacy timing metadata, retained in pinned definitions and save
+	// fingerprints. ScheduleVersion 3 used these intervals after the
+	// qualifying seasons; ScheduleVersion 4 derives midweek kickoffs from
+	// the qualifying leagues' next calendar instead.
 	FirstRoundDelay sim.Duration
 	RoundInterval   sim.Duration
 

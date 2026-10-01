@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
@@ -475,10 +476,7 @@ func TestStaleFormsAndCrossSiteRequests(t *testing.T) {
 func TestContractsInTheBrowser(t *testing.T) {
 	c := career(t)
 	contains(t, c.post("/season", nil), "Founders League season 1 is finished", "final table")
-	for range 2 { // the cup quarter-final, then its post-match pause
-		c.post("/continue", nil)
-	}
-	page := c.post("/continue", nil)
+	page := c.post("/continue", nil) // the cup is next season's: on to the contract-year eve
 	contains(t, page, "7 of your players&#39; contracts end tomorrow", "Tue 2026-06-30 00:00 UTC")
 	page = c.get("/squad")
 	if n := strings.Count(page, `action="/renew"`); n != 7 {
@@ -696,39 +694,52 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 	}
 }
 
+// continueUntil posts /continue until the page it returns, or with from set
+// that page, shows want, at most n times; it returns the last page posted.
+func (c *client) continueUntil(want, from string, n int) string {
+	c.t.Helper()
+	for range n {
+		page := c.post("/continue", nil)
+		if from != "" && strings.Contains(c.get(from), want) || from == "" && strings.Contains(page, want) {
+			return page
+		}
+	}
+	c.t.Fatalf("%q not shown within %d continues", want, n)
+	return ""
+}
+
 // A cup run in the browser: the cup page before and after the draw, the
-// cup tie as the next match and the matchday, wins all the way to the
-// trophy, the bracket (penalties included), the club's fixtures and both
-// league tables. Then a tie decided on penalties.
+// cup tie as a midweek matchday between league rounds, wins all the way to
+// the trophy, the bracket, the club's fixtures and both league tables. Then
+// a tie decided on penalties.
 func TestCupInTheBrowser(t *testing.T) {
-	c := newClient(t, config{seed: 3, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")}) // Dunmarrow United
+	c := newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")}) // Saltmere Athletic
 	contains(t, c.get("/cup"), "No edition has been drawn yet")
 	c.post("/season", nil)
-	// The play-offs decide and draw the cup before its first matchday.
-	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Glenrock Rovers (away).")
-	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Glenrock Rovers (away)")
-	page := c.post("/continue", nil) // the quarter-final, won on penalties
-	contains(t, page, "Glenrock Rovers 1-1 Dunmarrow United", `class="pill W"`)
-	// The win leaves the semi-final as the home page's next match.
-	contains(t, c.get("/"), "Next match", "Continental Cup semi-final v Ashcombe United (away)")
-	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "1-1 (3-4 on penalties)", "Your club is in it.")
+	// The play-offs decide and draw the cup, which is played midweek during
+	// season 2.
+	c.continueUntil("Matchday: Continental Cup quarter-final v Foxmere Town (home).", "", 20)
+	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Foxmere Town (home)")
+	page := c.post("/continue", nil) // the quarter-final, the Wednesday after league round 5
+	contains(t, page, "Saltmere Athletic 1-0 Foxmere Town", `class="pill W"`)
+	// The league resumes on the Saturday.
+	contains(t, c.get("/"), "Next match", "Round 6 v Hollowick Town (home)")
+	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Wed 2026-09-09 15:00 UTC", "Semi-finals", "Final", "Your club is in it.")
 	contains(t, c.get("/fixtures"), "Continental Cup quarter-final")
-	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
-	for range 5 { // the semi-final and the final, each a matchday and a match; then the cup ends
-		c.post("/continue", nil)
-	}
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Dunmarrow United: your club won it!", "2-1 v Greyfen City (home), Continental Cup final")
-	contains(t, c.get("/cup"), "Won by <b>Dunmarrow United</b>")
+	contains(t, c.get("/table"), "Founders League season 2", "Harbour League season 2")
+	c.continueUntil("Matchday: Continental Cup final v Glenrock Town (home).", "", 40)
+	c.post("/continue", nil) // the final, the Wednesday after the last league round
+	c.post("/continue", nil) // the edition ends; the play-offs draw edition 2
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic: your club won it!", "1-0 v Glenrock Town (home), Continental Cup final")
+	contains(t, c.get("/history?competition=3&season=1"), "Won by <b>Saltmere Athletic</b>")
 
-	// On seed 42 Saltmere Athletic (club 5) goes out in the semi-final on
-	// penalties.
-	c = newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")})
+	// Quillford win their quarter-final on penalties and go out in the semi-final.
+	c = newClient(t, config{seed: 42, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
-	for range 7 { // the manager's quarter-final and semi-final, then the final; the cup ends
-		c.post("/continue", nil)
-	}
-	contains(t, c.get("/inbox"), "2-2 (3-4 on penalties) v Ironbridge Wanderers (home), Continental Cup semi-final",
-		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the semi-final.")
+	c.continueUntil("Continental Cup 1 won by", "/inbox", 60)
+	contains(t, c.get("/inbox"), "1-1 (4-3 on penalties) v Ironbridge Wanderers (away), Continental Cup quarter-final",
+		"Continental Cup 1 won by Saltmere Athletic; you went out in the semi-final.")
+	contains(t, c.get("/history?competition=3&season=1"), "(3-4 on penalties)")
 }
 
 // In the window the manager bids from the market, the answer arrives with
@@ -737,9 +748,7 @@ func TestCupInTheBrowser(t *testing.T) {
 func TestTransfersInTheBrowser(t *testing.T) {
 	c := career(t)
 	c.post("/season", nil)
-	for range 3 { // the cup quarter-final, then the off-season
-		c.post("/continue", nil)
-	}
+	c.post("/continue", nil) // the off-season: the contract-year eve
 	page := c.post("/continue", nil)
 	contains(t, page, "The transfer window has opened", `href="/transfers"`)
 	page = c.get("/transfers?pos=FW")
@@ -775,9 +784,9 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"84"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.post("/answer", url.Values{"offer": {"85"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
 	contains(t, c.get("/inbox"), "Callum Doyle left for Eldhaven United for 1,200,000.00")
-	contains(t, c.get("/finances"), "transfer fee, offer 84")
+	contains(t, c.get("/finances"), "transfer fee, offer 85")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 
@@ -1176,16 +1185,14 @@ func TestComparePlayersPage(t *testing.T) {
 // History lists the champions of past seasons and shows any season's final
 // table or bracket.
 func TestHistoryInTheBrowser(t *testing.T) {
-	// On seed 7 Quillford Wanderers win the league and the cup, and a
-	// Founders League club is relegated in the play-offs.
-	c := newClient(t, config{seed: 7, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c := newClient(t, config{seed: 42, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
 	contains(t, c.get("/history"), "Founders League", "in progress")
 	c.post("/season", nil)
-	for range 7 {
-		c.post("/continue", nil)
-	}
+	c.continueUntil("Matchday: Round 1", "", 10)
+	c.post("/season", nil) // season 2, with the cup edition drawn from season 1
+	c.continueUntil("Continental Cup 1 won by", "/inbox", 5)
 	page := c.get("/history")
-	contains(t, page, "Founders League", "Continental Cup", "Quillford Wanderers", "/history?competition=")
+	contains(t, page, "Founders League", "Continental Cup", "Saltmere Athletic", "/history?competition=")
 	m := regexp.MustCompile(`href="(/history\?competition=[^"]+)"`).FindAllStringSubmatch(page, -1)
 	if len(m) == 0 {
 		t.Fatal("no season links")
@@ -1194,7 +1201,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "▽ the bottom 2 play off to stay up", `title="Relegated"`, "Quarter-finals", "Won by <b>Quillford Wanderers</b>", "← All seasons",
+	contains(t, all, "final table", "▽ the bottom 2 play off to stay up", `title="Relegated"`, "Quarter-finals", "Won by <b>Saltmere Athletic</b>", "← All seasons",
 		"Promotion Play-off (Founders League / Founders Second Division) season 1</h1>", "Each tie's winner plays in Founders League next season")
 	contains(t, page, "Promotion Play-off (Harbour League / Harbour Second Division)", "ties decided")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
@@ -1441,7 +1448,7 @@ func TestPlayingAPlayoffTie(t *testing.T) {
 func TestMarketRefusalsInTheBrowser(t *testing.T) {
 	c := career(t)
 	c.post("/season", nil)
-	for range 4 { // the cup quarter-final and the off-season to the window
+	for range 2 { // the off-season to the window
 		c.post("/continue", nil)
 	}
 	if !c.s.w.TransferWindow().Open {
@@ -1505,45 +1512,47 @@ func TestPlayerPagesDoNotChangeTheCareer(t *testing.T) {
 }
 
 // Both Continue outcomes expose the automatically played scores: on the way
-// to the club's cup tie and on the way to the contract-review target after a
-// loss. The log is presentation only and is cleared when a save is loaded.
+// to a league fixture after the club's cup exit and to the contract-review
+// target. The log is presentation only and is cleared when a save is loaded.
 func TestContinueReportsAutomaticBatches(t *testing.T) {
-	c := career(t)
+	c := newClient(t, config{seed: 42, club: 4, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
 	page := c.post("/continue", nil)
-	contains(t, page, "Other matchdays", "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches.",
-		"Matchday: Continental Cup quarter-final")
+	playoff := "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches."
+	contains(t, page, "Other matchdays", playoff, "contracts end tomorrow.")
 	if strings.Count(page, "Automatically played:") != 1 {
-		t.Fatal("a batch was omitted or repeated at a managed fixture stop")
+		t.Fatal("a batch was omitted or repeated at a target stop")
 	}
-	// Playing the managed match starts a new action, so the old batch log
-	// disappears without changing the latest managed-result panel.
+	if _, pending := c.s.w.Pending(); pending {
+		t.Fatal("an unmanaged play-off produced a phantom stop")
+	}
+	c.continueUntil("Matchday: Continental Cup quarter-final", "", 20)
 	page = c.post("/continue", nil)
 	if strings.Contains(page, "Automatically played:") {
 		t.Fatal("the previous action's automatic results survived the next Continue")
 	}
-	contains(t, page, "Latest result", `class="pill L"`, "Quillford FC")
-	page = c.post("/continue", nil)
-	semi := "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches."
-	final := "Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match."
-	contains(t, page, semi, final, "7 of your players&#39; contracts end tomorrow.")
-	if strings.Count(page, "Automatically played:") != 2 || strings.Index(page, semi) > strings.Index(page, final) {
-		t.Fatal("target stop did not list exactly two automatic batches in order")
+	contains(t, page, "Latest result", `class="pill L"`, "Brackenmoor Town")
+	semi := "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches."
+	page = c.continueUntil(semi, "", 30)
+	contains(t, page, semi, "Matchday: Round 11")
+	if strings.Count(page, "Automatically played:") != 1 {
+		t.Fatal("a batch was omitted or repeated at a managed fixture stop")
 	}
-	if _, pending := c.s.w.Pending(); pending {
-		t.Fatal("an unmanaged cup matchday produced a phantom stop")
+	cup, _ := c.s.w.Cup(competitions.SeasonRef{Competition: 3, Season: 1})
+	for _, f := range cup.Rounds[1].Ties {
+		contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
 	}
-	// Results are ordinary links, usable without JavaScript. Their detailed
-	// report was call-local, so a later query must say it has only the score.
-	finals := c.s.w.Cups()[0].Rounds
-	for _, round := range finals[1:] {
-		for _, f := range round.Ties {
-			contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
-		}
+	final := "Automatically played: Wed 2026-11-11 15:00 UTC; 1 round, 1 match."
+	page = c.continueUntil(final, "", 30)
+	contains(t, page, final)
+	if strings.Contains(page, semi) {
+		t.Fatal("the previous action's automatic results survived")
 	}
-	finalFixture := finals[len(finals)-1].Ties[0].ID
-	contains(t, page, fmt.Sprintf("href=\"/report?fixture=%d\"", finalFixture))
-	report := c.get(fmt.Sprintf("/report?fixture=%d", finalFixture))
+	cup, _ = c.s.w.Cup(competitions.SeasonRef{Competition: 3, Season: 1})
+	f := cup.Rounds[len(cup.Rounds)-1].Ties[0]
+	contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)),
+		fmt.Sprintf("href=\"/report?fixture=%d\"", f.ID))
+	report := c.get(fmt.Sprintf("/report?fixture=%d", f.ID))
 	contains(t, report, "Only the score is available for this match.")
 	if strings.Contains(report, "The assistant&#39;s suggestion") {
 		t.Fatal("a score-only report invented selection detail")
@@ -1559,21 +1568,19 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	if strings.Contains(page, "Automatically played:") || strings.Contains(page, "Other matchdays") {
 		t.Fatal("loading a save retained the old automatic-results log")
 	}
-	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", finalFixture)), "Only the score is available for this match.")
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", f.ID)), "Only the score is available for this match.")
 }
 
 // Play the season redirects to the table; its automatic results remain
 // visible there, rather than depending on the home page or a flash notice.
 func TestSeasonReportsAutomaticBatches(t *testing.T) {
-	c := career(t)
+	c := newClient(t, config{seed: 42, club: 4, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
-	c.post("/continue", nil)
-	c.post("/continue", nil)
+	c.continueUntil("Matchday: Round 1", "", 10)
 	page := c.post("/season", nil)
-	contains(t, page, "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches.",
-		"Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match.",
+	contains(t, page, "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches.",
 		"Founders League season 2", "14 of 14 rounds played")
-	if strings.Count(page, "Automatically played:") != 2 {
+	if strings.Count(page, "Automatically played:") != 1 {
 		t.Fatal("the season redirect omitted or repeated automatic batches")
 	}
 }

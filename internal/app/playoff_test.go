@@ -82,18 +82,14 @@ func TestPlayoffFollowsLinkedSeasons(t *testing.T) {
 		}
 	}
 	// The cup is drawn only once the qualifying leagues have moved on, and
-	// its first round leaves the play-off's week free.
+	// it is played during their next season.
 	cups := w.Cups()
 	if len(cups) != 1 || cups[0].Edition != 1 || len(cups[0].Rounds) == 0 {
 		t.Fatalf("cups after the play-offs: %+v", cups)
 	}
-	var last sim.GameInstant
-	for _, at := range ends {
-		last = max(last, at)
-	}
-	wantFirst, err := last.Add(w.cups[0].FirstRoundDelay)
-	if err != nil || cups[0].Rounds[0].Kickoff != wantFirst {
-		t.Fatalf("cup first round %d, want %d (%v)", cups[0].Rounds[0].Kickoff, wantFirst, err)
+	matchday := w.competitions.Rounds(competitions.SeasonRef{Competition: 1, Season: 2})[4].Kickoff
+	if want := matchday + sim.GameInstant(competitions.CupMidweek); cups[0].Rounds[0].Kickoff != want {
+		t.Fatalf("cup first round %d, want %d", cups[0].Rounds[0].Kickoff, want)
 	}
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)

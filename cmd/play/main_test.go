@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
@@ -174,12 +175,11 @@ func TestMistakesAreReportedAndChangeNothing(t *testing.T) {
 }
 
 // season plays the rest of the season; continue then crosses the play-offs
-// (played for the linked leagues), the manager's cup quarter-final and the
-// off-season, stopping at the contract-year end, the transfer window and
+// (played for the linked leagues) and the off-season, stopping at the contract-year end, the transfer window and
 // the next season's first matchday.
 func TestSeasonAndNextSeason(t *testing.T) {
 	script := []string{"season"}
-	for range 5 {
+	for range 3 {
 		script = append(script, "continue")
 	}
 	out := play(t, []string{"-seed", "42", "-club", "3"}, append(script, "status", "q", "q")...)
@@ -310,7 +310,7 @@ func TestMoneyViews(t *testing.T) {
 // are locked).
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", "continue", // the cup quarter-final, then the contract-year eve
+		"season", "continue", // the contract-year eve
 		"contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
 		"continue", "free", "sign 44", "sign 168 1", "squad", "inbox 12", "continue", "bid 300", "q", "q")
 	contains(t, out,
@@ -353,45 +353,49 @@ func TestPlayerYearMessages(t *testing.T) {
 	}
 }
 
-// The cup is drawn when the play-offs decide and shown by cup; its results
-// reach the inbox, penalties included.
+// The cup is drawn when the play-offs decide and shown by cup; it is
+// played midweek during the next season, and its results reach the inbox,
+// penalties included.
 func TestCup(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "cup", "season",
-		"continue", "continue", "continue", "continue", "continue", "continue", "continue", // the manager's cup run, and on
-		"cup", "q", "q")
+		"continue", "continue", "continue", // the contract-year eve, the window, season 2
+		"season", "continue", // season 2 with the manager's cup tie, then on past the final
+		"history 3 1", "q", "q")
 	contains(t, out,
 		"No cup has been drawn yet",
-		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the quarter-final",
-		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
-		"* Ironbridge Wanderers     2-1 Quillford FC",
-		"  Saltmere Athletic        2-2 Ironbridge Wanderers (3-4 on penalties)",
-		"Final, Sat 2025-12-06 15:00 UTC",
-		"Winner: Ironbridge Wanderers",
+		"Continental Cup 1 drawn: first kickoff Wed 2026-09-09 15:00 UTC (type cup)",
+		"Continental Cup 1 won by Saltmere Athletic; you went out in the semi-final",
+		"Quarter-finals, Wed 2026-09-09 15:00 UTC",
+		"* Ironbridge Wanderers     1-1 Quillford FC (3-4 on penalties)",
+		"  Saltmere Athletic        2-0 Brackenmoor Town",
+		"Final, Wed 2026-11-11 15:00 UTC",
+		"Winner: Saltmere Athletic",
 	)
 }
 
-// A managed club in the cup: its matchday is named after the round, the
-// result can be decided on penalties, and the inbox says how far it went.
+// A managed club in the cup: its matchday, midweek between league rounds,
+// is named after the round, the result can be decided on penalties, and
+// the inbox says how far it went.
 func TestManagedCupRun(t *testing.T) {
-	script := []string{"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q"}
-	// Saltmere Athletic (club 5) goes out in the semi-final, the tie
-	// decided on penalties.
-	out := play(t, []string{"-seed", "42", "-club", "5"}, script...)
+	script := []string{"season"}
+	for range 38 { // the summer, season 2 with its cup, and the next review
+		script = append(script, "continue")
+	}
+	script = append(script, "inbox 200", "history 3 1", "q", "q")
+	// Quillford win their quarter-final on penalties, then lose the semi-final.
+	out := play(t, []string{"-seed", "42", "-club", "3"}, script...)
 	contains(t, out,
-		"MATCHDAY Sat 2025-11-29 15:00 UTC: Continental Cup semi-final v Ironbridge Wanderers (home).",
-		"matchday: Continental Cup semi-final v Ironbridge Wanderers (home)",
-		"FULL TIME  Saltmere Athletic 2-2 Ironbridge Wanderers (3-4 on penalties)  (L)",
-		"result: 2-2 (3-4 on penalties) v Ironbridge Wanderers (home)",
-		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the semi-final",
-	)
-	// On seed 3, Dunmarrow United (club 5) wins it.
-	out = play(t, []string{"-seed", "3", "-club", "5"}, script...)
+		"MATCHDAY Wed 2026-09-09 15:00 UTC: Continental Cup quarter-final v Ironbridge Wanderers (away).",
+		"matchday: Continental Cup quarter-final v Ironbridge Wanderers (away)",
+		"FULL TIME  Ironbridge Wanderers 1-1 Quillford FC (3-4 on penalties)  (W)",
+		"result: 1-1 (4-3 on penalties) v Ironbridge Wanderers (away)",
+		"Continental Cup 1 won by Saltmere Athletic; you went out in the semi-final")
+	// Saltmere Athletic win the edition with league fixtures between their ties.
+	out = play(t, []string{"-seed", "42", "-club", "5"}, script...)
 	contains(t, out,
-		"matchday: Continental Cup final v Greyfen City (home)",
-		"FULL TIME  Dunmarrow United 2-1 Greyfen City  (W)",
-		"Continental Cup 1 won by Dunmarrow United: your club won it!",
-	)
+		"matchday: Continental Cup final v Glenrock Town (home)",
+		"FULL TIME  Saltmere Athletic 1-0 Glenrock Town  (W)",
+		"Continental Cup 1 won by Saltmere Athletic: your club won it!")
 }
 
 func TestRefusedAcceptedOfferWording(t *testing.T) {
@@ -412,7 +416,7 @@ func TestRefusedOfferInboxWording(t *testing.T) {
 func TestTransfers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", "continue", "continue", // the cup quarter-final, then the transfer window
+		"season", "continue", "continue", // the contract-year eve, then the transfer window
 		"market fw", "market", "bid 344", "bid 547", "bid 617", "bid 238 500000", "bid 238",
 		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "agenda", "free", "save "+path, "accept 99", "q", "q")
 	contains(t, out, "9 free agents wait for a club (type free).",
@@ -428,21 +432,21 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Callum Doyle             Westmark   DF   18    75   1,200,000.00",
 		"transfer: Rhys Underwood joined from Northwick Albion for 400,000.00, until 1 July 2027 at 2,000.00 a week",
 		"transfer: your bid of 500,000.00 for Leif Dekker of Ironbridge Wanderers was rejected",
-		"bid: Eldhaven United bid 1,200,000.00 for Callum Doyle (offer 84); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
+		"bid: Eldhaven United bid 1,200,000.00 for Callum Doyle (offer 85); answer before Mon 2026-07-06 00:00 UTC (accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Rhys Underwood           Northwick Albion       -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
-		"NOW  Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 84 or reject 84)",
+		"NOW  Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 85 or reject 85)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 84", "finances 2", "list", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 85", "finances 2", "list", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O84")
+		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O85")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
-	rejected := play(t, []string{"-load", path}, "reject 84", "unlist 44", "unlist 44", "continue", "q", "q")
+	rejected := play(t, []string{"-load", path}, "reject 85", "unlist 44", "unlist 44", "continue", "q", "q")
 	contains(t, rejected, "Rejected.", "Callum Doyle is off the transfer list.", "! app: the player is not on the transfer list: player 44",
 		"transfer: the bid of 1,200,000.00 from Eldhaven United for Callum Doyle was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {
@@ -570,13 +574,13 @@ func TestTablesShowsEveryLeague(t *testing.T) {
 // history lists every season's champion and shows a past season's final
 // table or bracket.
 func TestHistory(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "season", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
 	contains(t, out,
 		"Founders League", "in progress",
-		"3* QUI",                                  // the manager's club is marked in the table
+		"4* QUI",                                  // the manager's club is marked in the table
 		"Continental Cup   ", "Saltmere Athletic", // the league champion
 		"Founders League season 1 (14/14 rounds)",
-		"Winner: Ironbridge Wanderers", // the cup's
+		"Winner: Saltmere Athletic",
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)
@@ -730,46 +734,57 @@ func TestPlayerViewsDoNotChangeTheCareer(t *testing.T) {
 	}
 }
 
-// Continue crosses other clubs' play-offs to a managed fixture, then crosses
-// the rest of the cup to the contract-review target after the club is out.
+// Continue reports the play-offs at the review target and the automatic
+// midweek cup rounds between league fixtures after the manager is out.
 func TestContinueReportsAutomaticBatches(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "continue", "status", "save "+path, "quit")
+	script := []string{"season"}
+	for range 38 {
+		script = append(script, "continue")
+	}
+	out := play(t, []string{"-seed", "42", "-club", "4"}, append(script, "save "+path, "quit")...)
 	playoff := "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches."
-	semi := "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches."
-	final := "Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match."
-	contains(t, out, playoff, semi, final,
-		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final",
-		"Tue 2026-06-30 00:00 UTC: 7 of your players' contracts end tomorrow.")
+	semi := "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches."
+	final := "Automatically played: Wed 2026-11-11 15:00 UTC; 1 round, 1 match."
+	cupStop := "MATCHDAY Wed 2026-09-09 15:00 UTC: Continental Cup quarter-final"
+	review := "Wed 2027-06-30 00:00 UTC:"
+	contains(t, out, playoff, semi, final, cupStop, review)
 	w, err := storage.Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Compare with official scores, so a calibration may change football
-	// results without invalidating the result-list presentation check.
-	for _, round := range w.Cups()[0].Rounds[1:] {
+	cup, ok := w.Cup(competitions.SeasonRef{Competition: 3, Season: 1})
+	if !ok || !cup.Complete {
+		t.Fatal("edition 1 did not finish")
+	}
+	for _, round := range cup.Rounds[1:] {
 		for _, f := range round.Ties {
 			contains(t, out, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
 		}
 	}
-	if strings.Count(out, "Automatically played:") != 3 || strings.Count(out, "\nMATCHDAY ") != 1 {
-		t.Fatal("automatic batches were repeated or stopped for an unmanaged match")
+	for _, header := range []string{playoff, semi, final} {
+		if strings.Count(out, header) != 1 {
+			t.Fatal("automatic batch omitted or repeated")
+		}
 	}
-	if strings.Index(out, playoff) > strings.Index(out, "\nMATCHDAY ") ||
+	if strings.Contains(out, "MATCHDAY Wed 2026-10-14 15:00 UTC: Continental Cup") ||
+		strings.Contains(out, "MATCHDAY Wed 2026-11-11 15:00 UTC: Continental Cup") {
+		t.Fatal("an unmanaged cup round produced a phantom stop")
+	}
+	if strings.Index(out, playoff) > strings.Index(out, cupStop) ||
 		strings.Index(out, semi) > strings.Index(out, final) ||
-		strings.Index(out, final) > strings.Index(out, "Tue 2026-06-30 00:00 UTC: 7") {
+		strings.Index(out, final) > strings.Index(out, review) {
 		t.Fatal("automatic results appeared after their stop or out of order")
 	}
 }
 
 // The fast season path also reports automatically played batches while
-// advancing from the manager's cup exit to the next league's fixtures.
+// advancing from the manager's cup exit through the remaining league rounds.
 func TestSeasonReportsAutomaticBatches(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "season", "quit", "quit")
-	contains(t, out, "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches.",
-		"Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match.",
+	out := play(t, []string{"-seed", "42", "-club", "4"}, "season", "continue", "continue", "continue", "season", "quit", "quit")
+	contains(t, out, "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches.",
 		"Founders League season 2 (14/14 rounds)")
-	if strings.Count(out, "Automatically played:") != 3 {
+	if strings.Count(out, "Automatically played:") != 2 { // season 1's play-offs and season 2's semi-final
 		t.Fatal("the season path omitted or repeated automatic batches")
 	}
 }

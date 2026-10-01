@@ -17,8 +17,7 @@ import (
 
 // PlayoffDelay is how long after the linked leagues' last kickoff a
 // promotion play-off's ties kick off. The ties end well before the next
-// league season (and before a cup edition's first round, which the linked
-// leagues' own last kickoff delays further).
+// league season, during which the cup edition drawn after them is played.
 const PlayoffDelay = sim.Week
 
 // newTies builds a ties season: one round of len(entrants)/2 fixtures pairing

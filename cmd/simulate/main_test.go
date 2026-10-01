@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/content"
+	"github.com/thewalpa/project-zimble/internal/storage"
 )
 
 func runCLI(t *testing.T, args ...string) (string, error) {
@@ -99,7 +100,7 @@ func TestRunPrintsFixturesGroupedByRound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "(competition 1, season 1, schedule=v3): 8 teams, 14 rounds, 56 fixtures") {
+	if !strings.Contains(out, "(competition 1, season 1, schedule=v4): 8 teams, 14 rounds, 56 fixtures") {
 		t.Fatalf("missing schedule header:\n%s", out)
 	}
 	round, fixtures, perRound := 0, 0, map[int]int{}
@@ -175,11 +176,15 @@ func TestSeasonModePlaysEveryRound(t *testing.T) {
 		}
 	}
 	// The four leagues' 14 rounds (one header each), then the play-offs' 4
-	// ties and the cup's 4+2+1 (named sections, not "Round" headers).
-	if rounds != 56 || matchLines != 224+4+7 {
-		t.Fatalf("printed %d rounds and %d matches, want 56 and 235", rounds, matchLines)
+	// ties (named sections, not "Round" headers). The cup drawn from season
+	// 1 is played during season 2.
+	if rounds != 56 || matchLines != 224+4 {
+		t.Fatalf("printed %d rounds and %d matches, want 56 and 228", rounds, matchLines)
 	}
-	for _, want := range []string{"Promotion Play-off (Founders League / Founders Second Division)  Sat 2025-11-15 15:00 UTC", "  playoff\n", "Promotion Play-off (Harbour League / Harbour Second Division) season 1: playing to ", "Continental Cup quarter-final  Sat 2025-11-22 15:00 UTC", "Continental Cup final  Sat 2025-12-06 15:00 UTC", "Continental Cup 1 winner: "} {
+	if strings.Contains(out, "Continental Cup quarter-final") {
+		t.Fatal("season 1 played a cup round")
+	}
+	for _, want := range []string{"Promotion Play-off (Founders League / Founders Second Division)  Sat 2025-11-15 15:00 UTC", "  playoff\n", "Promotion Play-off (Harbour League / Harbour Second Division) season 1: playing to "} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q:\n%s", want, out)
 		}
@@ -335,10 +340,10 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if !strings.Contains(managed, "\nmanaging club 3: ") || strings.Contains(plain, "managing club") {
 		t.Fatal("manager line missing, or printed without -club")
 	}
-	// 14 league matches and a cup quarter-final (the play-off zone changed
-	// with the manager's trades, so the club missed the play-off).
-	if strings.Count(managed, "  <- AI lineup") != 15 || strings.Contains(managed, "your lineup") {
-		t.Fatal("want 15 managed fixtures marked as AI lineups")
+	// 14 league matches (the play-off zone changed with the manager's
+	// trades, so the club missed the play-off; the cup is next season's).
+	if strings.Count(managed, "  <- AI lineup") != 14 || strings.Contains(managed, "your lineup") {
+		t.Fatal("want 14 managed fixtures marked as AI lineups")
 	}
 	// The AI's lineup is the suggested one. (The season differs from the
 	// unmanaged one: AI clubs trade among themselves in the first window,
@@ -347,7 +352,8 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The cup results after the final table carry the lineup markers too.
+	// Results after the final table (play-offs, cup finals) carry the lineup
+	// markers too.
 	unmarked := func(out string) string {
 		lines := strings.Split(section(t, out, "Final table"), "\n")
 		for i, line := range lines {
@@ -370,13 +376,13 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	if out != again {
 		t.Fatal("managed season is not reproducible")
 	}
-	if strings.Count(out, "  <- your lineup, attacking") != 14 { // 14 league matches; the club misses the cup
+	if strings.Count(out, "  <- your lineup, attacking") != 14 { // 14 league matches; the cup is next season's
 		t.Fatal("want 14 submitted attacking lineups")
 	}
 	// The leagues' matches; the play-offs' and the cup's depend on who
 	// qualified.
 	got, want := matchLines(t, out), matchLines(t, plain)
-	if len(got) != 235 || len(want) != 235 {
+	if len(got) != 228 || len(want) != 228 {
 		t.Fatalf("%d and %d match lines", len(got), len(want))
 	}
 	got, want = got[:224], want[:224]
@@ -501,7 +507,7 @@ func TestSecondSeasonAfterSaveAndLoad(t *testing.T) {
 	// the play-off, cup and next-season messages remain.
 	if err != nil || !strings.Contains(status, "\nchampion: Founders League season 1: ") ||
 		!strings.Contains(status, "Promotion Play-off (Harbour League / Harbour Second Division) season 1 decided\n") ||
-		!strings.Contains(status, "Continental Cup season 1 ended: champion ") ||
+		!strings.Contains(status, "Continental Cup season 1 scheduled: first kickoff Wed 2026-09-09 15:00 UTC") ||
 		!strings.Contains(status, "Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC") ||
 		!strings.Contains(status, "Table: Founders League season 2 (0/14 rounds)") {
 		t.Fatalf("off-season status (err %v):\n%s", err, status)
@@ -511,20 +517,20 @@ func TestSecondSeasonAfterSaveAndLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"\nRound 1  Sat 2026-08-08 15:00 UTC", "\n  F229 ", "\n  F456 ", "Continental Cup 2 winner: ",
+		"\nRound 1  Sat 2026-08-08 15:00 UTC", "\n  F229 ", "\n  F456 ", "Continental Cup 1 winner: ",
 		"Final table: Founders League season 2 (14/14 rounds)", "\nChampion: ",
 	} {
 		if !strings.Contains(second, want) {
 			t.Fatalf("second season output missing %q:\n%s", want, second)
 		}
 	}
-	// Season 1's play-offs took IDs 225..228 (created at its season ends)
-	// and its cup 341..344 and 457..459 (drawn at the play-off end, its
-	// later rounds created as it went). Season 2's leagues fill the rest of
-	// 229..456.
+	// Season 1's play-offs took IDs 225..228 (created at its season ends).
+	// The cup edition drawn from it at the play-off end took 341..344 and
+	// is played during season 2, its later rounds' 457..459 created as it
+	// goes. Season 2's leagues fill the rest of 229..456.
 	if strings.Contains(second, "\n  F224 ") || strings.Contains(second, "\n  F225 ") ||
-		strings.Contains(second, "\n  F341 ") || strings.Contains(second, "\n  F457 ") || strings.Contains(second, "\n  F459 ") {
-		t.Fatal("second season printed another season's fixtures")
+		!strings.Contains(second, "\n  F341 ") || !strings.Contains(second, "\n  F459 ") {
+		t.Fatal("second season printed another season's fixtures, or not its cup's")
 	}
 	if strings.Count(second, "\nRound ") != 56 {
 		t.Fatal("second run did not play exactly 14 rounds of each league")
@@ -600,5 +606,44 @@ func TestContentModeReportsWriteErrors(t *testing.T) {
 	})
 	if !errors.Is(err, writeError) {
 		t.Fatalf("write failure lost: %v", err)
+	}
+}
+
+// A loaded career may have finished the cup final but still have that
+// football year's play-offs to play. Print its champion, not the edition
+// those play-offs draw for the following year.
+func TestSeasonPrintsCupCompletedBeforeResume(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	if _, err := runCLI(t, "-seed", "42", "-season", "-save", path); err != nil {
+		t.Fatal(err)
+	}
+	w, err := storage.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cup := w.Cups()[0]
+	if _, err := w.Continue(cup.Rounds[len(cup.Rounds)-1].Kickoff); err != nil {
+		t.Fatal(err)
+	}
+	cup = w.Cups()[0]
+	if !cup.Complete || cup.Champion == nil {
+		t.Fatal("cup did not finish")
+	}
+	if err := storage.Save(path, w); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCLI(t, "-load", path, "-season", "-save", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, fmt.Sprintf("%s 1 winner: %s", cup.Name, cup.Champion.ClubName)) {
+		t.Fatal("the completed edition's winner was omitted")
+	}
+	resumed, err := storage.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest := resumed.Cups()[0]; latest.Edition != 2 || latest.Complete {
+		t.Fatal("resuming played the next football year's cup")
 	}
 }

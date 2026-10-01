@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -20,10 +21,36 @@ func top(w *World, league ids.CompetitionID, pos int) ids.TeamID {
 	return w.competitions.Ranking(competitions.SeasonRef{Competition: league, Season: 1})[pos-1]
 }
 
+// playToCupRound plays everything before round r (1-based) of each cup's
+// latest edition kicks off: the league matchdays before it.
+func playToCupRound(t *testing.T, w *World, r int) []RoundsResolved {
+	t.Helper()
+	return playUntil(t, w, func(w *World) sim.GameInstant {
+		at := w.Now()
+		for _, e := range w.Cups() {
+			at = max(at, e.Rounds[r-1].Kickoff-1)
+		}
+		return at
+	})
+}
+
+// cupBatches counts the resolved batches that hold a round of the cup.
+func cupBatches(resolved []RoundsResolved) int {
+	n := 0
+	for _, r := range resolved {
+		if slices.ContainsFunc(r.Rounds, func(ref competitions.RoundRef) bool { return ref.Season.Competition == cup1.Competition }) {
+			n++
+		}
+	}
+	return n
+}
+
 // The first edition is created when the play-offs after both leagues' first
 // seasons decide: the top four of each, seeded so the champions can meet
-// only in the final, the better-placed team at home in every quarter-final;
-// it starts two weeks after the leagues' last round.
+// only in the final, the better-placed team at home in every quarter-final.
+// It is played during the leagues' second season, on the Wednesdays after
+// matchdays 5, 10 and 14 of 14 (competitions.CupMatchdays): the final
+// follows the last matchday.
 func TestCupEditionIsCreatedFromTheLeagues(t *testing.T) {
 	w := newWorld(t, 42)
 	if len(w.Cups()) != 0 {
@@ -48,10 +75,14 @@ func TestCupEditionIsCreatedFromTheLeagues(t *testing.T) {
 			t.Fatalf("quarter-final %d is %v v %v", i+1, tie.Home.Team, tie.Away.Team)
 		}
 	}
-	lastLeague := firstSeasons(w)[0].Rounds[13].Kickoff
+	second := w.Schedules()[0]
+	if second.Season != 2 {
+		t.Fatalf("the leagues are in season %d", second.Season)
+	}
 	for i, r := range e.Rounds {
-		if r.Kickoff != lastLeague+sim.GameInstant(2*sim.Week)+sim.GameInstant(i)*sim.GameInstant(sim.Week) || r.Status != competitions.RoundScheduled {
-			t.Fatalf("round %d kicks off at %s (%s)", i+1, w.calendar.Format(r.Kickoff), r.Status)
+		matchday := second.Rounds[[]int{5, 10, 14}[i]-1].Kickoff
+		if r.Kickoff != matchday+sim.GameInstant(competitions.CupMidweek) || !strings.HasPrefix(w.calendar.Format(r.Kickoff), "Wed") || r.Status != competitions.RoundScheduled {
+			t.Fatalf("round %d kicks off at %s (%s), matchday at %s", i+1, w.calendar.Format(r.Kickoff), r.Status, w.calendar.Format(matchday))
 		}
 		if (i == 0) != (len(r.Ties) > 0) {
 			t.Fatalf("round %d has %d ties before any cup result", i+1, len(r.Ties))
@@ -123,8 +154,8 @@ func TestCupIsPlayedToAChampion(t *testing.T) {
 		playLeagues(t, w)
 		playPlayoffs(t, w)
 		resolved := playCup(t, w)
-		if len(resolved) != 3 {
-			t.Fatalf("seed %d: %d cup batches", seed, len(resolved))
+		if n := cupBatches(resolved); n != 3 {
+			t.Fatalf("seed %d: %d cup batches", seed, n)
 		}
 		e, _ := w.Cup(cup1)
 		if !e.Complete || e.Champion == nil {
@@ -228,29 +259,23 @@ func TestOnlyCupMatchesAreKnockouts(t *testing.T) {
 // save-tested in TestSaveWhileBatchPending; without a user club no batch
 // pauses for one.)
 func TestCupSurvivesSaves(t *testing.T) {
-	playOneSeason := func(t *testing.T, w *World) {
-		t.Helper()
-		playLeagues(t, w)
-		playPlayoffs(t, w)
-		for range 3 { // the quarter-finals, semi-finals and final
-			playBatches(t, w, 1)
+	play := func(w *World, save func(*World) *World) *World {
+		playSeason(t, w) // draws edition 1
+		for range 2 {    // editions 1 and 2, during seasons 2 and 3
+			for r := 1; r <= 3; r++ { // the quarter-finals, semi-finals and final
+				playToCupRound(t, w, r)
+				w = save(w) // before each cup round
+				if res := playBatches(t, w, 1); cupBatches(res) != 1 {
+					t.Fatalf("cup round %d not played: %+v", r, res)
+				}
+				w = save(w) // after it
+			}
+			playSeason(t, w) // the rest of the season, the play-offs and the next draw
 		}
+		return w
 	}
-	straight := newWorld(t, 42)
-	for range 2 {
-		playOneSeason(t, straight)
-	}
-	w := newWorld(t, 42)
-	for range 2 {
-		w = roundTrip(t, w) // before the leagues
-		playLeagues(t, w)
-		w = roundTrip(t, w) // before the play-offs
-		playPlayoffs(t, w)  // draws the cup edition
-		for range 3 {       // the quarter-finals, semi-finals and final
-			w = roundTrip(t, w) // before each cup round
-			playBatches(t, w, 1)
-		}
-	}
+	straight := play(newWorld(t, 42), func(w *World) *World { return w })
+	w := play(newWorld(t, 42), func(w *World) *World { return roundTrip(t, w) })
 	if !reflect.DeepEqual(w.Snapshot(), straight.Snapshot()) {
 		t.Fatal("saves changed the career")
 	}
@@ -266,6 +291,7 @@ func TestManagedClubInTheCup(t *testing.T) {
 	w := userWorld(t, 42, champion)
 	playLeagues(t, w)
 	playPlayoffs(t, w)
+	playToCupRound(t, w, 1)
 	ready := readyBatch(t, w)
 	if len(ready.UserFixtures) != 1 {
 		t.Fatalf("user fixtures %v in the quarter-finals", ready.UserFixtures)
@@ -314,6 +340,7 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 		w := newWorld(t, 42)
 		playLeagues(t, w)
 		playPlayoffs(t, w)
+		playToCupRound(t, w, 1)
 		playBatches(t, w, 1) // the quarter-finals are played
 		return w.Snapshot()
 	}
@@ -329,8 +356,13 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 	cases := map[string]func(*WorldSnapshot){
 		"cup definition edited": func(s *WorldSnapshot) { s.Cups[0].FirstRoundDelay++ },
 		"cup definition edited and refingerprinted": func(s *WorldSnapshot) {
-			s.Cups[0].FirstRoundDelay += sim.Day
+			s.Cups[0].Qualifiers = slices.Clone(s.Cups[0].Qualifiers)
+			slices.Reverse(s.Cups[0].Qualifiers)
 			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
+		},
+		"cup round rescheduled": func(s *WorldSnapshot) {
+			c := cupSeason(s)
+			c.Rounds[1].Kickoff += sim.GameInstant(sim.Day)
 		},
 		"cup prizes increase, refingerprinted": func(s *WorldSnapshot) {
 			s.Cups[0].Prizes = slices.Clone(s.Cups[0].Prizes)
@@ -380,5 +412,40 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 	}
 	if _, err := Restore(built()); err != nil {
 		t.Fatalf("unmodified save: %v", err)
+	}
+}
+
+// A future knockout round reserves its surviving entrants' kickoff even
+// before their ties exist. Eliminated teams may play another competition.
+func TestCupClashChecksUngeneratedRounds(t *testing.T) {
+	w := newWorld(t, 42)
+	playSeason(t, w)
+	cup, _ := w.Cup(cup1)
+	spec := competitions.NewSeason{
+		Ref:      competitions.SeasonRef{Competition: 90, Season: 1},
+		Format:   competitions.FormatKnockout,
+		Entrants: []ids.TeamID{cup.Entrants[0].Team, cup.Entrants[1].Team},
+		Timing:   competitions.Timing{Kickoffs: []sim.GameInstant{cup.Rounds[1].Kickoff}},
+	}
+	before := w.Snapshot()
+	if err := w.checkNoTeamClash([]competitions.NewSeason{spec}); err == nil {
+		t.Fatal("a second cup can clash with an ungenerated semi-final")
+	}
+	if !reflect.DeepEqual(before, w.Snapshot()) {
+		t.Fatal("clash check changed the world")
+	}
+	playToCupRound(t, w, 2)
+	var eliminated []ids.TeamID
+	for _, r := range w.competitions.Results(cup1) {
+		winner, _ := r.Winner()
+		loser := r.Home
+		if winner == loser {
+			loser = r.Away
+		}
+		eliminated = append(eliminated, loser)
+	}
+	spec.Entrants = eliminated[:2]
+	if err := w.checkNoTeamClash([]competitions.NewSeason{spec}); err != nil {
+		t.Fatalf("eliminated teams still reserve the semi-final: %v", err)
 	}
 }

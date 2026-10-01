@@ -28,3 +28,6 @@ Cup prize money (competitions backlog). Competitions owns the rule and the timin
 
 ## Update from data (2026-10-01)
 `data--cup-prize-table` is delivered: `content.Cup.Prizes []money.Money`, indexed by `Exit.Stage`, validated (non-negative, never increasing, at most `Cup.Rounds()+1` entries; empty means none). The Continental Cup pays 1,000,000 / 600,000 / 350,000 / 200,000. In `app`, read the career's pinned table as `w.cups[i].Prizes` (saved since schema 31, `content.LeagueVersion` 6); a stage beyond the table pays nothing.
+
+## Calendar update (ScheduleVersion 4)
+Edition N now plays during league season N+1, with its final four days after that season's last selected league matchday. The season-end task and atomic posting contract above are unchanged: post when that edition's final has official results, not when it is drawn. The built-in final now precedes the promotion play-offs that draw the next edition.

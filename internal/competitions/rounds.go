@@ -91,8 +91,25 @@ func SeasonKickoff(cal sim.Calendar, first sim.CivilTime, season Season) (sim.Ga
 	return start.Add(sim.Duration((days+3)/7) * sim.Week)
 }
 
-// roundKickoffs returns the kickoff of each of n rounds.
+// roundKickoffs returns the kickoff of each of n rounds: Timing's explicit
+// Kickoffs, which must be exactly n strictly ascending valid instants with
+// no FirstKickoff or RoundInterval beside them, or else FirstKickoff and
+// RoundInterval apart.
 func roundKickoffs(t Timing, n int) ([]sim.GameInstant, error) {
+	if t.Kickoffs != nil {
+		if t.FirstKickoff != 0 || t.RoundInterval != 0 {
+			return nil, fmt.Errorf("competitions: timing sets both kickoffs and a first kickoff or interval")
+		}
+		if len(t.Kickoffs) != n {
+			return nil, fmt.Errorf("competitions: %d kickoffs for %d rounds", len(t.Kickoffs), n)
+		}
+		for i, k := range t.Kickoffs {
+			if !k.Valid() || (i > 0 && k <= t.Kickoffs[i-1]) {
+				return nil, fmt.Errorf("competitions: round %d kickoff %d is invalid or not after round %d", i+1, k, i)
+			}
+		}
+		return slices.Clone(t.Kickoffs), nil
+	}
 	if err := t.validate(); err != nil {
 		return nil, err
 	}
@@ -103,6 +120,30 @@ func roundKickoffs(t Timing, n int) ([]sim.GameInstant, error) {
 			return nil, fmt.Errorf("competitions: round %d kickoff: %w", i+1, err)
 		}
 		out[i] = k
+	}
+	return out, nil
+}
+
+// CupMidweek is how long after a league matchday a cup round played
+// between matchdays kicks off: the Wednesday after a Saturday, at the same
+// time of day. A league whose rounds are not further apart than this cannot
+// host a cup between them.
+const CupMidweek = 4 * sim.Day
+
+// CupMatchdays spreads a cup edition's rounds over a league season of
+// leagueRounds matchdays: cup round r (1-based) of cupRounds is played
+// CupMidweek after matchday ceil(r*leagueRounds/cupRounds), so the rounds
+// are as evenly spaced as whole matchdays allow and the final follows the
+// season's last matchday. It returns those matchdays (1-based), or an error
+// when the cup has more rounds than the season has matchdays (two rounds
+// would follow the same one).
+func CupMatchdays(leagueRounds, cupRounds int) ([]int, error) {
+	if cupRounds < 1 || leagueRounds < cupRounds {
+		return nil, fmt.Errorf("competitions: %d cup rounds do not fit between %d league matchdays", cupRounds, leagueRounds)
+	}
+	out := make([]int, cupRounds)
+	for r := range out {
+		out[r] = ((r+1)*leagueRounds + cupRounds - 1) / cupRounds
 	}
 	return out, nil
 }

@@ -31,14 +31,14 @@ import (
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
-// edition have their own goldens. The cup golden moved with
-// competitions.ScheduleVersion 3 too: the promotion play-offs take fixture
-// IDs before the cup the moved-on leagues draw, so the cup's fixtures
-// shifted.
+// edition have their own goldens. The cup golden last moved with
+// competitions.ScheduleVersion 4: the edition drawn from season 1 is played
+// midweek during season 2, after the player year and the summer window,
+// instead of straight after season 1.
 const (
 	goldenSeasonSeed42       = "38a2c7ce6afdf96663235e0ff3edcbb428baf31c64fcfb8267b5136add60cddc"
 	goldenSecondLeagueSeed42 = "421c21a47e7c5b7ab4eb6b99754c478c5c93cf3245fc319cee9d03de86f394ce"
-	goldenCupSeed42          = "f4042489e248af038e10efeb81b61f1e63543c1765b028edc6d6c49ee55fc48b"
+	goldenCupSeed42          = "34448ae4a98feb68c4c5cfcbe1bb47a60c81fb9b9f1176c2567cae452bc33397"
 )
 
 // seasonEnd is one day after the last kickoff of every league.
@@ -105,6 +105,8 @@ func commandFor(ready FixtureRoundReady, id CommandID) ResolveRounds {
 }
 
 // cupEnd is one day after the final of every cup's latest edition, or now.
+// An edition is played during the leagues' season after the one it is
+// drawn from.
 func cupEnd(w *World) sim.GameInstant {
 	end := w.Now()
 	for _, c := range w.Cups() {
@@ -113,17 +115,32 @@ func cupEnd(w *World) sim.GameInstant {
 	return end
 }
 
-// playSeason plays the leagues' current seasons, then their promotion
-// play-offs and then the cup editions they qualify teams for, to one day
-// after each final.
+// cupsUnderwayEnd is one day after the final of every unfinished cup
+// edition whose first round has kicked off, or now.
+func cupsUnderwayEnd(w *World) sim.GameInstant {
+	end := w.Now()
+	for _, ref := range w.competitions.Seasons() {
+		rounds := w.competitions.Rounds(ref)
+		if f, _ := w.competitions.Format(ref); f == competitions.FormatKnockout && rounds[0].Status != competitions.RoundScheduled {
+			end = max(end, rounds[len(rounds)-1].Kickoff+day)
+		}
+	}
+	return end
+}
+
+// playSeason plays the football year: the leagues' current seasons with the
+// cup editions played between their matchdays, then the promotion play-offs
+// and any cup final still to come, to one day after the last of them. The
+// cup edition the play-offs draw is the next season's.
 func playSeason(t *testing.T, w *World) []RoundsResolved {
 	t.Helper()
 	out := playLeagues(t, w)
 	out = append(out, playPlayoffs(t, w)...)
-	return append(out, playCup(t, w)...)
+	return append(out, playUntil(t, w, cupsUnderwayEnd)...)
 }
 
-// playCup plays every cup's latest edition, to one day after its final.
+// playCup plays every cup's latest edition, to one day after its final:
+// with it, the whole league season it is played in.
 func playCup(t *testing.T, w *World) []RoundsResolved {
 	t.Helper()
 	return playUntil(t, w, cupEnd)
@@ -161,14 +178,15 @@ func playoffEnd(w *World) sim.GameInstant {
 }
 
 // playUntil alternates Continue and ResolveRounds until Continue reaches
-// target(w), recomputed before each Continue. Batches with no user fixture
+// target(w), recomputed before each Continue; a target already passed (a
+// season's end after a cup final played beyond it) plays nothing. Batches with no user fixture
 // are resolved by Continue itself and collected alongside the commanded
 // ones, oldest first.
 func playUntil(t *testing.T, w *World, target func(*World) sim.GameInstant) []RoundsResolved {
 	t.Helper()
 	var out []RoundsResolved
 	for {
-		res := mustContinue(t, w, target(w))
+		res := mustContinue(t, w, max(target(w), w.Now()))
 		out = append(out, asRounds(res)...)
 		ready, ok := res.(FixtureRoundReady)
 		if !ok {
@@ -192,7 +210,6 @@ func firstSeasons(w *World) []Schedule {
 	return out
 }
 
-// resultsFingerprint hashes every league's season-1 fixtures and results.
 // resultsFingerprint hashes the first league's season-1 fixtures and
 // results.
 func resultsFingerprint(w *World) string {
@@ -368,11 +385,15 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	}{
 		{competitions.SeasonRef{Competition: 1, Season: 1}, goldenSeasonSeed42},
 		{competitions.SeasonRef{Competition: 2, Season: 1}, goldenSecondLeagueSeed42},
-		{competitions.SeasonRef{Competition: 3, Season: 1}, goldenCupSeed42},
 	} {
 		if got := seasonFingerprint(a, g.ref); got != g.golden {
 			t.Errorf("%s fingerprint = %s, want %s", g.ref, got, g.golden)
 		}
+	}
+	// The cup edition drawn from season 1 is played during season 2.
+	playSeason(t, a)
+	if got := seasonFingerprint(a, cup1); got != goldenCupSeed42 {
+		t.Errorf("%s fingerprint = %s, want %s", cup1, got, goldenCupSeed42)
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.

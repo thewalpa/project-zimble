@@ -374,6 +374,12 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		return invalid("%v", err)
 	}
 	w.promotions = slices.Clone(snap.Promotions)
+	if err := checkCupCalendars(leagueDefs, cups); err != nil {
+		return invalid("%v", err)
+	}
+	if err := w.checkFootballYear(leagueDefs); err != nil {
+		return invalid("%v", err)
+	}
 
 	usedPayload := map[sim.PayloadID]bool{}
 	checkPayloadID := func(id sim.PayloadID) error {

@@ -455,8 +455,10 @@ func demoContinue(out io.Writer, w *app.World) error {
 // day after their last kickoff, past the season end that creates the next
 // seasons, so a later run plays the next season. With limit < 0 it then
 // plays the promotion play-offs those seasons set up (which decide the
-// movement and draw the cups), and the cup editions, to a day after their
-// finals, naming each cup's winners. With a mentality, it first submits the
+// movement and draw the cups) and the cup editions played during the
+// seasons, whose finals follow the last matchday midweek, to a day after
+// their finals, naming each cup's winners. The editions drawn at the end
+// are the next season's. With a mentality, it first submits the
 // suggested lineup with that mentality for each of the managed club's
 // fixtures. Command IDs continue after any recorded in the world, so a
 // loaded career never reuses one.
@@ -467,6 +469,14 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 	for _, s := range w.Schedules() {
 		end = max(end, s.Rounds[len(s.Rounds)-1].Kickoff+sim.GameInstant(sim.Day))
 		seasons = append(seasons, competitions.SeasonRef{Competition: s.Competition, Season: s.Season})
+	}
+	// Keep these editions before playing: their finals may finish before
+	// the longest league, and the play-offs may draw the next editions.
+	var cups []competitions.SeasonRef
+	for _, c := range w.Cups() {
+		if c.Rounds[0].Kickoff <= end {
+			cups = append(cups, competitions.SeasonRef{Competition: c.Competition, Season: c.Edition})
+		}
 	}
 	fmt.Fprintf(out, "\nPlaying to %s\n", cal.Format(end))
 	for played := 0; limit < 0 || played < limit; played++ {
@@ -505,22 +515,21 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 			}
 		}
 	}
-	for _, c := range w.Cups() {
-		if c.Complete {
-			continue
-		}
-		final := c.Rounds[len(c.Rounds)-1].Kickoff + sim.GameInstant(sim.Day)
-		fmt.Fprintf(out, "\n%s %d: playing to %s\n", c.Name, c.Edition, cal.Format(final))
-		for {
-			ok, err := playBatch(out, w, final, mentality)
-			if err != nil {
-				return err
+	for _, ref := range cups {
+		if c, _ := w.Cup(ref); !c.Complete { // its final may have come before the play-offs
+			final := c.Rounds[len(c.Rounds)-1].Kickoff + sim.GameInstant(sim.Day)
+			fmt.Fprintf(out, "\n%s %d: playing to %s\n", c.Name, c.Edition, cal.Format(final))
+			for {
+				ok, err := playBatch(out, w, final, mentality)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					break
+				}
 			}
-			if !ok {
-				break
-			}
 		}
-		if e, ok := w.Cup(competitions.SeasonRef{Competition: c.Competition, Season: c.Edition}); ok && e.Champion != nil {
+		if e, ok := w.Cup(ref); ok && e.Champion != nil {
 			fmt.Fprintf(out, "\n%s %d winner: %s (%s)\n", e.Name, e.Edition, e.Champion.ClubName, e.Champion.ShortName)
 		}
 	}

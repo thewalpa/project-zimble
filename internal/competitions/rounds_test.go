@@ -2,6 +2,7 @@ package competitions
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -62,6 +63,101 @@ func TestCreateRejectsInvalidTiming(t *testing.T) {
 		}
 		if len(s.Seasons()) != 0 {
 			t.Errorf("%s: failed create changed the store", name)
+		}
+	}
+}
+
+// Explicit kickoffs set each round's, also for the later rounds of a
+// knockout created from results; a season's Kickoffs are those CreateSeasons
+// schedules, in every format.
+func TestExplicitKickoffs(t *testing.T) {
+	kickoffs := []sim.GameInstant{100, 5000, 9000}
+	s := New()
+	spec := NewSeason{Ref: cup1, Format: FormatKnockout, Entrants: bracket(), Timing: Timing{Kickoffs: kickoffs}}
+	if err := s.CreateSeasons(1, []NewSeason{spec}); err != nil {
+		t.Fatal(err)
+	}
+	playRound(t, s, 1, Score{HomeGoals: 1}, Score{HomeGoals: 1}, Score{HomeGoals: 1}, Score{HomeGoals: 1})
+	for i, r := range s.Rounds(cup1) {
+		if r.Kickoff != kickoffs[i] {
+			t.Fatalf("round %d kicks off at %d, want %d", i+1, r.Kickoff, kickoffs[i])
+		}
+	}
+	for _, f := range s.Fixtures(cup1) {
+		if f.Kickoff != kickoffs[f.Round-1] {
+			t.Fatalf("fixture %+v, want kickoff %d", f, kickoffs[f.Round-1])
+		}
+	}
+	if got, err := spec.Kickoffs(); err != nil || !reflect.DeepEqual(got, kickoffs) {
+		t.Fatalf("knockout Kickoffs = %v, %v", got, err)
+	}
+	league := NewSeason{Ref: league1, Format: FormatLeague, Entrants: eight(), Timing: Timing{FirstKickoff: 1000, RoundInterval: sim.Week}}
+	if got, err := league.Kickoffs(); err != nil || len(got) != 14 || got[13] != 1000+13*sim.GameInstant(sim.Week) {
+		t.Fatalf("league Kickoffs = %v, %v", got, err)
+	}
+	ties := NewSeason{Ref: SeasonRef{Competition: 1000, Season: 1}, Format: FormatTies, Entrants: eight(), Timing: weekly}
+	if got, err := ties.Kickoffs(); err != nil || !reflect.DeepEqual(got, []sim.GameInstant{weekly.FirstKickoff}) {
+		t.Fatalf("ties Kickoffs = %v, %v", got, err)
+	}
+
+	for name, timing := range map[string]Timing{
+		"too few":            {Kickoffs: kickoffs[:2]},
+		"too many":           {Kickoffs: append(slices.Clone(kickoffs), 10000)},
+		"not ascending":      {Kickoffs: []sim.GameInstant{100, 9000, 5000}},
+		"repeated":           {Kickoffs: []sim.GameInstant{100, 100, 9000}},
+		"out of range":       {Kickoffs: []sim.GameInstant{100, 5000, sim.MaxInstant + 1}},
+		"and a first":        {Kickoffs: kickoffs, FirstKickoff: 100},
+		"and an interval":    {Kickoffs: kickoffs, RoundInterval: sim.Week},
+		"empty, no interval": {Kickoffs: []sim.GameInstant{}},
+	} {
+		s := New()
+		bad := spec
+		bad.Timing = timing
+		if err := s.CreateSeasons(1, []NewSeason{bad}); err == nil || len(s.Seasons()) != 0 {
+			t.Errorf("%s: created %v (%v)", name, s.Seasons(), err)
+		}
+		if _, err := bad.Kickoffs(); err == nil {
+			t.Errorf("%s: Kickoffs accepted the timing", name)
+		}
+	}
+}
+
+// A cup's rounds are spread over a season's matchdays as evenly as whole
+// matchdays allow, the final after the last; a cup with more rounds than
+// the season has matchdays does not fit.
+func TestCupMatchdays(t *testing.T) {
+	for _, c := range []struct {
+		league, cup int
+		want        []int
+	}{
+		{14, 3, []int{5, 10, 14}},
+		{14, 1, []int{14}},
+		{18, 3, []int{6, 12, 18}},
+		{10, 4, []int{3, 5, 8, 10}},
+		{2, 2, []int{1, 2}},
+		{38, 5, []int{8, 16, 23, 31, 38}},
+	} {
+		got, err := CupMatchdays(c.league, c.cup)
+		if err != nil || !reflect.DeepEqual(got, c.want) {
+			t.Errorf("CupMatchdays(%d, %d) = %v, %v; want %v", c.league, c.cup, got, err, c.want)
+		}
+	}
+	for league := 1; league <= 40; league++ {
+		for cup := 1; cup <= league; cup++ {
+			got, err := CupMatchdays(league, cup)
+			if err != nil || got[len(got)-1] != league || got[0] < 1 {
+				t.Fatalf("CupMatchdays(%d, %d) = %v, %v", league, cup, got, err)
+			}
+			for i := 1; i < len(got); i++ {
+				if gap := got[i] - got[i-1]; gap < league/cup || gap > (league+cup-1)/cup {
+					t.Fatalf("CupMatchdays(%d, %d) = %v: uneven gap %d", league, cup, got, gap)
+				}
+			}
+		}
+	}
+	for _, c := range [][2]int{{2, 3}, {0, 1}, {14, 0}} {
+		if got, err := CupMatchdays(c[0], c[1]); err == nil {
+			t.Errorf("CupMatchdays(%d, %d) = %v", c[0], c[1], got)
 		}
 	}
 }

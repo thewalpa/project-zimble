@@ -29,8 +29,10 @@ import (
 // their first kickoff's anniversary; pairings are drawn from pairingDraw's
 // stream and did not change. Version 3 covers ties seasons (promotion
 // play-offs): the application creates them before the cups that follow, so
-// later fixture IDs shift.
-const ScheduleVersion = 3
+// later fixture IDs shift. Version 4 plays a cup edition midweek during the
+// qualifying leagues' next season (CupMatchdays) instead of after the season
+// it is drawn from: its kickoffs move, its pairings and fixture IDs do not.
+const ScheduleVersion = 4
 
 // pairingDraw keys the stream that places entrants in schedule slots. It is
 // the ScheduleVersion that last changed pairings, so a calendar change does
@@ -98,11 +100,14 @@ type Fixture struct {
 }
 
 // Timing is the explicit scheduling input for a season. Round r kicks off
-// at FirstKickoff + (r-1)*RoundInterval. Timing never affects pairings or
+// at FirstKickoff + (r-1)*RoundInterval, or at Kickoffs[r-1] when Kickoffs
+// is set instead (one strictly ascending kickoff per round, as for a cup
+// interleaved with league matchdays). Timing never affects pairings or
 // fixture IDs.
 type Timing struct {
 	FirstKickoff  sim.GameInstant
 	RoundInterval sim.Duration
+	Kickoffs      []sim.GameInstant
 }
 
 type fixtureLoc struct{ season, index int }
@@ -139,6 +144,39 @@ type NewSeason struct {
 	Format   Format
 	Entrants []ids.TeamID
 	Timing   Timing
+}
+
+// Kickoffs returns the season's round kickoffs as CreateSeasons would
+// schedule them: 2(n-1) rounds for a league of n entrants, log2(n) for a
+// knockout and one for a ties season. Every entrant may play at each of
+// them (a knockout's later rounds are created from results).
+func (spec NewSeason) Kickoffs() ([]sim.GameInstant, error) {
+	n := len(spec.Entrants)
+	rounds := 0
+	switch spec.Format {
+	case FormatLeague:
+		if _, err := canonicalEntrants(spec.Entrants); err != nil {
+			return nil, err
+		}
+		rounds = 2 * (n - 1)
+	case FormatKnockout:
+		if err := checkBracket(spec.Entrants); err != nil {
+			return nil, err
+		}
+		rounds, _ = knockoutRounds(n)
+	case FormatTies:
+		if err := checkTiesEntrants(spec.Entrants); err != nil {
+			return nil, err
+		}
+		rounds = 1
+	default:
+		return nil, fmt.Errorf("competitions: %s has invalid format %d", spec.Ref, spec.Format)
+	}
+	kickoffs, err := roundKickoffs(spec.Timing, rounds)
+	if err != nil {
+		return nil, fmt.Errorf("competitions: %s: %w", spec.Ref, err)
+	}
+	return kickoffs, nil
 }
 
 // CreateLeagueSeason schedules a double round-robin league for the entrants.
@@ -204,7 +242,7 @@ func (s *Store) CreateSeasons(seed random.Seed, specs []NewSeason) error {
 		}
 		kickoffs, err := roundKickoffs(spec.Timing, 2*(len(canonical)-1))
 		if err != nil {
-			return err
+			return fmt.Errorf("competitions: %s: %w", ref, err)
 		}
 
 		rng := random.Derive(seed, "competitions/fixtures", pairingDraw,

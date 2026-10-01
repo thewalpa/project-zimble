@@ -68,10 +68,11 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 //     starts in the week of its first kickoff's anniversary
 //     (competitions.SeasonKickoff), whether or not links exist elsewhere.
 //   - A cup edition's bracket seeds the qualifying seasons' final rankings
-//     (content.Cup.Seeding); its first round kicks off FirstRoundDelay after
-//     the latest of their last kickoffs. With play-offs an edition is drawn
-//     only once its qualifying leagues have moved past the season it is
-//     drawn from (see cupEditionDue), so after the play-offs are decided.
+//     (content.Cup.Seeding), and it is played midweek during their next
+//     season (see cupKickoffs). It is drawn once its qualifying leagues have
+//     moved past the season it is drawn from (see cupEditionDue): with
+//     play-offs, after they are decided. The first season has no edition to
+//     play.
 //   - An ending cup or play-off edition just closes.
 //
 // Everything is checked and every new season is created in one
@@ -236,8 +237,8 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 		if err != nil {
 			return err
 		}
-		if spec.Timing.FirstKickoff <= at {
-			return fmt.Errorf("app: %s would kick off at %d, not after %d", spec.Ref, spec.Timing.FirstKickoff, at)
+		if spec.Timing.Kickoffs[0] <= at {
+			return fmt.Errorf("app: %s would kick off at %d, not after %d", spec.Ref, spec.Timing.Kickoffs[0], at)
 		}
 		specs = append(specs, spec)
 		editions = append(editions, spec.Ref)
@@ -503,8 +504,8 @@ func (w *World) playoffEdition(l competitions.Link, comp ids.CompetitionID, seas
 // checkNoTeamClash rejects new seasons that would put a team in two fixtures
 // at the same instant, against each other and against every fixture already
 // in the store. A rest gap between a team's matches stays future work. A
-// knockout season's later rounds are created from its results, so only its
-// first round takes part.
+// knockout season's later rounds are created from its results, so every
+// entrant takes part in each of its rounds' kickoffs.
 func (w *World) checkNoTeamClash(specs []competitions.NewSeason) error {
 	type slot struct {
 		team ids.TeamID
@@ -520,7 +521,8 @@ func (w *World) checkNoTeamClash(specs []competitions.NewSeason) error {
 		return nil
 	}
 	for _, ref := range w.competitions.Seasons() {
-		for _, f := range w.competitions.Fixtures(ref) {
+		fixtures := w.competitions.Fixtures(ref)
+		for _, f := range fixtures {
 			if err := mark(f.Home, f.Kickoff, ref.String()); err != nil {
 				return err
 			}
@@ -528,20 +530,40 @@ func (w *World) checkNoTeamClash(specs []competitions.NewSeason) error {
 				return err
 			}
 		}
+		if format, _ := w.competitions.Format(ref); format != competitions.FormatKnockout {
+			continue
+		}
+		// Later ties do not exist yet, but every entrant still in the cup
+		// might play them. Reserve their kickoffs before creating another
+		// competition's fixtures; eliminated teams no longer need a slot.
+		eliminated := map[ids.TeamID]bool{}
+		for _, result := range w.competitions.Results(ref) {
+			if winner, ok := result.Winner(); ok {
+				loser := result.Home
+				if winner == loser {
+					loser = result.Away
+				}
+				eliminated[loser] = true
+			}
+		}
+		entrants, _ := w.competitions.Entrants(ref)
+		for _, round := range w.competitions.Rounds(ref) {
+			if len(round.Fixtures) > 0 {
+				continue
+			}
+			for _, team := range entrants {
+				if !eliminated[team] {
+					if err := mark(team, round.Kickoff, ref.String()); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 	for _, spec := range specs {
-		kickoffs := []sim.GameInstant{spec.Timing.FirstKickoff}
-		if spec.Format == competitions.FormatLeague {
-			kickoffs = nil
-			at := spec.Timing.FirstKickoff
-			for r := 2 * (len(spec.Entrants) - 1); r > 0; r-- {
-				kickoffs = append(kickoffs, at)
-				next, err := at.Add(spec.Timing.RoundInterval)
-				if err != nil {
-					return fmt.Errorf("app: %s round kickoffs: %w", spec.Ref, err)
-				}
-				at = next
-			}
+		kickoffs, err := spec.Kickoffs()
+		if err != nil {
+			return err
 		}
 		for _, team := range spec.Entrants {
 			for _, at := range kickoffs {
@@ -568,6 +590,99 @@ func (w *World) movementLinks() []competitions.Link {
 		links[i] = competitions.Link{Upper: p.Upper, Lower: p.Lower, Places: p.Places}
 	}
 	return links
+}
+
+// checkCupCalendars validates cups against the leagues' calendars: a cup's
+// qualifying leagues share one (first kickoff and round interval), so their
+// matchdays coincide, with rounds further apart than competitions.CupMidweek,
+// and the shortest of their seasons has a matchday for every cup round to
+// follow (competitions.CupMatchdays). See cupKickoffs.
+func checkCupCalendars(leagues []content.League, cups []content.Cup) error {
+	byID := map[ids.CompetitionID]content.League{}
+	for _, l := range leagues {
+		byID[l.ID] = l
+	}
+	for _, c := range cups {
+		first := byID[c.Qualifiers[0].League]
+		for _, q := range c.Qualifiers {
+			if l := byID[q.League]; l.FirstKickoff != first.FirstKickoff || l.RoundInterval != first.RoundInterval {
+				return fmt.Errorf("app: cup %d qualifying leagues %d and %d must share their calendar", c.ID, first.ID, l.ID)
+			}
+		}
+		if first.RoundInterval <= competitions.CupMidweek {
+			return fmt.Errorf("app: cup %d needs league rounds more than %d apart, not %d", c.ID, competitions.CupMidweek, first.RoundInterval)
+		}
+		if _, err := competitions.CupMatchdays(cupLeagueRounds(c, byID), c.Rounds()); err != nil {
+			return fmt.Errorf("app: cup %d: %w", c.ID, err)
+		}
+	}
+	return nil
+}
+
+// cupLeagueRounds is the number of matchdays a cup's rounds are spread over:
+// the shortest of its qualifying leagues' seasons.
+func cupLeagueRounds(c content.Cup, leagues map[ids.CompetitionID]content.League) int {
+	n := 0
+	for i, q := range c.Qualifiers {
+		if r := leagues[q.League].Rounds(); i == 0 || r < n {
+			n = r
+		}
+	}
+	return n
+}
+
+// checkFootballYear checks that every football year fits inside its contract
+// year: each league season kicks off after the summer transfer window has
+// closed, and its last fixture (its last round, its promotion play-offs and
+// the final of any cup it hosts, see cupKickoffs) is played before the
+// player-year task on the eve of the next contract-year end. Seasons kick
+// off within three days of their first kickoff's anniversary
+// (competitions.SeasonKickoff) and a leap day can move the anniversary a day
+// against the contract year, so the first season is checked with four days'
+// margin each side, which covers every later one.
+func (w *World) checkFootballYear(leagues []content.League) error {
+	byID := map[ids.CompetitionID]content.League{}
+	for _, l := range leagues {
+		byID[l.ID] = l
+	}
+	linked := map[ids.CompetitionID]bool{}
+	for _, p := range w.promotions {
+		linked[p.Upper], linked[p.Lower] = true, true
+	}
+	span := map[ids.CompetitionID]sim.Duration{} // last fixture's offset from the season's first kickoff
+	for _, l := range leagues {
+		span[l.ID] = sim.Duration(l.Rounds()-1) * l.RoundInterval
+		if linked[l.ID] {
+			span[l.ID] += competitions.PlayoffDelay
+		}
+	}
+	for _, c := range w.cups {
+		final := sim.Duration(cupLeagueRounds(c, byID)-1)*byID[c.Qualifiers[0].League].RoundInterval + competitions.CupMidweek
+		for _, q := range c.Qualifiers {
+			span[q.League] = max(span[q.League], final)
+		}
+	}
+	const margin = 4 * sim.Day
+	for _, l := range leagues {
+		first, err := w.calendar.Instant(l.FirstKickoff)
+		if err != nil {
+			return fmt.Errorf("app: league %d first kickoff: %w", l.ID, err)
+		}
+		earliest, latest := first-sim.GameInstant(margin), first+sim.GameInstant(margin)+sim.GameInstant(span[l.ID])
+		_, closes, err := w.transferWindow(earliest)
+		if err != nil {
+			return fmt.Errorf("app: league %d: %w", l.ID, err)
+		}
+		yearEnd, err := w.contractYearEnd(earliest)
+		if err != nil {
+			return fmt.Errorf("app: league %d: %w", l.ID, err)
+		}
+		if earliest < closes || latest >= yearEnd-sim.GameInstant(sim.Day) {
+			return fmt.Errorf("app: league %d's football year (%s to %s, give or take %d days) does not fit between the transfer window's close %s and the player year %s",
+				l.ID, w.calendar.Format(first), w.calendar.Format(first+sim.GameInstant(span[l.ID])), margin/sim.Day, w.calendar.Format(closes), w.calendar.Format(yearEnd-sim.GameInstant(sim.Day)))
+		}
+	}
+	return nil
 }
 
 // checkPromotions validates links against the league definitions: the
@@ -616,11 +731,10 @@ func (w *World) latestEdition(comp ids.CompetitionID) competitions.Season {
 }
 
 // cupEdition builds a cup edition from its qualifying league seasons, which
-// must be complete: the bracket from their final rankings and the timing
-// from their last kickoffs.
+// must be complete: the bracket from their final rankings, played during
+// their next season (cupKickoffs).
 func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competitions.NewSeason, error) {
 	ref := competitions.SeasonRef{Competition: c.ID, Season: edition}
-	var last sim.GameInstant
 	rankings := make([][]ids.TeamID, len(c.Qualifiers))
 	for i, q := range c.Qualifiers {
 		season := competitions.SeasonRef{Competition: q.League, Season: edition}
@@ -631,21 +745,48 @@ func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competit
 		if len(rankings[i]) < q.Places {
 			return competitions.NewSeason{}, fmt.Errorf("app: %s has %d teams for %d places in %s", season, len(rankings[i]), q.Places, ref)
 		}
-		rounds := w.competitions.Rounds(season)
-		last = max(last, rounds[len(rounds)-1].Kickoff)
 	}
 	var bracket []ids.TeamID
 	for _, seed := range c.Seeding() {
 		bracket = append(bracket, rankings[seed[0]][seed[1]-1])
 	}
-	first, err := last.Add(c.FirstRoundDelay)
+	kickoffs, err := w.cupKickoffs(c, edition)
 	if err != nil {
-		return competitions.NewSeason{}, fmt.Errorf("app: %s first kickoff: %w", ref, err)
+		return competitions.NewSeason{}, fmt.Errorf("app: %s: %w", ref, err)
 	}
 	return competitions.NewSeason{
 		Ref: ref, Format: competitions.FormatKnockout, Entrants: bracket,
-		Timing: competitions.Timing{FirstKickoff: first, RoundInterval: c.RoundInterval},
+		Timing: competitions.Timing{Kickoffs: kickoffs},
 	}, nil
+}
+
+// cupKickoffs returns the round kickoffs of a cup's edition, which is drawn
+// from its qualifying leagues' season n and played during their season n+1:
+// each round competitions.CupMidweek after the matchday
+// competitions.CupMatchdays picks, so the final follows the last matchday.
+// The qualifying leagues share one calendar (checkCupCalendars), so the
+// matchdays come from their definitions, whether or not season n+1 exists.
+func (w *World) cupKickoffs(c content.Cup, edition competitions.Season) ([]sim.GameInstant, error) {
+	byID := map[ids.CompetitionID]content.League{}
+	for _, l := range w.leagues {
+		byID[l.def.ID] = l.def
+	}
+	league := byID[c.Qualifiers[0].League]
+	matchdays, err := competitions.CupMatchdays(cupLeagueRounds(c, byID), c.Rounds())
+	if err != nil {
+		return nil, err
+	}
+	first, err := competitions.SeasonKickoff(w.calendar, league.FirstKickoff, edition+1)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sim.GameInstant, len(matchdays))
+	for i, m := range matchdays {
+		if out[i], err = first.Add(sim.Duration(m-1)*league.RoundInterval + competitions.CupMidweek); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // validateSeasons checks each competition's seasons and season-end tasks:
@@ -665,7 +806,7 @@ func (w *World) cupEdition(c content.Cup, edition competitions.Season) (competit
 //     group's leagues have their next seasons (see linkGroups);
 //   - a cup's editions are exactly 1..N, where edition n exists exactly when
 //     every qualifying league has moved past season n; each edition is the
-//     one cupEdition builds (bracket and timing);
+//     one cupEdition builds (bracket and every round's kickoff);
 //   - a league has one season-end task for its current season while anything
 //     of that season is still to run (its results or, for a linked league,
 //     its end creating the play-offs); a cup or play-off edition that is not
@@ -868,14 +1009,12 @@ func (w *World) validateSeasons() []error {
 				continue
 			}
 			entrants, _ := w.competitions.Entrants(ref)
-			rounds := w.competitions.Rounds(ref)
-			if !slices.Equal(entrants, want.Entrants) || len(rounds) == 0 || rounds[0].Kickoff != want.Timing.FirstKickoff {
-				fail("%s has entrants %v from %d, want %v from %d", ref, entrants, rounds[0].Kickoff, want.Entrants, want.Timing.FirstKickoff)
+			var kickoffs []sim.GameInstant
+			for _, r := range w.competitions.Rounds(ref) {
+				kickoffs = append(kickoffs, r.Kickoff)
 			}
-			for j := 1; j < len(rounds); j++ {
-				if rounds[j].Kickoff != rounds[j-1].Kickoff+sim.GameInstant(c.RoundInterval) {
-					fail("%s round %d kicks off at %d, want %d after round %d", ref, j+1, rounds[j].Kickoff, c.RoundInterval, j)
-				}
+			if !slices.Equal(entrants, want.Entrants) || !slices.Equal(kickoffs, want.Timing.Kickoffs) {
+				fail("%s has entrants %v at %v, want %v at %v", ref, entrants, kickoffs, want.Entrants, want.Timing.Kickoffs)
 			}
 			if tasks := endTasks[ref]; tasks > 1 || (tasks == 0 && !w.competitions.SeasonCompleted(ref)) {
 				fail("%s has %d season-end tasks", ref, tasks)

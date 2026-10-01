@@ -198,6 +198,9 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 	if err := checkPromotions(leagueDefs, promotions); err != nil {
 		return nil, err
 	}
+	if err := checkCupCalendars(leagueDefs, cupDefs); err != nil {
+		return nil, err
+	}
 	calendar, err := sim.NewCalendar(epoch)
 	if err != nil {
 		return nil, err
@@ -286,6 +289,9 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		payloads:           map[sim.PayloadID]competitions.RoundRef{},
 		seasonEnds:         map[sim.PayloadID]competitions.SeasonRef{},
 		commands:           map[CommandID]commandRecord{},
+	}
+	if err := w.checkFootballYear(leagueDefs); err != nil {
+		return nil, err
 	}
 	// World creation is initial state, not a change: it emits no events.
 	if w.inbox, err = w.newInbox(); err != nil {

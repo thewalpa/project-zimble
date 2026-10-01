@@ -3713,3 +3713,18 @@ The bracketed figures are v7. Results and mentality, from the tuning harness (12
 - **Accepted `match--career-goals` and `match--simple-mentality` (`balance`)** as the next match work, under one `simple.ModelVersion` bump. Career squads set the goal target, since they are what a player sees.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+
+## competitions: midweek cups and football-year validation (done)
+
+Cup edition N is drawn after qualifying league season N's final rankings and promotion decisions, then plays during season N+1. Season 1 has no cup. The rounds follow evenly spread league matchdays by four days, using the shortest qualifying league; qualifiers share one calendar. The final follows the last selected league matchday. Official results, history and event types are unchanged.
+
+`competitions.Timing.Kickoffs` accepts detached, strictly ascending explicit instants with exactly one per round, mutually exclusive with the regular first-kickoff/interval input. `NewSeason.Kickoffs` exposes the validated sequence for clash checks. Existing knockout rounds whose ties are not generated reserve every surviving entrant's kickoff; eliminated teams release their future reservations. Creation and restore reject impossible cup calendars and football years that touch the summer window or the next player-year task, including play-offs and cup finals, with a four-day margin for weekday and leap drift.
+
+The simulator finishes cups from the football year being played and reports their champions even when a final is already complete at resume, while leaving newly drawn editions for the following year. Terminal/browser cup and automatic-result tests preserve managed matches between league rounds, penalties, champions, exits, history, score-only links and load cleanup. The cup result golden moves under `competitions.ScheduleVersion` 4; season-1 league goldens, generated-world fingerprints and all match/squad versions remain unchanged. No save shape changes: old schedule versions are refused explicitly rather than rescheduled. Cup legacy timing fields remain pinned metadata and their comments identify their version-3 meaning.
+
+Calendar-sensitive squad tests retain positional legality, accounting, population, injury/crisis and weekly-rest bounds. Congested starts have a separate condition floor; market vacancies use the existing two-vacancy long-run tolerance, and a hoarding manager's actual positional surplus bounds the additional vacancies instead of the fixed reserved pool alone. Squad receives the measured results and review request.
+
+Built-in league spacing remains weekly. The existing August-to-May content step is handed to data; the three-week calendar is covered by a two-year application test and century-long civil-calendar bounds. UI, squad and balance receive the changed calendar contract. The existing decision-stop and other backlog items were not implemented.
+
+Validation: explicit timing/rejection tests, future-round clash regression, two-year August-to-May saves and stepping, century bounds, resumed cup reporting, all client stories and thirty-year squad/accounting checks; `gofmt -l .`, `go vet ./...` and `go test ./...`.

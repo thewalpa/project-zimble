@@ -590,7 +590,10 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 		t.Error("NewWorld accepted a config without an epoch")
 	}
 	// Epoch exactly at the first kickoff is allowed: round 1 is due at once
-	// and, without a user club, resolves on the way.
+	// and, without a user club, resolves on the way. The contract year then
+	// starts on 1 August, and a three-day transfer window closes before the
+	// season kicks off.
+	defs.Transfers.WindowDays = 3
 	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
 	if err != nil {
 		t.Fatal(err)

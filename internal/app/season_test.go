@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -52,7 +53,7 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	if reflect.DeepEqual(pairings(s1), pairings(s2)) {
 		t.Fatal("season 2 repeats season 1's draw")
 	}
-	if n := len(kickoffTasks(w)); n != 56 { // all four leagues' season 2; the play-offs and cup were played
+	if n := len(kickoffTasks(w)); n != 56+3 { // all four leagues' season 2 and the cup edition played during it; the play-offs were played
 		t.Fatalf("%d kickoff tasks queued for season 2", n)
 	}
 	// Nine months of rest: everyone starts season 2 fully fit.
@@ -91,8 +92,9 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	}
 
 	// History in competition ID order: the two first divisions' three
-	// seasons each, then two complete cup editions won by their final's
-	// winner, the second divisions' six, and the play-offs' decided
+	// seasons each, then the cup's editions (the first, played during
+	// season 2 and won by its final's winner, and the second, drawn for
+	// season 3), the second divisions' six, and the play-offs' decided
 	// editions, which have no champion.
 	all := w.History()
 	if len(all) != 18 {
@@ -103,7 +105,10 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 			t.Fatalf("play-off history %+v", rec)
 		}
 	}
-	for _, rec := range all[6:8] {
+	if rec := all[7]; rec.Season != seasonRef(3, 2) || rec.Complete || rec.Champion != nil {
+		t.Fatalf("cup edition 2 history %+v", rec)
+	}
+	for _, rec := range all[6:7] {
 		cup, ok := w.Cup(rec.Season)
 		final := cup.Rounds[len(cup.Rounds)-1].Ties[0]
 		winner := final.Home
@@ -373,34 +378,211 @@ func leagueDefsOf(s *WorldSnapshot) []content.League {
 }
 
 // For a century of seasons, every league's first round kicks off after that
-// summer's transfer window has closed, and the cup final is played before
-// the next contract year ends, so the football year keeps its shape against
-// the civil calendar.
+// summer's transfer window has closed, and its last round, its play-offs and
+// the final of the cup edition played during it come before the next player
+// year, so the football year keeps its shape against the civil calendar.
+// checkFootballYear's bound holds for the default content and for the
+// August-to-May calendar of three-week rounds.
 func TestSeasonsStayInsideTheContractYear(t *testing.T) {
-	w := newWorld(t, 42)
-	for _, l := range w.leagues {
-		for season := competitions.Season(1); season <= 100; season++ {
-			first, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, season)
+	for name, interval := range map[string]sim.Duration{"weekly": sim.Week, "three-weekly": 3 * sim.Week} {
+		w := worldWithRoundInterval(t, interval)
+		for _, l := range w.leagues {
+			for season := competitions.Season(1); season <= 100; season++ {
+				first, err := competitions.SeasonKickoff(w.calendar, l.def.FirstKickoff, season)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, closes, err := w.transferWindow(first)
+				if err != nil || first < closes {
+					t.Fatalf("%s: league %d season %d kicks off %s, window closes %s (%v)", name, l.def.ID, season, w.calendar.Format(first), w.calendar.Format(closes), err)
+				}
+				yearEnd, err := w.contractYearEnd(first)
+				if err != nil {
+					t.Fatal(err)
+				}
+				last := first + sim.GameInstant(l.def.Rounds()-1)*sim.GameInstant(l.def.RoundInterval) + sim.GameInstant(competitions.PlayoffDelay)
+				for _, c := range w.cups {
+					if season > 1 {
+						kickoffs, err := w.cupKickoffs(c, season-1)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if kickoffs[0] <= closes {
+							t.Fatalf("%s: edition %d starts %s, in the window", name, season-1, w.calendar.Format(kickoffs[0]))
+						}
+						last = max(last, kickoffs[len(kickoffs)-1])
+					}
+				}
+				if last >= yearEnd-sim.GameInstant(sim.Day) {
+					t.Fatalf("%s: season %d's football year ends %s, not before the player year %s", name, season, w.calendar.Format(last), w.calendar.Format(yearEnd))
+				}
+			}
+		}
+	}
+}
+
+// worldWithRoundInterval loads the default career with every league's rounds
+// interval apart.
+func worldWithRoundInterval(t *testing.T, interval sim.Duration) *World {
+	t.Helper()
+	defs := content.Default()
+	snap, err := worldgen.Generate(defs, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leagues := content.DefaultLeagues()
+	for i := range leagues {
+		leagues[i].RoundInterval = interval
+	}
+	w, err := load(defs, leagues, content.DefaultCups(), content.DefaultPromotions(), DefaultEpoch(), snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}
+
+// A calendar that does not fit the football year, or a cup that cannot be
+// played between its leagues' matchdays, is refused when the career is
+// created and when it is restored.
+func TestLoadRejectsCalendarsOutsideTheFootballYear(t *testing.T) {
+	defs := content.Default()
+	snap, err := worldgen.Generate(defs, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := func(f func(*content.League)) func([]content.League, []content.Cup) {
+		return func(leagues []content.League, _ []content.Cup) {
+			for i := range leagues {
+				f(&leagues[i])
+			}
+		}
+	}
+	cases := map[string]func([]content.League, []content.Cup){
+		"kicks off in the transfer window":            all(func(l *content.League) { l.FirstKickoff.Month, l.FirstKickoff.Day = 7, 26 }),
+		"a later season could kick off in the window": all(func(l *content.League) { l.FirstKickoff.Month, l.FirstKickoff.Day = 7, 31 }),
+		"runs into the next contract year":            all(func(l *content.League) { l.FirstKickoff.Month, l.RoundInterval = 10, 3*sim.Week }),
+		"play-offs in the player year": all(func(l *content.League) {
+			l.FirstKickoff, l.RoundInterval = sim.CivilTime{Year: 2025, Month: 9, Day: 20, Hour: 15}, 3*sim.Week
+		}),
+		"no midweek between matchdays": all(func(l *content.League) { l.RoundInterval = competitions.CupMidweek }),
+		"cup leagues on two calendars": func(leagues []content.League, _ []content.Cup) {
+			for i := range leagues {
+				if leagues[i].ID == 2 || leagues[i].ID == 5 { // a linked pair keeps one calendar
+					leagues[i].FirstKickoff.Day += 7
+				}
+			}
+		},
+		"more cup rounds than matchdays": func(leagues []content.League, cups []content.Cup) {
+			for i := range leagues {
+				leagues[i].Entrants = 2 // two matchdays
+			}
+			cups[0].Qualifiers = []content.Qualifier{{League: 1, Places: 2}, {League: 2, Places: 2}, {League: 4, Places: 2}, {League: 5, Places: 2}}
+		},
+	}
+	for name, edit := range cases {
+		leagues, cups := content.DefaultLeagues(), content.DefaultCups()
+		edit(leagues, cups)
+		if _, err := load(defs, leagues, cups, content.DefaultPromotions(), DefaultEpoch(), snap); err == nil {
+			t.Errorf("%s: load succeeded", name)
+		}
+	}
+
+	// A save is checked the same way.
+	saved := newWorld(t, 42).Snapshot()
+	for i := range saved.Leagues {
+		saved.Leagues[i].Definition.FirstKickoff.Month = 10
+		saved.Leagues[i].Definition.RoundInterval = 3 * sim.Week
+	}
+	saved.ContentFingerprint = contentFingerprint(saved.Content, leagueDefsOf(&saved), saved.Cups, saved.Promotions)
+	if w, err := Restore(saved); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
+		t.Fatalf("restore of an overrunning calendar: %v", err)
+	}
+}
+
+// With rounds three weeks apart the football year fills the year: the
+// leagues play from August to May, the play-offs a week after their last
+// matchday, and the cup edition drawn from a season is played on Wednesdays
+// during the next, its final after the last matchday. No team has two
+// fixtures at once, everything lies between the transfer window's close and
+// the player year, saving midway continues identically, and one Continue
+// equals many.
+func TestFootballYearFromAugustToMay(t *testing.T) {
+	w := worldWithRoundInterval(t, 3*sim.Week)
+	civil := func(at sim.GameInstant) sim.CivilTime {
+		c, err := w.calendar.Civil(at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	if c := civil(w.Schedules()[0].Rounds[13].Kickoff); c.Year != 2026 || c.Month != 5 {
+		t.Fatalf("season 1 ends %v", c)
+	}
+	playSeason(t, w)
+	saved := roundTrip(t, w)
+	for _, x := range []*World{w, saved} {
+		playSeason(t, x)
+	}
+	if !reflect.DeepEqual(saved.Snapshot(), w.Snapshot()) {
+		t.Fatal("a save between seasons continued differently")
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	// One Continue over both seasons equals the many above; only the
+	// revisions, which count commits, differ.
+	one := worldWithRoundInterval(t, 3*sim.Week)
+	mustContinue(t, one, w.Now())
+	stOne, stMany := snapshot(one), snapshot(w)
+	stOne.Revision, stMany.Revision = 0, 0
+	for _, st := range []*state{&stOne, &stMany} {
+		for i := range st.Events {
+			st.Events[i].Revision, st.Events[i].Sequence = 0, 0
+		}
+	}
+	if !reflect.DeepEqual(stOne, stMany) {
+		t.Fatal("one Continue over two seasons differs from playing them step by step")
+	}
+
+	cup, ok := w.Cup(cup1)
+	if !ok || !cup.Complete {
+		t.Fatalf("edition 1 %+v", cup)
+	}
+	var played [][2]int // year, month
+	for _, r := range cup.Rounds {
+		if !strings.HasPrefix(w.calendar.Format(r.Kickoff), "Wed") {
+			t.Fatalf("edition 1 %s on %s", r.Name, w.calendar.Format(r.Kickoff))
+		}
+		c := civil(r.Kickoff)
+		played = append(played, [2]int{c.Year, int(c.Month)})
+	}
+	if !slices.Equal(played, [][2]int{{2026, 11}, {2027, 2}, {2027, 5}}) {
+		t.Fatalf("edition 1 played in %v", played)
+	}
+
+	type slot struct {
+		team ids.TeamID
+		at   sim.GameInstant
+	}
+	busy := map[slot]bool{}
+	for _, ref := range w.competitions.Seasons() {
+		for _, f := range w.competitions.Fixtures(ref) {
+			for _, team := range []ids.TeamID{f.Home, f.Away} {
+				if busy[slot{team, f.Kickoff}] {
+					t.Fatalf("team %d has two fixtures at %s", team, w.calendar.Format(f.Kickoff))
+				}
+				busy[slot{team, f.Kickoff}] = true
+			}
+			_, closes, err := w.transferWindow(f.Kickoff)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, closes, err := w.transferWindow(first)
-			if err != nil || first < closes {
-				t.Fatalf("league %d season %d kicks off %s, window closes %s (%v)", l.def.ID, season, w.calendar.Format(first), w.calendar.Format(closes), err)
-			}
-			yearEnd, err := w.contractYearEnd(first)
+			yearEnd, err := w.contractYearEnd(f.Kickoff)
 			if err != nil {
 				t.Fatal(err)
 			}
-			last := first + sim.GameInstant(l.def.Rounds()-1)*sim.GameInstant(l.def.RoundInterval)
-			for _, c := range w.cups {
-				rounds := 0
-				for n := c.Entrants(); n > 1; n /= 2 {
-					rounds++
-				}
-				if final := last + sim.GameInstant(c.FirstRoundDelay) + sim.GameInstant(rounds-1)*sim.GameInstant(c.RoundInterval); final >= yearEnd-sim.GameInstant(sim.Day) {
-					t.Fatalf("season %d cup final %s is not before the player year %s", season, w.calendar.Format(final), w.calendar.Format(yearEnd))
-				}
+			if f.Kickoff < closes || f.Kickoff >= yearEnd-sim.GameInstant(sim.Day) {
+				t.Fatalf("%s fixture %d on %s, outside the football year", ref, f.ID, w.calendar.Format(f.Kickoff))
 			}
 		}
 	}
@@ -488,10 +670,12 @@ func TestLeaguesOfOtherSizesPlayConsecutiveSeasons(t *testing.T) {
 			t.Fatalf("%d teams left league %d over %d places", left, link.Upper, link.Places)
 		}
 	}
+	// Edition 1 was played during season 2, over the shorter league's ten
+	// matchdays; edition 2 is drawn for season 3.
 	for _, edition := range []competitions.SeasonRef{seasonRef(3, 1), seasonRef(3, 2)} {
 		entrants, ok := w.competitions.Entrants(edition)
-		if !ok || len(entrants) != 8 || !w.competitions.SeasonCompleted(edition) {
-			t.Fatalf("%s: %d entrants, complete %v", edition, len(entrants), w.competitions.SeasonCompleted(edition))
+		if complete := w.competitions.SeasonCompleted(edition); !ok || len(entrants) != 8 || complete != (edition.Season == 1) {
+			t.Fatalf("%s: %d entrants, complete %v", edition, len(entrants), complete)
 		}
 	}
 }
