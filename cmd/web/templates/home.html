@@ -24,7 +24,7 @@
     {{else if $d.Next}}
       <h2>Next match</h2>
       <p class="big">{{$d.Next.Name}} v {{$d.Next.Opponent}}</p>
-      <p class="muted">{{$d.Next.When}}</p>
+      <p class="muted">{{$d.Next.When}} · Other clubs' matchdays play automatically on the way.</p>
       <div class="actions">
         <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Go to matchday</button></form>
         <form class="inline" method="post" action="/season"><input type="hidden" name="rev" value="{{.Rev}}"><button>Play the rest of the season</button></form>

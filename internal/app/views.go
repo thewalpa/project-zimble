@@ -563,3 +563,50 @@ func observedPlayerRow(p PlayerObservation, terms SquadPlayer) SquadPlayer {
 		Value: terms.Value, Payoff: terms.Payoff, Listed: terms.Listed,
 	}
 }
+
+// ResultScore is a fixture's official score, formatted for a result list.
+// It carries no replay detail; a report query supplies what is available.
+type ResultScore struct {
+	Fixture ids.FixtureID
+	Text    string
+}
+
+// AutomaticBatch is the presentation of one batch Continue played while
+// advancing to a target or to the manager's next fixture.
+type AutomaticBatch struct {
+	Summary string
+	Scores  []ResultScore
+}
+
+// AutomaticResults formats every auto-resolved batch in a Continue result,
+// oldest first, using the same wording for both manager clients. It reads
+// only the detached result and Calendar; no history is stored or rebuilt.
+func (w *World) AutomaticResults(result ContinueResult) []AutomaticBatch {
+	var batches []BatchResolved
+	switch r := result.(type) {
+	case ReachedTarget:
+		batches = r.Resolved
+	case FixtureRoundReady:
+		batches = r.Resolved
+	}
+	count := func(n int, noun, plural string) string {
+		if n != 1 {
+			noun = plural
+		}
+		return fmt.Sprintf("%d %s", n, noun)
+	}
+	var out []AutomaticBatch
+	for _, b := range batches {
+		row := AutomaticBatch{Summary: fmt.Sprintf("Automatically played: %s; %s, %s.",
+			w.Calendar().Format(b.At), count(len(b.Rounds), "round", "rounds"), count(len(b.Matches), "match", "matches"))}
+		for _, m := range b.Matches {
+			text := fmt.Sprintf("%s %d-%d %s", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
+			if m.Shootout != [2]uint16{} {
+				text += fmt.Sprintf(" (%d-%d on penalties)", m.Shootout[0], m.Shootout[1])
+			}
+			row.Scores = append(row.Scores, ResultScore{Fixture: m.Fixture, Text: text})
+		}
+		out = append(out, row)
+	}
+	return out
+}

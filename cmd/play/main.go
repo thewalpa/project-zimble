@@ -391,6 +391,7 @@ func (s *session) help() {
   stats                 during your match: the match statistics so far
   continue (c)          play the waiting match, or go to your next matchday (while the
                         transfer window is open: to the next transfer news)
+                        other clubs' matchdays play automatically on the way
   season                play the rest of the season (edited lineup used once)
   save [FILE]           save the career (default: %s)
   recover [FILE] [yes]  replace a save with the previous one kept beside it and load it
@@ -1571,7 +1572,7 @@ func (s *session) advance() error {
 		case win.NextRun < target:
 			target, warn, stepping = win.NextRun, false, true
 		}
-		res, err := s.w.Continue(target)
+		res, err := s.continueTo(target)
 		if err != nil {
 			return err
 		}
@@ -1602,12 +1603,6 @@ func (s *session) advance() error {
 			s.printf("Nothing is scheduled before %s.\n", s.w.Calendar().Format(target))
 			return nil
 		}
-		if len(ready.UserFixtures) == 0 {
-			if _, err := s.resolve(false); err != nil {
-				return err
-			}
-			continue
-		}
 		s.newMessages()
 		info := s.fixtureInfo(ready.UserFixtures[0])
 		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
@@ -1623,7 +1618,7 @@ func (s *session) advance() error {
 
 // play submits an edited draft, plays the waiting batch and reports it.
 func (s *session) play() error {
-	res, err := s.resolve(true)
+	res, err := s.resolve()
 	if err != nil {
 		return err
 	}
@@ -1687,17 +1682,15 @@ func (s *session) play() error {
 	return nil
 }
 
-// resolve resolves the waiting batch; with submit, an edited draft for the
-// club's fixture is submitted first.
-func (s *session) resolve(submit bool) (app.RoundsResolved, error) {
+// resolve submits an edited draft for the club's fixture, then resolves
+// the waiting batch.
+func (s *session) resolve() (app.RoundsResolved, error) {
 	ready, ok := s.w.Pending()
 	if !ok {
 		return app.RoundsResolved{}, errors.New("no match is waiting")
 	}
-	if submit {
-		if err := s.submitDraft(ready); err != nil {
-			return app.RoundsResolved{}, err
-		}
+	if err := s.submitDraft(ready); err != nil {
+		return app.RoundsResolved{}, err
 	}
 	cmd := app.ResolveRounds{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision()}
 	for _, r := range ready.Rounds {
@@ -1737,7 +1730,7 @@ func (s *session) season() error {
 	s.printf("\nPlaying the rest of %s season %d:\n", sc.CompetitionName, sc.Season)
 	for {
 		if _, ok := s.w.Pending(); ok {
-			res, err := s.resolve(true)
+			res, err := s.resolve()
 			if err != nil {
 				return err
 			}
@@ -1752,12 +1745,12 @@ func (s *session) season() error {
 		if t, _ := s.w.Table(ref); t.Complete {
 			// Run the season end due now, which schedules the next
 			// season and draws any cup it qualifies teams for.
-			if _, err := s.w.Continue(s.w.Now()); err != nil {
+			if _, err := s.continueTo(s.w.Now()); err != nil {
 				return err
 			}
 			break
 		}
-		if err := s.advanceQuietly(); err != nil {
+		if err := s.advanceForSeason(); err != nil {
 			return err
 		}
 	}
@@ -1766,9 +1759,10 @@ func (s *session) season() error {
 	return nil
 }
 
-// advanceQuietly continues to the next batch of any club without reporting.
-func (s *session) advanceQuietly() error {
-	res, err := s.w.Continue(s.w.Now() + 400*sim.GameInstant(sim.Day))
+// advanceForSeason continues to the manager's next fixture, reporting any
+// batches played automatically on the way.
+func (s *session) advanceForSeason() error {
+	res, err := s.continueTo(s.w.Now() + 400*sim.GameInstant(sim.Day))
 	if err != nil {
 		return err
 	}
@@ -2465,4 +2459,19 @@ func (s *session) recover(args []string) error {
 	s.printf("Recovered %s from %s.\n", path, storage.PreviousPath(path))
 	s.welcome()
 	return nil
+}
+
+// continueTo reports other clubs' matchdays for both target and fixture stops.
+func (s *session) continueTo(target sim.GameInstant) (app.ContinueResult, error) {
+	result, err := s.w.Continue(target)
+	if err != nil {
+		return nil, err
+	}
+	for _, batch := range s.w.AutomaticResults(result) {
+		s.printf("\n%s\n", batch.Summary)
+		for _, score := range batch.Scores {
+			s.printf("  %s\n", score.Text)
+		}
+	}
+	return result, nil
 }

@@ -58,9 +58,10 @@ type server struct {
 	savedRevision app.Revision // ...at this revision
 	warnedYearEnd sim.GameInstant
 	notes         []note
-	offers        []recoverOffer // recovery choices for the next page
-	report        *matchReport   // the latest matchday, shown on the home page
-	frameLabels   frameLabels    // who the live match's pitch replay shows
+	offers        []recoverOffer       // recovery choices for the next page
+	report        *matchReport         // the latest matchday, shown on the home page
+	automatic     []app.AutomaticBatch // scores from the latest progression action, never saved
+	frameLabels   frameLabels          // who the live match's pitch replay shows
 	pages         map[string]*template.Template
 	mux           *http.ServeMux
 }
@@ -256,6 +257,7 @@ func (s *server) newCareer(club ids.ClubID, engine string) error {
 		return err
 	}
 	s.w, s.saved, s.report, s.warnedYearEnd, s.frameLabels = w, false, nil, 0, frameLabels{}
+	s.automatic = nil
 	return nil
 }
 
@@ -356,6 +358,7 @@ func (s *server) adopt(w *app.World, path string) error {
 	s.saved = true
 	s.savedRevision = w.Revision()
 	s.report = nil
+	s.automatic = nil
 	s.warnedYearEnd = 0
 	s.frameLabels = frameLabels{}
 	return nil
@@ -368,6 +371,7 @@ func (s *server) next(url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
+	s.automatic = nil
 	if _, ok := s.w.Pending(); ok {
 		return "/", s.play()
 	}
@@ -394,7 +398,7 @@ func (s *server) advance() error {
 		case win.NextRun < target:
 			target, warn, stepping = win.NextRun, false, true
 		}
-		res, err := s.w.Continue(target)
+		res, err := s.continueTo(target)
 		if err != nil {
 			return err
 		}
@@ -415,11 +419,6 @@ func (s *server) advance() error {
 		case !ok:
 			s.say("Nothing is scheduled before %s.", s.w.Calendar().Format(target))
 			return nil
-		case len(ready.UserFixtures) == 0:
-			if _, err := s.resolve(); err != nil {
-				return err
-			}
-			continue
 		}
 		info, _ := s.fixtureInfo(ready.UserFixtures[0])
 		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
@@ -463,6 +462,7 @@ func (s *server) playSeason(url.Values) (string, error) {
 	if !ok {
 		return "", errors.New("your club has no season")
 	}
+	s.automatic = nil
 	for {
 		if _, ok := s.w.Pending(); ok {
 			if err := s.play(); err != nil {
@@ -473,12 +473,12 @@ func (s *server) playSeason(url.Values) (string, error) {
 		if s.seasonDone(sc) {
 			// Run the season end due now, which schedules the next
 			// season and draws any cup it qualifies teams for.
-			if _, err := s.w.Continue(s.w.Now()); err != nil {
+			if _, err := s.continueTo(s.w.Now()); err != nil {
 				return "", err
 			}
 			break
 		}
-		res, err := s.w.Continue(s.w.Now() + 400*sim.GameInstant(sim.Day))
+		res, err := s.continueTo(s.w.Now() + 400*sim.GameInstant(sim.Day))
 		if err != nil {
 			return "", err
 		}
@@ -684,4 +684,15 @@ func (s *server) readInbox(form url.Values) (string, error) {
 		}
 	}
 	return "", errors.New("unknown message")
+}
+
+// continueTo keeps score summaries for the latest progression action. Detailed
+// auto-resolved reports remain on the Continue result, never in the save.
+func (s *server) continueTo(target sim.GameInstant) (app.ContinueResult, error) {
+	result, err := s.w.Continue(target)
+	if err != nil {
+		return nil, err
+	}
+	s.automatic = append(s.automatic, s.w.AutomaticResults(result)...)
+	return result, nil
 }

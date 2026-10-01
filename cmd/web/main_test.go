@@ -1503,3 +1503,73 @@ func TestPlayerPagesDoNotChangeTheCareer(t *testing.T) {
 		t.Fatal("reading loaded player pages changed authoritative career state")
 	}
 }
+
+// Both Continue outcomes expose the automatically played scores: on the way
+// to the club's cup tie and on the way to the contract-review target after a
+// loss. The log is presentation only and is cleared when a save is loaded.
+func TestContinueReportsAutomaticBatches(t *testing.T) {
+	c := career(t)
+	c.post("/season", nil)
+	page := c.post("/continue", nil)
+	contains(t, page, "Other matchdays", "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches.",
+		"Ashcombe City 0-0 Ravensmoor Town (4-5 on penalties)",
+		"Matchday: Continental Cup quarter-final")
+	if strings.Count(page, "Automatically played:") != 1 {
+		t.Fatal("a batch was omitted or repeated at a managed fixture stop")
+	}
+	// Playing the managed match starts a new action, so the old batch log
+	// disappears without changing the latest managed-result panel.
+	page = c.post("/continue", nil)
+	if strings.Contains(page, "Automatically played:") {
+		t.Fatal("the previous action's automatic results survived the next Continue")
+	}
+	contains(t, page, "Latest result", "Drakeford City 3-2 Quillford FC")
+	page = c.post("/continue", nil)
+	semi := "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches."
+	final := "Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match."
+	contains(t, page, semi, final, "Saltmere Athletic 2-0 Ironbridge Wanderers", "7 of your players&#39; contracts end tomorrow.")
+	if strings.Count(page, "Automatically played:") != 2 || strings.Index(page, semi) > strings.Index(page, final) {
+		t.Fatal("target stop did not list exactly two automatic batches in order")
+	}
+	if _, pending := c.s.w.Pending(); pending {
+		t.Fatal("an unmanaged cup matchday produced a phantom stop")
+	}
+	// Results are ordinary links, usable without JavaScript. Their detailed
+	// report was call-local, so a later query must say it has only the score.
+	finals := c.s.w.Cups()[0].Rounds
+	finalFixture := finals[len(finals)-1].Ties[0].ID
+	contains(t, page, fmt.Sprintf("href=\"/report?fixture=%d\"", finalFixture))
+	report := c.get(fmt.Sprintf("/report?fixture=%d", finalFixture))
+	contains(t, report, "Only the score is available for this match.")
+	if strings.Contains(report, "The assistant&#39;s suggestion") {
+		t.Fatal("a score-only report invented selection detail")
+	}
+	before := c.s.w.Snapshot()
+	c.get("/cup")
+	c.get("/table")
+	if !reflect.DeepEqual(c.s.w.Snapshot(), before) {
+		t.Fatal("browsing automatic results changed the career")
+	}
+	c.post("/save", nil)
+	page = c.post("/load", url.Values{"file": {c.s.savePath}})
+	if strings.Contains(page, "Automatically played:") || strings.Contains(page, "Other matchdays") {
+		t.Fatal("loading a save retained the old automatic-results log")
+	}
+	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", finalFixture)), "Only the score is available for this match.")
+}
+
+// Play the season redirects to the table; its automatic results remain
+// visible there, rather than depending on the home page or a flash notice.
+func TestSeasonReportsAutomaticBatches(t *testing.T) {
+	c := career(t)
+	c.post("/season", nil)
+	c.post("/continue", nil)
+	c.post("/continue", nil)
+	page := c.post("/season", nil)
+	contains(t, page, "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches.",
+		"Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match.",
+		"Saltmere Athletic 2-0 Ironbridge Wanderers", "Founders League season 2", "14 of 14 rounds played")
+	if strings.Count(page, "Automatically played:") != 2 {
+		t.Fatal("the season redirect omitted or repeated automatic batches")
+	}
+}

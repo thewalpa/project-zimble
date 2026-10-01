@@ -40,30 +40,32 @@ var funcs = template.FuncMap{
 // layout is what every page gets: the career header, notes and the page's
 // own data.
 type layout struct {
-	Page     string
-	Career   bool
-	Club     app.TeamLabel
-	Date     string
-	Balance  money.Money
-	Rev      app.Revision
-	Unsaved  bool
-	Pending  bool // a matchday of the club is waiting
-	Notes    []note
-	Offers   []recoverOffer
-	Data     any
-	SaveName string
-	SavesDir string
-	Unread   int // unread inbox messages
+	Page      string
+	Career    bool
+	Club      app.TeamLabel
+	Date      string
+	Balance   money.Money
+	Rev       app.Revision
+	Unsaved   bool
+	Pending   bool // a matchday of the club is waiting
+	Notes     []note
+	Automatic []app.AutomaticBatch
+	Offers    []recoverOffer
+	Data      any
+	SaveName  string
+	SavesDir  string
+	Unread    int // unread inbox messages
 }
 
 func (s *server) layout(page string, data any) layout {
 	l := layout{
-		Page:     page,
-		Notes:    s.notes,
-		Offers:   s.offers,
-		Data:     data,
-		SaveName: filepath.Base(s.savePath),
-		SavesDir: filepath.Clean(s.savesDir),
+		Page:      page,
+		Notes:     s.notes,
+		Automatic: s.automatic,
+		Offers:    s.offers,
+		Data:      data,
+		SaveName:  filepath.Base(s.savePath),
+		SavesDir:  filepath.Clean(s.savesDir),
 	}
 	if s.w == nil {
 		return l
@@ -1086,6 +1088,7 @@ type reportView struct {
 	Round        competitions.Round
 	Kickoff      string
 	Played       bool
+	HasDetails   bool // replay data is available; otherwise this is score-only
 	Home         app.TeamLabel
 	Away         app.TeamLabel
 	Score        [2]uint16
@@ -1121,10 +1124,14 @@ type reportChip struct {
 }
 
 func selectedText(b app.SelectedBy) string {
-	if b == app.SelectedByManager {
+	switch b {
+	case app.SelectedByManager:
 		return "Your lineup"
+	case app.SelectedByAI:
+		return "The assistant's suggestion"
+	default:
+		return ""
 	}
-	return "The assistant's suggestion"
 }
 
 func (s *server) reportPage(r *http.Request) (string, any, error) {
@@ -1214,6 +1221,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		}
 		v.Events = s.eventViews(rep.Events, rep.Home, rep.Away)
 		v.Stats = app.StatLines(rep.Stats)
+		v.HasDetails = len(v.Events) > 0 || len(v.Goals) > 0 || len(v.Lineups) > 0 || len(v.Stats) > 0
 	} else if hasF && f.Played {
 		if f.Home.Club == s.club() || f.Away.Club == s.club() {
 			v.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == s.club())

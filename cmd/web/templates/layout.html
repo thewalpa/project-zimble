@@ -179,6 +179,19 @@ details.save-details > summary { list-style: none; }
 <main>
   {{range .Notes}}<div class="note{{if .Error}} error{{end}}">{{.Text}}</div>{{end}}
   {{range .Offers}}<div class="note">{{template "recover" .}}</div>{{end}}
+  {{if .Automatic}}
+  <div class="panel" style="margin-bottom:20px">
+    <h2>Other matchdays</h2>
+    {{range .Automatic}}
+    <details>
+      <summary>{{.Summary}}</summary>
+      <ul class="plain">
+        {{range .Scores}}<li><a href="/report?fixture={{.Fixture}}">{{.Text}}</a></li>{{end}}
+      </ul>
+    </details>
+    {{end}}
+  </div>
+  {{end}}
   {{template "content" .}}
 </main>
 <script>

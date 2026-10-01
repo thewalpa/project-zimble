@@ -22,8 +22,5 @@ In `cmd/play` (`main.go`, the career listing) and `cmd/web` (`views.go`, the car
 `go run ./cmd/play -seed 42 -club 3`, play a few rounds, and a starter's career shows non-zero appearances at his club; the same in `cmd/web`.
 
 ## Answer
-Accepted on 2026-10-01 after the auto-resolved batch presentation task: show app-provided appearances and goals for each spell in both clients, with totals across multiple spells. Aggregate totals belong in a shared read-only app view.
-
-## Answer
 
 Accepted on 2026-10-01 for the next UI feature after auto-resolved batch presentation. Both player profiles will show appearances and goals per club spell, with a total for multiple spells, using `World.PlayerCareer`. Any totals will be shared read-only app composition; clients will not infer football statistics from match events.

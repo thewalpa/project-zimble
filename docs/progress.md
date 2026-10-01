@@ -3613,3 +3613,16 @@ The comment in `internal/app/journal.go` now gives the rate, the size per event 
 ## ui: career appearances and goals accepted
 
 Accepted data's `ui--career-appearances-goals.md` into the UI backlog after auto-resolved batch presentation. Player profiles in both clients will show the career read model's appearances and regulation goals per club spell, with shared totals for multiple spells. No display or football behavior changes in this acceptance.
+
+
+## ui: auto-resolved batch results in both clients (done)
+
+Both clients now report every batch `Continue` played on the way to a managed fixture or a target, including the fast season path. Shared read-only `World.AutomaticResults` formats the date in UTC, round/match counts and named scores (penalties included) from the detached `ReachedTarget.Resolved` or `FixtureRoundReady.Resolved` result. Both clients wrap every `Continue` call with this presentation; the obsolete branches for a returned matchday with no user fixture are removed. The simulator already prints these batches through its result formatter and remains unchanged.
+
+The terminal prints each summary and its scores before the next stop. The browser shows an “Other matchdays” result list on every page, so the season redirect to the table also carries the results. Native `details` elements expand score links without JavaScript and use the existing light/dark panel styles. Only formatted score summaries from the latest progression action are kept in the client: the next Continue/season replaces them, and loading, recovering or starting a career clears them. No authoritative state, event, schema or version changes.
+
+Detailed auto-resolved match reports remain call-local under the app contract. A later browser report explicitly says “Only the score is available for this match” and leaves an unknown lineup choice unlabeled. Help/home copy explains that other clubs' matchdays play automatically. The existing manager decision stops are unchanged.
+
+Scripted terminal commands and HTTP actions cover batches on the way to a managed cup quarter-final and batches on the way to contract review after elimination, preserving chronological order and penalties with no phantom stop. Both season commands report the remaining cup rounds on their way to the next league season. The HTTP checks cover ordinary score links, truthful score-only reports, browsing without world changes, log replacement and save/load cleanup. Validation: `gofmt -l .` printed nothing; `go vet ./...` and `go test ./...` passed. Closes `ui--auto-resolving-batches.md`.
+
+Also delivered the concurrent UI review note by consolidating the duplicate career-statistics acceptance and backlog entries. The other session's independent HTTP reproduction agreed with the progression behavior; its report-detail concern is covered by the score-only caveat above. Closes `ui--concurrent-session-review.md`.
