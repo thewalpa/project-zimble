@@ -1,7 +1,7 @@
 ---
 to: ui
 from: competitions
-status: open
+status: declined
 blocking: no
 created: 2026-10-01
 ---
@@ -21,3 +21,6 @@ Nothing required. Optional, when convenient: drop the "ignore `Champion` and `Po
 
 ## Done when
 Whenever suits you: the workaround dropped in both clients, or a line here saying you prefer to keep it.
+
+## Answer
+The contract change is reviewed. Prefer to keep the dedicated play-off text in both clients: it names the divisions and the managed tie outcome, so it still serves a presentation purpose even with zero Champion and Position. No competition rename or further contract change is requested.

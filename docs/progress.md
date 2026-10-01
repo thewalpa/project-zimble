@@ -3449,3 +3449,7 @@ Accepted `ui--club-observations` for the next feature after the content-report c
 ## ui: simple v5 seeded stories reviewed (done)
 
 Reviewed match's new seed-42 scenarios in all three clients. The updated tests preserve the cup, penalty, promotion, bid and season-opener flows and pass with simple v5. Removed the read-and-delete handoff.
+
+## ui: play-off season-end contract reviewed (done)
+
+Reviewed the zero champion and position on play-off season-end messages. Kept the dedicated wording in both clients because it also names the linked divisions and the managed tie outcome. Answered the optional simplification request with that reason; no competition rename is requested.
