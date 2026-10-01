@@ -3441,3 +3441,7 @@ Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` pas
 ## ui: club-observation adoption accepted
 
 Accepted `ui--club-observations` for the next feature after the content-report command. Both clients will use the human club observer for player facts through shared read-only app views, with negotiation terms and eligibility kept on existing app queries. Today all clubs observe exact information; this acceptance changes no screens or simulation rules.
+
+## ui: formatting handoff reviewed (done)
+
+`gofmt -l .` is already clean after the merged formatting fix. Removed the stale repeat request; no source change was needed.
