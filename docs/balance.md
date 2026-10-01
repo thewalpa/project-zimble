@@ -110,85 +110,104 @@ A simple recruiting policy keeps the managed club at 59–62, one point above th
 
 ## Match engines: tick against simple
 
-Measured 2026-09-28 at `tick.ModelVersion` 1 and `simple.ModelVersion` 3, both with their `DefaultParams`. Requested by `match` (note `balance--tick-engine-profile`).
+Measured 2026-10-01 at `tick.ModelVersion` 6 and `simple.ModelVersion` 4, both with their `DefaultParams`, at commit `78fc6b2`. Answers `balance--tick-mentality-delivered`. The earlier measurement (`tick` v1, `simple` v3, 2026-09-28) is in the [history](#history-1).
 
 ```sh
-ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalance -v -count=1   # about 60 s on 32 cores
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceEngineComparison' -v -count=1 -timeout 2h        # about 13 min on 4 cores
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceMentalityByGap' -v -count=1 -timeout 2h          # about 8 min on 4 cores
 ```
 
-`TestBalanceEngineComparison` in `internal/matches/tick/balance_test.go` plays both engines on the same `enginetest.Input` teams: 11 starters and 7 substitutes, balanced unless stated, full condition, no commands. A team's "strength" is the rating its profile is built around, and it is close to its overall. Each row is 3,000 matches: seeds 1, 42 and 2026 × fixtures 1–1000, with each engine's own `matches.FixtureRandom` stream. Every match is played as a knockout. The contract guarantees that the knockout rule leaves the 90 minutes unchanged, so one run gives both the regulation result and the shootout. With 3,000 matches, a rate near 25% is good to about ±1.6 points (95%), and one near 50% to about ±1.8.
+(`go test`'s default 10-minute timeout is too short on a small machine: pass `-timeout`.)
 
-These are synthetic teams, not career squads. No career match uses `tick` yet. A league-season comparison has to wait until `app` can choose the engine per match (`match` roadmap phase 2).
+`TestBalanceEngineComparison` in `internal/matches/tick/balance_test.go` plays both engines on the same `enginetest.Input` teams: 11 starters and 7 substitutes, balanced unless stated, full condition, no commands. A team's "strength" is the rating its profile is built around, and it is close to its overall. Each row is 3,000 matches: seeds 1, 42 and 2026 × fixtures 1–1000, with each engine's own `matches.FixtureRandom` stream. Every match is played as a knockout. The contract guarantees that the knockout rule leaves the 90 minutes unchanged, so one run gives both the regulation result and the shootout. With 3,000 matches, a rate near 25% is good to about ±1.6 points (95%), one near 50% to about ±1.8, and a goal average to about ±0.04.
+
+These are synthetic teams, not career squads: the career-season comparison is still to do ([note](handoffs/balance--tick-career-seasons.md)).
 
 ### Equal teams, 60 v 60
 
 | | simple | tick | Top leagues, roughly |
 | --- | --- | --- | --- |
-| Goals per match | 2.75 | 2.92 | 2.6–2.9 |
-| Home–away goals | 1.41–1.34 | 1.59–1.33 | 1.5–1.2 |
-| Home / draw / away % | 38.7 / 26.6 / 34.6 | 44.0 / 24.9 / 31.1 | 45 / 26 / 29 |
-| Draw % if the two scores were independent | 25.6 | 24.4 | |
-| 0–0 % | 6.5 | 5.5 | 7–8 |
-| 4 or more goals % | 30.0 | 33.5 | 25–30 |
+| Goals per match | 2.71 | 2.46 | 2.6–2.9 |
+| Home–away goals | 1.37–1.35 | 1.34–1.11 | 1.5–1.2 |
+| Home / draw / away % | 37.2 / 26.3 / 36.6 | 42.4 / 26.8 / 30.8 | 45 / 26 / 29 |
+| Draw % if the two scores were independent | 25.9 | 27.3 | |
+| 0–0 % | 5.8 | 7.6 | 7–8 |
+| 4 or more goals % | 28.3 | 23.0 | 25–30 |
 
 | Total goals (% of matches) | 0 | 1 | 2 | 3 | 4 | 5 | 6+ |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| simple | 6.5 | 17.8 | 24.6 | 21.0 | 14.6 | 8.9 | 6.6 |
-| tick | 5.5 | 15.8 | 22.7 | 22.6 | 16.7 | 8.9 | 7.9 |
+| simple | 5.8 | 18.7 | 25.6 | 21.6 | 14.5 | 7.6 | 6.2 |
+| tick | 7.6 | 21.6 | 26.7 | 21.0 | 12.5 | 7.0 | 3.5 |
 
-**Draws are not low.** Over 3,000 matches `tick` draws 24.9%. That is what independent scores with its goal rate would give (24.4%), and close to real football. The 21% that `match` saw came from 200 matches, where the 95% margin is about ±6 points. **`tick` has the more realistic home advantage:** 44% home wins against 31% away. `simple`'s home edge is only 4 points (39% against 35%), which is weak but not implausible, so no note was filed for it. `tick` scores a little more than real football, with 5.5% 0–0s and a third of matches reaching 4 goals.
+**`tick` v6 is now a little low, where v1 was a little high.** 2.46 goals is under the 2.6–2.9 range, 4+ goals are under a quarter, and the home edge (42% against 31% away) is a few points short of real football; the 0–0 rate and the draw rate are right. The offside rule and the gap-based contests took goals out. Not worth a note: it is inside what `match` was tuning, and 2.4 is where `match` said it would land. The ratio is what matters for play, and home goals are 1.2 times away goals, close to the real 1.25. `simple` is inside the real range on goals but has lost its home advantage: 37.2% home wins against 36.6% away, and 1.37 home goals to 1.35 (v3: 38.7% against 34.6%). Its `HomeAdvantagePermille` is 1050, a 5% chance boost that is about 0.07 goals, below what 3,000 matches can resolve (±0.04 on each average). `simple` is the career default, so a managed club gains nothing from playing at home. Filed as `match--simple-home-advantage`.
 
 ### Rating gap (home strength v away strength)
 
 | Match | simple H / D / A % | simple goals | tick H / D / A % | tick goals |
 | --- | --- | --- | --- | --- |
-| 70 v 50 | 62.9 / 22.2 / 14.9 | 2.90 | 92.7 / 5.2 / 2.1 | 4.27 |
-| 65 v 55 | 51.6 / 24.1 / 24.3 | 2.79 | 72.0 / 16.3 / 11.7 | 3.34 |
-| 62 v 58 | 44.0 / 26.3 / 29.7 | 2.75 | 54.8 / 23.6 / 21.6 | 3.01 |
-| 60 v 60 | 38.7 / 26.6 / 34.6 | 2.75 | 44.0 / 24.9 / 31.1 | 2.92 |
-| 58 v 62 | 33.3 / 26.4 / 40.3 | 2.73 | 28.7 / 24.9 / 46.5 | 2.94 |
-| 55 v 65 | 26.8 / 26.0 / 47.3 | 2.78 | 16.8 / 21.9 / 61.3 | 3.07 |
-| 50 v 70 | 16.4 / 22.7 / 60.9 | 2.88 | 4.2 / 8.8 / 86.9 | 3.87 |
+| 70 v 50 | 62.5 / 21.0 / 16.5 | 2.88 | 80.8 / 13.4 / 5.8 | 3.18 |
+| 65 v 55 | 50.4 / 23.5 / 26.1 | 2.75 | 62.1 / 22.0 / 15.9 | 2.62 |
+| 62 v 58 | 43.2 / 25.2 / 31.5 | 2.72 | 51.4 / 24.2 / 24.4 | 2.54 |
+| 60 v 60 | 37.2 / 26.3 / 36.6 | 2.71 | 42.4 / 26.8 / 30.8 | 2.46 |
+| 58 v 62 | 32.3 / 24.9 / 42.8 | 2.75 | 36.0 / 26.7 / 37.3 | 2.52 |
+| 55 v 65 | 26.4 / 24.1 / 49.5 | 2.76 | 25.0 / 26.0 / 49.0 | 2.52 |
+| 50 v 70 | 16.3 / 21.5 / 62.2 | 2.86 | 11.0 / 18.5 / 70.5 | 2.81 |
 
-In a career, squad averages range from 54 to 63 (see the market section), so the gaps that matter are the 58–62 and 55–65 rows. There, `tick` makes the stronger side a clear favourite: 72% for a home side 10 points stronger. That is steep, but a top-against-bottom match in a real league looks much like it. `simple` is flat: the same side wins 52%, and a 20-point gap still leaves 15% away wins. **`tick`'s gap turns into goals.** The stronger side scores more without the weaker one scoring much less, so a 20-point mismatch averages 4.3 goals and 61% of those matches have 4 or more. `simple` stays near 2.8 goals at every gap.
+In a career, squad averages range from 51 to 65 (see the market section), so the gaps that matter are the 62 v 58 and 65 v 55 rows. **`tick`'s gap now turns into wins without runaway scores:** a home side 10 points stronger wins 62% (`simple`: 50%) and a 20-point mismatch averages 3.2 goals (4.3 at v1) with 39% of matches reaching 4 goals (61% at v1). The weaker side still wins 6% of 70 v 50 matches in `tick` and 17% in `simple`. Both are plausible; `tick` is steeper, which is the more realistic of the two between a title favourite and a relegation candidate.
 
 ### Quality level
 
 | Match | simple goals | simple draw % | tick goals | tick draw % | tick 0–0 % | tick 4+ goals % |
 | --- | --- | --- | --- | --- | --- | --- |
-| 40 v 40 | 2.81 | 25.8 | 2.08 | 29.8 | 11.8 | 16.1 |
-| 60 v 60 | 2.75 | 26.6 | 2.92 | 24.9 | 5.5 | 33.5 |
-| 80 v 80 | 2.71 | 27.1 | 4.64 | 20.2 | 0.8 | 69.3 |
+| 40 v 40 | 2.78 | 25.7 | 2.53 | 25.9 | 7.3 | 23.9 |
+| 60 v 60 | 2.71 | 26.3 | 2.46 | 26.8 | 7.6 | 23.0 |
+| 80 v 80 | 2.68 | 25.2 | 2.52 | 26.5 | 7.6 | 23.9 |
 
-**In `tick`, goals grow with absolute quality.** Two equal teams rated 80 score 4.6 a match, and two rated 40 score 2.1. Attack improves faster than defence. Real football shows no such trend. Career squads all sit between 54 and 63 today, so this barely shows yet. It will show in any league or cup whose teams are far from 60, and as ratings drift. Filed as `match--tick-goals-by-level`, together with the gap-to-goals effect.
+**Resolved: goals no longer grow with absolute quality.** `tick` was at 2.1, 2.9 and 4.6 goals at 40, 60 and 80 (v1); it is now 2.5 at every level (the 0.07 spread is above the ±0.04 sampling margin but small), with draw and 0–0 rates flat. `match--tick-goals-by-level` is delivered.
 
-### Mentality (60 v 60)
+### Mentality
 
-| Home v away | simple goals | simple H / D / A % | tick goals | tick H / D / A % |
+Points per match are 3 × wins + draws, from the home or the named side's view.
+
+| Home v away (60 v 60) | simple goals | simple H / D / A % | tick goals | tick H / D / A % |
 | --- | --- | --- | --- | --- |
-| balanced v balanced | 2.75 | 38.7 / 26.6 / 34.6 | 2.92 | 44.0 / 24.9 / 31.1 |
-| attacking v attacking | 3.78 | 40.4 / 22.4 / 37.3 | 3.65 | 43.9 / 21.8 / 34.3 |
-| defensive v defensive | 1.88 | 34.4 / 33.1 / 32.5 | 1.53 | 34.5 / 36.9 / 28.6 |
-| attacking v balanced | 3.20 | 40.6 / 25.0 / 34.4 | 3.61 | 64.4 / 18.1 / 17.5 |
-| balanced v attacking | 3.21 | 37.3 / 25.3 / 37.4 | 3.44 | 25.3 / 21.2 / 53.5 |
-| defensive v balanced | 2.28 | 34.5 / 29.5 / 36.1 | 4.65 | 40.6 / 18.8 / 40.6 |
-| balanced v defensive | 2.28 | 38.5 / 29.3 / 32.2 | 4.74 | 50.4 / 18.3 / 31.3 |
-| attacking v defensive | 2.67 | 41.8 / 26.7 / 31.5 | 3.82 | 71.2 / 15.3 / 13.5 |
-| defensive v attacking | 2.66 | 35.0 / 27.1 / 37.9 | 3.69 | 20.7 / 18.7 / 60.7 |
+| balanced v balanced | 2.71 | 37.2 / 26.3 / 36.6 | 2.46 | 42.4 / 26.8 / 30.8 |
+| attacking v attacking | 3.79 | 40.5 / 20.2 / 39.3 | 3.13 | 45.3 / 22.7 / 32.0 |
+| defensive v defensive | 1.83 | 33.5 / 32.9 / 33.6 | 1.39 | 35.2 / 39.1 / 25.7 |
+| attacking v balanced | 3.23 | 40.4 / 23.5 / 36.1 | 2.87 | 51.4 / 23.6 / 25.0 |
+| balanced v attacking | 3.23 | 37.2 / 23.4 / 39.5 | 2.76 | 37.5 / 24.9 / 37.6 |
+| defensive v balanced | 2.23 | 33.0 / 30.4 / 36.6 | 1.85 | 38.5 / 31.8 / 29.7 |
+| balanced v defensive | 2.23 | 36.7 / 30.0 / 33.2 | 1.87 | 40.3 / 32.2 / 27.5 |
+| attacking v defensive | 2.62 | 40.7 / 26.4 / 32.9 | 2.17 | 47.3 / 27.7 / 25.0 |
+| defensive v attacking | 2.62 | 33.2 / 27.0 / 39.8 | 2.08 | 35.3 / 30.0 / 34.7 |
 
-In `simple`, mentality works as a manager would expect. Attacking raises goals at both ends for a win rate 2–3 points higher, and defensive lowers them for 2–4 points fewer wins and more draws.
+The same by the rating gap (`TestBalanceMentalityByGap`: the side named plays the mentality, the other is balanced unless stated), points per match for that side:
 
-**In `tick`, attacking always pays and defensive backfires.** Against a balanced side, attacking lifts the win rate by 20 points (44% to 64% at home, 31% to 54% away), with no cost at the back. It is the dominant choice. A defensive side against a balanced or attacking one does not shut the game down: the match averages 4.7 goals, 0–0s almost vanish (0.7%), and the defensive side itself scores more than when it is balanced (2.34 at home against 1.59). Defensive lowers goals only when both sides play it. The AI always plays balanced (`ai.SelectionVersion` 3), so a manager on `tick` would win far more by always attacking. Filed as `match--tick-mentality`. It should be fixed before phase 2 puts the manager's live match on `tick`.
+| Match | balanced | defensive | attacking | goals for / against, balanced → attacking (`tick`) |
+| --- | --- | --- | --- | --- |
+| Underdog, 55 v 65 at home: `tick` | 1.01 | 0.95 | 1.16 | 0.99 / 1.53 → 1.26 / 1.58 |
+| Underdog, 55 v 65 at home: `simple` | 1.03 | 0.99 | 1.06 | 1.13 / 1.63 → 1.36 / 1.91 |
+| Favourite, 65 v 55 at home: `tick` | 2.08 | 1.97 | 2.28 | 1.82 / 0.79 → 2.27 / 0.81 |
+| Favourite, 65 v 55 at home: `simple` | 1.75 | 1.62 | 1.83 | 1.64 / 1.11 → 2.01 / 1.29 |
+| Underdog, 65 v 55 away: `tick` | 0.70 | 0.66 | 0.81 | 0.79 / 1.82 → 1.05 / 1.93 |
+| Underdog, 65 v 55 away: `simple` | 1.02 | 0.99 | 1.04 | 1.11 / 1.64 → 1.35 / 1.91 |
+
+**In `simple` mentality is a trade-off. In `tick` v6 attacking is still a free upgrade, and defensive never pays.** The backfire of v1 is gone (a defensive side now concedes and scores less, 1.85 goals with a defensive home side against 2.46, and 0–0s rise from 7.6% to 15%), and so is the 20-point swing: attacking against a balanced side is worth +0.24 points a match at home and +0.19 away (about 4–9 points over a 38-match season; `simple` +0.07), and defensive costs 0.04–0.11. That makes it matter, but as a dominant choice, not a choice: attacking beats balanced for the favourite (+0.20), for the underdog at home (+0.15) and away (+0.11),. The reason is in the goals: attacking adds 0.25–0.45 goals scored a match for `tick` and only 0.02–0.11 conceded (about 1–3 standard errors); `simple` concedes 0.2–0.3 more. A defensive underdog gets more draws (+3.6 points of draw rate) and fewer wins (−3.1) and ends 0.06 points a match worse off, so defensive is not a tool for the weaker side either. Nothing outside the goal model charges for attacking: `medical` and `app` do not read mentality (condition drain and injury exposure depend on minutes only). The AI always plays balanced (`ai.SelectionVersion` 3). The sweep sets one mentality for 90 minutes, so protecting a lead (switching late) is not measured. Filed as `match--attacking-is-free`.
 
 ### Shootouts
 
-A knockout tie goes to penalties exactly when it is level after 90 minutes: 25–27% of ties between equal teams in either engine (24.9% in `tick`). The sweep checks that the shootout count equals the draw count in every row. There is no extra time, which roughly doubles or triples the real-world shootout rate. That is a rules choice for `competitions` and `match`, not a calibration issue.
+A knockout tie goes to penalties exactly when it is level after 90 minutes: 26–27% of ties between equal teams in either engine at the current versions (26.8% in `tick`). The sweep checks that the shootout count equals the draw count in every row. There is no extra time, which roughly doubles or triples the real-world shootout rate. That is a rules choice for `competitions` and `match`, not a calibration issue.
 
-| Stronger side (home) wins the shootout, % | 60 v 60 | 62 v 58 | 65 v 55 | 70 v 50 |
+| Home (stronger) side wins the shootout, % | 60 v 60 | 62 v 58 | 65 v 55 | 70 v 50 |
 | --- | --- | --- | --- | --- |
-| simple | 49 | 59 | 74 | 88 |
-| tick | 53 | 65 | 80 | 90 |
+| simple | 49 | 54 | 55 | 61 |
+| tick | 53 | 54 | 57 | 60 |
 
-The away rows mirror these: the 50-rated side wins 8% (`simple`) or 12% (`tick`) of shootouts against a 70-rated side. Both sides together score 8.4–10.1 penalties per shootout in either engine.
+At 50 v 70 the home side is the weaker one and wins 35% (`simple`) or 42% (`tick`) of the shootouts. Both sides together score 8.1–8.6 penalties per shootout in either engine.
 
-**Shootouts follow the rating gap as strongly as open play does.** Real shootouts are close to a coin toss even between very unequal teams. In both engines, a side 10 points weaker in a career cup (65 v 55) reaches penalties 16–24% of the time and then wins only 20–26% of them, so it gets almost no second chance. This is live in the career now, through `simple` in the Continental Cup. Filed as `match--shootout-favourite`.
+**Resolved: shootouts no longer follow the rating gap.** At v1 and v3 the stronger side won 74–80% of shootouts at 65 v 55 and 88–90% at 70 v 50; it now wins 55–57% and 60–61%, close to the coin toss real shootouts are. `match--shootout-favourite` is delivered in both engines.
+
+### History
+
+- **2026-09-28**, `tick` v1, `simple` v3: `tick` drew 24.9% and scored 2.9 goals at 60 v 60, 4.6 at 80 v 80 and 2.1 at 40 v 40, a 10-point mismatch gave 72% wins and a 20-point one 4.3 goals. Attacking raised the win rate by 20 points with no cost at the back; a defensive side against a balanced one conceded 4.7 goals. A stronger side won 74–80% of shootouts at 65 v 55. Filed `match--tick-goals-by-level`, `match--tick-mentality` and `match--shootout-favourite`.
+- **2026-10-01**, `tick` v6, `simple` v4: this section.

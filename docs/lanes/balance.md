@@ -23,9 +23,9 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
-The AI market is measured on 32 clubs at the current versions, for AI-only, passive and recruiting managers: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market). One note went to `squad` (`squad--passive-manager-market`). The match engines are profiled on synthetic teams at `tick.ModelVersion` 1 (stale: see the pending `match` notes below). Matches measured over career seasons, money over 10 seasons and the population remain.
+The AI market is measured on 32 clubs at the current versions, for AI-only, passive and recruiting managers: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market). The match engines are profiled on synthetic teams at `tick.ModelVersion` 6 and `simple.ModelVersion` 4 ([docs/balance.md, "Match engines"](../balance.md#match-engines-tick-against-simple)): two notes went to `match` (`match--attacking-is-free`, `match--simple-home-advantage`) and one earlier to `squad` (`squad--passive-manager-market`). Matches measured over career seasons, money over 10 seasons and the population remain.
 
-Pending incoming measurement requests (accepted): [tick career seasons](../handoffs/balance--tick-career-seasons.md), [tick match statistics](../handoffs/balance--tick-match-stats.md), [tick mentality and goals-by-level refresh](../handoffs/balance--tick-mentality-delivered.md), [injuries](../handoffs/balance--injuries-delivered.md), [attribute spreads](../handoffs/balance--match-attribute-spreads.md), and what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open).
+Pending incoming measurement requests (accepted): [tick career seasons](../handoffs/balance--tick-career-seasons.md), [tick match statistics](../handoffs/balance--tick-match-stats.md), [injuries](../handoffs/balance--injuries-delivered.md), [attribute spreads](../handoffs/balance--match-attribute-spreads.md), and what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open).
 
 **A baseline.** Measure the current game over a fixed seed set and record it in `docs/balance.md`. Done: the market. Remaining:
 
@@ -38,7 +38,7 @@ Pending incoming measurement requests (accepted): [tick career seasons](../hando
 - Add an always-on market bound if the numbers justify it: a few seeds, loose limits (stars moved per window, completions per window, no AI club below zero, AI vacancies at the close). The 30-year sweep takes 100 s, so an always-on version needs about 5 years and 2 seeds.
 - Record the manager's division and the clubs' by-division strength and balance in the market sweep (it reports titles only).
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work, and after promotion and relegation lands.
-- Rerun `TestBalanceEngineComparison` when `match` answers `match--tick-mentality`, `match--tick-goals-by-level` or `match--shootout-favourite`. Then propose always-on bounds for mentality and shootouts (a few seeds, loose limits) to `match`, whose trend tests they would sit beside.
+- Rerun `TestBalanceEngineComparison` and `TestBalanceMentalityByGap` when `match` answers `match--attacking-is-free` or `match--simple-home-advantage`. Then propose always-on bounds for mentality by gap and for shootouts (a few seeds, loose limits) to `match`, whose trend tests they would sit beside.
 - Once `app` can run a career on `tick` (`match` roadmap phase 2), compare the two engines over league seasons: goals, home and draw rates, upsets, final-table spread.
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.

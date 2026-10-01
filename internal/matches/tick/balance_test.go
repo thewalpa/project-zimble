@@ -210,26 +210,9 @@ func TestBalanceEngineComparison(t *testing.T) {
 		}
 	}
 
-	var b strings.Builder
-	b.WriteString("\n| Scenario | Engine | Goals | Home–away goals | Home % | Draw % | Away % | Draw % if independent | 0–0 % | 4+ goals % | Shootout home win % | Penalties per shootout |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
-	for i, sc := range balanceScenarios {
-		for j, p := range profiles[i] {
-			fourPlus := 0
-			for k := 4; k <= maxTally; k++ {
-				fourPlus += p.total[k]
-			}
-			fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f–%.2f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.0f | %.1f |\n",
-				sc.name, engines[j].ID(), float64(p.goals[0]+p.goals[1])/float64(p.n),
-				float64(p.goals[0])/float64(p.n), float64(p.goals[1])/float64(p.n),
-				pct(p.home, p.n), pct(p.draw, p.n), pct(p.away, p.n), p.independentDraws(),
-				pct(p.total[0], p.n), pct(fourPlus, p.n), pct(p.penHome, p.shootouts),
-				float64(p.penKicks)/float64(max(p.shootouts, 1)))
-		}
-	}
-	t.Log(b.String())
+	t.Log(profileTable(balanceScenarios, engines, profiles))
 
-	b.Reset()
+	var b strings.Builder
 	b.WriteString("\nTotal goals per match, 60 v 60 (% of matches):\n\n| Engine | 0 | 1 | 2 | 3 | 4 | 5 | 6+ |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for j, p := range profiles[0] {
 		fmt.Fprintf(&b, "| %s |", engines[j].ID())
@@ -249,4 +232,65 @@ func TestBalanceEngineComparison(t *testing.T) {
 			}
 		}
 	}
+}
+
+// profileTable formats one table row per scenario and engine.
+func profileTable(scenarios []balanceScenario, engines []matches.Engine, profiles [][]matchProfile) string {
+	var b strings.Builder
+	b.WriteString("\n| Scenario | Engine | Goals | Home–away goals | Home % | Draw % | Away % | Draw % if independent | 0–0 % | 4+ goals % | Shootout home win % | Penalties per shootout |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for i, sc := range scenarios {
+		for j, p := range profiles[i] {
+			fourPlus := 0
+			for k := 4; k <= maxTally; k++ {
+				fourPlus += p.total[k]
+			}
+			fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f–%.2f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.0f | %.1f |\n",
+				sc.name, engines[j].ID(), float64(p.goals[0]+p.goals[1])/float64(p.n),
+				float64(p.goals[0])/float64(p.n), float64(p.goals[1])/float64(p.n),
+				pct(p.home, p.n), pct(p.draw, p.n), pct(p.away, p.n), p.independentDraws(),
+				pct(p.total[0], p.n), pct(fourPlus, p.n), pct(p.penHome, p.shootouts),
+				float64(p.penKicks)/float64(max(p.shootouts, 1)))
+		}
+	}
+	return b.String()
+}
+
+// mentalityByGapScenarios put a mentality on the underdog and on the
+// favourite. The equal-team rows of balanceScenarios cannot show whether
+// defensive is a tool for the weaker side.
+var mentalityByGapScenarios = []balanceScenario{
+	{"55 v 65, home balanced", 55, 65, matches.Balanced, matches.Balanced},
+	{"55 v 65, underdog defensive", 55, 65, matches.Defensive, matches.Balanced},
+	{"55 v 65, underdog attacking", 55, 65, matches.Attacking, matches.Balanced},
+	{"65 v 55, favourite balanced", 65, 55, matches.Balanced, matches.Balanced},
+	{"65 v 55, favourite attacking", 65, 55, matches.Attacking, matches.Balanced},
+	{"65 v 55, favourite defensive", 65, 55, matches.Defensive, matches.Balanced},
+	{"65 v 55, underdog defensive", 65, 55, matches.Balanced, matches.Defensive},
+	{"65 v 55, underdog attacking", 65, 55, matches.Balanced, matches.Attacking},
+	{"65 v 55, both attacking", 65, 55, matches.Attacking, matches.Attacking},
+	{"65 v 55, fav attacking, underdog defensive", 65, 55, matches.Attacking, matches.Defensive},
+}
+
+// TestBalanceMentalityByGap: ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMentalityByGap -v -count=1
+func TestBalanceMentalityByGap(t *testing.T) {
+	if os.Getenv("ZIMBLE_BALANCE") != "1" {
+		t.Skip("set ZIMBLE_BALANCE=1 to run the mentality-by-gap sweep")
+	}
+	simpleEngine, err := simple.New(simple.DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engines := []matches.Engine{simpleEngine, engine(t)}
+	profiles := make([][]matchProfile, len(mentalityByGapScenarios))
+	for i, sc := range mentalityByGapScenarios {
+		for _, e := range engines {
+			p, err := sweep(e, sc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			profiles[i] = append(profiles[i], p)
+		}
+	}
+	t.Log(profileTable(mentalityByGapScenarios, engines, profiles))
 }

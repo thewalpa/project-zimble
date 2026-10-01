@@ -3263,3 +3263,12 @@ Answers `balance--rerun-baseline-32-clubs`, `balance--star-churn-delivered` and 
 - **Findings.** 48 AI transfers a window (about 1.5 per club); stars move 1–3 a window in the first ten years, 5 by year 30; 35% of moves go to a weaker club; the squad-average gap grows from 7 to 11–12 points; no club ends below zero but the poorest stays near 1M while the richest reaches 24M. Refusals rise from 3 to 7 a window over 30 years. 4% of AI-only windows close with an AI club short of its roster, 20% with the recruiting manager.
 - **Implausible:** with a passive manager 55–59% of listings go unsold and the free-agent pool grows to 19 ([note to squad](handoffs/squad--passive-manager-market.md)). A recruiting manager's squad is 59–62 against the AI's 59, which is not dominant.
 - Closed the three delivered notes; the free-agent note stays open for the questions not yet measured.
+
+## balance: tick and simple refreshed at tick v6 (done)
+
+Answers `balance--tick-mentality-delivered`. Numbers and commands are in [balance.md](balance.md#match-engines-tick-against-simple); no production code changed.
+
+- **Measured.** `tick` v6 against `simple` v4 on synthetic teams, 3,000 matches a row. Resolved: goals no longer grow with quality (2.5 at 40, 60 and 80), a 20-point mismatch gives 3.2 goals (4.3 at v1), and shootouts follow the gap only mildly (the stronger side wins 55–61%, was 74–90%). New: equal teams score 2.46 goals on `tick` (a little low), and `simple` has no home advantage left (37.2% against 36.6%).
+- **Mentality.** Still not a trade-off on `tick`: attacking adds 0.11–0.24 points a match for the favourite, the underdog and equal teams, costs almost nothing at the back and has no fatigue cost; defensive never pays, even for the underdog. Filed `match--attacking-is-free` and `match--simple-home-advantage`.
+- **New test.** `TestBalanceMentalityByGap` puts a mentality on the underdog and the favourite (a sweep of 10 scenarios, about 8 minutes on 4 cores). Both sweeps need `-timeout 2h` on a small machine: Go's default 10 minutes is too short for `tick` v6. The table printing moved into `profileTable`.
+
