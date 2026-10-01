@@ -132,7 +132,7 @@ func (s *session) transfers(args []string) error {
 		}
 	}
 	var listed []app.ListedPlayer
-	for _, l := range s.w.TransferList() {
+	for _, l := range s.transferList() {
 		if l.Club == s.club() {
 			listed = append(listed, l)
 		}
@@ -232,7 +232,7 @@ func (s *session) market(args []string) error {
 		if c.ID == s.club() {
 			continue
 		}
-		squad, _ := s.w.Squad(c.ID)
+		squad, _ := s.w.ObservedSquad(s.club(), c.ID)
 		for _, p := range squad {
 			if p.Position == pos {
 				rows = append(rows, row{p, c.ShortName, c.Nation})
@@ -289,7 +289,7 @@ func (s *session) list(args []string) error {
 		return errors.New(usage)
 	}
 	if len(args) == 0 {
-		list := s.w.TransferList()
+		list := s.transferList()
 		if len(list) == 0 {
 			s.printf("No one is on the transfer list. %s\n", s.windowLine())
 			return nil
@@ -311,7 +311,7 @@ func (s *session) list(args []string) error {
 	if err != nil {
 		return err
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	i := slices.IndexFunc(squad, func(p app.SquadPlayer) bool { return p.Player == player })
 	if i < 0 {
 		return fmt.Errorf("player %d is not in your squad", player)
@@ -398,7 +398,7 @@ func (s *session) otherPlayer(id ids.PlayerID) (app.SquadPlayer, bool) {
 		if c.ID == s.club() {
 			continue
 		}
-		squad, _ := s.w.Squad(c.ID)
+		squad, _ := s.w.ObservedSquad(s.club(), c.ID)
 		for _, p := range squad {
 			if p.Player == id {
 				return p, true

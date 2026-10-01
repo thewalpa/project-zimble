@@ -115,7 +115,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 	if !ok {
 		pos, position = "FW", players.Forward
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	v := transfersView{
 		Window:     s.windowText(),
 		NeededNote: s.neededNote(),
@@ -142,7 +142,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 		}
 	}
 	slices.Reverse(v.Done)
-	for _, l := range s.w.TransferList() {
+	for _, l := range s.transferList() {
 		row := listedRow{ListedPlayer: l, Ours: l.Club == s.club()}
 		if !row.Ours {
 			row.Offer, _ = s.w.SuggestContract(l.Player)
@@ -154,7 +154,7 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 		if c.ID == s.club() {
 			continue
 		}
-		players, _ := s.w.Squad(c.ID)
+		players, _ := s.w.ObservedSquad(s.club(), c.ID)
 		for _, p := range players {
 			if p.Position != position {
 				continue

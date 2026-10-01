@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
@@ -215,5 +217,78 @@ func TestTableMarksAndPlayoffNames(t *testing.T) {
 	}
 	if _, _, ok := w.PlayoffDivisions(1); ok || w.PlayoffTitle(1) != "" {
 		t.Fatal("a league is named as a play-off")
+	}
+}
+
+// Manager views preserve today's exact facts and negotiated prices, including
+// a custom listing, but require a real observing club and never change saves.
+func TestObservedPlayerViews(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	squad, _ := w.Squad(userClub3)
+	asking := squad[0].Value + 12300
+	if _, err := w.ListPlayer(listCmd(w, squad[0].Player, asking)); err != nil {
+		t.Fatal(err)
+	}
+	release(t, w, userClub3, players.Forward)
+	before := w.Snapshot()
+	for _, observer := range []ids.ClubID{1, userClub3} {
+		for _, club := range []ids.ClubID{1, userClub3} {
+			want, _ := w.Squad(club)
+			got, ok := w.ObservedSquad(observer, club)
+			if !ok || !reflect.DeepEqual(got, want) {
+				t.Fatalf("observer %d squad %d: knowledge or negotiation terms changed", observer, club)
+			}
+			for _, row := range got {
+				want, _ := w.PlayerProfile(row.Player)
+				got, ok := w.ObservedPlayerProfile(observer, row.Player)
+				if !ok || got != want {
+					t.Fatalf("observer %d player %d: profile changed", observer, row.Player)
+				}
+			}
+			got[0].Attributes[0] = 1
+			got[0].Name = "changed copy"
+		}
+		agents, ok := w.ObservedFreeAgents(observer)
+		if !ok || len(agents) == 0 || !reflect.DeepEqual(agents, w.FreeAgents()) {
+			t.Fatal("free-agent knowledge changed")
+		}
+		for _, row := range agents {
+			want, _ := w.PlayerProfile(row.Player)
+			got, ok := w.ObservedPlayerProfile(observer, row.Player)
+			if !ok || got != want || got.Club != 0 || got.Retired {
+				t.Fatalf("free-agent profile changed: %+v", got)
+			}
+		}
+		listed, ok := w.ObservedTransferList(observer)
+		if !ok || !reflect.DeepEqual(listed, w.TransferList()) || len(listed) == 0 || listed[0].Value != asking {
+			t.Fatal("observations lost custom listing terms")
+		}
+		listed[0].Value = 0
+		listed[0].Attributes[0] = 1
+	}
+	for _, observer := range []ids.ClubID{0, 99999} {
+		if rows, ok := w.ObservedSquad(observer, userClub3); ok || rows != nil {
+			t.Fatal("invalid observer received a squad")
+		}
+		if rows, ok := w.ObservedFreeAgents(observer); ok || rows != nil {
+			t.Fatal("invalid observer received free agents")
+		}
+		if rows, ok := w.ObservedTransferList(observer); ok || rows != nil {
+			t.Fatal("invalid observer received transfer listings")
+		}
+		if p, ok := w.ObservedPlayerProfile(observer, squad[0].Player); ok || p != (PlayerProfile{}) {
+			t.Fatal("invalid observer received a player profile")
+		}
+	}
+	if rows, ok := w.ObservedSquad(userClub3, 99999); ok || rows != nil {
+		t.Fatal("unknown squad was observed")
+	}
+	for _, id := range []ids.PlayerID{0, 99999} {
+		if p, ok := w.ObservedPlayerProfile(userClub3, id); ok || p != (PlayerProfile{}) {
+			t.Fatal("unknown player was observed")
+		}
+	}
+	if !reflect.DeepEqual(w.Snapshot(), before) {
+		t.Fatal("reading or editing observed views changed the saved world")
 	}
 }

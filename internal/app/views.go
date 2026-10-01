@@ -473,3 +473,91 @@ func (w *World) TableMark(ref competitions.SeasonRef, position int) TableMark {
 	}
 	return MarkPlayoffDown
 }
+
+// ObservedSquad combines squad membership and negotiation terms with the
+// observing club's player knowledge. False means either club is unknown.
+// Manager clients pass UserClub as observer, even when viewing another club.
+func (w *World) ObservedSquad(observer, club ids.ClubID) ([]SquadPlayer, bool) {
+	squad, ok := w.Squad(club)
+	if !ok {
+		return nil, false
+	}
+	return w.observedPlayerRows(observer, squad)
+}
+
+// ObservedFreeAgents lists the available free agents as known by observer.
+// False means the observing club is unknown (including zero).
+func (w *World) ObservedFreeAgents(observer ids.ClubID) ([]SquadPlayer, bool) {
+	return w.observedPlayerRows(observer, w.FreeAgents())
+}
+
+// ObservedPlayerProfile combines observer's knowledge with the player's
+// negotiation terms and club label. False means observer or player is unknown.
+// Free agents and retired players can be observed too.
+func (w *World) ObservedPlayerProfile(observer ids.ClubID, id ids.PlayerID) (PlayerProfile, bool) {
+	profile, ok := w.PlayerProfile(id)
+	if !ok {
+		return PlayerProfile{}, false
+	}
+	known, err := w.ObservePlayers(observer, []ids.PlayerID{id})
+	if err != nil {
+		return PlayerProfile{}, false
+	}
+	p := known.Players[0]
+	profile.SquadPlayer = observedPlayerRow(p, profile.SquadPlayer)
+	profile.Club, profile.Retired = p.Club, p.Retired
+	profile.ClubName = ""
+	if label, ok := w.ClubLabel(p.Club); ok {
+		profile.ClubName = label.ClubName
+	}
+	return profile, true
+}
+
+// ObservedTransferList keeps listing terms on the transfer query and reads
+// player facts through observer's knowledge. False means observer is unknown.
+func (w *World) ObservedTransferList(observer ids.ClubID) ([]ListedPlayer, bool) {
+	listed := w.TransferList()
+	rows := make([]SquadPlayer, len(listed))
+	for i, p := range listed {
+		rows[i] = p.SquadPlayer
+	}
+	observed, ok := w.observedPlayerRows(observer, rows)
+	if !ok {
+		return nil, false
+	}
+	for i := range listed {
+		listed[i].SquadPlayer = observed[i]
+	}
+	return listed, true
+}
+
+// observedPlayerRows preserves membership, ordering and negotiation terms;
+// every player fact in the returned rows comes from the observation query.
+func (w *World) observedPlayerRows(observer ids.ClubID, rows []SquadPlayer) ([]SquadPlayer, bool) {
+	requested := make([]ids.PlayerID, len(rows))
+	for i, p := range rows {
+		requested[i] = p.Player
+	}
+	known, err := w.ObservePlayers(observer, requested)
+	if err != nil {
+		return nil, false
+	}
+	byID := make(map[ids.PlayerID]PlayerObservation, len(known.Players))
+	for _, p := range known.Players {
+		byID[p.Player] = p
+	}
+	out := slices.Clone(rows)
+	for i, p := range rows {
+		out[i] = observedPlayerRow(byID[p.Player], p)
+	}
+	return out, true
+}
+
+func observedPlayerRow(p PlayerObservation, terms SquadPlayer) SquadPlayer {
+	return SquadPlayer{
+		Player: p.Player, Name: p.Name, Nationality: p.Nationality, Age: p.Age,
+		Position: p.Position, Attributes: p.Attributes, Overall: p.Overall,
+		Condition: p.Condition, DaysOut: p.DaysOut, Contract: p.Contract, Demand: p.Demand,
+		Value: terms.Value, Payoff: terms.Payoff, Listed: terms.Listed,
+	}
+}

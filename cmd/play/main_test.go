@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -696,4 +697,33 @@ func TestClubShowsAnotherClubsProbableLineup(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "club 1", "club 3", "club nope", "club", "quit")
 	contains(t, out, "Probable lineup if it played today", "Formation ", ", attacking upwards:\n", "POS NAME",
 		"that is your club: type squad, lineup or teamplan", `"nope" is not a club`, "usage: club CLUB")
+}
+
+// Browsing player information uses the same managed career before and after
+// loading, and saves exactly the same world as a session with no browsing.
+func TestPlayerViewsDoNotChangeTheCareer(t *testing.T) {
+	dir := t.TempDir()
+	baseline := filepath.Join(dir, "baseline.json")
+	viewed := filepath.Join(dir, "viewed.json")
+	args := []string{"-seed", "42", "-club", "3"}
+	play(t, args, "save "+baseline, "quit")
+	commands := []string{"squad", "teamplan", "club 1", "player 56", "player 1", "compare 56 1", "market FW", "free", "list"}
+	out := play(t, args, append(commands, "save "+viewed, "quit")...)
+	contains(t, out, "Kieran Walsh", "Probable lineup", "Overall:", "Weekly wage", "ASKING")
+	a, err := storage.Load(baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := storage.Load(viewed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(a.Snapshot(), b.Snapshot()) {
+		t.Fatal("viewing player facts changed authoritative career state")
+	}
+	loaded := play(t, []string{"-load", viewed}, append(commands, "quit")...)
+	contains(t, loaded, "Kieran Walsh", "Probable lineup", "Overall:", "Weekly wage", "ASKING")
+	if strings.Contains(loaded, "unsaved progress") {
+		t.Fatal("player views made a loaded career dirty")
+	}
 }

@@ -539,7 +539,7 @@ func (s *server) submitLineup(form url.Values) (string, error) {
 		}
 		return len(rank)
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	for _, p := range squad {
 		v := form.Get(fmt.Sprintf("slot-%d", p.Player))
 		if role, ok := slotRoles[v]; ok {

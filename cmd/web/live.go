@@ -108,7 +108,7 @@ func (s *server) live(r *http.Request) (string, any, error) {
 	}
 	player := func(id ids.PlayerID) livePlayer {
 		p := livePlayer{Player: id, Name: s.name(id), Role: roleLabel(roles[id])}
-		if prof, ok := s.w.PlayerProfile(id); ok {
+		if prof, ok := s.w.ObservedPlayerProfile(s.club(), id); ok {
 			p.Position, p.Overall = prof.Position.String(), prof.Overall
 		}
 		return p

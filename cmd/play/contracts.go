@@ -20,7 +20,7 @@ import (
 // expiring returns the club's players whose contracts end at the next
 // contract-year end, in ascending ID order.
 func (s *session) expiring() []app.SquadPlayer {
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	end := s.w.ContractYearEnd()
 	var out []app.SquadPlayer
 	for _, p := range squad {
@@ -62,7 +62,7 @@ func (s *session) contracts(args []string) error {
 			return errors.New("usage: contracts [COLUMN [asc|desc]]")
 		}
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	slices.SortStableFunc(squad, func(a, b app.SquadPlayer) int {
 		var diff int
 		switch col {
@@ -132,7 +132,7 @@ func (s *session) freeAgents(args []string) error {
 			return errors.New("usage: free [COLUMN [asc|desc]]")
 		}
 	}
-	agents := s.w.FreeAgents()
+	agents := s.observedFreeAgents()
 	if len(agents) == 0 {
 		s.printf("There are no free agents. Players whose contracts end on %s and are not renewed become free agents.\n",
 			s.w.Calendar().Format(s.w.ContractYearEnd()))
@@ -209,7 +209,7 @@ func (s *session) offer(args []string, usage string, pool []app.SquadPlayer, not
 }
 
 func (s *session) renew(args []string) error {
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	player, o, err := s.offer(args, "usage: renew ID [YEARS [WAGE]]", squad, "player %d is not in your squad")
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func (s *session) renew(args []string) error {
 }
 
 func (s *session) sign(args []string) error {
-	player, o, err := s.offer(args, "usage: sign ID [YEARS [WAGE]]", s.w.FreeAgents(), "player %d is not a free agent; type free for the list")
+	player, o, err := s.offer(args, "usage: sign ID [YEARS [WAGE]]", s.observedFreeAgents(), "player %d is not a free agent; type free for the list")
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (s *session) release(args []string) error {
 	if err != nil {
 		return err
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	i := slices.IndexFunc(squad, func(p app.SquadPlayer) bool { return p.Player == player })
 	if i < 0 {
 		return fmt.Errorf("player %d is not in your squad", player)
@@ -277,8 +277,8 @@ func (s *session) endDate(at sim.GameInstant) string {
 
 // name is a player's name, from the squad or the free agents.
 func (s *session) name(id ids.PlayerID) string {
-	squad, _ := s.w.Squad(s.club())
-	for _, p := range append(squad, s.w.FreeAgents()...) {
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
+	for _, p := range append(squad, s.observedFreeAgents()...) {
 		if p.Player == id {
 			return p.Name
 		}
@@ -296,4 +296,16 @@ func (s *session) warnBeforeContractYear(target sim.GameInstant) (sim.GameInstan
 		return target, false
 	}
 	return stop, true
+}
+
+// Player pages run only after a managed club has been chosen. Use that club
+// for every observation, including other clubs' players and market candidates.
+func (s *session) observedFreeAgents() []app.SquadPlayer {
+	rows, _ := s.w.ObservedFreeAgents(s.club())
+	return rows
+}
+
+func (s *session) transferList() []app.ListedPlayer {
+	rows, _ := s.w.ObservedTransferList(s.club())
+	return rows
 }

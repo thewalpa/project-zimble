@@ -526,7 +526,7 @@ func (s *session) status() {
 			s.printf(" %d bids for your players await your answer.", n)
 		}
 		s.printf(" (type transfers)\n")
-		if n := len(s.w.FreeAgents()); n > 0 {
+		if n := len(s.observedFreeAgents()); n > 0 {
 			s.printf("%d free agents wait for a club (type free).\n", n)
 		}
 	}
@@ -604,7 +604,7 @@ func (s *session) squad(args []string) error {
 			return errors.New("usage: squad [COLUMN [asc|desc]]")
 		}
 	}
-	players, _ := s.w.Squad(s.club())
+	players, _ := s.w.ObservedSquad(s.club(), s.club())
 	marks := map[ids.PlayerID]string{}
 	markOrder := map[ids.PlayerID]int{}
 	if d, err := s.currentDraft(); err == nil {
@@ -1251,7 +1251,7 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		}
 	}
 	squad := s.squadByID()
-	squadRows, _ := s.w.Squad(s.club())
+	squadRows, _ := s.w.ObservedSquad(s.club(), s.club())
 	byPlayer := make(map[ids.PlayerID]app.LineupEligibility, len(eligibility))
 	available := 0
 	emergency := false
@@ -1371,7 +1371,7 @@ func (s *session) squadByID() map[ids.PlayerID]app.SquadPlayer {
 
 // squadOf indexes a club's senior players by ID.
 func (s *session) squadOf(club ids.ClubID) map[ids.PlayerID]app.SquadPlayer {
-	players, _ := s.w.Squad(club)
+	players, _ := s.w.ObservedSquad(s.club(), club)
 	out := map[ids.PlayerID]app.SquadPlayer{}
 	for _, p := range players {
 		out[p.Player] = p
@@ -1648,7 +1648,7 @@ func (s *session) play() error {
 			}
 			names := map[ids.PlayerID]string{}
 			for _, c := range []ids.ClubID{m.Home.Club, m.Away.Club} {
-				squad, _ := s.w.Squad(c)
+				squad, _ := s.w.ObservedSquad(s.club(), c)
 				for _, p := range squad {
 					names[p.Player] = p.Name
 				}
@@ -1890,7 +1890,7 @@ func (s *session) showStats(home, away app.TeamLabel, stats matches.MatchStats) 
 func (s *session) playerNames(l app.LiveMatch) map[ids.PlayerID]string {
 	names := map[ids.PlayerID]string{}
 	for _, club := range []ids.ClubID{l.Home.Club, l.Away.Club} {
-		squad, _ := s.w.Squad(club)
+		squad, _ := s.w.ObservedSquad(s.club(), club)
 		for _, p := range squad {
 			names[p.Player] = p.Name
 		}
@@ -2356,7 +2356,7 @@ func (s *session) player(args []string) error {
 	if err != nil {
 		return err
 	}
-	p, ok := s.w.PlayerProfile(id)
+	p, ok := s.w.ObservedPlayerProfile(s.club(), id)
 	if !ok {
 		return fmt.Errorf("no player %d", id)
 	}

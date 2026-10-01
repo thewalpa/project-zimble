@@ -35,7 +35,7 @@ func (s *session) showClub(args []string) error {
 		s.printf("Probable lineup if it played today (the squad changes by kickoff):\n")
 		s.showPitch(l, squad, "")
 	}
-	players, _ := s.w.Squad(found.ID)
+	players, _ := s.w.ObservedSquad(s.club(), found.ID)
 	s.printf("%4s  %-3s %-24s %-10s %3s %5s %-12s\n", "ID", "POS", "NAME", "NATION", "AGE", "OVR", "COND")
 	for _, p := range players {
 		s.printf("%4d  %-3s %-24s %-10s %3d %5d %-12s\n", p.Player, p.Position, p.Name, p.Nationality, p.Age, p.Overall, fitness(p))

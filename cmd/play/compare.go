@@ -27,11 +27,11 @@ func (s *session) comparePlayers(args []string) error {
 			return err
 		}
 	}
-	left, ok := s.w.PlayerProfile(leftID)
+	left, ok := s.w.ObservedPlayerProfile(s.club(), leftID)
 	if !ok {
 		return fmt.Errorf("no player %d", leftID)
 	}
-	right, ok := s.w.PlayerProfile(rightID)
+	right, ok := s.w.ObservedPlayerProfile(s.club(), rightID)
 	if !ok {
 		return fmt.Errorf("no player %d", rightID)
 	}
@@ -85,7 +85,7 @@ func (s *session) comparePlayers(args []string) error {
 }
 
 func (s *session) ownPlayerByName(name string) (ids.PlayerID, error) {
-	players, _ := s.w.Squad(s.club())
+	players, _ := s.w.ObservedSquad(s.club(), s.club())
 	find := func(match func(app.SquadPlayer) bool) (ids.PlayerID, bool) {
 		var found ids.PlayerID
 		for _, player := range players {

@@ -21,7 +21,7 @@ type compareView struct {
 func (s *server) compare(r *http.Request) (string, any, error) {
 	v := compareView{AID: r.URL.Query().Get("a"), BID: r.URL.Query().Get("b")}
 	if club, ok := s.w.UserClub(); ok {
-		v.Squad, _ = s.w.Squad(club)
+		v.Squad, _ = s.w.ObservedSquad(s.club(), club)
 	}
 	load := func(raw string) (app.PlayerProfile, bool, string) {
 		if raw == "" {
@@ -56,7 +56,7 @@ func (s *server) compare(r *http.Request) (string, any, error) {
 			}
 			n = uint64(found)
 		}
-		p, ok := s.w.PlayerProfile(ids.PlayerID(n))
+		p, ok := s.w.ObservedPlayerProfile(s.club(), ids.PlayerID(n))
 		if !ok {
 			return app.PlayerProfile{}, false, fmt.Sprintf("There is no player %d.", n)
 		}

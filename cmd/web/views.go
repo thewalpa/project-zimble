@@ -170,7 +170,7 @@ func (s *server) pendingFixture() (ids.FixtureID, bool) {
 // expiring returns the squad's players whose contracts end at the next
 // contract-year end.
 func (s *server) expiring() []app.SquadPlayer {
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	return slices.DeleteFunc(squad, func(p app.SquadPlayer) bool { return p.Contract.Expires != s.w.ContractYearEnd() })
 }
 
@@ -179,8 +179,8 @@ func (s *server) name(id ids.PlayerID) string {
 	if n, ok := s.w.PlayerName(id); ok {
 		return n
 	}
-	squad, _ := s.w.Squad(s.club())
-	for _, p := range append(squad, s.w.FreeAgents()...) {
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
+	for _, p := range append(squad, s.observedFreeAgents()...) {
 		if p.Player == id {
 			return p.Name
 		}
@@ -358,7 +358,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, Agenda: s.agenda(), ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
 	if s.w.TransferWindow().Open {
-		v.Window, v.Bids, v.FreeAgents = s.windowText(), s.openBidsForUs(), len(s.w.FreeAgents())
+		v.Window, v.Bids, v.FreeAgents = s.windowText(), s.openBidsForUs(), len(s.observedFreeAgents())
 	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		v.WeeklyWage = fin.WeeklyWage
@@ -515,12 +515,12 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	viewClub := s.club()
 	if cStr := r.URL.Query().Get("club"); cStr != "" {
 		if n, err := strconv.ParseUint(cStr, 10, 64); err == nil && n != 0 {
-			if _, ok := s.w.Squad(ids.ClubID(n)); ok {
+			if _, ok := s.w.ObservedSquad(s.club(), ids.ClubID(n)); ok {
 				viewClub = ids.ClubID(n)
 			}
 		}
 	}
-	squad, _ := s.w.Squad(viewClub)
+	squad, _ := s.w.ObservedSquad(s.club(), viewClub)
 	clubLabel, _ := s.w.ClubLabel(viewClub)
 	isUserClub := (viewClub == s.club())
 	end := s.w.ContractYearEnd()
@@ -588,7 +588,7 @@ type freeView struct {
 
 func (s *server) free(r *http.Request) (string, any, error) {
 	defs := s.w.Content()
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	hasRoom := len(squad) < defs.SquadLimit
 	_, locked := s.w.Pending()
 	sortState := newSortState(r, "ovr", "desc")
@@ -600,7 +600,7 @@ func (s *server) free(r *http.Request) (string, any, error) {
 	for y := defs.Economy.ContractYears[0]; y <= defs.Economy.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
 	}
-	for _, p := range s.w.FreeAgents() {
+	for _, p := range s.observedFreeAgents() {
 		o, _ := s.w.SuggestContract(p.Player)
 		v.Rows = append(v.Rows, freeRow{SquadPlayer: p, Offer: o, Room: hasRoom})
 	}
@@ -839,7 +839,7 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 	for _, p := range l.Bench {
 		slot[p] = "bench"
 	}
-	squad, _ := s.w.Squad(s.club())
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
 	for _, p := range squad {
 		e := byPlayer[p.Player]
 		if v.AvailableOnly && !e.Eligibility.Selectable() {
@@ -1273,7 +1273,7 @@ func (s *server) pitchOf(club string, l selection.Lineup) *reportPitch {
 		if i := strings.LastIndex(name, " "); i >= 0 {
 			c.Short = name[i+1:]
 		}
-		if p, ok := s.w.PlayerProfile(id); ok {
+		if p, ok := s.w.ObservedPlayerProfile(s.club(), id); ok {
 			c.Position = p.Position.String()
 			c.Overall = p.Overall
 		}
@@ -1797,7 +1797,7 @@ func (s *server) player(r *http.Request) (string, any, error) {
 	if err != nil || n == 0 {
 		return "player", playerView{Missing: fmt.Sprintf("%q is not a player ID.", arg)}, nil
 	}
-	p, ok := s.w.PlayerProfile(ids.PlayerID(n))
+	p, ok := s.w.ObservedPlayerProfile(s.club(), ids.PlayerID(n))
 	if !ok {
 		return "player", playerView{Missing: fmt.Sprintf("There is no player %d.", n)}, nil
 	}
@@ -1820,4 +1820,16 @@ func (s *server) player(r *http.Request) (string, any, error) {
 		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: playerLeft(spell.Left)})
 	}
 	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club(), Career: history}, nil
+}
+
+// Player pages run only after a managed club has been chosen. Use that club
+// for every observation, including other clubs' players and market candidates.
+func (s *server) observedFreeAgents() []app.SquadPlayer {
+	rows, _ := s.w.ObservedFreeAgents(s.club())
+	return rows
+}
+
+func (s *server) transferList() []app.ListedPlayer {
+	rows, _ := s.w.ObservedTransferList(s.club())
+	return rows
 }

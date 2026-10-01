@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -1466,4 +1467,32 @@ func TestSeasonEndSaysMovement(t *testing.T) {
 		c.post("/continue", nil)
 	}
 	contains(t, c.get("/inbox"), "you finished 2nd: promoted to the division above.")
+}
+
+// HTTP player pages leave the world untouched, and a saved career presents
+// the same facts after loading. All pages share the manager's observer.
+func TestPlayerPagesDoNotChangeTheCareer(t *testing.T) {
+	c := career(t)
+	before := c.s.w.Snapshot()
+	paths := []string{"/squad", "/squad?club=1", "/lineup?plan=1", "/player?id=56", "/player?id=1", "/compare?a=56&b=1", "/transfers", "/free"}
+	pages := make(map[string]string, len(paths))
+	for _, path := range paths {
+		pages[path] = mainOf(c.get(path))
+	}
+	contains(t, pages["/player?id=56"], "Kieran Walsh", "Contract:", "Value:")
+	contains(t, pages["/squad?club=1"], "Probable lineup")
+	contains(t, pages["/compare?a=56&b=1"], "Weekly wage", "Asking price")
+	if !reflect.DeepEqual(c.s.w.Snapshot(), before) {
+		t.Fatal("reading player pages changed authoritative career state")
+	}
+	c.post("/save", nil)
+	loaded := newClient(t, config{loadPath: c.s.savePath})
+	for _, path := range paths {
+		if got := mainOf(loaded.get(path)); got != pages[path] {
+			t.Errorf("%s player page changed after loading", path)
+		}
+	}
+	if !reflect.DeepEqual(loaded.s.w.Snapshot(), before) {
+		t.Fatal("reading loaded player pages changed authoritative career state")
+	}
 }
