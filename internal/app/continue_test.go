@@ -33,6 +33,16 @@ func mustContinue(t *testing.T, w *World, until sim.GameInstant) ContinueResult 
 	return res
 }
 
+// reached asserts that Continue arrived at now with nothing resolved on the
+// way: no batch lay between the old clock and the target.
+func reached(t *testing.T, res ContinueResult, now sim.GameInstant) {
+	t.Helper()
+	r, ok := res.(ReachedTarget)
+	if !ok || r.Now != now || len(r.Resolved) != 0 {
+		t.Fatalf("Continue = %#v, want ReachedTarget{Now: %d} with nothing resolved", res, now)
+	}
+}
+
 // state captures everything Continue may change.
 type state struct {
 	Now        sim.GameInstant
@@ -104,25 +114,28 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 }
 
 func TestContinueBeforeAndAtKickoff(t *testing.T) {
+	// Unmanaged: no user fixture exists, so the kickoff batch resolves on
+	// the way instead of stopping (the stop is TestContinuePastKickoffStopsAtKickoff).
 	w := newWorld(t, 42)
 	k := firstKickoff(t, w)
 	fixturesBefore := w.competitions.Fixtures(w.leagues[0].season)
 
-	if res := mustContinue(t, w, k-1); res != (ReachedTarget{Now: k - 1}) {
-		t.Fatalf("before kickoff: %#v", res)
-	}
+	reached(t, mustContinue(t, w, k-1), k-1)
 	if len(kickoffTasks(w)) != 56 || len(w.competitions.PendingRounds()) != 0 {
 		t.Fatal("a task ran before its kickoff")
 	}
 
 	res := mustContinue(t, w, k)
-	ready, ok := res.(FixtureRoundReady)
-	if !ok || ready.At != k || len(ready.Rounds) != 4 {
+	r, ok := res.(ReachedTarget)
+	if !ok || r.Now != k || len(r.Resolved) != 1 {
 		t.Fatalf("at kickoff: %#v", res)
 	}
-	r := ready.Rounds[0]
-	if r.Round != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) || r.Kickoff != k || len(r.Fixtures) != 4 {
-		t.Fatalf("ready round = %+v", r)
+	batch := r.Resolved[0]
+	if batch.At != k || len(batch.Rounds) != 4 || len(batch.Matches) != 16 {
+		t.Fatalf("batch = %#v", batch)
+	}
+	if batch.Rounds[0] != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) {
+		t.Fatalf("batch rounds = %v", batch.Rounds)
 	}
 	if w.Now() != k || len(kickoffTasks(w)) != 52 || len(w.payloads) != 52 {
 		t.Fatalf("now=%d tasks=%d payloads=%d", w.Now(), len(kickoffTasks(w)), len(w.payloads))
@@ -130,7 +143,7 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	if !reflect.DeepEqual(w.competitions.Fixtures(w.leagues[0].season), fixturesBefore) {
 		t.Fatal("kickoff changed fixtures")
 	}
-	if got := w.Schedules()[0].Rounds; got[0].Status != competitions.RoundAwaitingResults || got[1].Status != competitions.RoundScheduled {
+	if got := w.Schedules()[0].Rounds; got[0].Status != competitions.RoundCompleted || got[1].Status != competitions.RoundScheduled {
 		t.Fatalf("statuses = %s, %s", got[0].Status, got[1].Status)
 	}
 	if err := w.Validate(); err != nil {
@@ -138,17 +151,136 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 	}
 }
 
-func TestContinuePastKickoffStopsAtKickoff(t *testing.T) {
+// Continue runs through every user-less batch in one call, reporting each in
+// Resolved, and the matches' events cite the kickoff task that began their
+// round — the same cause as that round's RoundStarted. No commands involved.
+func TestContinueReportsEveryAutoResolvedBatch(t *testing.T) {
 	w := newWorld(t, 42)
 	k := firstKickoff(t, w)
+	res := mustContinue(t, w, k+20*day)
+	r, ok := res.(ReachedTarget)
+	if !ok || r.Now != k+20*day || len(r.Resolved) != 3 {
+		t.Fatalf("Continue = %#v, want 3 batches resolved on the way to %d", res, k+20*day)
+	}
+	for i, b := range r.Resolved {
+		if b.At != k+sim.GameInstant(i)*7*day || len(b.Rounds) != 4 || len(b.Matches) != 16 {
+			t.Fatalf("batch %d = %#v", i, b)
+		}
+	}
+	if cmds := w.Snapshot().ResolveCommands; len(cmds) != 0 {
+		t.Fatalf("auto-resolved batches recorded %d commands", len(cmds))
+	}
+	causes := map[competitions.RoundRef]events.Cause{}
+	for _, e := range w.Events() {
+		if e.Kind == events.KindRoundStarted {
+			p := e.RoundStarted
+			ref := competitions.RoundRef{Season: competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}, Round: competitions.Round(p.Round)}
+			causes[ref] = e.Cause
+		}
+	}
+	seen := 0
+	for _, e := range w.Events() {
+		p := e.MatchCompleted
+		if p == nil {
+			continue
+		}
+		seen++
+		ref := competitions.RoundRef{Season: competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}, Round: competitions.Round(p.Round)}
+		want, ok := causes[ref]
+		if !ok || want.Kind != events.CauseTask || e.Cause != want {
+			t.Fatalf("match %d cause %+v, round %s started by %+v", p.Fixture, e.Cause, ref, want)
+		}
+	}
+	if seen != 48 {
+		t.Fatalf("%d match events, want 48", seen)
+	}
+}
+
+// A save between auto-resolved batches continues exactly like never saving:
+// the restored world resolves the rest with the same outcomes and events.
+func TestSaveBetweenAutoResolvedBatchesContinuesIdentically(t *testing.T) {
+	k := firstKickoff(t, newWorld(t, 42))
+	straight := newWorld(t, 42)
+	first := mustContinue(t, straight, k+6*day) // one batch on the way
+
+	w := newWorld(t, 42)
+	if got := mustContinue(t, w, k+6*day); !reflect.DeepEqual(got, first) {
+		t.Fatal("first batch differs")
+	}
+	loaded := roundTrip(t, w)
+	restLive := mustContinue(t, straight, k+27*day)
+	restLoaded := mustContinue(t, loaded, k+27*day)
+	if !reflect.DeepEqual(restLoaded, restLive) {
+		t.Fatal("remaining batches differ after reload")
+	}
+	if !reflect.DeepEqual(loaded.Snapshot(), straight.Snapshot()) {
+		t.Fatal("final world state differs")
+	}
+}
+
+// A failing auto-resolve keeps the batches the call already resolved, leaves
+// its own batch awaiting results with nothing recorded, and a later Continue
+// retries it. (The command path is TestFailuresCannotPartiallyResolveABatch.)
+func TestFailedAutoResolveLeavesTheBatchAwaiting(t *testing.T) {
+	w := newWorld(t, 42)
+	k := firstKickoff(t, w)
+	bad := w.competitions.Rounds(w.leagues[0].season)[1].Fixtures[0] // batch 2's
+	real := w.engine
+	w.engine = &faultyEngine{Engine: real, failStart: bad}
+	if _, err := w.Continue(k + 13*day); err == nil {
+		t.Fatal("Continue succeeded with a failing engine")
+	}
+	w.engine = real
+	// Batch 1 of the call stays committed and visible; batch 2 awaits.
+	if r1, _ := w.competitions.Round(competitions.RoundRef{Season: w.leagues[0].season, Round: 1}); r1.Status != competitions.RoundCompleted {
+		t.Fatalf("round 1 status = %s", r1.Status)
+	}
+	pending, ok := w.Pending()
+	if !ok || len(pending.Rounds) != 4 || len(pending.Resolved) != 0 {
+		t.Fatalf("pending = %#v, %v", pending, ok)
+	}
+	if results := w.competitions.Results(w.leagues[0].season); len(results) != 4 {
+		t.Fatalf("%d results recorded, want batch 1's only", len(results))
+	}
+	done := 0
+	for _, e := range w.Events() {
+		if e.MatchCompleted != nil {
+			done++
+		}
+	}
+	if done != 16 {
+		t.Fatalf("%d match events after the failure, want batch 1's", done)
+	}
+	res := mustContinue(t, w, k+13*day)
+	r, ok := res.(ReachedTarget)
+	if !ok || r.Now != k+13*day || len(r.Resolved) != 1 || r.Resolved[0].At != k+7*day || len(r.Resolved[0].Matches) != 16 {
+		t.Fatalf("retry = %#v", res)
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestContinuePastKickoffStopsAtKickoff(t *testing.T) {
+	// The user club plays, so the batch must wait for its lineup decision.
+	w := userWorld(t, 42, userClub)
+	k := firstKickoff(t, w)
 	res := mustContinue(t, w, k+30*day)
-	if ready, ok := res.(FixtureRoundReady); !ok || ready.At != k || w.Now() != k {
+	ready, ok := res.(FixtureRoundReady)
+	if !ok || ready.At != k || w.Now() != k || len(ready.Rounds) != 4 || len(ready.Resolved) != 0 {
 		t.Fatalf("result %#v, now %d; want stop at %d", res, w.Now(), k)
+	}
+	r := ready.Rounds[0]
+	if r.Round != (competitions.RoundRef{Season: w.leagues[0].season, Round: 1}) || r.Kickoff != k || len(r.Fixtures) != 4 {
+		t.Fatalf("ready round = %+v", r)
+	}
+	if len(ready.UserFixtures) == 0 {
+		t.Fatal("no user fixture in the batch")
 	}
 }
 
 func TestContinueWhilePausedIsIdempotent(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	k := firstKickoff(t, w)
 	first := mustContinue(t, w, k)
 	before := snapshot(w)
@@ -167,7 +299,7 @@ func TestContinueWhilePausedIsIdempotent(t *testing.T) {
 }
 
 func TestContinueRejectsPastTarget(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	if _, err := w.Continue(-1); !errors.Is(err, ErrTargetBeforeNow) {
 		t.Fatalf("err = %v", err)
 	}
@@ -228,7 +360,9 @@ func TestOneContinueEqualsSeveral(t *testing.T) {
 }
 
 func TestFailedKickoffLeavesStateUnchanged(t *testing.T) {
-	w := newWorld(t, 42)
+	// Managed: the repaired kickoff must stop with a user fixture, so the
+	// retry can be told apart from an auto-resolve.
+	w := userWorld(t, 42, userClub)
 	k := firstKickoff(t, w)
 	mustContinue(t, w, k-1) // the kickoff is the next due cohort
 	before := snapshot(w)
@@ -304,7 +438,8 @@ func topDivisions(defs content.Definitions) content.Definitions {
 // twoLeagueWorld builds the default world cut to the top divisions (16 clubs,
 // two leagues with identical timing, so every round of both leagues kicks off
 // together) with the leagues passed out of ID order, to check canonical
-// ordering.
+// ordering. It is managed by userClub, so simultaneous batches stop for the
+// user's lineup like in a real career.
 func twoLeagueWorld(t *testing.T) *World {
 	t.Helper()
 	defs := topDivisions(content.Default())
@@ -316,6 +451,10 @@ func twoLeagueWorld(t *testing.T) *World {
 	slices.Reverse(leagues)
 	w, err := load(defs, leagues, content.DefaultCups(), nil, DefaultEpoch(), snap)
 	if err != nil {
+		t.Fatal(err)
+	}
+	w.userClub = userClub
+	if w.inbox, err = w.newInbox(); err != nil {
 		t.Fatal(err)
 	}
 	return w
@@ -395,12 +534,14 @@ func TestLoadRejectsInvalidEpochs(t *testing.T) {
 	if _, err := NewWorld(Config{Seed: 42}); err == nil {
 		t.Error("NewWorld accepted a config without an epoch")
 	}
-	// Epoch exactly at the first kickoff is allowed: round 1 is due at once.
+	// Epoch exactly at the first kickoff is allowed: round 1 is due at once
+	// and, without a user club, resolves on the way.
 	w, err := load(defs, content.DefaultLeagues(), content.DefaultCups(), content.DefaultPromotions(), sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, snap)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res, ok := mustContinue(t, w, 0).(FixtureRoundReady); !ok || res.At != 0 {
+	res, ok := mustContinue(t, w, 0).(ReachedTarget)
+	if !ok || res.Now != 0 || len(res.Resolved) != 1 {
 		t.Fatalf("Continue(0) = %#v", res)
 	}
 }

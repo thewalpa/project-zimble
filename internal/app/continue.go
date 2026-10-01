@@ -31,26 +31,41 @@ const (
 var ErrTargetBeforeNow = sim.ErrTargetBeforeNow
 
 // ContinueResult is the outcome of Continue: ReachedTarget or
-// FixtureRoundReady.
+// FixtureRoundReady. Both carry Resolved: the batches Continue resolved on
+// the way, oldest first.
 type ContinueResult interface{ continueResult() }
+
+// BatchResolved is one batch of rounds played and recorded together. At is
+// when its results became official (the batch's kickoff). Matches are the
+// batch's match reports in fixture ID order.
+type BatchResolved struct {
+	At      sim.GameInstant
+	Rounds  []competitions.RoundRef // canonical order
+	Matches []MatchReport
+}
 
 // ReachedTarget means no interruption occurred and the clock is at Now.
 type ReachedTarget struct {
-	Now sim.GameInstant
+	Now      sim.GameInstant
+	Resolved []BatchResolved
 }
 
-// FixtureRoundReady means one or more rounds have kicked off and await
-// results. The world does not advance until ResolveRounds resolves them;
-// Revision is the value to pass as the next command's ExpectedRevision.
+// FixtureRoundReady means a batch has kicked off and awaits results, and the
+// user club plays one of its fixtures. The world does not advance until
+// ResolveRounds resolves the batch; Revision is the value to pass as the next
+// command's ExpectedRevision.
 //
 // UserFixtures are the batch's fixtures that the user club plays, ascending.
 // Before resolving, the user may SubmitLineup for each (which moves the
 // revision on); a fixture without one is played with the AI selection.
+// A batch with no user fixture never reaches this result: Continue resolves
+// it on the way (see BatchResolved).
 type FixtureRoundReady struct {
 	At           sim.GameInstant // current world time
 	Revision     Revision
 	Rounds       []ReadyRound // by kickoff, competition, season, round
 	UserFixtures []ids.FixtureID
+	Resolved     []BatchResolved
 }
 
 // ReadyRound is a round awaiting results.
@@ -63,6 +78,27 @@ type ReadyRound struct {
 func (ReachedTarget) continueResult()     {}
 func (FixtureRoundReady) continueResult() {}
 
+func cloneBatch(b BatchResolved) BatchResolved {
+	b.Rounds = slices.Clone(b.Rounds)
+	b.Matches = slices.Clone(b.Matches)
+	for i := range b.Matches {
+		b.Matches[i].Goals, b.Matches[i].Events = slices.Clone(b.Matches[i].Goals), slices.Clone(b.Matches[i].Events)
+		b.Matches[i].Lineups = cloneLineups(b.Matches[i].Lineups)
+	}
+	return b
+}
+
+func cloneBatches(in []BatchResolved) []BatchResolved {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]BatchResolved, len(in))
+	for i, b := range in {
+		out[i] = cloneBatch(b)
+	}
+	return out
+}
+
 // Now returns the current world time.
 func (w *World) Now() sim.GameInstant { return w.scheduler.Now() }
 
@@ -73,25 +109,35 @@ func (w *World) Calendar() sim.Calendar { return w.calendar }
 //
 //   - until < Now or outside the supported range: returns an error
 //     (ErrTargetBeforeNow for a past target); nothing changes.
-//   - If any round awaits results, returns FixtureRoundReady for those rounds
-//     without advancing time or running tasks.
-//   - Otherwise runs due task cohorts in (DueAt, Phase, StableOrder, ID)
-//     order. A recovery cohort (daily, Preparation phase) restores every
-//     player's condition and does not interrupt; nor do a season-end
-//     cohort, which creates each ending league's next season, a weekly wage
-//     cohort, the yearly player cohort (development, retirement and youth;
-//     see playerYear), the yearly contract cohort (renewals, expiries and
+//   - A batch that awaits results and holds a user fixture returns
+//     FixtureRoundReady without advancing time or running tasks: the world
+//     does not advance until ResolveRounds resolves it. A batch with no user
+//     fixture is not a stop — there is nothing to decide — and is resolved on
+//     the way (see BatchResolved).
+//   - Runs due task cohorts in (DueAt, Phase, StableOrder, ID) order. A
+//     recovery cohort (daily, Preparation phase) restores every player's
+//     condition and does not interrupt; nor do a season-end cohort, which
+//     creates each ending league's next season, a weekly wage cohort, the
+//     yearly player cohort (development, retirement and youth; see
+//     playerYear), the yearly contract cohort (renewals, expiries and
 //     signings; see contractYear) or a transfer-window day (answers to
 //     bids, completed transfers and AI bids; see transferRun). A kickoff
-//     cohort (every round kickoff task sharing an instant and
-//     phase) is dispatched atomically: its rounds become awaiting results, the
-//     clock moves to the kickoff and FixtureRoundReady is returned.
+//     cohort (every round kickoff task sharing an instant and phase) is
+//     dispatched atomically: its rounds become awaiting results, the clock
+//     moves to the kickoff, and Continue either stops (a user fixture) or
+//     resolves the batch and goes on.
 //   - If nothing interrupts, the clock moves to until and ReachedTarget is
 //     returned.
 //
+// Both results carry Resolved: every batch this call resolved on the way
+// (no user fixture), oldest first. Reports of those matches are complete in
+// that result; a later MatchReport query keeps only the score.
+//
 // A failing cohort stays queued and leaves the clock and round state as they
-// were before that cohort. The world revision increments when Continue
-// changes the clock or dispatches work.
+// were before that cohort. A failing auto-resolve leaves its batch awaiting
+// results (the state a stop would) and the world unchanged otherwise; a later
+// Continue tries again. The world revision increments when Continue changes
+// the clock or dispatches work.
 func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 	if !until.Valid() {
 		return nil, fmt.Errorf("app: continue target %d outside supported range", until)
@@ -99,37 +145,125 @@ func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 	if until < w.Now() {
 		return nil, fmt.Errorf("app: continue to %d: %w (now %d)", until, ErrTargetBeforeNow, w.Now())
 	}
-	if ready, ok := w.pendingRounds(); ok {
-		return ready, nil
-	}
 	nowBefore, committed := w.Now(), false
-	stopped, err := w.scheduler.RunUntil(until, func(at sim.GameInstant, cohort []sim.Task) (bool, error) {
-		staged := len(w.outbox)
-		stop, err := w.handleCohort(at, cohort)
+	var resolved []BatchResolved
+	finish := func(r ContinueResult, err error) (ContinueResult, error) {
+		// Work committed before any failure stays committed and becomes
+		// visible, with its events, at one new revision.
+		if w.Now() != nowBefore || committed {
+			w.revision++
+			w.publish()
+		}
 		if err != nil {
-			w.outbox = w.outbox[:staged] // handlers emit only after committing; kept as a guard
-			return false, err
+			return nil, err
 		}
-		committed = true
-		return stop, nil
-	})
-	// Cohorts committed before any failure stay committed and become
-	// visible, with their events, at one new revision.
-	if w.Now() != nowBefore || committed {
-		w.revision++
-		w.publish()
+		switch r := r.(type) {
+		case ReachedTarget:
+			r.Resolved = cloneBatches(resolved)
+			return r, nil
+		case FixtureRoundReady:
+			// The stop is reported at the new revision, after the bump.
+			ready, ok := w.pendingRounds()
+			if !ok {
+				return nil, errors.New("app: pending round disappeared")
+			}
+			ready.Resolved = cloneBatches(resolved)
+			return ready, nil
+		}
+		return r, nil
 	}
+	for {
+		if ready, ok := w.pendingRounds(); ok {
+			if len(ready.UserFixtures) > 0 {
+				if !committed && w.Now() == nowBefore {
+					// Paused at a user batch from an earlier call: report it
+					// unchanged, without a new revision.
+					return ready, nil
+				}
+				return finish(ready, nil)
+			}
+			batch, err := w.resolveAutomatically()
+			if err != nil {
+				return finish(nil, err)
+			}
+			resolved = append(resolved, batch)
+			committed = true
+			continue
+		}
+		stopped, err := w.scheduler.RunUntil(until, func(at sim.GameInstant, cohort []sim.Task) (bool, error) {
+			staged := len(w.outbox)
+			stop, err := w.handleCohort(at, cohort)
+			if err != nil {
+				w.outbox = w.outbox[:staged] // handlers emit only after committing; kept as a guard
+				return false, err
+			}
+			committed = true
+			return stop, nil
+		})
+		if err != nil {
+			return finish(nil, err)
+		}
+		if !stopped {
+			return finish(ReachedTarget{Now: w.Now()}, nil)
+		}
+		if _, ok := w.pendingRounds(); !ok {
+			return finish(nil, errors.New("app: scheduler stopped without a pending round"))
+		}
+	}
+}
+
+// resolveAutomatically plays and records the pending batch, which holds no
+// user fixture: nobody can submit a lineup or watch it, so there is nothing
+// to stop for. Each match's events cite the kickoff task that began its
+// round. On failure the batch stays awaiting results and the error is
+// returned; a later Continue tries again.
+func (w *World) resolveAutomatically() (BatchResolved, error) {
+	pending := w.competitions.PendingRounds()
+	rounds := make([]competitions.RoundRef, 0, len(pending))
+	for _, r := range pending {
+		rounds = append(rounds, r.Ref)
+	}
+	rounds, err := canonicalRounds(rounds)
 	if err != nil {
-		return nil, err
+		return BatchResolved{}, err
 	}
-	if stopped {
-		ready, ok := w.pendingRounds()
+	causes := make(map[competitions.RoundRef]events.Cause, len(rounds))
+	for _, ref := range rounds {
+		cause, ok := w.roundStartCause(ref)
 		if !ok {
-			return nil, errors.New("app: scheduler stopped without a pending round")
+			return BatchResolved{}, fmt.Errorf("app: %s awaits results but has no kickoff event", ref)
 		}
-		return ready, nil
+		causes[ref] = cause
 	}
-	return ReachedTarget{Now: w.Now()}, nil
+	return w.resolveBatch(rounds, func(ref competitions.RoundRef) events.Cause { return causes[ref] })
+}
+
+// roundStartCause returns the cause of the round's RoundStarted event: the
+// kickoff task that began it. False when no such event is staged or retained.
+// The current commit's staged events count: Continue resolves a batch in the
+// same commit whose kickoff began it.
+func (w *World) roundStartCause(ref competitions.RoundRef) (events.Cause, bool) {
+	match := func(e events.Event) (events.Cause, bool) {
+		if e.Kind != events.KindRoundStarted || e.RoundStarted == nil {
+			return events.Cause{}, false
+		}
+		p := e.RoundStarted
+		if p.Competition == ref.Season.Competition && competitions.Season(p.Season) == ref.Season.Season && competitions.Round(p.Round) == ref.Round {
+			return e.Cause, true
+		}
+		return events.Cause{}, false
+	}
+	for i := len(w.outbox) - 1; i >= 0; i-- {
+		if cause, ok := match(w.outbox[i]); ok {
+			return cause, true
+		}
+	}
+	for i := len(w.journal) - 1; i >= 0; i-- {
+		if cause, ok := match(w.journal[i]); ok {
+			return cause, true
+		}
+	}
+	return events.Cause{}, false
 }
 
 // Pending reports the batch awaiting results, if any. It is a read-only

@@ -37,15 +37,21 @@ func roundTrip(t *testing.T, w *World) *World {
 	return r
 }
 
-// playBatches resolves up to n pending batches, continuing command IDs.
+// playBatches resolves up to n batches one kickoff at a time, continuing
+// command IDs. A batch with no user fixture is resolved by Continue itself.
 func playBatches(t *testing.T, w *World, n int) []RoundsResolved {
 	t.Helper()
 	var out []RoundsResolved
 	for range n {
-		res := mustContinue(t, w, seasonEnd(w))
-		ready, ok := res.(FixtureRoundReady)
+		at, ok := nextKickoff(w)
 		if !ok {
 			break
+		}
+		res := mustContinue(t, w, at)
+		out = append(out, asRounds(res)...)
+		ready, ok := res.(FixtureRoundReady)
+		if !ok {
+			continue
 		}
 		r, err := w.ResolveRounds(commandFor(ready, w.NextCommandID()))
 		if err != nil {
@@ -61,14 +67,14 @@ func TestEverySavePointRoundTrips(t *testing.T) {
 		"after creation": func() *World { return newWorld(t, 42) },
 		"between rounds": func() *World { w := newWorld(t, 42); playBatches(t, w, 7); return w },
 		"batch pending": func() *World {
-			w := newWorld(t, 42)
+			w := userWorld(t, 42, userClub)
 			playBatches(t, w, 3)
 			readyBatch(t, w)
 			return w
 		},
 		"off-season": func() *World { w := newWorld(t, 42); playSeason(t, w); return w }, // season 2 created
 		"season 2 pending": func() *World {
-			w := newWorld(t, 42)
+			w := userWorld(t, 42, userClub)
 			playSeason(t, w)
 			playBatches(t, w, 2)
 			readyBatch(t, w)
@@ -122,7 +128,7 @@ func TestSaveAfterRoundSevenAndFinish(t *testing.T) {
 }
 
 func TestSaveWhileBatchPending(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	playBatches(t, w, 3)
 	ready := readyBatch(t, w)
 	loaded := roundTrip(t, w)
@@ -146,7 +152,7 @@ func TestSaveWhileBatchPending(t *testing.T) {
 }
 
 func TestRetryAfterLoad(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	original := playBatches(t, w, 5)
 	loaded := roundTrip(t, w)
 	before := loaded.Snapshot()
@@ -221,7 +227,7 @@ func TestRestoredAllocatorsIssueFreshIDs(t *testing.T) {
 }
 
 func TestSnapshotsShareNoMutableData(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	playBatches(t, w, 2)
 	readyBatch(t, w)
 	want := w.Snapshot()
@@ -303,7 +309,7 @@ func TestRestoreRejectsIncompatibleVersions(t *testing.T) {
 
 func TestRestoreRejectsInvalidState(t *testing.T) {
 	build := func() WorldSnapshot {
-		w := newWorld(t, 42)
+		w := userWorld(t, 42, userClub)
 		playBatches(t, w, 3)
 		readyBatch(t, w)
 		return w.Snapshot()
@@ -370,7 +376,7 @@ func TestRestoreRejectsInvalidState(t *testing.T) {
 
 // Detailed match outcomes kept in the command log survive a save.
 func TestDetailedOutcomesSurviveSave(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	resolved := playBatches(t, w, 3)
 	loaded := roundTrip(t, w)
 	goals := 0

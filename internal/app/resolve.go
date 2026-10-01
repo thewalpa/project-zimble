@@ -162,15 +162,8 @@ type plannedMatch struct {
 //     the same ID may be retried.
 //   - ExpectedRevision must equal Revision, and Rounds must equal the
 //     pending batch exactly.
-//   - Steps: prepare (validate fixtures, reject overlapping teams, take each
-//     side's manager lineup (submitted, from the team plan or carried
-//     over, see MatchdayLineup) or else the AI selection, with current
-//     condition, build detached inputs) -> simulate every fixture with its
-//     own random stream -> validate every outcome -> draw the injuries
-//     (see injuries.go) and plan every participant's condition loss -> record all results and complete all
-//     rounds in one competitions call -> apply the condition plan, store
-//     each lineup fitted from the plan or carried over for the fixture it
-//     was played in, bump the revision and record the command.
+//   - Steps: the shared batch pipeline (see resolveBatch), with every event
+//     caused by this command, then bump the revision and record the command.
 //
 // Any failure before the competitions call leaves the world exactly as it
 // was; that call is itself all-or-nothing, and nothing after it can fail
@@ -206,22 +199,58 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		return RoundsResolved{}, fmt.Errorf("%w: got %v, pending %v", ErrBatchMismatch, rounds, pending)
 	}
 
-	plan, err := w.prepareBatch(rounds)
+	batch, err := w.resolveBatch(rounds, func(competitions.RoundRef) events.Cause { return commandCause(cmd.ID) })
 	if err != nil {
 		return RoundsResolved{}, err
 	}
+	// Committed. Nothing below can fail.
+	w.revision++
+	res := RoundsResolved{Command: cmd.ID, Revision: w.revision, At: batch.At, Rounds: batch.Rounds, Matches: batch.Matches}
+	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
+	w.commands[cmd.ID] = commandRecord{resolve: &rec}
+	w.publish()
+	return res, nil
+}
+
+// resolveBatch plays and records the given rounds as one unit of work: the
+// pipeline shared by the ResolveRounds command and Continue's auto-resolve
+// (see resolveAutomatically). It never moves the clock: results are official
+// at Now (the batch's kickoff), and Continue remains responsible for
+// progression. causeFor names the cause of each round's events (the command,
+// or the round's kickoff task).
+//
+//   - Steps: prepare (validate fixtures, reject overlapping teams, take each
+//     side's manager lineup (submitted, from the team plan or carried
+//     over, see MatchdayLineup) or else the AI selection, with current
+//     condition, build detached inputs) -> simulate every fixture with its
+//     own random stream -> validate every outcome -> draw the injuries
+//     (see injuries.go) and plan every participant's condition loss -> record all results and complete all
+//     rounds in one competitions call -> apply the condition plan, store
+//     each lineup fitted from the plan or carried over for the fixture it
+//     was played in, and stage the events.
+//
+// Any failure before the competitions call leaves the world exactly as it
+// was; that call is itself all-or-nothing, and nothing after it can fail
+// (the condition and gate-receipt plans were validated against the
+// unchanged medical and finance stores). The caller records commands, bumps
+// the revision and publishes the staged events.
+func (w *World) resolveBatch(rounds []competitions.RoundRef, causeFor func(competitions.RoundRef) events.Cause) (BatchResolved, error) {
+	plan, err := w.prepareBatch(rounds)
+	if err != nil {
+		return BatchResolved{}, err
+	}
 	outcomes, played, err := w.simulateBatch(plan)
 	if err != nil {
-		return RoundsResolved{}, err
+		return BatchResolved{}, err
 	}
 	scores := make([]competitions.Score, len(plan))
 	var exposures []medical.Exposure
 	for i, p := range plan {
 		if err := w.checkOutcome(p, outcomes[i]); err != nil {
-			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
+			return BatchResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
 		if err := checkMatchEvents(played[i], outcomes[i].Goals); err != nil {
-			return RoundsResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
+			return BatchResolved{}, fmt.Errorf("app: fixture %d: %w", p.fixture.ID, err)
 		}
 		o := outcomes[i]
 		scores[i] = competitions.Score{Fixture: p.fixture.ID, HomeGoals: o.Score[0], AwayGoals: o.Score[1], HomePenalties: o.Shootout[0], AwayPenalties: o.Shootout[1]}
@@ -231,22 +260,22 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 	}
 	injuries, err := w.injuryRolls(plan, outcomes)
 	if err != nil {
-		return RoundsResolved{}, err
+		return BatchResolved{}, err
 	}
 	wear, err := w.medical.PlanExposure(exposures, injuries)
 	if err != nil {
-		return RoundsResolved{}, fmt.Errorf("app: match exposure: %w", err)
+		return BatchResolved{}, fmt.Errorf("app: match exposure: %w", err)
 	}
 	gates, err := w.gatePostings(plan)
 	if err != nil {
-		return RoundsResolved{}, err
+		return BatchResolved{}, err
 	}
 	receipts, err := w.finance.Plan(w.Now(), gates)
 	if err != nil {
-		return RoundsResolved{}, fmt.Errorf("app: gate receipts: %w", err)
+		return BatchResolved{}, fmt.Errorf("app: gate receipts: %w", err)
 	}
 	if err := w.competitions.CompleteRounds(rounds, scores, w.Now()); err != nil {
-		return RoundsResolved{}, fmt.Errorf("app: record results: %w", err)
+		return BatchResolved{}, fmt.Errorf("app: record results: %w", err)
 	}
 
 	// Committed. Nothing below can fail.
@@ -261,8 +290,7 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 		}
 	}
 	w.live = nil // a live match is now finished and official
-	w.revision++
-	res := RoundsResolved{Command: cmd.ID, Revision: w.revision, At: w.Now(), Rounds: rounds}
+	res := BatchResolved{At: w.Now(), Rounds: slices.Clone(rounds)}
 	for i, p := range plan {
 		res.Matches = append(res.Matches, MatchReport{
 			Fixture: p.fixture.ID, Round: p.round,
@@ -272,21 +300,18 @@ func (w *World) ResolveRounds(cmd ResolveRounds) (RoundsResolved, error) {
 			Events: played[i], Stats: outcomes[i].Stats,
 		})
 	}
-	rec := ResolveRecord{Request: ResolveRounds{ID: cmd.ID, ExpectedRevision: cmd.ExpectedRevision, Rounds: rounds}, Result: res}.clone()
-	w.commands[cmd.ID] = commandRecord{resolve: &rec}
 	for _, p := range plan {
 		r, _ := w.competitions.Result(p.fixture.ID)
-		w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindMatchCompleted, MatchCompleted: &events.MatchCompleted{
+		w.emit(w.Now(), causeFor(p.round), events.Event{Kind: events.KindMatchCompleted, MatchCompleted: &events.MatchCompleted{
 			Fixture: r.Fixture, Competition: r.Season.Competition, Season: uint16(r.Season.Season), Round: uint8(r.Round),
 			Home: r.Home, Away: r.Away, HomeGoals: r.HomeGoals, AwayGoals: r.AwayGoals,
 			HomePenalties: r.HomePenalties, AwayPenalties: r.AwayPenalties,
 		}})
 	}
-	w.emitLedger(w.Now(), commandCause(cmd.ID), receipts)
+	w.emitLedger(w.Now(), causeFor(rounds[0]), receipts)
 	for _, in := range w.injuredEvents(injuries) {
-		w.emit(w.Now(), commandCause(cmd.ID), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
+		w.emit(w.Now(), causeFor(rounds[0]), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
 	}
-	w.publish()
 	return res, nil
 }
 

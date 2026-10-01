@@ -25,11 +25,10 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. A play-off's `SeasonEnded` crowns nobody (`docs/progress.md`): the event carries `Champion` (0 for a play-off), placings only with a champion, `storage.SchemaVersion` 29. Open handoffs from it: `data--season-ended-champion`, `ui--season-ended-no-champion`. `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below. Take the top backlog item.
+Nothing queued. Auto-resolving batches are in (`docs/progress.md`): `Continue` resolves rounds with no user fixture on the way and reports them in `Resolved`; only a batch with the managed club's fixture stops. Open handoffs from it: `match--auto-resolve-batch-pipeline` (steward review of the `resolve.go` extraction), `ui--auto-resolving-batches` (stop contract and client copy). Still open from before: `data--season-ended-champion`, `ui--season-ended-no-champion`. `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below. Take the top backlog item.
 
 ## Backlog
 
-- **Auto-resolving batches:** `Continue` resolves rounds with no user fixture without stopping. Agree with `match`, which owns `resolve.go`.
 - **Cup prize money:** the rule is here, and the ledger entries go through a note to `squad`.
 - **Two-legged ties and extra time:** they need a `match` note for engine support.
 - **Registration and eligibility per competition** (the architecture assigns it to competitions), once squads have more than one team.

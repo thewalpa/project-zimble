@@ -134,17 +134,22 @@ func TestRunPrintsCalendarAndContinueDemo(t *testing.T) {
 		"Round 14 Sat 2025-11-08 15:00 UTC  t=188100  scheduled",
 		"Continue (now Tue 2025-07-01 00:00 UTC)",
 		"  to Fri 2025-08-08 15:00 UTC: reached target",
-		"  to Sat 2025-09-06 15:00 UTC: fixture round ready, now Sat 2025-08-09 15:00 UTC",
-		"    competition 1 season 1 round 1 kicked off Sat 2025-08-09 15:00 UTC, 4 fixtures awaiting results",
-		"calendar now: 1 awaiting results, 13 scheduled",
+		"  to Sat 2025-09-06 15:00 UTC: reached target",
+		"    resolved Sat 2025-08-09 15:00 UTC: 4 rounds, 16 matches",
+		"    resolved Sat 2025-09-06 15:00 UTC: 4 rounds, 16 matches",
+		"calendar now: 5 completed, 0 awaiting results, 9 scheduled",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q", want)
 		}
 	}
-	// The repeated Continue reports the same pending round.
-	if n := strings.Count(out, "fixture round ready, now Sat 2025-08-09 15:00 UTC"); n != 2 {
-		t.Errorf("pending round reported %d times, want 2", n)
+	// The five user-less batches resolve on the way to the target; the
+	// repeated Continue resolves nothing more and holds there.
+	if n := strings.Count(out, "    resolved "); n != 5 {
+		t.Errorf("resolved batches reported %d times, want 5", n)
+	}
+	if n := strings.Count(out, "  to Sat 2025-09-06 15:00 UTC: reached target"); n != 2 {
+		t.Errorf("repeated target reported %d times, want 2", n)
 	}
 }
 
@@ -237,7 +242,8 @@ func TestSaveLoadCycleMatchesUninterruptedSeason(t *testing.T) {
 
 func TestLoadWithoutModePrintsStatusAndChangesNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
-	if _, err := runCLI(t, "-seed", "42", "-save", path); err != nil { // demo leaves round 1 pending
+	// A managed demo stops at the club's first matchday, which rests pending.
+	if _, err := runCLI(t, "-seed", "42", "-club", "3", "-save", path); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(path)
@@ -259,7 +265,7 @@ func TestLoadWithoutModePrintsStatusAndChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh, _ := runCLI(t, "-seed", "42", "-rounds", "1")
+	fresh, _ := runCLI(t, "-seed", "42", "-club", "3", "-rounds", "1")
 	if section(t, loaded, "Round 1 ") != section(t, fresh, "Round 1 ") {
 		t.Fatal("pending batch resolved differently after load")
 	}

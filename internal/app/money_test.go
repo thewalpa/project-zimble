@@ -92,7 +92,7 @@ func TestWagesArePaidWeekly(t *testing.T) {
 // Gate receipts are paid exactly once per home match, also across retries,
 // and wages continue through the off-season into the next season.
 func TestGateReceiptsAndSeasonRollover(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub) // resolve commands to retry below
 	resolved := playSeason(t, w)
 	gate := w.defs.Economy.GatePerHomeMatch
 	// Every club plays 7 league home games; cup entrants also host cup ties.
@@ -213,7 +213,7 @@ func TestContractsInTheSquad(t *testing.T) {
 
 func TestRestoreRejectsInvalidFinance(t *testing.T) {
 	build := func() WorldSnapshot {
-		w := newWorld(t, 42)
+		w := userWorld(t, 42, userClub)
 		playBatches(t, w, 3)
 		readyBatch(t, w)
 		return w.Snapshot()

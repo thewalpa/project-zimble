@@ -191,60 +191,66 @@ func TestCupIsPlayedToAChampion(t *testing.T) {
 }
 
 // League fixtures are never knockout matches for the engine; the cup's and
-// the play-offs' are.
+// the play-offs' are. (prepareBatch copies these rules into every match it
+// plans; batches with no user fixture never pause to plan one.)
 func TestOnlyCupMatchesAreKnockouts(t *testing.T) {
 	w := newWorld(t, 42)
-	ready := readyBatch(t, w)
-	plan, err := w.prepareBatch(commandFor(ready, 0).Rounds)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range plan {
-		if p.input.Rules.Knockout {
-			t.Fatalf("league fixture %d is a knockout", p.fixture.ID)
+	knockout := func(comp ids.CompetitionID, want bool, what string) {
+		t.Helper()
+		rules, err := w.matchRules(comp)
+		if err != nil {
+			t.Fatalf("%s rules: %v", what, err)
+		}
+		if rules.Knockout != want {
+			t.Fatalf("%s rules %+v: knockout %t, want %t", what, rules, rules.Knockout, want)
 		}
 	}
-	playLeagues(t, w)
-	ready = readyBatch(t, w)
-	if plan, err = w.prepareBatch(commandFor(ready, 0).Rounds); err != nil {
-		t.Fatal(err)
-	}
-	for _, p := range plan {
-		if !p.input.Rules.Knockout || p.fixture.Season == cup1 {
-			t.Fatalf("play-off fixture %d of %s: knockout %t", p.fixture.ID, p.fixture.Season, p.input.Rules.Knockout)
+	knockout(w.leagues[0].def.ID, false, "league")
+	playLeagues(t, w) // ends the seasons and creates the play-offs
+	seen := 0
+	for _, link := range w.movementLinks() {
+		comp, ok := w.playoffCompetition(link)
+		if !ok {
+			t.Fatalf("link %+v has no play-off competition", link)
 		}
+		knockout(comp, true, "play-off")
+		seen++
 	}
-	playPlayoffs(t, w)
-	ready = readyBatch(t, w)
-	if plan, err = w.prepareBatch(commandFor(ready, 0).Rounds); err != nil {
-		t.Fatal(err)
+	if seen == 0 {
+		t.Fatal("no play-off competition after the season")
 	}
-	for _, p := range plan {
-		if !p.input.Rules.Knockout || p.fixture.Season != cup1 {
-			t.Fatalf("fixture %d of %s: knockout %t", p.fixture.ID, p.fixture.Season, p.input.Rules.Knockout)
-		}
-	}
+	playPlayoffs(t, w) // draws the cup edition
+	knockout(cup1.Competition, true, "cup")
 }
 
-// Saving before, during and after the cup continues exactly like never
-// saving: brackets are restored, not rebuilt.
+// Saving before and after each cup round continues exactly like never
+// saving: brackets are restored, not rebuilt. (A batch awaiting results is
+// save-tested in TestSaveWhileBatchPending; without a user club no batch
+// pauses for one.)
 func TestCupSurvivesSaves(t *testing.T) {
+	playOneSeason := func(t *testing.T, w *World) {
+		t.Helper()
+		playLeagues(t, w)
+		playPlayoffs(t, w)
+		for range 3 { // the quarter-finals, semi-finals and final
+			playBatches(t, w, 1)
+		}
+	}
 	straight := newWorld(t, 42)
 	for range 2 {
-		playSeason(t, straight)
+		playOneSeason(t, straight)
 	}
 	w := newWorld(t, 42)
-	playLeagues(t, w)
-	playPlayoffs(t, w)
-	for range 3 { // before each cup round, and while it awaits results
-		w = roundTrip(t, w)
-		readyBatch(t, w)
-		w = roundTrip(t, w)
-		resolveNow(t, w)
+	for range 2 {
+		w = roundTrip(t, w) // before the leagues
+		playLeagues(t, w)
+		w = roundTrip(t, w) // before the play-offs
+		playPlayoffs(t, w)  // draws the cup edition
+		for range 3 {       // the quarter-finals, semi-finals and final
+			w = roundTrip(t, w) // before each cup round
+			playBatches(t, w, 1)
+		}
 	}
-	w = roundTrip(t, w)
-	playCup(t, w) // the cup's end
-	playSeason(t, w)
 	if !reflect.DeepEqual(w.Snapshot(), straight.Snapshot()) {
 		t.Fatal("saves changed the career")
 	}
@@ -308,8 +314,7 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 		w := newWorld(t, 42)
 		playLeagues(t, w)
 		playPlayoffs(t, w)
-		readyBatch(t, w)
-		resolveNow(t, w) // the quarter-finals are played
+		playBatches(t, w, 1) // the quarter-finals are played
 		return w.Snapshot()
 	}
 	cupSeason := func(s *WorldSnapshot) *competitions.SeasonSnapshot {

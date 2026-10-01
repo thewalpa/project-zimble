@@ -39,7 +39,7 @@ func recoveryTasks(w *World) []sim.Task {
 // Resolving a batch costs exactly the minutes each participant played,
 // computed independently from the same outcomes; nobody else changes.
 func TestMatchExposureLowersCondition(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	playBatches(t, w, 1)
 	mustContinue(t, w, seasonEnd(w)) // round 2 kicks off after a week of rest
 	ready, _ := w.Pending()
@@ -103,15 +103,14 @@ func TestDailyRecovery(t *testing.T) {
 		}
 	}
 	// Recovery never interrupts Continue.
-	if res := mustContinue(t, w, w.Now()+2*day); res != (ReachedTarget{Now: w.Now()}) {
-		t.Fatalf("Continue = %#v", res)
-	}
+	until := w.Now() + 2*day
+	reached(t, mustContinue(t, w, until), until)
 }
 
 // Condition reaches selection: planned inputs carry the current condition,
 // and over a season the AI rotates tired players out.
 func TestConditionDrivesSelection(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	first := map[ids.TeamID][]ids.PlayerID{}
 	rotated := 0
 	for {

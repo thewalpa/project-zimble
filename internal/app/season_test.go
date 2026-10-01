@@ -191,7 +191,7 @@ func TestSeasonEndedEventsCarryTheDerivedChampion(t *testing.T) {
 // The season ends at its last kickoff, but only after the last round is
 // resolved: while that round awaits results, Continue does not run it.
 func TestSeasonEndsAfterTheLastRoundIsResolved(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub) // the last batch must rest pending
 	playBatches(t, w, 13)
 	ready := readyBatch(t, w)
 	last := ready.At
@@ -200,9 +200,7 @@ func TestSeasonEndsAfterTheLastRoundIsResolved(t *testing.T) {
 	}
 	resolveNow(t, w)
 	rev := w.Revision()
-	if res := mustContinue(t, w, last); res != (ReachedTarget{Now: last}) {
-		t.Fatalf("Continue at the last kickoff = %#v", res)
-	}
+	reached(t, mustContinue(t, w, last), last)
 	// The end cohort runs at the last kickoff: the seasons end together and
 	// create their play-offs, and the next seasons wait for those to decide.
 	if w.Revision() != rev+1 || w.Now() != last || w.leagues[0].season.Season != 1 {
@@ -229,7 +227,7 @@ func TestSaveAroundSeasonEndContinuesIdentically(t *testing.T) {
 		"before season end": func(w *World) { playBatches(t, w, 14) }, // last round resolved, season end queued
 		"off-season":        func(w *World) { playSeason(t, w); mustContinue(t, w, w.Now()+100*day+7) },
 	} {
-		straight := newWorld(t, 42)
+		straight := userWorld(t, 42, userClub) // "before season end" needs a batch to rest pending
 		stop(straight)
 		loaded := roundTrip(t, straight)
 		// Play on until season 3 begins: from "before season end" that runs

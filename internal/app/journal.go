@@ -177,6 +177,17 @@ func (w *World) checkEventFacts(e events.Event) error {
 			r.Season.Competition != p.Competition || r.Season.Season != competitions.Season(p.Season) || r.Round != competitions.Round(p.Round) || r.RecordedAt != e.OccurredAt {
 			return errors.New("differs from the official result")
 		}
+		// An auto-resolved match cites the kickoff task that began its round;
+		// the RoundStarted event may have aged out of the retained journal.
+		ref := competitions.RoundRef{
+			Season: competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)},
+			Round:  competitions.Round(p.Round),
+		}
+		if e.Cause.Kind == events.CauseTask {
+			if cause, ok := w.roundStartCause(ref); ok && cause != e.Cause {
+				return errors.New("differs from the round's kickoff cause")
+			}
+		}
 	case events.KindLineupSubmitted:
 		p := e.LineupSubmitted
 		f, ok := w.competitions.Fixture(p.Fixture)

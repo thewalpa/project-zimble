@@ -15,8 +15,10 @@
 //
 //	-season      resolve every remaining round and print results and tables
 //	-rounds N    resolve at most N more fixture batches
-//	(nothing)    new world: print the calendar and demonstrate Continue up to
-//	             the first pending round; loaded world: print its status only
+//	(nothing)    new world: print the calendar and demonstrate Continue
+//	             (user-less batches resolve on the way; a managed club's
+//	             matchday stops and rests pending); loaded world: print its
+//	             status only
 //
 // Management (new worlds only for -club; a loaded career keeps its club):
 //
@@ -370,8 +372,11 @@ func printSchedule(out io.Writer, cal sim.Calendar, s app.Schedule) error {
 	return nil
 }
 
-// demoContinue advances to just before the first kickoff, then past it, then
-// repeats the call to show that a pending round holds the world in place.
+// demoContinue advances to just before the first kickoff, then four weeks
+// past it — resolving the batches with no user fixture on the way and
+// reporting each — then repeats that call to show the world holds at the
+// target. A batch containing the managed club's fixture would stop instead
+// (its lineup awaits a decision) and rest pending until a resolve command.
 func demoContinue(out io.Writer, w *app.World) error {
 	cal := w.Calendar()
 	rounds := w.Schedules()[0].Rounds
@@ -390,11 +395,14 @@ func demoContinue(out io.Writer, w *app.World) error {
 			return err
 		}
 		fmt.Fprintf(out, "  to %s: ", cal.Format(target))
+		var resolved []app.BatchResolved
 		switch r := res.(type) {
 		case app.ReachedTarget:
 			fmt.Fprintf(out, "reached target\n")
+			resolved = r.Resolved
 		case app.FixtureRoundReady:
 			fmt.Fprintf(out, "fixture round ready, now %s\n", cal.Format(r.At))
+			resolved = r.Resolved
 			for _, rr := range r.Rounds {
 				fmt.Fprintf(out, "    competition %d season %d round %d kicked off %s, %d fixtures awaiting results\n",
 					rr.Round.Season.Competition, rr.Round.Season.Season, rr.Round.Round, cal.Format(rr.Kickoff), len(rr.Fixtures))
@@ -402,13 +410,17 @@ func demoContinue(out io.Writer, w *app.World) error {
 		default:
 			return fmt.Errorf("unexpected continue result %T", res)
 		}
+		for _, b := range resolved {
+			fmt.Fprintf(out, "    resolved %s: %d rounds, %d matches\n",
+				cal.Format(b.At), len(b.Rounds), len(b.Matches))
+		}
 	}
 	counts := map[string]int{}
 	for _, r := range w.Schedules()[0].Rounds {
 		counts[r.Status.String()]++
 	}
-	_, err := fmt.Fprintf(out, "calendar now: %d awaiting results, %d scheduled\n",
-		counts["awaiting results"], counts["scheduled"])
+	_, err := fmt.Fprintf(out, "calendar now: %d completed, %d awaiting results, %d scheduled\n",
+		counts["completed"], counts["awaiting results"], counts["scheduled"])
 	return err
 }
 
@@ -490,53 +502,105 @@ func playRounds(out io.Writer, w *app.World, limit int, mentality matches.Mental
 	return nil
 }
 
-// playBatch continues to the next batch before end, submits the managed
-// club's lineups (with a mentality), resolves it and prints it. It reports
-// false when no batch came before end.
+// playBatch plays at most one fixture batch that starts at or before end: it
+// continues to that batch's kickoff (or the target end when no batch is
+// scheduled), prints every batch the call resolved on the way, submits the
+// managed club's lineups (with a mentality) and resolves whatever waits for
+// the manager. It reports false when no batch came before end — the final
+// call, which still moves the clock past any trailing task cohorts (the
+// season end at the last kickoff).
 func playBatch(out io.Writer, w *app.World, end sim.GameInstant, mentality matches.Mentality) (bool, error) {
-	cal := w.Calendar()
-	res, err := w.Continue(end)
+	target := end
+	if at, ok := nextKickoffBefore(w, end); ok {
+		target = at // one batch per call, so -rounds counts batches
+	}
+	res, err := w.Continue(target)
 	if err != nil {
 		return false, err
 	}
-	ready, ok := res.(app.FixtureRoundReady)
-	if !ok {
-		return false, nil
-	}
-	if mentality != 0 {
-		for _, f := range ready.UserFixtures {
-			l, err := w.SuggestLineup(f)
-			if err != nil {
-				return false, err
-			}
-			l.Tactics.Mentality = mentality
-			sub := app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}
-			if _, err := w.SubmitLineup(sub); err != nil {
-				return false, err
-			}
+	print := func(batches []app.BatchResolved) {
+		for _, b := range batches {
+			printMatches(out, w, b.At, b.Rounds, b.Matches)
 		}
 	}
-	cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
-	for _, r := range ready.Rounds {
-		cmd.Rounds = append(cmd.Rounds, r.Round)
+	switch r := res.(type) {
+	case app.ReachedTarget:
+		print(r.Resolved)
+		return len(r.Resolved) > 0, nil
+	case app.FixtureRoundReady:
+		print(r.Resolved)
+		if mentality != 0 {
+			for _, f := range r.UserFixtures {
+				l, err := w.SuggestLineup(f)
+				if err != nil {
+					return false, err
+				}
+				l.Tactics.Mentality = mentality
+				sub := app.SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}
+				if _, err := w.SubmitLineup(sub); err != nil {
+					return false, err
+				}
+			}
+		}
+		cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
+		for _, rr := range r.Rounds {
+			cmd.Rounds = append(cmd.Rounds, rr.Round)
+		}
+		resolved, err := w.ResolveRounds(cmd)
+		if err != nil {
+			return false, err
+		}
+		printMatches(out, w, resolved.At, resolved.Rounds, resolved.Matches)
+		return true, nil
+	default:
+		return false, fmt.Errorf("unexpected continue result %T", res)
 	}
-	resolved, err := w.ResolveRounds(cmd)
-	if err != nil {
-		return false, err
+}
+
+// nextKickoffBefore is the earliest scheduled round kickoff at or before end
+// across the leagues, play-offs and cups, if any.
+func nextKickoffBefore(w *app.World, end sim.GameInstant) (sim.GameInstant, bool) {
+	best, found := end, false
+	consider := func(at sim.GameInstant, status competitions.RoundStatus) {
+		if status == competitions.RoundScheduled && at <= end && (!found || at < best) {
+			best, found = at, true
+		}
 	}
-	for _, r := range resolved.Rounds {
-		if len(resolved.Matches) > 0 {
-			info, _ := w.FixtureInfo(firstFixture(resolved, r))
+	for _, s := range w.Schedules() {
+		for _, r := range s.Rounds {
+			consider(r.Kickoff, r.Status)
+		}
+	}
+	for _, p := range w.Playoffs() {
+		for _, r := range p.Rounds {
+			consider(r.Kickoff, r.Status)
+		}
+	}
+	for _, c := range w.Cups() {
+		for _, r := range c.Rounds {
+			consider(r.Kickoff, r.Status)
+		}
+	}
+	return best, found
+}
+
+// printMatches prints one batch: a header per round and its matches in the
+// report's fixture order.
+func printMatches(out io.Writer, w *app.World, at sim.GameInstant, rounds []competitions.RoundRef, reports []app.MatchReport) {
+	cal := w.Calendar()
+	for _, r := range rounds {
+		if len(reports) > 0 {
+			info, _ := w.FixtureInfo(firstFixture(reports, r))
 			switch {
 			case info.Playoff:
-				fmt.Fprintf(out, "\n%s  %s  (competition %d)\n", w.PlayoffTitle(r.Season.Competition), cal.Format(resolved.At), r.Season.Competition)
+				fmt.Fprintf(out, "\n%s  %s  (competition %d)\n", w.PlayoffTitle(r.Season.Competition), cal.Format(at), r.Season.Competition)
 			case info.Cup:
-				fmt.Fprintf(out, "\n%s %s  %s  (competition %d)\n", info.CompetitionName, info.RoundName, cal.Format(resolved.At), r.Season.Competition)
+				fmt.Fprintf(out, "\n%s %s  %s  (competition %d)\n", info.CompetitionName, info.RoundName, cal.Format(at), r.Season.Competition)
 			default:
-				fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(resolved.At), r.Season.Competition)
+				fmt.Fprintf(out, "\nRound %d  %s  (competition %d)\n", r.Round, cal.Format(at), r.Season.Competition)
 			}
 		}
-		for _, m := range resolved.Matches {
+		for _, m := range reports {
 			if m.Round != r {
 				continue
 			}
@@ -552,12 +616,11 @@ func playBatch(out io.Writer, w *app.World, end sim.GameInstant, mentality match
 			fmt.Fprintln(out)
 		}
 	}
-	return true, nil
 }
 
-// firstFixture is the first resolved fixture of round r.
-func firstFixture(res app.RoundsResolved, r competitions.RoundRef) ids.FixtureID {
-	for _, m := range res.Matches {
+// firstFixture is the first reported fixture of round r.
+func firstFixture(reports []app.MatchReport, r competitions.RoundRef) ids.FixtureID {
+	for _, m := range reports {
 		if m.Round == r {
 			return m.Fixture
 		}

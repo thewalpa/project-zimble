@@ -81,12 +81,14 @@ func resolveNow(t *testing.T, w *World) RoundsResolved {
 }
 
 // playWithLineups plays every remaining batch, submitting pick's lineup for
-// each user fixture first (none if pick is nil).
+// each user fixture first (none if pick is nil). Batches with no user fixture
+// are resolved by Continue itself.
 func playWithLineups(t *testing.T, w *World, pick func(ids.FixtureID) selection.Lineup) []RoundsResolved {
 	t.Helper()
 	var out []RoundsResolved
 	for {
 		res := mustContinue(t, w, seasonEnd(w))
+		out = append(out, asRounds(res)...)
 		ready, ok := res.(FixtureRoundReady)
 		if !ok {
 			return out
@@ -154,8 +156,17 @@ func TestContinueReportsUserFixtures(t *testing.T) {
 		}
 		resolveNow(t, w)
 	}
-	if ready := readyBatch(t, newWorld(t, 42)); ready.UserFixtures != nil {
-		t.Fatalf("world without a user club reports user fixtures %v", ready.UserFixtures)
+	// A world without a user club has no user fixtures: nothing stops and
+	// the batch resolves on the way (see BatchResolved).
+	plain := newWorld(t, 42)
+	k := firstKickoff(t, plain)
+	res := mustContinue(t, plain, k)
+	r, ok := res.(ReachedTarget)
+	if !ok || r.Now != k || len(r.Resolved) != 1 || len(r.Resolved[0].Matches) == 0 {
+		t.Fatalf("Continue without a user club = %#v", res)
+	}
+	if _, ok := plain.Pending(); ok {
+		t.Fatal("a batch awaits results without a user club")
 	}
 }
 
@@ -369,12 +380,12 @@ func TestSubmitLineupRejections(t *testing.T) {
 	}
 
 	plain := newWorld(t, 42)
-	r := readyBatch(t, plain)
-	_, err := plain.SubmitLineup(SubmitLineup{ID: 1, ExpectedRevision: r.Revision, Fixture: r.Rounds[0].Fixtures[0], Lineup: good})
+	anyFixture := plain.competitions.Fixtures(plain.leagues[0].season)[0].ID
+	_, err := plain.SubmitLineup(SubmitLineup{ID: 1, ExpectedRevision: plain.Revision(), Fixture: anyFixture, Lineup: good})
 	if !errors.Is(err, ErrNoUserClub) {
 		t.Fatalf("world without a user club: err = %v", err)
 	}
-	if _, err := plain.SuggestLineup(r.Rounds[0].Fixtures[0]); !errors.Is(err, ErrNoUserClub) {
+	if _, err := plain.SuggestLineup(anyFixture); !errors.Is(err, ErrNoUserClub) {
 		t.Fatalf("suggest without a user club: err = %v", err)
 	}
 	if _, err := w.SuggestLineup(laterFixture); !errors.Is(err, ErrFixtureNotPending) {

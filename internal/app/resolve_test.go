@@ -55,9 +55,43 @@ func readyBatch(t *testing.T, w *World) FixtureRoundReady {
 	res := mustContinue(t, w, max(seasonEnd(w), playoffEnd(w), cupEnd(w)))
 	ready, ok := res.(FixtureRoundReady)
 	if !ok {
-		t.Fatalf("Continue = %#v, want FixtureRoundReady", res)
+		t.Fatalf("Continue = %#v, want FixtureRoundReady (no pending batch: the world needs a user club that plays one)", res)
 	}
 	return ready
+}
+
+// nextKickoff is the earliest scheduled round kickoff across every
+// competition, if any.
+func nextKickoff(w *World) (sim.GameInstant, bool) {
+	var (
+		next  sim.GameInstant
+		found bool
+	)
+	for _, ref := range w.competitions.Seasons() {
+		for _, r := range w.competitions.Rounds(ref) {
+			if r.Status == competitions.RoundScheduled && (!found || r.Kickoff < next) {
+				next, found = r.Kickoff, true
+			}
+		}
+	}
+	return next, found
+}
+
+// asRounds converts the batches a Continue result resolved without stopping
+// (no user fixture) to command-less RoundsResolved, oldest first.
+func asRounds(res ContinueResult) []RoundsResolved {
+	var batches []BatchResolved
+	switch r := res.(type) {
+	case ReachedTarget:
+		batches = r.Resolved
+	case FixtureRoundReady:
+		batches = r.Resolved
+	}
+	out := make([]RoundsResolved, 0, len(batches))
+	for _, b := range batches {
+		out = append(out, RoundsResolved{At: b.At, Rounds: b.Rounds, Matches: b.Matches})
+	}
+	return out
 }
 
 func commandFor(ready FixtureRoundReady, id CommandID) ResolveRounds {
@@ -125,19 +159,22 @@ func playoffEnd(w *World) sim.GameInstant {
 }
 
 // playUntil alternates Continue and ResolveRounds until Continue reaches
-// target(w), recomputed before each Continue.
+// target(w), recomputed before each Continue. Batches with no user fixture
+// are resolved by Continue itself and collected alongside the commanded
+// ones, oldest first.
 func playUntil(t *testing.T, w *World, target func(*World) sim.GameInstant) []RoundsResolved {
 	t.Helper()
 	var out []RoundsResolved
-	for id := CommandID(len(w.commands) + 1); ; id++ { // next unused command ID
+	for {
 		res := mustContinue(t, w, target(w))
+		out = append(out, asRounds(res)...)
 		ready, ok := res.(FixtureRoundReady)
 		if !ok {
 			return out
 		}
-		resolved, err := w.ResolveRounds(commandFor(ready, id))
+		resolved, err := w.ResolveRounds(commandFor(ready, w.NextCommandID()))
 		if err != nil {
-			t.Fatalf("resolve %d: %v", id, err)
+			t.Fatalf("resolve at %d: %v", ready.At, err)
 		}
 		out = append(out, resolved)
 	}
@@ -186,17 +223,16 @@ func TestFullSeasonIntegrity(t *testing.T) {
 		if len(r.Matches) != 16 || len(r.Rounds) != 4 || r.Rounds[0].Round != competitions.Round(i+1) {
 			t.Fatalf("batch %d: %d matches, rounds %v", i, len(r.Matches), r.Rounds)
 		}
-		if i > 0 && r.Revision <= resolved[i-1].Revision {
-			t.Fatal("revisions do not increase")
+		// Unmanaged: every batch resolved itself, without a command.
+		if r.Command != 0 || r.Revision != 0 {
+			t.Fatalf("batch %d carries command %d revision %d", i, r.Command, r.Revision)
 		}
 		k := firstSeasons(w)[0].Rounds[i].Kickoff
 		if r.At != k {
 			t.Fatalf("batch %d official at %d, kickoff %d", i, r.At, k)
 		}
 	}
-	if res := mustContinue(t, w, end); res != (ReachedTarget{Now: end}) {
-		t.Fatalf("after the season Continue = %#v", res)
-	}
+	reached(t, mustContinue(t, w, end), end)
 	season := competitions.SeasonRef{Competition: 1, Season: 1}
 	if len(w.competitions.PendingRounds()) != 0 {
 		t.Fatal("rounds pending after the season ended")
@@ -385,18 +421,29 @@ func TestSimultaneousLeaguesResolveAsOneBatch(t *testing.T) {
 func TestOverlappingTeamsAreRejected(t *testing.T) {
 	w := newWorld(t, 42)
 	addLeague(t, w, 9) // league 1's eight teams, same kickoffs
-	ready := readyBatch(t, w)
+	// Continue resolves user-less batches itself and must reject the
+	// double-booked batch, leaving it awaiting results.
+	if _, err := w.Continue(max(seasonEnd(w), playoffEnd(w), cupEnd(w))); !errors.Is(err, ErrOverlappingTeams) {
+		t.Fatalf("Continue: %v", err)
+	}
+	ready, ok := w.Pending()
+	if !ok {
+		t.Fatal("the rejected batch is no longer pending")
+	}
 	before := snapshot(w)
 	if _, err := w.ResolveRounds(commandFor(ready, 1)); !errors.Is(err, ErrOverlappingTeams) {
-		t.Fatalf("err = %v", err)
+		t.Fatalf("ResolveRounds: %v", err)
 	}
 	if !reflect.DeepEqual(snapshot(w), before) {
 		t.Fatal("rejected batch changed the world")
 	}
+	if p := w.competitions.PendingRounds(); len(p) != 5 {
+		t.Fatalf("%d rounds pending, want the five double-booked ones", len(p))
+	}
 }
 
 func TestResolveDoesNotMoveTheClock(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	ready := readyBatch(t, w)
 	tasks := w.scheduler.Pending()
 	if _, err := w.ResolveRounds(commandFor(ready, 1)); err != nil {
@@ -412,7 +459,7 @@ func TestResolveDoesNotMoveTheClock(t *testing.T) {
 }
 
 func TestDuplicateAndStaleCommands(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	ready := readyBatch(t, w)
 	cmd := commandFor(ready, 7)
 	first, err := w.ResolveRounds(cmd)
@@ -462,7 +509,7 @@ func TestDuplicateAndStaleCommands(t *testing.T) {
 }
 
 func TestInvalidResolveCommands(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	season := w.leagues[0].season
 	if _, err := w.ResolveRounds(ResolveRounds{ID: 1, Rounds: []competitions.RoundRef{{Season: season, Round: 1}}}); !errors.Is(err, ErrNoPendingRounds) {
 		t.Fatalf("before kickoff: %v", err)
@@ -538,7 +585,7 @@ func (s *faultySession) Advance(req matches.AdvanceRequest, dst *matches.MatchSt
 // a retry with the same command ID then produces exactly the results of a
 // world that never failed.
 func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
-	clean := newWorld(t, 42)
+	clean := userWorld(t, 42, userClub)
 	want, err := clean.ResolveRounds(commandFor(readyBatch(t, clean), 1))
 	if err != nil {
 		t.Fatal(err)
@@ -571,7 +618,7 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 		"validation: result not completed":       {engine: &faultyEngine{tamperAt: last, tamper: func(d *matches.MatchStepResult) { d.Outcome.Status = matches.ResultPending }}, minStart: 8},
 	}
 	for name, f := range faults {
-		w := newWorld(t, 42)
+		w := userWorld(t, 42, userClub)
 		ready := readyBatch(t, w)
 		cmd := commandFor(ready, 1)
 		before := snapshot(w)
@@ -609,7 +656,7 @@ func TestFailuresCannotPartiallyResolveABatch(t *testing.T) {
 }
 
 func TestMatchReportAndQueries(t *testing.T) {
-	w := newWorld(t, 42)
+	w := userWorld(t, 42, userClub)
 	if _, ok := w.MatchReport(1); ok {
 		t.Fatal("MatchReport before resolution")
 	}

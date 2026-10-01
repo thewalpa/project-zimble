@@ -92,7 +92,9 @@ func TestClubObservationsCanonicalizeAndRejectInvalidRequests(t *testing.T) {
 // Observations are detached values. Editing them cannot change a squad view,
 // an authoritative match input, the save or subsequent simulated outcomes.
 func TestClubObservationsAreDetachedFromMatchInputs(t *testing.T) {
-	w := newWorld(t, 42)
+	// Managed: the batch must rest pending for the resolve commands below
+	// (an unmanaged batch auto-resolves inside Continue).
+	w := userWorld(t, 42, userClub3)
 	ready := readyBatch(t, w)
 	command := commandFor(ready, w.NextCommandID())
 	input, err := w.prepareBatch(command.Rounds)

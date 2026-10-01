@@ -3416,3 +3416,24 @@ Tests: `TestSelectionIsControllerIndependent` (the human club's selection, team 
 When scouting adds uncertainty, nothing in match needs to change: `ObservePlayers` returns estimates and the decisions follow them. Not covered here: AI in-match decisions (PAR-08) still do not exist.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## competitions: auto-resolving batches (done)
+
+`Continue` resolves every batch with no user fixture without stopping; only a batch containing the managed club's fixture stops (`FixtureRoundReady`) and waits for lineups and `ResolveRounds`. A career is no longer paused by other clubs' matchdays — a club out of the cup runs cup week past its own fixtures in one call, and an unmanaged season plays itself.
+
+- **One batch pipeline, two callers.** `resolveBatch(rounds, causeFor)` in `internal/app/resolve.go` (match's file, [steward review requested](handoffs/match--auto-resolve-batch-pipeline.md)) is the shared pipeline: prepare, simulate with each fixture's own stream, validate, injury rolls and condition plan, one `CompleteRounds` call, apply plans and stage events. The `ResolveRounds` command wraps it with `causeFor = commandCause(cmd.ID)` and is behavior-identical (its doc, rules and goldens unchanged); `Continue`'s `resolveAutomatically` wraps it with the round's `RoundStarted` cause.
+- **Both results carry `Resolved []BatchResolved{At, Rounds, Matches}`** — every user-less batch the call played on the way, oldest first. Auto-resolved matches record no command; the reports live in the result, and a later `MatchReport` keeps only the score (as after a restore). `storage.SchemaVersion` is untouched — a round's start cause is already in the saved journal — and `events.SchemaVersion` does not change.
+- **`cmd/simulate`** (ui's file, [note sent](handoffs/ui--auto-resolving-batches.md)): `playBatch` targets one batch's kickoff per call (so `-rounds` counts batches) and prints `Resolved` batches in the command's format; its final call still `Continue`s to the end target so trailing cohorts (the season end) run and the play-off/cup phases keep their shape. `demoContinue` reports `resolved <time>: N rounds, M matches` per batch and the calendar line counts completed rounds too. `cmd/play` and `cmd/web` run unchanged.
+
+### Decisions
+
+- **The stop contract narrows.** `FixtureRoundReady` always has `UserFixtures`; a batch without one is not a stop — there is nothing to decide. Pausing at a user batch from an earlier call is unchanged and idempotent (no new revision). Clients that treated every batch as a stop only get quieter; see the ui note for the copy and log changes owed.
+- **Auto events cite their kickoff task.** `roundStartCause` finds each round's `RoundStarted` cause (outbox first, then the journal, newest first), so `MatchCompleted`, gate and injury events of an auto batch trace to the task that began the round, and restore fact-checks the link. Command batches keep citing the command.
+- **Failures look the same from outside.** A failing auto-resolve keeps the batches the call already resolved (published at one new revision), leaves its own batch awaiting results with nothing recorded, and a later `Continue` retries; a failed cohort stays queued at the pre-cohort clock. Both paths reject overlapping teams and invalid outcomes before the `CompleteRounds` call, which is itself all-or-nothing.
+- **One `Continue` still equals several.** Auto-resolve runs outside the scheduler callback between cohort dispatches, so a save between auto-resolved batches continues exactly like never saving, and revision counts are the only difference from finer-stepped calls (they legitimately differ per commit).
+
+### Verification
+
+- `internal/app`: three new `continue_test` cases (every auto-resolved batch reported with task causes and no commands; save between batches continues identically; failed auto-resolve leaves the batch awaiting and the retry lands) and `TestOverlappingTeamsAreRejected` covers both entry points. Season/round goldens (`goldenSeasonSeed42`, `goldenSecondLeagueSeed42`, `goldenCupSeed42`) unchanged — the world fingerprint and all results are untouched.
+- `cmd/simulate`: the demo pins five auto-resolved batches and the hold at the target; `-season`, `-rounds`, save/load and the managed-club tests print the same batches and tables as before (the pending-batch status test now saves with `-club 3`, since an unmanaged demo no longer leaves a pending round).
+- `go test ./...` green (`gofmt`, `vet` included).
