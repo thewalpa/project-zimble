@@ -11,6 +11,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/matches/simple"
 	"github.com/thewalpa/project-zimble/internal/matches/tick"
@@ -308,9 +309,31 @@ func (w *World) resolveBatch(rounds []competitions.RoundRef, causeFor func(compe
 			HomePenalties: r.HomePenalties, AwayPenalties: r.AwayPenalties,
 		}})
 	}
-	w.emitLedger(w.Now(), causeFor(rounds[0]), receipts)
+	// Gate receipts and injuries cite the round of their fixture: on
+	// Continue's path, rounds of different competitions have different
+	// kickoff tasks. A team plays once per batch, so a player in one match.
+	roundOf := make(map[ids.FixtureID]competitions.RoundRef, len(plan))
+	playedIn := map[ids.PlayerID]competitions.RoundRef{}
+	for i, p := range plan {
+		roundOf[p.fixture.ID] = p.round
+		for _, pt := range outcomes[i].Participants {
+			playedIn[pt.Player] = p.round
+		}
+	}
+	var causes []events.Cause // in order of first entry
+	byCause := map[events.Cause][]finance.Entry{}
+	for _, e := range receipts.Entries() {
+		c := causeFor(roundOf[e.Fixture])
+		if _, ok := byCause[c]; !ok {
+			causes = append(causes, c)
+		}
+		byCause[c] = append(byCause[c], e)
+	}
+	for _, c := range causes {
+		w.emitLedgerEntries(w.Now(), c, byCause[c])
+	}
 	for _, in := range w.injuredEvents(injuries) {
-		w.emit(w.Now(), causeFor(rounds[0]), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
+		w.emit(w.Now(), causeFor(playedIn[in.Player]), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
 	}
 	return res, nil
 }

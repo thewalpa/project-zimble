@@ -194,6 +194,61 @@ func TestContinueReportsEveryAutoResolvedBatch(t *testing.T) {
 	if seen != 48 {
 		t.Fatalf("%d match events, want 48", seen)
 	}
+
+	// Gate receipts and injuries cite their own fixture's round, not the
+	// batch's first: each batch holds four leagues' rounds.
+	fixtureRound := map[ids.FixtureID]competitions.RoundRef{}
+	type played struct {
+		at     sim.GameInstant
+		player ids.PlayerID
+	}
+	playerRound := map[played]competitions.RoundRef{}
+	for _, b := range r.Resolved {
+		for _, m := range b.Matches {
+			fixtureRound[m.Fixture] = m.Round
+			for _, l := range m.Lineups {
+				for _, s := range l.Starters {
+					playerRound[played{b.At, s.Player}] = m.Round
+				}
+				for _, id := range l.Bench {
+					playerRound[played{b.At, id}] = m.Round
+				}
+			}
+		}
+	}
+	gates, injured := 0, 0
+	ledgerCauses := map[events.Cause]bool{}
+	for _, e := range w.Events() {
+		switch {
+		case e.LedgerPosted != nil:
+			for _, le := range e.LedgerPosted.Entries {
+				ref, ok := fixtureRound[le.Fixture]
+				if !ok {
+					continue
+				}
+				gates++
+				ledgerCauses[e.Cause] = true
+				if e.Cause != causes[ref] {
+					t.Fatalf("gate entry %d cause %+v, round %s started by %+v", le.Entry, e.Cause, ref, causes[ref])
+				}
+			}
+		case e.PlayerInjured != nil:
+			ref, ok := playerRound[played{e.OccurredAt, e.PlayerInjured.Player}]
+			if !ok {
+				continue
+			}
+			injured++
+			if e.Cause != causes[ref] {
+				t.Fatalf("injury of %d cause %+v, round %s started by %+v", e.PlayerInjured.Player, e.Cause, ref, causes[ref])
+			}
+		}
+	}
+	if gates != 48 || len(ledgerCauses) != 12 {
+		t.Fatalf("%d gate entries under %d causes, want 48 under 12", gates, len(ledgerCauses))
+	}
+	if injured == 0 {
+		t.Fatal("no injuries to check")
+	}
 }
 
 // A save between auto-resolved batches continues exactly like never saving:

@@ -3463,3 +3463,13 @@ Coverage drives the flag without a seed, checks stable report sections and the a
 ## ui: auto-resolved batch presentation accepted
 
 Reviewed competitions' delivered Continue change and its minimal simulator adaptations while rebasing. Accepted `ui--auto-resolving-batches` for terminal/web result summaries at stops and targets, plus pause-copy and unreachable-branch cleanup. Full auto-resolved match detail is call-local under the current app contract; no new saved state is requested by this acceptance.
+
+## match: batch pipeline reviewed; gate receipts and injuries cite their own round (done)
+
+Reviewed competitions' extraction of `resolveBatch(rounds, causeFor)` from `ResolveRounds` as steward of `internal/app/resolve.go` and kept it as it is. Both callers keep the contracts: the command checks the ID, revision and exact pending batch before the pipeline and records itself after it. The pipeline is all-or-nothing up to `CompleteRounds`, and Continue's path records nothing when it fails.
+
+One change: `MatchCompleted` already cited each round's cause, but the batch's gate receipts and injuries cited `causeFor(rounds[0])`. That is exact for the command, because every round has the same cause. On Continue's path it is not: each round has its own kickoff task, and a batch usually holds four leagues' rounds. So a receipt or injury from league B's match cited league A's kickoff. Now gate entries are grouped into one `LedgerPosted` per distinct cause, in order of first entry, and each `PlayerInjured` cites the round its player played in. The command path still emits one `LedgerPosted`, so its event stream is unchanged. `emitLedger` (squad's `money.go`) delegates to a new `emitLedgerEntries` and behaves the same.
+
+No version, golden, schema or result change. Restore does not fact-check these causes, so saves that hold the old attribution still load. `TestContinueReportsEveryAutoResolvedBatch` now also checks every gate entry (48, under 12 kickoff causes) and every injury against its fixture's round; it fails without the fix. Closes `match--auto-resolve-batch-pipeline`.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.

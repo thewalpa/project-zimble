@@ -135,7 +135,11 @@ func (w *World) applyFinance(plan finance.Plan) {
 
 // emitLedger stages a LedgerPosted event for an applied plan.
 func (w *World) emitLedger(at sim.GameInstant, cause events.Cause, plan finance.Plan) {
-	entries := plan.Entries()
+	w.emitLedgerEntries(at, cause, plan.Entries())
+}
+
+// emitLedgerEntries stages a LedgerPosted event for applied entries.
+func (w *World) emitLedgerEntries(at sim.GameInstant, cause events.Cause, entries []finance.Entry) {
 	if len(entries) == 0 {
 		return
 	}
