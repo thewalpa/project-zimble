@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thewalpa/project-zimble/internal/content"
 )
 
 func runCLI(t *testing.T, args ...string) (string, error) {
@@ -529,5 +532,72 @@ func TestSecondSeasonAfterSaveAndLoad(t *testing.T) {
 	capped, err := runCLI(t, "-seed", "42", "-rounds", "20")
 	if err != nil || strings.Count(capped, "\nRound ") != 56 || !strings.Contains(capped, "Final table: Founders League season 1") || strings.Contains(capped, "Continental Cup") {
 		t.Fatalf("-rounds 20 (err %v):\n%s", err, capped)
+	}
+}
+
+func TestContentModeWithoutACareer(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if err := run([]string{"-content"}, &out, &errOut, func() (uint64, error) {
+		t.Fatal("content report requested a world seed")
+		return 0, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"content version ", "clubs 32, senior squad 20", "nations\n", "roster (overall", "leagues\n", "cups\n", "weekly wages", "no problems\n"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("content report missing %q:\n%s", want, out.String())
+		}
+	}
+	if errOut.Len() != 0 || strings.Contains(out.String(), "world seed=") {
+		t.Fatalf("content inspection started a career: stdout %q, stderr %q", out.String(), errOut.String())
+	}
+	again, err := runCLI(t, "-content")
+	if err != nil || again != out.String() {
+		t.Fatalf("content report changed between runs: %v", err)
+	}
+}
+
+func TestContentModeRejectsCareerFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"-seed", "42"}, {"-load", "missing.json"}, {"-save", filepath.Join(t.TempDir(), "career.json")},
+		{"-season"}, {"-rounds", "1"}, {"-club", "3"}, {"-mentality", "attacking"}, {"-engine", "tick"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			out, err := runCLI(t, append([]string{"-content"}, args...)...)
+			if err == nil || !strings.Contains(err.Error(), "-content cannot be combined") || out != "" {
+				t.Fatalf("-content %v: output %q, error %v", args, out, err)
+			}
+		})
+	}
+	if out, err := runCLI(t, "-content", "extra"); err == nil || out != "" {
+		t.Fatalf("content mode accepted positional argument: output %q, error %v", out, err)
+	}
+}
+
+func TestContentProblemsArePrintedAndFail(t *testing.T) {
+	definitions := content.DefaultSet()
+	definitions.Leagues = definitions.Leagues[:3]
+	var out bytes.Buffer
+	err := printContent(&out, definitions)
+	if err == nil || !strings.Contains(err.Error(), "content report contains problems") {
+		t.Fatalf("invalid content succeeded: %v", err)
+	}
+	if !strings.Contains(out.String(), "problem: content: leagues take 24 entrants but the nations generate 32 clubs") || strings.Contains(out.String(), "no problems") {
+		t.Fatalf("invalid content diagnostics missing:\n%s", out.String())
+	}
+}
+
+type failingContentWriter struct{ err error }
+
+func (w failingContentWriter) Write([]byte) (int, error) { return 0, w.err }
+
+func TestContentModeReportsWriteErrors(t *testing.T) {
+	writeError := errors.New("output unavailable")
+	err := run([]string{"-content"}, failingContentWriter{writeError}, io.Discard, func() (uint64, error) {
+		t.Fatal("content report requested a world seed")
+		return 0, nil
+	})
+	if !errors.Is(err, writeError) {
+		t.Fatalf("write failure lost: %v", err)
 	}
 }

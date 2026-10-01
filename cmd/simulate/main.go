@@ -1,6 +1,10 @@
 // Command simulate is the headless runner. It starts a world, runs one mode,
 // and optionally saves the result.
 //
+// Content inspection (without starting a career):
+//
+//	-content     print the built-in content report; cannot combine with other flags
+//
 // Start (one of):
 //
 //	-seed N      generate a new world from seed N
@@ -49,6 +53,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/competitions"
+	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
@@ -83,6 +88,7 @@ func cryptoSeed() (uint64, error) {
 func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)) error {
 	fs := flag.NewFlagSet("simulate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	contentReport := fs.Bool("content", false, "print the built-in content report without starting a career (use alone)")
 	seed := fs.Uint64("seed", 0, "world seed for a new world (default: random, reported on stderr)")
 	load := fs.String("load", "", "continue the career saved in `FILE` (keeps its seed and configuration)")
 	save := fs.String("save", "", "after a successful run, save the world to `FILE` (replaced atomically)")
@@ -99,6 +105,12 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if *contentReport {
+		if len(set) != 1 {
+			return errors.New("-content cannot be combined with other flags")
+		}
+		return printContent(stdout, content.DefaultSet())
+	}
 	switch {
 	case set["load"] && set["seed"]:
 		return errors.New("-seed cannot be used with -load: a loaded career keeps its saved seed and configuration")
@@ -184,6 +196,19 @@ func run(args []string, stdout, stderr io.Writer, newSeed func() (uint64, error)
 			return fmt.Errorf("save %s: %w", *save, err)
 		}
 		fmt.Fprintf(stdout, "\nsaved %s: revision %d, now %s\n", *save, w.Revision(), w.Calendar().Format(w.Now()))
+	}
+	return nil
+}
+
+// printContent writes every diagnostic before reporting invalid content as a
+// command failure, so scripts receive both the report and a nonzero exit code.
+func printContent(out io.Writer, definitions content.Set) error {
+	report := content.Describe(definitions)
+	if err := report.Write(out); err != nil {
+		return fmt.Errorf("write content report: %w", err)
+	}
+	if len(report.Problems) != 0 {
+		return errors.New("content report contains problems")
 	}
 	return nil
 }

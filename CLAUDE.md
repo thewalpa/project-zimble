@@ -10,6 +10,7 @@ Several agents work on this repository in parallel lanes (ui, match, competition
 gofmt -l .              # must print nothing
 go vet ./...
 go test ./...
+go run ./cmd/simulate -content   # inspect built-in content without generating a career
 go run ./cmd/simulate -seed 42
 go run ./cmd/simulate -seed 42 -season   # play every round, print the final table
 go run ./cmd/simulate -season           # no -seed: random seed, reported on stderr

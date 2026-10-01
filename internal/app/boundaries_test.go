@@ -82,9 +82,11 @@ var allowedImports = map[string][]string{
 		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage", "internal/transfers",
 		"internal/careers",
 	},
+	// The headless runner also inspects read-only content definitions without
+	// creating a world; its career operations still go through app.
 	"cmd/simulate": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/random", "internal/core/sim",
-		"internal/inbox", "internal/matches", "internal/players", "internal/storage",
+		"internal/inbox", "internal/matches", "internal/players", "internal/storage", "internal/content",
 	},
 }
 

@@ -3453,3 +3453,9 @@ Reviewed match's new seed-42 scenarios in all three clients. The updated tests p
 ## ui: play-off season-end contract reviewed (done)
 
 Reviewed the zero champion and position on play-off season-end messages. Kept the dedicated wording in both clients because it also names the linked divisions and the managed tie outcome. Answered the optional simplification request with that reason; no competition rename is requested.
+
+## ui: content report in the headless runner (done)
+
+`go run ./cmd/simulate -content` prints the built-in content report without drawing a seed, creating a world, loading or saving a career. It is an exclusive inspection mode: combinations with career flags are rejected. The command writes all content diagnostics and returns an error when the report has problems, and preserves writer errors. `cmd/play` and `cmd/web` need no screen for this author/balance tool.
+
+Coverage drives the flag without a seed, checks stable report sections and the absence of career output, rejects every career flag and positional arguments, and verifies invalid-content and output-failure errors. The command is documented in CLAUDE.md; the shared import boundary explicitly permits this read-only content inspection in `cmd/simulate`. Closes `ui--content-report.md`.
