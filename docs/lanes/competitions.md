@@ -25,7 +25,7 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. Promotion play-offs are delivered (`docs/progress.md`): ties over the movement links, derived play-off competitions from `PlayoffBase` 1000, per-group deferred next seasons, decided-only `SeasonMove`, `ScheduleVersion` 3. Open handoffs from it: `ui--promotion-playoffs`, `match--playoff-match-rules`, `data--playoff-content-ids`. Take the top backlog item.
+Nothing queued. A play-off's `SeasonEnded` crowns nobody (`docs/progress.md`): the event carries `Champion` (0 for a play-off), placings only with a champion, `storage.SchemaVersion` 29. Open handoffs from it: `data--season-ended-champion`, `ui--season-ended-no-champion`. `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below. Take the top backlog item.
 
 ## Backlog
 

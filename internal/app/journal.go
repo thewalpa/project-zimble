@@ -196,6 +196,9 @@ func (w *World) checkEventFacts(e events.Event) error {
 		if !w.competitions.SeasonCompleted(ref) || !slices.Equal(w.competitions.Ranking(ref), p.Ranking) {
 			return errors.New("ranking differs from the final ranking")
 		}
+		if champion, _ := w.competitions.Champion(ref); p.Champion != champion {
+			return errors.New("champion differs from the derived champion")
+		}
 	case events.KindLedgerPosted:
 		return w.checkLedgerEvent(e.LedgerPosted)
 	case events.KindContractRenewed:
@@ -250,7 +253,7 @@ type InboxItem struct {
 	RoundName       string    // matchday, result: see RoundName
 	Stage           string    // season ended, cup: "winner", or the round the team went out in, e.g. "semi-final"
 	OpponentLabel   TeamLabel // matchday, result
-	ChampionLabel   TeamLabel // season ended
+	ChampionLabel   TeamLabel // season ended (empty for a play-off: no champion)
 	PlayerName      string    // renewed, left, joined, retired, youth, transfers, released
 	ClubName        string    // transfers: the other club
 }

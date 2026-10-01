@@ -27,7 +27,7 @@ func journal() []events.Event {
 	d := env(4, events.KindLineupSubmitted)
 	d.LineupSubmitted = &events.LineupSubmitted{Fixture: 2, Team: 3}
 	e := env(5, events.KindSeasonEnded)
-	e.SeasonEnded = &events.SeasonEnded{Competition: 1, Season: 1, Ranking: []ids.TeamID{4, 3, 1, 2}}
+	e.SeasonEnded = &events.SeasonEnded{Competition: 1, Season: 1, Ranking: []ids.TeamID{4, 3, 1, 2}, Champion: 4}
 	f := env(6, events.KindSeasonStarted)
 	f.SeasonStarted = &events.SeasonStarted{Competition: 1, Season: 2, FirstKickoff: 500, Entrants: []ids.TeamID{1, 2, 3, 4}}
 	return []events.Event{a, b, c, d, e, f}
@@ -61,6 +61,21 @@ func TestMessagesForTheManagedTeam(t *testing.T) {
 	none.Apply(journal())
 	if got := none.Messages(); len(got) != 2 || got[0].Kind != KindSeasonEnded || got[0].Position != 0 || got[1].Kind != KindSeasonStarted {
 		t.Fatalf("unmanaged inbox %+v", got)
+	}
+}
+
+// A play-off's season end crowns nobody and gives no position, even to a
+// team in its ranking (tie winners first, not placings).
+func TestPlayoffSeasonEndedHasNoChampionOrPosition(t *testing.T) {
+	b := mustNew(t, 3)
+	e := env(1, events.KindSeasonEnded)
+	e.SeasonEnded = &events.SeasonEnded{Competition: 1000, Season: 1, Ranking: []ids.TeamID{4, 3, 1, 2}}
+	if _, err := b.Apply([]events.Event{e}); err != nil {
+		t.Fatal(err)
+	}
+	got := b.Messages()
+	if len(got) != 1 || got[0].Kind != KindSeasonEnded || got[0].Champion != 0 || got[0].Position != 0 {
+		t.Fatalf("play-off message %+v", got)
 	}
 }
 

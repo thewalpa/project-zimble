@@ -24,7 +24,7 @@ type Kind uint8
 const (
 	KindMatchday      Kind = 1  // the team's round kicked off; a lineup may be submitted
 	KindResult        Kind = 2  // the team's match result
-	KindSeasonEnded   Kind = 3  // a league season finished, with its champion
+	KindSeasonEnded   Kind = 3  // a season finished (a play-off: no champion)
 	KindSeasonStarted Kind = 4  // a league season was scheduled
 	KindRenewed       Kind = 5  // one of the team's players signed a new contract
 	KindPlayerLeft    Kind = 6  // one of the team's players left as a free agent
@@ -70,8 +70,8 @@ type Message struct {
 	Home        bool            // matchday, result: the team plays at home
 	Goals       [2]uint16       // result: for, against
 	Shootout    [2]uint16       // result of a knockout match level after regulation: penalties for, against
-	Champion    ids.TeamID      // season ended
-	Position    int             // season ended: the team's final position, 0 if it did not take part
+	Champion    ids.TeamID      // season ended: 0 when the season has none (a play-off)
+	Position    int             // season ended: the team's final position; 0 if it did not take part, or the season has no placings (a play-off)
 	Kickoff     sim.GameInstant // season started: first kickoff
 	Player      ids.PlayerID    // renewed, left, joined, retired, youth, transfers, released
 	Expires     sim.GameInstant // renewed, joined, youth, transfer in: the contract's end
@@ -219,8 +219,10 @@ func (b *Inbox) message(e events.Event) (Message, bool) {
 		}
 	case events.KindSeasonEnded:
 		p := e.SeasonEnded
-		m.Kind, m.Competition, m.Season, m.Champion = KindSeasonEnded, p.Competition, p.Season, p.Ranking[0]
-		if i := slices.Index(p.Ranking, b.team); b.team != 0 && i >= 0 {
+		m.Kind, m.Competition, m.Season, m.Champion = KindSeasonEnded, p.Competition, p.Season, p.Champion
+		// A season with a champion ranks its entrants as placings; a
+		// play-off has neither (see events.SeasonEnded).
+		if i := slices.Index(p.Ranking, b.team); p.Champion.Valid() && b.team != 0 && i >= 0 {
 			m.Position = i + 1
 		}
 		return m, true

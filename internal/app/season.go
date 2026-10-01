@@ -270,6 +270,9 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	for _, e := range ends {
 		delete(w.seasonEnds, e.payload)
 		ended := &events.SeasonEnded{Competition: e.ref.Competition, Season: uint16(e.ref.Season), Ranking: w.competitions.Ranking(e.ref)}
+		if champion, ok := w.competitions.Champion(e.ref); ok {
+			ended.Champion = champion
+		}
 		w.emit(at, taskCause(e.task), events.Event{Kind: events.KindSeasonEnded, SeasonEnded: ended})
 		if !e.next.Valid() {
 			continue

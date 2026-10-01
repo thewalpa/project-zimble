@@ -151,13 +151,18 @@ type LineupSubmitted struct {
 	Team    ids.TeamID
 }
 
-// SeasonEnded: a league season or cup edition finished. Ranking is its
-// final order, best first (a league's table; a cup's by the round each team
-// reached); Ranking[0] is the champion.
+// SeasonEnded: a league season, cup edition or promotion play-off finished.
+// Ranking is its final order, best first: a league's table; a cup's by the
+// round each team reached (the champion, the runner-up, the semi-final
+// losers, and so on); a play-off's tie winners first, in tie order. Champion
+// is the top of that ranking, or 0 when the season has none: every play-off
+// tie stands alone. A season with a champion ranks its entrants as placings;
+// a play-off's ranking is not a placings list.
 type SeasonEnded struct {
 	Competition ids.CompetitionID
 	Season      uint16
 	Ranking     []ids.TeamID
+	Champion    ids.TeamID `json:",omitempty"`
 }
 
 // SeasonStarted: a league season or cup edition was created and scheduled.
@@ -462,8 +467,12 @@ func (e Event) Validate() error {
 			return fail("invalid payload %+v", p)
 		}
 	case KindSeasonEnded:
-		if p := e.SeasonEnded; !p.Competition.Valid() || p.Season == 0 || len(p.Ranking) == 0 || slices.Contains(p.Ranking, 0) {
+		p := e.SeasonEnded
+		if !p.Competition.Valid() || p.Season == 0 || len(p.Ranking) == 0 || slices.Contains(p.Ranking, 0) {
 			return fail("invalid payload %+v", p)
+		}
+		if p.Champion != 0 && p.Champion != p.Ranking[0] {
+			return fail("champion %d is not the top of the ranking", p.Champion)
 		}
 	case KindSeasonStarted:
 		if p := e.SeasonStarted; !p.Competition.Valid() || p.Season == 0 || len(p.Entrants) == 0 || slices.Contains(p.Entrants, 0) {

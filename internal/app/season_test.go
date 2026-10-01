@@ -145,6 +145,49 @@ func TestCareerPlaysConsecutiveSeasons(t *testing.T) {
 	}
 }
 
+// A play-off's season-end event and History agree that there is no champion:
+// the event crowns nobody, while a league or cup event carries its derived
+// champion (the top of its ranking).
+func TestSeasonEndedEventsCarryTheDerivedChampion(t *testing.T) {
+	w := newWorld(t, 42)
+	playSeason(t, w)
+	history := map[competitions.SeasonRef]*TeamLabel{}
+	for _, rec := range w.History() {
+		history[rec.Season] = rec.Champion
+	}
+	seen := map[competitions.Format]bool{}
+	for _, e := range w.Events() {
+		p := e.SeasonEnded
+		if p == nil {
+			continue
+		}
+		ref := seasonRef(p.Competition, competitions.Season(p.Season))
+		format, _ := w.competitions.Format(ref)
+		seen[format] = true
+		champion, ok := w.competitions.Champion(ref)
+		if (p.Champion != 0) != ok || (ok && p.Champion != champion) {
+			t.Fatalf("%s event crowns %d, derived (%d, %v)", ref, p.Champion, champion, ok)
+		}
+		rec := history[ref]
+		if (rec == nil) != (p.Champion == 0) || rec != nil && rec.Team != p.Champion {
+			t.Fatalf("%s event crowns %d, history %+v", ref, p.Champion, rec)
+		}
+		if format == competitions.FormatTies {
+			if p.Champion != 0 {
+				t.Fatalf("play-off %s crowned %d", ref, p.Champion)
+			}
+		} else if p.Champion != p.Ranking[0] {
+			t.Fatalf("%s champion %d is not the top of %v", ref, p.Champion, p.Ranking)
+		}
+	}
+	if !seen[competitions.FormatTies] || !seen[competitions.FormatLeague] {
+		t.Fatalf("season ends of formats %v, want a play-off and a league", seen)
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The season ends at its last kickoff, but only after the last round is
 // resolved: while that round awaits results, Continue does not run it.
 func TestSeasonEndsAfterTheLastRoundIsResolved(t *testing.T) {
