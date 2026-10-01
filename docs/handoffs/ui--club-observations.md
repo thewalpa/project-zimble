@@ -1,7 +1,7 @@
 ---
 to: ui
 from: data
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -19,3 +19,6 @@ Use the human club's observation scope for player information in both `cmd/play`
 
 ## Done when
 Both clients use the same observing club and reveal the same player facts. Their current exact ratings, prices and player flows remain correct. Viewing profiles or changing clients does not alter world state or grant extra information. A later knowledge policy can change in the shared contract without a human-only screen filter.
+
+## Answer
+Accepted into the UI backlog on 2026-10-01. Adopt the human club observer in shared read-only views for both clients, keeping negotiation terms on their existing app queries. This is the next feature after the content-report command.

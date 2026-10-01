@@ -3437,3 +3437,7 @@ Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` pas
 - `internal/app`: three new `continue_test` cases (every auto-resolved batch reported with task causes and no commands; save between batches continues identically; failed auto-resolve leaves the batch awaiting and the retry lands) and `TestOverlappingTeamsAreRejected` covers both entry points. Season/round goldens (`goldenSeasonSeed42`, `goldenSecondLeagueSeed42`, `goldenCupSeed42`) unchanged — the world fingerprint and all results are untouched.
 - `cmd/simulate`: the demo pins five auto-resolved batches and the hold at the target; `-season`, `-rounds`, save/load and the managed-club tests print the same batches and tables as before (the pending-batch status test now saves with `-club 3`, since an unmanaged demo no longer leaves a pending round).
 - `go test ./...` green (`gofmt`, `vet` included).
+
+## ui: club-observation adoption accepted
+
+Accepted `ui--club-observations` for the next feature after the content-report command. Both clients will use the human club observer for player facts through shared read-only app views, with negotiation terms and eligibility kept on existing app queries. Today all clubs observe exact information; this acceptance changes no screens or simulation rules.
