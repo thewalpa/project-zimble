@@ -86,6 +86,8 @@ Priorities below are proposed backlog order, not changes to the lanes' current w
 
 **Avoid it:** before adding uncertainty, define club-scoped observations for both UI and AI inputs, with separate authoritative match/development inputs. Support actor/club-aware application intents and shared validation (squad/match own their rules). Data should review command/task provenance, event facts and save validation when those workflows are unified. Do not make autonomous AI tasks impersonate the human club or change it temporarily.
 
+**Data foundation (2026-10-01):** `World.ObservePlayers(club, requested)` now supplies detached, canonically ordered `PlayerObservation` rows tagged with observer, revision and query instant. The policy still reveals exact information to every club. Existing human player rows share its underlying projection; tests cover controller parity, read-only queries, separation from match inputs/results and lifecycle/restore. Adoption by match, squad and UI is requested in their `--club-observations` handoffs. No uncertainty or saved knowledge state was added, and this does not resolve the remaining actor/workflow or consumer-adoption work.
+
 **Acceptance:** the same club and knowledge state reveal the same recruitment facts to both controllers; hidden truth cannot reach either. Shared intents retain actor/club identity, atomicity, deterministic task ordering, retry semantics and restore checks. Version any new authoritative assistance, delegation or observation state.
 
 ## Rules already shared and limits of the audit

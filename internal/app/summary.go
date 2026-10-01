@@ -1,10 +1,15 @@
 package app
 
 import (
+	"errors"
+	"fmt"
+	"slices"
+
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
@@ -124,8 +129,76 @@ func (w *World) Squad(club ids.ClubID) ([]SquadPlayer, bool) {
 	return out, true
 }
 
-func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
-	row := SquadPlayer{Player: id}
+// ErrUnknownPlayer means an observation request names an unregistered player.
+var ErrUnknownPlayer = errors.New("app: unknown player")
+
+// PlayerObservation is the detached information a club knows about a player.
+// Today's knowledge policy reveals exact ratings, condition and contract
+// demands to every club. It carries no module profile or match input. Match
+// simulation and development must continue to read their authoritative stores.
+// Asking prices and release costs belong to negotiation and football rules,
+// respectively; they are not player knowledge.
+type PlayerObservation struct {
+	Player      ids.PlayerID
+	Name        string
+	Nationality string
+	Age         int
+	Club        ids.ClubID // zero for a free agent or retired player
+	Team        ids.TeamID // zero when not employed
+	Position    players.Position
+	Attributes  players.Attributes // exact, 1..100
+	Overall     int                // exact, 1..100
+	Condition   uint8              // 0..100; zero for a retired player
+	DaysOut     uint16
+	Contract    employment.Contract // zero when not employed
+	Demand      money.Money         // weekly wage requested in a new contract
+	Retired     bool
+}
+
+// ClubObservations identifies the observing club and the world state from
+// which its detached player information was read. AsOf is the query instant,
+// not a stored scouting report date. Players are in ascending player ID order.
+type ClubObservations struct {
+	Observer ids.ClubID
+	Revision Revision
+	AsOf     sim.GameInstant
+	Players  []PlayerObservation
+}
+
+// ObservePlayers returns the requested players as known by club, independent
+// of whether its manager is human or AI. Club must be registered and nonzero;
+// every requested player must be registered (including retired players).
+// Duplicate IDs are returned once; an empty request returns no players.
+// Neither the request nor the world is changed. Invalid requests return no
+// partial observations. Use this contract for manager information and project
+// it into detached AI inputs; never use it to supply match physics.
+//
+// There is currently no stored scouting knowledge or uncertainty. Introducing
+// either requires a versioned, saved policy here for both controllers before
+// callers may hide information in their presentation or decision inputs.
+func (w *World) ObservePlayers(club ids.ClubID, requested []ids.PlayerID) (ClubObservations, error) {
+	if _, ok := w.registry.Club(club); !ok {
+		return ClubObservations{}, fmt.Errorf("%w: %d", ErrUnknownClub, club)
+	}
+	requested = slices.Clone(requested)
+	slices.Sort(requested)
+	requested = slices.Compact(requested)
+	for _, id := range requested {
+		if _, ok := w.registry.Player(id); !ok {
+			return ClubObservations{}, fmt.Errorf("%w: %d", ErrUnknownPlayer, id)
+		}
+	}
+	out := ClubObservations{Observer: club, Revision: w.Revision(), AsOf: w.Now()}
+	for _, id := range requested {
+		out.Players = append(out.Players, w.playerObservation(id))
+	}
+	return out, nil
+}
+
+// playerObservation is the current exact-knowledge projection shared by
+// club observations and the existing player views.
+func (w *World) playerObservation(id ids.PlayerID) PlayerObservation {
+	row := PlayerObservation{Player: id}
 	if p, ok := w.registry.Player(id); ok {
 		row.Name = p.FullName()
 		row.Nationality = w.nationName(p.Nationality)
@@ -134,13 +207,26 @@ func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
 	if p, ok := w.players.Profile(id); ok {
 		row.Position, row.Attributes, row.Overall = p.Position, p.Attributes, p.Overall()
 		row.Demand = w.defs.Economy.Demand(row.Overall)
+		row.Retired = p.Retired
 	}
 	row.Condition, _ = w.medical.Condition(id)
 	row.DaysOut, _ = w.medical.DaysOut(id)
 	if a, ok := w.employment.Assignment(id); ok {
-		row.Contract = a.Contract
+		row.Club, row.Team, row.Contract = a.Club, a.Team, a.Contract
+	}
+	return row
+}
+
+func (w *World) squadPlayer(id ids.PlayerID) SquadPlayer {
+	p := w.playerObservation(id)
+	row := SquadPlayer{
+		Player: p.Player, Name: p.Name, Nationality: p.Nationality, Age: p.Age,
+		Position: p.Position, Attributes: p.Attributes, Overall: p.Overall,
+		Condition: p.Condition, DaysOut: p.DaysOut, Contract: p.Contract, Demand: p.Demand,
+	}
+	if p.Club != 0 {
 		row.Value, _ = w.sellingPrice(id, w.Now())
-		row.Payoff, _ = releaseCost(a.Contract, w.Now())
+		row.Payoff, _ = releaseCost(p.Contract, w.Now())
 		_, row.Listed = w.transfers.Listing(id)
 	}
 	return row

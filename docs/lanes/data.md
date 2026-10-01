@@ -26,6 +26,8 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Shared club knowledge contract delivered (PAR-10 foundation):** `World.ObservePlayers(club, requested)` returns detached `ClubObservations` tagged with observer, revision and game instant. The current policy reveals exact player information to every registered club; existing squad/profile/free-agent rows use the same player projection. Asking prices remain seller policy, separate from knowledge. Controller parity, deterministic requests, rejection without partial results, detached match inputs and lifecycle/restore coverage pass. No authoritative state or version moves. Adoption is requested in `match--club-observations`, `squad--club-observations` and `ui--club-observations`; PAR-10 remains open until those consumers use the club scope ([progress](../progress.md#data-shared-club-knowledge-contract-done)).
+
 **Reviewed competitions' explicit season champion:** `SeasonEnded.Champion` is emitted from the competition result, checked on restore, and passed through by the inbox; play-offs have neither a champion nor a finishing place. Schema 29's frozen fixture covers the play-off and league/cup cases. Accepted without production changes; closes `data--season-ended-champion` ([progress](../progress.md#data-season-champion-contract-reviewed-done)). The next free `storage.SchemaVersion` is 30.
 
 **Content report delivered:** `content.Describe(content.DefaultSet())` and `Report.Write` describe a content set and list every problem in it; printing it from `cmd/simulate` is asked of `ui` in `ui--content-report` ([progress](../progress.md#data-content-report-done)). No version moves.
@@ -45,10 +47,10 @@ The data the world starts from and how it is kept: content definitions, world ge
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
 
-- **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them (asked in handoff `match--careers-appearances-goals`). `careers` would read them from events like the spells.
+- **Appearances and goals in careers:** match agreed the `Appeared`/`Scorers` event contract on 2026-10-01 in `match--careers-appearances-goals`. Implement per-spell counts from events, coordinating match emission so facts and results land together. New saved event fields need a save schema bump and fixture under CLAUDE.md, as well as the agreed event version bump; resolve the note's proposed split before landing.
 - **Complete save recovery UI:** deliver the explicit recovery choice in both clients from `ui--save-recovery`.
 
 ### AI/player rule parity audit
 
-- **P3 — Shared club knowledge (PAR-10):** before scouting hides facts, provide one club-scoped observation contract to human views and AI decisions. Both currently receive exact ratings; this is a preventive requirement, not a current hidden-information finding. Test equal knowledge for equal club state and separation from authoritative match inputs.
+- **P3 — Shared club knowledge adoption (PAR-10):** the exact-information contract and data tests are delivered. Review match, squad and UI adoption from the three `--club-observations` handoffs. Before scouting hides facts, ensure every manager input uses its observing club and keep authoritative match/development inputs separate. Any stored reports, uncertainty or observation policy need save/version coverage; no such state exists yet.
 - **P1–P3 support — Durable parity settings and provenance (PAR-02/06/08/09/10):** review actor/club identity, task/command event facts and restore validation as squad/match unify their workflows. Any assistance, delegation, observations or engine choice added as authoritative state must be pinned, versioned and restored; do not derive privileges merely from `userClub`. Rule owners retain their validation logic. See [audit](../ai-manager-parity.md).

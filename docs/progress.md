@@ -3369,3 +3369,15 @@ Points per match for the side that changes mentality, 3,000 matches a row (seeds
 - `TestBalanceMentalityByGap` and `TestBalanceEngineComparison` (`ZIMBLE_BALANCE=1`, both engines): the tables above, both green (`balance` reruns both on its side).
 - Trend tests hold: `TestModelTrends`, `TestGoalsFollowTheGapNotTheLevel`, `TestMentalityTradeOff` (defensive scores and concedes fewer at both ends and draws 200 against 174).
 - `TestGolden` re-pinned (`08d0f58f97ed6a72`); `gofmt`, `go vet`, `go test ./...` green.
+
+## data: shared club knowledge contract (done)
+
+Delivers the data contract for PAR-10, before scouting introduces uncertainty. `World.ObservePlayers(club, requested)` returns `ClubObservations` with the observing club, current revision, game instant and detached `PlayerObservation` rows in ascending player ID order. Duplicate requests collapse to one row; unknown clubs or players return an explicit error and no partial observations. Free agents and retired players remain observable.
+
+Today's policy is exact information for every registered club, regardless of its controller: identity, position, attributes, overall, condition/injury, employment and wage demand. Asking prices are intentionally left with seller negotiation policy; the existing price can change when the seller's controller changes, and is not hidden player knowledge. `Squad`, `FreeAgents`, `PlayerProfile` and listed-player rows share the observation's underlying projection, keeping their existing output. Authoritative match and development stores remain separate.
+
+`TestClubObservationsAreControllerIndependent` compares identical player state under human and AI controllers; the remaining observation tests cover canonical requests and rejection, read-only state, detached data and unchanged match inputs/results, lifecycle changes and restore. The new types are derived queries: no saved fields, schema bumps, seeded draws or golden changes.
+
+Consumer adoption belongs to the owning lanes: `match--club-observations` asks for club-scoped lineup decisions while materializing actual engine inputs from authoritative profiles; `squad--club-observations` asks for recruitment/renewal inputs with staged-market changes handled explicitly; `ui--club-observations` asks for the human observer in player-facing views. This completes the data foundation, not the full PAR-10 rollout. Richer identities and division tuning remain conditional on a concrete milestone or balance request; match agreed the appearances/goals event contract while this unit was in progress; its implementation is next, coordinated with match emission.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
