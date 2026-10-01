@@ -308,6 +308,19 @@ func TestRestoreRejectsInvalidJournal(t *testing.T) {
 		"unknown kind":          func(s *WorldSnapshot) { s.Events[0].Kind = 99 },
 		"payload of other kind": func(s *WorldSnapshot) { find(s, events.KindMatchCompleted).Kind = events.KindLineupSubmitted },
 		"score edited":          func(s *WorldSnapshot) { find(s, events.KindMatchCompleted).MatchCompleted.HomeGoals += 1 },
+		"appearance dropped": func(s *WorldSnapshot) {
+			p := find(s, events.KindMatchCompleted).MatchCompleted
+			p.Appeared = slices.DeleteFunc(p.Appeared, func(id ids.PlayerID) bool { return id == p.Appeared[0] && !slices.Contains(p.Scorers, id) })
+		},
+		"scorers reordered": func(s *WorldSnapshot) {
+			for i := range s.Events {
+				if p := s.Events[i].MatchCompleted; p != nil && len(p.Scorers) > 1 && p.Scorers[0] != p.Scorers[len(p.Scorers)-1] {
+					slices.Reverse(p.Scorers)
+					return
+				}
+			}
+			t.Fatal("no match with two different scorers")
+		},
 		"round fixtures edited": func(s *WorldSnapshot) { find(s, events.KindRoundStarted).RoundStarted.Fixtures[0].Home = 99 },
 		"lineup for other team": func(s *WorldSnapshot) { find(s, events.KindLineupSubmitted).LineupSubmitted.Team = 99 },
 		"unknown command cause": func(s *WorldSnapshot) { find(s, events.KindMatchCompleted).Cause.ID = 999 },

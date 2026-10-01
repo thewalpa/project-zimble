@@ -301,12 +301,14 @@ func (w *World) resolveBatch(rounds []competitions.RoundRef, causeFor func(compe
 			Events: played[i], Stats: outcomes[i].Stats,
 		})
 	}
-	for _, p := range plan {
+	for i, p := range plan {
 		r, _ := w.competitions.Result(p.fixture.ID)
+		appeared, scorers := outcomeFacts(outcomes[i])
 		w.emit(w.Now(), causeFor(p.round), events.Event{Kind: events.KindMatchCompleted, MatchCompleted: &events.MatchCompleted{
 			Fixture: r.Fixture, Competition: r.Season.Competition, Season: uint16(r.Season.Season), Round: uint8(r.Round),
 			Home: r.Home, Away: r.Away, HomeGoals: r.HomeGoals, AwayGoals: r.AwayGoals,
 			HomePenalties: r.HomePenalties, AwayPenalties: r.AwayPenalties,
+			Appeared: appeared, Scorers: scorers,
 		}})
 	}
 	// Gate receipts and injuries cite the round of their fixture: on
@@ -336,6 +338,20 @@ func (w *World) resolveBatch(rounds []competitions.RoundRef, causeFor func(compe
 		w.emit(w.Now(), causeFor(playedIn[in.Player]), events.Event{Kind: events.KindPlayerInjured, PlayerInjured: &in})
 	}
 	return res, nil
+}
+
+// outcomeFacts are the MatchCompleted facts of a checked outcome: every
+// participant (on the pitch at some point), ascending ID, and each goal's
+// scorer in match order.
+func outcomeFacts(o matches.MatchOutcome) (appeared, scorers []ids.PlayerID) {
+	for _, pt := range o.Participants {
+		appeared = append(appeared, pt.Player)
+	}
+	slices.Sort(appeared)
+	for _, g := range o.Goals {
+		scorers = append(scorers, g.Scorer)
+	}
+	return appeared, scorers
 }
 
 func validCommandID(id CommandID) bool { return id != 0 }

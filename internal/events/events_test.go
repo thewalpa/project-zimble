@@ -14,7 +14,7 @@ func valid() []Event {
 	a := env(1, KindRoundStarted)
 	a.RoundStarted = &RoundStarted{Competition: 1, Season: 1, Round: 1, Fixtures: []Pairing{{Fixture: 1, Home: 1, Away: 2}, {Fixture: 2, Home: 3, Away: 4}}}
 	b := env(2, KindMatchCompleted)
-	b.MatchCompleted = &MatchCompleted{Fixture: 1, Competition: 1, Season: 1, Round: 1, Home: 1, Away: 2, HomeGoals: 2}
+	b.MatchCompleted = &MatchCompleted{Fixture: 1, Competition: 1, Season: 1, Round: 1, Home: 1, Away: 2, HomeGoals: 2, Appeared: []ids.PlayerID{4, 7, 9}, Scorers: []ids.PlayerID{9, 4}}
 	c := env(3, KindLineupSubmitted)
 	c.Cause.Kind = CauseCommand
 	c.LineupSubmitted = &LineupSubmitted{Fixture: 1, Team: 1}
@@ -93,7 +93,8 @@ func TestValidate(t *testing.T) {
 		"zero ID":              func(v []Event) Event { v[0].ID = 0; return v[0] },
 		"zero revision":        func(v []Event) Event { v[0].Revision = 0; return v[0] },
 		"zero sequence":        func(v []Event) Event { v[0].Sequence = 0; return v[0] },
-		"other schema":         func(v []Event) Event { v[0].SchemaVersion = 2; return v[0] },
+		"other schema":         func(v []Event) Event { v[0].SchemaVersion = SchemaVersion + 1; return v[0] },
+		"older schema":         func(v []Event) Event { v[0].SchemaVersion = SchemaVersion - 1; return v[0] },
 		"no cause":             func(v []Event) Event { v[0].Cause = Cause{}; return v[0] },
 		"cause kind 3":         func(v []Event) Event { v[0].Cause.Kind = 3; return v[0] },
 		"kind mismatch":        func(v []Event) Event { v[0].Kind = KindMatchCompleted; return v[0] },
@@ -103,6 +104,12 @@ func TestValidate(t *testing.T) {
 		"no fixtures":          func(v []Event) Event { v[0].RoundStarted.Fixtures = nil; return v[0] },
 		"unordered fixture":    func(v []Event) Event { v[0].RoundStarted.Fixtures[1].Fixture = 1; return v[0] },
 		"self match":           func(v []Event) Event { v[1].MatchCompleted.Away = 1; return v[1] },
+		"nobody appeared":      func(v []Event) Event { v[1].MatchCompleted.Appeared = nil; return v[1] },
+		"appeared unordered":   func(v []Event) Event { v[1].MatchCompleted.Appeared[1] = 4; return v[1] },
+		"appeared zero":        func(v []Event) Event { v[1].MatchCompleted.Appeared[0] = 0; return v[1] },
+		"goal without scorer":  func(v []Event) Event { v[1].MatchCompleted.AwayGoals = 1; return v[1] },
+		"scorer without goal":  func(v []Event) Event { v[1].MatchCompleted.HomeGoals = 1; return v[1] },
+		"scorer not appeared":  func(v []Event) Event { v[1].MatchCompleted.Scorers[0] = 8; return v[1] },
 		"zero team":            func(v []Event) Event { v[2].LineupSubmitted.Team = 0; return v[2] },
 		"empty ranking":        func(v []Event) Event { v[3].SeasonEnded.Ranking = nil; return v[3] },
 		"champion not the top": func(v []Event) Event { v[3].SeasonEnded.Champion = 1; return v[3] },
@@ -161,6 +168,8 @@ func TestCloneSharesNothing(t *testing.T) {
 	c := CloneAll(orig)
 	c[0].RoundStarted.Fixtures[0].Home = 9
 	c[1].MatchCompleted.HomeGoals = 9
+	c[1].MatchCompleted.Appeared[0] = 9
+	c[1].MatchCompleted.Scorers[0] = 9
 	c[2].LineupSubmitted.Team = 9
 	c[3].SeasonEnded.Ranking[0] = 9
 	c[4].SeasonStarted.Entrants[0] = 9

@@ -6,9 +6,11 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/inbox"
+	"github.com/thewalpa/project-zimble/internal/matches"
 )
 
 // journalRetention is how many of the most recent events the journal keeps.
@@ -188,6 +190,17 @@ func (w *World) checkEventFacts(e events.Event) error {
 				return errors.New("differs from the round's kickoff cause")
 			}
 		}
+		// A command-resolved match keeps its report in the command log; an
+		// auto-resolved one has only the event, which validated its shape.
+		if m, ok := w.commandReport(e.Cause, p.Fixture); ok {
+			appeared, scorers, lineups := reportFacts(m)
+			if !slices.Equal(scorers, p.Scorers) {
+				return fmt.Errorf("scorers %v differ from the report's goals %v", p.Scorers, scorers)
+			}
+			if lineups && !slices.Equal(appeared, p.Appeared) {
+				return fmt.Errorf("appearances %v differ from the report's %v", p.Appeared, appeared)
+			}
+		}
 	case events.KindLineupSubmitted:
 		p := e.LineupSubmitted
 		f, ok := w.competitions.Fixture(p.Fixture)
@@ -300,4 +313,44 @@ func (w *World) Inbox() []InboxItem {
 		out = append(out, item)
 	}
 	return out
+}
+
+// commandReport returns the report of a fixture resolved by the recorded
+// ResolveRounds command that caused an event, if the command log holds it.
+func (w *World) commandReport(cause events.Cause, fixture ids.FixtureID) (MatchReport, bool) {
+	if cause.Kind != events.CauseCommand {
+		return MatchReport{}, false
+	}
+	rec, ok := w.commands[CommandID(cause.ID)]
+	if !ok || rec.resolve == nil {
+		return MatchReport{}, false
+	}
+	for _, m := range rec.resolve.Result.Matches {
+		if m.Fixture == fixture {
+			return m, true
+		}
+	}
+	return MatchReport{}, false
+}
+
+// reportFacts derives MatchCompleted's facts from a match report: the
+// starters of both sides and every substitute who came on, ascending ID, and
+// each goal's scorer in match order. lineups is false for a report without
+// lineups, which cannot name who appeared.
+func reportFacts(m MatchReport) (appeared, scorers []ids.PlayerID, lineups bool) {
+	for _, l := range m.Lineups {
+		for _, s := range l.Starters {
+			appeared = append(appeared, s.Player)
+		}
+	}
+	for _, e := range m.Events {
+		if e.Kind == matches.EventSubstitution {
+			appeared = append(appeared, e.Player)
+		}
+	}
+	slices.Sort(appeared)
+	for _, g := range m.Goals {
+		scorers = append(scorers, g.Scorer)
+	}
+	return appeared, scorers, len(m.Lineups[0].Starters) > 0
 }

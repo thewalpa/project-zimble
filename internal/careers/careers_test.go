@@ -120,6 +120,50 @@ func TestCareersFollowEmploymentEvents(t *testing.T) {
 	}
 }
 
+// match is a completed match between teams 1 and 2 (team IDs equal to club
+// IDs) in which appeared played and scorers scored, one goal each.
+func match(appeared []ids.PlayerID, scorers ...ids.PlayerID) func(*events.Event) {
+	return func(e *events.Event) {
+		e.Kind = events.KindMatchCompleted
+		e.MatchCompleted = &events.MatchCompleted{Fixture: 1, Competition: 1, Season: 1, Round: 1, Home: 1, Away: 2,
+			HomeGoals: uint16(len(scorers)), Appeared: appeared, Scorers: scorers}
+	}
+}
+
+// Appearances and goals count at the club the player was at when he played:
+// a transfer starts a new spell's count.
+func TestCareersCountAppearancesAndGoals(t *testing.T) {
+	var j journal
+	j.add(events.KindMatchCompleted, match([]ids.PlayerID{1, 2, 3}, 1, 3, 1))
+	j.add(events.KindTransferCompleted, func(e *events.Event) {
+		e.TransferCompleted = &events.TransferCompleted{Deal: deal(1, 1, 2, 50), Expires: 1000, WeeklyWage: 5}
+	})
+	j.add(events.KindMatchCompleted, match([]ids.PlayerID{1, 3}, 1))
+	j.add(events.KindMatchCompleted, match([]ids.PlayerID{2}))
+	s := start(t)
+	if _, err := s.Apply(j); err != nil {
+		t.Fatal(err)
+	}
+	want := []Career{
+		{Player: 1, Spells: []Spell{
+			{Club: 1, From: 0, Joined: JoinedAtStart, Until: 20, Left: LeftTransfer, Appearances: 1, Goals: 2},
+			{Club: 2, From: 20, Joined: JoinedTransfer, Fee: 5000, Appearances: 1, Goals: 1},
+		}},
+		{Player: 2, Spells: []Spell{{Club: 1, From: 0, Joined: JoinedAtStart, Appearances: 2}}},
+		{Player: 3, Spells: []Spell{{Club: 2, From: 0, Joined: JoinedAtStart, Appearances: 2, Goals: 1}}},
+	}
+	if got := s.Careers(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("careers\n%+v\nwant\n%+v", got, want)
+	}
+	rebuilt, err := New(s.Initial())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rebuilt.Apply(j); err != nil || !reflect.DeepEqual(rebuilt.Snapshot(), s.Snapshot()) {
+		t.Fatalf("rebuild: %v", err)
+	}
+}
+
 // Events that contradict the careers are rejected, and nothing changes.
 func TestApplyRejectsContradictions(t *testing.T) {
 	for name, set := range map[string]func(*events.Event){
@@ -147,6 +191,9 @@ func TestApplyRejectsContradictions(t *testing.T) {
 			e.Kind = events.KindPlayerSigned
 			e.PlayerSigned = &events.PlayerSigned{Player: 3, Club: 1, Team: 1, Expires: 1000, WeeklyWage: 5}
 		},
+		"appeared without ever having a club": match([]ids.PlayerID{1, 9}),
+		"appeared after his contract expired": match([]ids.PlayerID{1, 2}),
+		"appeared after retiring":             match([]ids.PlayerID{3}),
 		"retired as a free agent while employed": func(e *events.Event) {
 			e.Kind = events.KindPlayerRetired
 			e.PlayerRetired = &events.PlayerRetired{Player: 1, Age: 30}
@@ -197,24 +244,25 @@ func TestNewRejectsMalformedSnapshots(t *testing.T) {
 		return Spell{Club: club, From: from, Joined: JoinedTransfer, Fee: 10}
 	}
 	for name, careers := range map[string][]Career{
-		"player zero":           {{Player: 0, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}},
-		"players out of order":  {{Player: 2, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}, {Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}},
-		"no spells":             {{Player: 1}},
-		"club zero":             {{Player: 1, Spells: []Spell{at(0, 0, JoinedAtStart, 0, LeftNot)}}},
-		"unknown joined":        {{Player: 1, Spells: []Spell{at(1, 0, 9, 0, LeftNot)}}},
-		"unknown left":          {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 5, 9)}}},
-		"current not last":      {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot), at(2, 5, JoinedFree, 0, LeftNot)}}},
-		"current with an end":   {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 5, LeftNot)}}},
-		"ends before start":     {{Player: 1, Spells: []Spell{at(1, 10, JoinedFree, 5, LeftExpired)}}},
-		"overlap":               {{Player: 1, Spells: []Spell{at(1, 0, JoinedFree, 10, LeftExpired), at(2, 5, JoinedFree, 0, LeftNot)}}},
-		"youth later":           {{Player: 1, Spells: []Spell{at(1, 0, JoinedFree, 10, LeftExpired), at(2, 15, JoinedYouth, 0, LeftNot)}}},
-		"free with a fee":       {{Player: 1, Spells: []Spell{{Club: 1, Joined: JoinedFree, Fee: 10}}}},
-		"transfer first":        {{Player: 1, Spells: []Spell{bought(1, 0)}}},
-		"transfer after expiry": {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftExpired), bought(2, 10)}}},
-		"transfer later":        {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer), bought(2, 20)}}},
-		"transfer same club":    {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer), bought(1, 10)}}},
-		"retired then joined":   {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftRetired), at(2, 20, JoinedFree, 0, LeftNot)}}},
-		"sale without buyer":    {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer)}}},
+		"player zero":               {{Player: 0, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}},
+		"players out of order":      {{Player: 2, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}, {Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot)}}},
+		"no spells":                 {{Player: 1}},
+		"club zero":                 {{Player: 1, Spells: []Spell{at(0, 0, JoinedAtStart, 0, LeftNot)}}},
+		"unknown joined":            {{Player: 1, Spells: []Spell{at(1, 0, 9, 0, LeftNot)}}},
+		"unknown left":              {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 5, 9)}}},
+		"current not last":          {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 0, LeftNot), at(2, 5, JoinedFree, 0, LeftNot)}}},
+		"current with an end":       {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 5, LeftNot)}}},
+		"ends before start":         {{Player: 1, Spells: []Spell{at(1, 10, JoinedFree, 5, LeftExpired)}}},
+		"overlap":                   {{Player: 1, Spells: []Spell{at(1, 0, JoinedFree, 10, LeftExpired), at(2, 5, JoinedFree, 0, LeftNot)}}},
+		"youth later":               {{Player: 1, Spells: []Spell{at(1, 0, JoinedFree, 10, LeftExpired), at(2, 15, JoinedYouth, 0, LeftNot)}}},
+		"free with a fee":           {{Player: 1, Spells: []Spell{{Club: 1, Joined: JoinedFree, Fee: 10}}}},
+		"transfer first":            {{Player: 1, Spells: []Spell{bought(1, 0)}}},
+		"transfer after expiry":     {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftExpired), bought(2, 10)}}},
+		"transfer later":            {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer), bought(2, 20)}}},
+		"transfer same club":        {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer), bought(1, 10)}}},
+		"retired then joined":       {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftRetired), at(2, 20, JoinedFree, 0, LeftNot)}}},
+		"sale without buyer":        {{Player: 1, Spells: []Spell{at(1, 0, JoinedAtStart, 10, LeftTransfer)}}},
+		"goals without appearances": {{Player: 1, Spells: []Spell{{Club: 1, Joined: JoinedAtStart, Goals: 1}}}},
 	} {
 		if _, err := New(Snapshot{Careers: careers}); err == nil {
 			t.Errorf("%s: accepted", name)

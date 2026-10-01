@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/careers"
@@ -146,4 +147,88 @@ func TestRestoreRejectsInvalidCareers(t *testing.T) {
 			t.Errorf("%s: Restore = %v", name, err)
 		}
 	}
+}
+
+// Every completed match names who played and scored: a command-resolved
+// match's facts are its report's, and the careers count exactly the
+// journal's appearances and goals, at the club each player was at.
+func TestCareersCountAppearancesAndGoals(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	reported := 0
+	for range 3 {
+		readyBatch(t, w)
+		res := resolveNow(t, w)
+		for _, m := range res.Matches {
+			appeared, scorers, lineups := reportFacts(m)
+			e := matchCompleted(t, w, m.Fixture)
+			if !lineups || !slices.Equal(e.Appeared, appeared) || !slices.Equal(e.Scorers, scorers) {
+				t.Fatalf("fixture %d: event %v / %v, report %v / %v", m.Fixture, e.Appeared, e.Scorers, appeared, scorers)
+			}
+			reported++
+		}
+	}
+	if n := checkCareerCounts(t, w); n != reported {
+		t.Fatalf("%d matches, %d reported", n, reported)
+	}
+	checkCareerCounts(t, roundTrip(t, w))
+
+	// Without a managed club, Continue auto-resolves every batch; its
+	// matches name who played and scored the same way.
+	auto := userWorld(t, 42, 0)
+	mustContinue(t, auto, 6*week)
+	if n := checkCareerCounts(t, auto); n == 0 {
+		t.Fatal("no auto-resolved matches")
+	}
+}
+
+// checkCareerCounts checks that every match in a complete journal names at
+// least two elevens and that each player's spells sum to the journal's
+// appearances and goals. It returns the number of matches.
+func checkCareerCounts(t *testing.T, w *World) int {
+	t.Helper()
+	evs := w.Events()
+	if len(evs) == 0 || evs[0].ID != 1 {
+		t.Fatal("the journal was trimmed")
+	}
+	apps, goals := map[ids.PlayerID]int{}, map[ids.PlayerID]int{}
+	matches := 0
+	for _, e := range evs {
+		if p := e.MatchCompleted; p != nil {
+			matches++
+			if len(p.Appeared) < 22 {
+				t.Fatalf("fixture %d: %d players appeared", p.Fixture, len(p.Appeared))
+			}
+			for _, id := range p.Appeared {
+				apps[id]++
+			}
+			for _, id := range p.Scorers {
+				goals[id]++
+			}
+		}
+	}
+	for _, c := range w.careers.Careers() {
+		a, g := 0, 0
+		for _, s := range c.Spells {
+			a, g = a+int(s.Appearances), g+int(s.Goals)
+		}
+		if a != apps[c.Player] || g != goals[c.Player] {
+			t.Fatalf("player %d: career %d apps %d goals, journal %d and %d", c.Player, a, g, apps[c.Player], goals[c.Player])
+		}
+		delete(apps, c.Player)
+	}
+	if len(apps) != 0 {
+		t.Fatalf("players %v appeared without a career", apps)
+	}
+	return matches
+}
+
+func matchCompleted(t *testing.T, w *World, fixture ids.FixtureID) *events.MatchCompleted {
+	t.Helper()
+	for _, e := range w.Events() {
+		if p := e.MatchCompleted; p != nil && p.Fixture == fixture {
+			return p
+		}
+	}
+	t.Fatalf("no MatchCompleted for fixture %d", fixture)
+	return nil
 }

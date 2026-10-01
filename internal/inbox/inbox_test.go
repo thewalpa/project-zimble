@@ -21,9 +21,9 @@ func journal() []events.Event {
 	a.RoundStarted = &events.RoundStarted{Competition: 1, Season: 1, Round: 1,
 		Fixtures: []events.Pairing{{Fixture: 1, Home: 1, Away: 2}, {Fixture: 2, Home: 4, Away: 3}}}
 	b := env(2, events.KindMatchCompleted)
-	b.MatchCompleted = &events.MatchCompleted{Fixture: 1, Competition: 1, Season: 1, Round: 1, Home: 1, Away: 2, HomeGoals: 1}
+	b.MatchCompleted = &events.MatchCompleted{Fixture: 1, Competition: 1, Season: 1, Round: 1, Home: 1, Away: 2, HomeGoals: 1, Appeared: []ids.PlayerID{5, 6}, Scorers: []ids.PlayerID{5}}
 	c := env(3, events.KindMatchCompleted)
-	c.MatchCompleted = &events.MatchCompleted{Fixture: 2, Competition: 1, Season: 1, Round: 1, Home: 4, Away: 3, HomeGoals: 2, AwayGoals: 1}
+	c.MatchCompleted = &events.MatchCompleted{Fixture: 2, Competition: 1, Season: 1, Round: 1, Home: 4, Away: 3, HomeGoals: 2, AwayGoals: 1, Appeared: []ids.PlayerID{7, 8}, Scorers: []ids.PlayerID{7, 8, 7}}
 	d := env(4, events.KindLineupSubmitted)
 	d.LineupSubmitted = &events.LineupSubmitted{Fixture: 2, Team: 3}
 	e := env(5, events.KindSeasonEnded)

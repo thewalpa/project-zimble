@@ -3490,3 +3490,21 @@ Both manager clients now read player facts through the human club's observation 
 Squad and lineup editors, other clubs' probable formations, profiles and comparisons, contract screens, recruitment candidates and listings, played formations and live-lineup labels all consume these views. Membership and eligibility still come from their football queries; asking prices, payoffs and listing terms retain their existing negotiation contracts. Today observations are exact, so visible facts, commands, seeded results and saves are unchanged. Headless and pre-manager club-choice reports remain administrative. No saved state, schema, model version or golden changes.
 
 Coverage checks real observers, rejection of invalid clubs/players, exact facts and custom listing prices, detached rows and unchanged snapshots. Scripted terminal commands and HTTP page visits browse the main player views and verify the career stays unchanged through save/load. Existing profile, comparison, transfer, formation and live-match tests continue to cover those flows. Validation: `gofmt -l .`, `go vet ./...` and `go test ./...`. Closes `ui--club-observations.md`; data receives the adoption note and the remaining aggregate-information boundary to consider before uncertainty.
+
+## data: appearances and goals in careers (done)
+
+Every completed match now names who played and who scored, and each career spell counts them. `events.MatchCompleted` gains `Appeared` (both sides' players who were on the pitch — starters and substitutes who came on, not unused substitutes — ascending ID) and `Scorers` (one entry per regulation goal, match order, both sides mixed; shootout kicks are not goals). `events.SchemaVersion` is 2: `Validate` requires a non-empty ascending `Appeared`, one scorer per goal and every scorer among those who appeared. The contract is the one match agreed in `match--careers-appearances-goals`; own goals would come as a `matches` contract change first.
+
+`resolveBatch` fills both facts from the checked `MatchOutcome` (`outcomeFacts` in `resolve.go`), so the command path and Continue's auto-resolve emit them identically. The emission landed in this commit rather than in a separate match commit, because the frozen schema 30 save fixture must hold real facts and no main commit may emit empty ones; match was told in `match--match-completed-facts`.
+
+`careers.Spell` gains `Appearances` and `Goals` (all competitions). `Apply` counts a `MatchCompleted` at each appearing player's current spell and rejects one naming a player without a current club; a snapshot with goals but no appearances is invalid. A transfer starts the new spell's count from zero. `PlayerCareer` carries the counts through the embedded spell.
+
+On restore, the journal checks a command-resolved match's facts against its `MatchReport` in the command log (starters plus substitutes who came on; goals' scorers in order); an auto-resolved match has no report, so its shape check and the careers rebuild cover it. No module owns these facts besides the event, which is why they are re-checked rather than derived.
+
+Saves: `storage.SchemaVersion` 30 (new event and spell fields) with its frozen fixture; schema 29 saves are refused. No world fingerprint, seeded draw or engine output changed.
+
+Tests: event validation and clone cases; careers counting across a transfer, rebuild from the initial snapshot, rejection of an appearance without a club, after expiry or after retirement; `TestCareersCountAppearancesAndGoals` (command-resolved facts equal the reports, spell totals equal the journal for a managed and an unmanaged career, and survive a save); `TestRestoreRejectsInvalidJournal` rejects a dropped appearance and reordered scorers.
+
+Also reviewed squad's observation adoption (`data--squad-observations-adopted`): accepted for today's exact-information policy. Two conditions are recorded in the data backlog: an observation-at-instant query before any time-sensitive knowledge (it replaces the local age projection), and one definition of a club's squad average once a second team kind exists (today `squadAverage` uses the senior team, the market cache the whole club and `sellingPrice` the player's team; they agree only because every club has one team).
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.

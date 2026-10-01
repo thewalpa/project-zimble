@@ -20,7 +20,10 @@ import (
 // Changing or removing an existing field requires a new version. New kinds
 // and optional fields preserving existing meaning require only a storage
 // schema bump; older saves are migrated or explicitly rejected there.
-const SchemaVersion = 1
+//
+// Version 2: MatchCompleted carries Appeared and Scorers, required facts of
+// every completed match.
+const SchemaVersion = 2
 
 // ID identifies an event. IDs are allocated sequentially from 1 and never
 // reused; they give the global order.
@@ -143,6 +146,14 @@ type MatchCompleted struct {
 	// A knockout match level after regulation: the penalty shootout.
 	HomePenalties uint16 `json:",omitempty"`
 	AwayPenalties uint16 `json:",omitempty"`
+	// Appeared are the players of both sides who were on the pitch:
+	// starters and substitutes who came on (not unused substitutes), in
+	// ascending ID order.
+	Appeared []ids.PlayerID
+	// Scorers name the scorer of each goal in HomeGoals and AwayGoals, in
+	// match order, both sides mixed; shootout kicks are not goals. Every
+	// scorer appeared.
+	Scorers []ids.PlayerID `json:",omitempty"`
 }
 
 // LineupSubmitted: a team's manager submitted a lineup for a fixture.
@@ -462,6 +473,22 @@ func (e Event) Validate() error {
 		if !p.Fixture.Valid() || !p.Competition.Valid() || p.Season == 0 || p.Round == 0 || !p.Home.Valid() || !p.Away.Valid() || p.Home == p.Away {
 			return fail("invalid payload %+v", p)
 		}
+		if len(p.Appeared) == 0 {
+			return fail("nobody appeared in fixture %d", p.Fixture)
+		}
+		for i, pl := range p.Appeared {
+			if !pl.Valid() || (i > 0 && pl <= p.Appeared[i-1]) {
+				return fail("appearances %v not ascending valid players", p.Appeared)
+			}
+		}
+		if len(p.Scorers) != int(p.HomeGoals)+int(p.AwayGoals) {
+			return fail("%d scorers for %d-%d", len(p.Scorers), p.HomeGoals, p.AwayGoals)
+		}
+		for _, pl := range p.Scorers {
+			if _, ok := slices.BinarySearch(p.Appeared, pl); !ok {
+				return fail("scorer %d did not appear", pl)
+			}
+		}
 	case KindLineupSubmitted:
 		if p := e.LineupSubmitted; !p.Fixture.Valid() || !p.Team.Valid() {
 			return fail("invalid payload %+v", p)
@@ -571,6 +598,7 @@ func (e Event) Clone() Event {
 	}
 	if p := e.MatchCompleted; p != nil {
 		c := *p
+		c.Appeared, c.Scorers = slices.Clone(p.Appeared), slices.Clone(p.Scorers)
 		e.MatchCompleted = &c
 	}
 	if p := e.LineupSubmitted; p != nil {

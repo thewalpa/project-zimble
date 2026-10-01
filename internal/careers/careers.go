@@ -1,4 +1,5 @@
-// Package careers is the history of every player's clubs: a read model
+// Package careers is the history of every player's clubs, with his
+// appearances and goals at each: a read model
 // built only from committed domain events, starting from the employment a
 // career begins with. Employment owns where a player plays now; this package
 // remembers where he played before, which no module keeps once a contract
@@ -14,6 +15,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -48,14 +50,18 @@ const (
 func (l Left) Valid() bool { return l <= LeftRetired }
 
 // Spell is one stay at a club, from From until Until (both game instants).
-// A current spell has Left == LeftNot and no Until.
+// A current spell has Left == LeftNot and no Until. Appearances and Goals
+// count the completed matches he played in and the goals he scored in them
+// while at the club (all competitions; shootout kicks are not goals).
 type Spell struct {
-	Club   ids.ClubID
-	From   sim.GameInstant
-	Joined Joined
-	Fee    money.Money     `json:",omitempty"` // JoinedTransfer: what Club paid
-	Until  sim.GameInstant `json:",omitempty"`
-	Left   Left            `json:",omitempty"`
+	Club        ids.ClubID
+	From        sim.GameInstant
+	Joined      Joined
+	Fee         money.Money     `json:",omitempty"` // JoinedTransfer: what Club paid
+	Until       sim.GameInstant `json:",omitempty"`
+	Left        Left            `json:",omitempty"`
+	Appearances uint16          `json:",omitempty"`
+	Goals       uint16          `json:",omitempty"`
 }
 
 func (s Spell) Current() bool { return s.Left == LeftNot }
@@ -133,6 +139,8 @@ func checkSpells(spells []Spell) error {
 			return fmt.Errorf("current spell %+v is not the last or has an end", sp)
 		case !sp.Current() && sp.Until < sp.From:
 			return fmt.Errorf("spell %+v ends before it starts", sp)
+		case sp.Goals > 0 && sp.Appearances == 0:
+			return fmt.Errorf("spell %+v has goals without appearances", sp)
 		case (sp.Joined == JoinedAtStart || sp.Joined == JoinedYouth) && i > 0:
 			return fmt.Errorf("spell %+v is not the first", sp)
 		case (sp.Joined == JoinedTransfer) != (sp.Fee > 0) || sp.Fee < 0:
@@ -189,9 +197,9 @@ func (s *Store) Initial() Snapshot {
 // without gaps and be valid. Each employment event must agree with the
 // careers: a club can only lose a player whose current spell is with it, and
 // only a player without a current spell (who has not retired) can join a
-// club. It is
-// all-or-nothing: on error nothing changes. It returns how many events were
-// consumed.
+// club. A player who appeared in a completed match must have a current
+// spell, which counts the appearance and his goals. It is all-or-nothing: on
+// error nothing changes. It returns how many events were consumed.
 func (s *Store) Apply(evs []events.Event) (int, error) {
 	offset := s.offset
 	staged := map[ids.PlayerID][]Spell{}
@@ -222,6 +230,30 @@ func (s *Store) Apply(evs []events.Event) (int, error) {
 		staged[p] = append(sp, next)
 		return nil
 	}
+	// played counts a completed match for the players who appeared in it at
+	// their current clubs.
+	played := func(e events.Event, p *events.MatchCompleted) error {
+		for _, id := range p.Appeared {
+			sp, _ := spells(id)
+			n := len(sp)
+			if n == 0 || !sp[n-1].Current() {
+				return fmt.Errorf("careers: event %d (%s): player %d appeared without a club", e.ID, e.Kind, id)
+			}
+			if sp[n-1].Appearances == math.MaxUint16 {
+				return fmt.Errorf("careers: event %d (%s): player %d has too many appearances", e.ID, e.Kind, id)
+			}
+			sp[n-1].Appearances++
+			staged[id] = sp
+		}
+		for _, id := range p.Scorers {
+			sp := staged[id] // every scorer appeared (events.Validate)
+			if sp[len(sp)-1].Goals == math.MaxUint16 {
+				return fmt.Errorf("careers: event %d (%s): player %d has too many goals", e.ID, e.Kind, id)
+			}
+			sp[len(sp)-1].Goals++
+		}
+		return nil
+	}
 	for _, e := range evs {
 		if e.ID <= offset {
 			continue
@@ -234,6 +266,8 @@ func (s *Store) Apply(evs []events.Event) (int, error) {
 		}
 		var err error
 		switch e.Kind {
+		case events.KindMatchCompleted:
+			err = played(e, e.MatchCompleted)
 		case events.KindYouthJoined:
 			p := e.YouthJoined
 			err = join(e, p.Player, Spell{Club: p.Club, Joined: JoinedYouth})
