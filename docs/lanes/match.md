@@ -57,7 +57,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 - **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v6 is requested). The career-season comparison ([note](../handoffs/balance--tick-career-seasons.md)) and a statistics comparison with real football ([note](../handoffs/balance--tick-match-stats.md)) are requested.
 - **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)); statistics in reports and the live match ([note](../handoffs/ui--match-stats.md)).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
-- **`competitions`:** nothing yet; extra time would need the reserved `Resolution` value.
+- **`competitions`:** play-off match rules are reviewed and accepted (a tie is knockout to penalties; the link's lower division supplies the squad rules). Extra time before penalties would need the reserved `Resolution` value.
 
 ## Backlog
 

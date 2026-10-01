@@ -3297,3 +3297,9 @@ Reviewed competitions' handoff `data--season-ended-champion` and accepted it wit
 The optional field follows the existing event version policy (`events.SchemaVersion` 1); `storage.SchemaVersion` 29 records the new save shape and explicitly refuses earlier schemas. Its frozen fixture contains four league ends and a cup end with their champions, plus two play-off ends without one. No content, generation or simulation versions moved. The next free save schema is 30.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed. The test suite needed local socket permission for the browser tests; the approved rerun passed. `TestSaveFixtures` confirmed schema 29 loads and schemas 24–28 are explicitly refused.
+
+## match: play-off match rules reviewed (done)
+
+Reviewed `competitions`' `playoffLink` branch of `matchRules` ([handoff](handoffs/match--playoff-match-rules.md), delivered). A play-off tie is a knockout match: a level score must go to penalties (result validation already enforces `ResolutionPenalties` iff knockout and level, and `matchRules` refuses an engine without a penalties capability), and the link's lower division supplying `MaxSubstitutions` and `MaxBench` is the right rule for a cross-division tie — both sides then play under one league's squad rules without picking a favourite. Extra time before penalties stays on the competitions backlog and needs engine support first (a `matches.Rules` flag and the reserved `Resolution` value).
+
+Fixed the fallout: the ignored `ok` from `leagueIndex(l.Lower)` could have silently used league 0's rules (or panicked) for a link whose lower league is unknown; it now reports an error, as the project rules require.

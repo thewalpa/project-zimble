@@ -392,7 +392,10 @@ func (w *World) matchRules(comp ids.CompetitionID) (matches.Rules, error) {
 		if !w.engine.Capabilities().Penalties {
 			return matches.Rules{}, fmt.Errorf("app: the %s engine cannot decide play-off matches: no penalties", w.engine.ID())
 		}
-		li, _ := w.leagueIndex(l.Lower) // the link's lower division supplies the match rules
+		li, ok := w.leagueIndex(l.Lower) // the link's lower division supplies the match rules
+		if !ok {
+			return matches.Rules{}, fmt.Errorf("app: play-off competition %d: link's lower league %d has no definition", comp, l.Lower)
+		}
 		d := w.leagues[li].def
 		return matches.Rules{MaxSubstitutions: d.MaxSubstitutions, MaxBench: d.MaxBench, Knockout: true}, nil
 	}
