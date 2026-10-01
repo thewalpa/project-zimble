@@ -25,11 +25,11 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Nothing queued. Auto-resolving batches are in (`docs/progress.md`): `Continue` resolves rounds with no user fixture on the way and reports them in `Resolved`; only a batch with the managed club's fixture stops. Open handoffs from it: `match--auto-resolve-batch-pipeline` (steward review of the `resolve.go` extraction), `ui--auto-resolving-batches` (stop contract and client copy). Still open from before: `data--season-ended-champion`, `ui--season-ended-no-champion`. `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below. Take the top backlog item.
+Cup prize money, the competitions half: `competitions.Store.Exits` (each entrant's stage in a completed knockout) is the rule, and the inbox's cup stage reads it. Waiting on `data--cup-prize-table` (amounts on `content.Cup.Prizes`), then `squad--cup-prize-postings` (ledger kind, postings in `endSeasons`, validation). When squad delivers, review their edit in `season.go`. Open from earlier: `ui--auto-resolving-batches` (accepted by ui). `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below.
 
 ## Backlog
 
-- **Cup prize money:** the rule is here, and the ledger entries go through a note to `squad`.
+- **Cup prize money (waiting on data and squad):** the rule is delivered (`Exits`). Review squad's `endSeasons` edit when it lands; league prize money by final position could follow the same pattern from `Ranking`.
 - **Two-legged ties and extra time:** they need a `match` note for engine support.
 - **Registration and eligibility per competition** (the architecture assigns it to competitions), once squads have more than one team.
 - **League sizes other than eight** (`competitions.SupportedEntrants`).

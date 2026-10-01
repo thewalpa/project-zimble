@@ -3473,3 +3473,12 @@ One change: `MatchCompleted` already cited each round's cause, but the batch's g
 No version, golden, schema or result change. Restore does not fact-check these causes, so saves that hold the old attribution still load. `TestContinueReportsEveryAutoResolvedBatch` now also checks every gate entry (48, under 12 kickoff causes) and every injury against its fixture's round; it fails without the fix. Closes `match--auto-resolve-batch-pipeline`.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## competitions: cup exits, the rule for prize money (done)
+
+The competitions half of cup prize money. How far each entrant got is now an official query, and prizes wait on data's amounts and squad's ledger entries.
+
+- **`competitions.Store.Exits(ref)`** returns every entrant's `Exit{Team, Round, Stage}` for a completed knockout edition, in `Ranking` order. Stage counts back from the final: 0 champion, 1 runner-up, 2 semi-final loser, and so on, so a stage means the same thing in a bracket of any size. It is false for an unknown, unfinished or non-knockout season.
+- **The prize rule:** each entrant of a completed edition is paid once, the prize for its stage, at the edition's season-end task in the same commit as `SeasonEnded`. Payments do not accumulate per round won. Amounts go on `content.Cup.Prizes` ([note to data](handoffs/data--cup-prize-table.md)). The `KindPrize` ledger entries, their validation and the call in `endSeasons` go to squad ([note to squad](handoffs/squad--cup-prize-postings.md)), which waits for the data note.
+- **`cupStage`** (the inbox's "went out in the semi-final") now reads `Exits` instead of re-deriving stages with bit arithmetic on ranking positions.
+- Tests: `TestKnockoutExits` covers rejections (unknown, unfinished, a completed league) and checks, for brackets of 2–16, one champion, one runner-up and 2^(k-1) teams at each stage k after that, each going out in the right round. `TestKnockoutBracket` pins the exits of its played bracket. The cup inbox test still checks the stage text. Goldens are unchanged.

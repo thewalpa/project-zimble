@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"math/bits"
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
@@ -174,15 +173,17 @@ func (w *World) RoundName(ref competitions.RoundRef) string {
 }
 
 // cupStage describes how far the team ranked at position (1-based) got in a
-// cup edition: "winner", or the name of the round it lost in. In a bracket,
-// positions 2^k+1..2^(k+1) lose in the round k before the final's.
+// completed cup edition (competitions.Exits): "winner", or the name of the
+// round it lost in. Empty for a position the edition does not have.
 func (w *World) cupStage(ref competitions.SeasonRef, position int) string {
-	if position <= 1 {
-		return "winner"
+	exits, ok := w.competitions.Exits(ref)
+	if !ok || position < 1 || position > len(exits) {
+		return ""
 	}
-	rounds := len(w.competitions.Rounds(ref))
-	back := bits.Len(uint(position - 1)) // 1 for the final, 2 for the semi-finals...
-	return w.RoundName(competitions.RoundRef{Season: ref, Round: competitions.Round(rounds - back + 1)})
+	if e := exits[position-1]; e.Stage > 0 {
+		return w.RoundName(competitions.RoundRef{Season: ref, Round: e.Round})
+	}
+	return "winner"
 }
 
 // FixtureInfo is one fixture of any competition, with display names.

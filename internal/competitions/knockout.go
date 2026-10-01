@@ -172,3 +172,39 @@ func (se *season) knockoutRanking() []ids.TeamID {
 	}
 	return out
 }
+
+// Exit is how far one entrant got in a completed knockout season. Stage
+// counts back from the final: 0 for the champion, 1 for the runner-up, 2 for
+// a semi-final loser, and so on, so a stage means the same in a bracket of
+// any size. Round is the round the team went out in, the final for both
+// finalists.
+type Exit struct {
+	Team  ids.TeamID
+	Round Round
+	Stage int
+}
+
+// Exits returns every entrant's exit of a completed knockout season in
+// Ranking order: the champion, the runner-up, the semi-final losers, and so
+// on. It is the rule that stage-based awards (prize money, a club's record)
+// read. False for an unknown, incomplete or non-knockout season.
+func (s *Store) Exits(ref SeasonRef) ([]Exit, bool) {
+	i, ok := s.seasonIdx[ref]
+	if !ok || s.seasons[i].format != FormatKnockout || !s.seasons[i].completed() {
+		return nil, false
+	}
+	se := &s.seasons[i]
+	reached := map[ids.TeamID]Round{}
+	for _, f := range se.fixtures {
+		reached[f.Home] = max(reached[f.Home], f.Round)
+		reached[f.Away] = max(reached[f.Away], f.Round)
+	}
+	final := Round(len(se.rounds))
+	ranking := se.knockoutRanking()
+	out := make([]Exit, len(ranking))
+	for k, t := range ranking {
+		out[k] = Exit{Team: t, Round: reached[t], Stage: int(final-reached[t]) + 1}
+	}
+	out[0].Stage = 0 // the champion won the final it reached
+	return out, true
+}

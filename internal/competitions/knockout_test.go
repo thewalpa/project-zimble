@@ -96,8 +96,86 @@ func TestKnockoutBracket(t *testing.T) {
 	if got, want := s.Ranking(cup1), teams(15, 18, 12, 13, 11, 17, 16, 14); !slices.Equal(got, want) {
 		t.Fatalf("ranking %v, want %v", got, want)
 	}
+	wantExits := []Exit{
+		{Team: 15, Round: 3, Stage: 0}, {Team: 18, Round: 3, Stage: 1},
+		{Team: 12, Round: 2, Stage: 2}, {Team: 13, Round: 2, Stage: 2},
+		{Team: 11, Round: 1, Stage: 3}, {Team: 17, Round: 1, Stage: 3}, {Team: 16, Round: 1, Stage: 3}, {Team: 14, Round: 1, Stage: 3},
+	}
+	if got, ok := s.Exits(cup1); !ok || !reflect.DeepEqual(got, wantExits) {
+		t.Fatalf("exits %+v, %v", got, ok)
+	}
 	if err := s.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Exits exist only for a completed knockout. Whatever the bracket size, one
+// champion and one runner-up leave in the final, and 2^(k-1) teams at each
+// stage k after that.
+func TestKnockoutExits(t *testing.T) {
+	s := knockout(t)
+	if _, ok := s.Exits(cup1); ok {
+		t.Fatal("exits before any result")
+	}
+	playRound(t, s, 1, Score{HomeGoals: 1}, Score{HomeGoals: 1}, Score{HomeGoals: 1}, Score{HomeGoals: 1})
+	if _, ok := s.Exits(cup1); ok {
+		t.Fatal("exits of an unfinished bracket")
+	}
+	if _, ok := s.Exits(SeasonRef{Competition: 9, Season: 1}); ok {
+		t.Fatal("exits of an unknown season")
+	}
+	l := create(t, 1, league1, eight())
+	for _, info := range l.Rounds(league1) {
+		if err := l.BeginRounds([]RoundRef{info.Ref}, info.Kickoff); err != nil {
+			t.Fatal(err)
+		}
+		if err := l.CompleteRounds([]RoundRef{info.Ref}, scoresFor(l, info.Ref, func(int) (uint16, uint16) { return 1, 0 }), info.Kickoff); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := l.Exits(league1); ok || !l.SeasonCompleted(league1) {
+		t.Fatal("a completed league has exits")
+	}
+
+	for _, size := range []int{2, 4, 8, 16} {
+		s := New()
+		entrants := make([]ids.TeamID, size)
+		for i := range entrants {
+			entrants[i] = ids.TeamID(100 + i)
+		}
+		if err := s.CreateSeasons(1, []NewSeason{{Ref: cup1, Format: FormatKnockout, Entrants: entrants, Timing: weekly}}); err != nil {
+			t.Fatal(err)
+		}
+		for r := Round(1); int(r) <= len(s.Rounds(cup1)); r++ {
+			info, _ := s.Round(RoundRef{Season: cup1, Round: r})
+			scores := make([]Score, len(info.Fixtures))
+			for i := range scores {
+				scores[i] = Score{HomeGoals: uint16(i % 2), AwayGoals: uint16((i + 1) % 2)}
+			}
+			playRound(t, s, r, scores...)
+		}
+		exits, ok := s.Exits(cup1)
+		if !ok || len(exits) != size {
+			t.Fatalf("%d entrants: %d exits, %v", size, len(exits), ok)
+		}
+		count := map[int]int{}
+		for k, e := range exits {
+			count[e.Stage]++
+			if ranking := s.Ranking(cup1); e.Team != ranking[k] {
+				t.Fatalf("%d entrants: exit %d is team %d, ranking has %d", size, k, e.Team, ranking[k])
+			}
+			if final := len(s.Rounds(cup1)); e.Stage > 0 && int(e.Round) != final-e.Stage+1 {
+				t.Fatalf("%d entrants: %+v went out in the wrong round of %d", size, e, final)
+			}
+		}
+		if champion, _ := s.Champion(cup1); exits[0].Team != champion || count[0] != 1 {
+			t.Fatalf("%d entrants: champion %+v, %d at stage 0", size, exits[0], count[0])
+		}
+		for k := 1; k <= len(s.Rounds(cup1)); k++ {
+			if count[k] != 1<<(k-1) {
+				t.Fatalf("%d entrants: %d teams at stage %d", size, count[k], k)
+			}
+		}
 	}
 }
 
