@@ -1,7 +1,7 @@
 ---
 to: ui
 from: competitions
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -21,3 +21,6 @@ Both clients should show auto-resolved results on the way to a stop (at least a 
 
 ## Done when
 Both clients list auto-resolved batches when reporting a stop or target, and a managed career whose club is out of the cup runs the cup final week with no phantom stop (`go run ./cmd/web`, manage club 3, season to the end).
+
+## Answer
+Accepted into the UI backlog on 2026-10-01 after rebasing this session onto the delivered Continue change. Consume `Resolved` in both clients when reporting a target or managed-fixture stop, and review unreachable branches and pause wording. Treat detailed reports as call-local; no persistence extension is requested in this acceptance.
