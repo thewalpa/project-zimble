@@ -169,3 +169,33 @@ func TestClubObservationsFollowLifecycleAndRestore(t *testing.T) {
 		t.Fatal("later lifecycle changes mutated a retained observation")
 	}
 }
+
+// Club rows shown to a manager aggregate the observing club's knowledge,
+// whoever controls it. Under today's exact policy they equal the
+// administrative Summary for every observer.
+func TestObservedClubsAggregateClubKnowledge(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	before := w.Snapshot()
+	want := w.Summary().ClubRows
+	for _, observer := range []ids.ClubID{1, userClub3} {
+		for _, controller := range []ids.ClubID{0, 1, userClub3} {
+			got, ok := userWorld(t, 42, controller).ObservedClubs(observer)
+			if !ok || !reflect.DeepEqual(got, want) {
+				t.Fatalf("observer %d under controller %d: rows differ from the exact summary", observer, controller)
+			}
+		}
+	}
+	rows, _ := w.ObservedClubs(userClub3)
+	rows[0].AverageOverall, rows[0].Positions[0].Count = 0, 99
+	if again, _ := w.ObservedClubs(userClub3); !reflect.DeepEqual(again, want) {
+		t.Fatal("observed club rows share storage")
+	}
+	for _, observer := range []ids.ClubID{0, 999} {
+		if got, ok := w.ObservedClubs(observer); ok || got != nil {
+			t.Fatalf("observer %d: got %v, %v; want rejection", observer, got, ok)
+		}
+	}
+	if !reflect.DeepEqual(w.Snapshot(), before) {
+		t.Fatal("observed club reads changed the world")
+	}
+}

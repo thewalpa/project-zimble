@@ -272,8 +272,9 @@ const agendaFixtures = 3
 // Agenda lists what the user club has ahead in the order it falls due: the
 // matchday, bids to answer, the next matches, contracts ending at the next
 // contract-year end, the club's own bids and the transfer window's dates.
-// An item the manager must act on before play can go on has Now set. It
-// combines existing queries and changes nothing.
+// Player facts come from the user club's ObservePlayers. An item the
+// manager must act on before play can go on has Now set. It combines
+// existing queries and changes nothing.
 func (w *World) Agenda() []AgendaItem {
 	if w.userClub == 0 {
 		return nil
@@ -356,8 +357,9 @@ func (w *World) Agenda() []AgendaItem {
 	}
 
 	end := w.ContractYearEnd()
-	squad, _ := w.Squad(w.userClub)
-	for _, p := range squad {
+	team, _ := w.registry.SeniorTeam(w.userClub)
+	known, _ := w.ObservePlayers(w.userClub, w.employment.Squad(team)) // the user club is registered
+	for _, p := range known.Players {
 		if p.Contract.Expires == end {
 			out = append(out, AgendaItem{Kind: AgendaContract, At: end, Player: p.Player,
 				Text: fmt.Sprintf("%s (%s, %d): the contract ends %s. He asks %s a week to stay.", p.Name, p.Position, p.Age, cal.Format(end), p.Demand)})

@@ -12,6 +12,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/employment"
 	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/registry"
 )
 
 // PositionCount is the number of squad players at a position.
@@ -49,6 +50,8 @@ type Summary struct {
 }
 
 // Summary composes a view from module queries. It does not mutate state.
+// It is the administrative view, read from authoritative profiles: manager
+// clients show clubs through ObservedClubs.
 func (w *World) Summary() Summary {
 	clubs := w.registry.Clubs()
 	s := Summary{
@@ -66,31 +69,63 @@ func (w *World) Summary() Summary {
 	}
 	for _, c := range clubs {
 		team, _ := w.registry.SeniorTeam(c.ID)
-		squad := w.employment.Squad(team)
-		counts := map[players.Position]int{}
-		total := 0
-		for _, id := range squad {
+		var squad []PlayerObservation
+		for _, id := range w.employment.Squad(team) {
 			p, _ := w.players.Profile(id)
-			counts[p.Position]++
-			total += p.Overall()
+			squad = append(squad, PlayerObservation{Player: id, Position: p.Position, Overall: p.Overall()})
 		}
-		row := ClubSummary{
-			ID:         c.ID,
-			Name:       c.Name,
-			ShortName:  c.ShortName,
-			Nation:     w.nationName(c.Nation),
-			SeniorTeam: team,
-			Players:    len(squad),
-		}
-		for _, pos := range players.Positions() {
-			row.Positions = append(row.Positions, PositionCount{Position: pos, Count: counts[pos]})
-		}
-		if n := len(squad); n > 0 {
-			row.AverageOverall = (2*total + n) / (2 * n)
-		}
-		s.ClubRows = append(s.ClubRows, row)
+		s.ClubRows = append(s.ClubRows, w.clubRow(c, team, squad))
 	}
 	return s
+}
+
+// ObservedClubs is Summary's club rows as observer knows them: membership
+// is public, and every player fact the rows aggregate (positions, the
+// average overall) comes from observer's ObservePlayers. Manager clients
+// pass UserClub; Summary stays the administrative view for headless reports
+// and choosing a club before a career has a manager. False means observer
+// is unknown (including zero). Read-only.
+func (w *World) ObservedClubs(observer ids.ClubID) ([]ClubSummary, bool) {
+	if _, ok := w.registry.Club(observer); !ok {
+		return nil, false
+	}
+	clubs := w.registry.Clubs()
+	out := make([]ClubSummary, 0, len(clubs))
+	for _, c := range clubs {
+		team, _ := w.registry.SeniorTeam(c.ID)
+		known, err := w.ObservePlayers(observer, w.employment.Squad(team))
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, w.clubRow(c, team, known.Players))
+	}
+	return out, true
+}
+
+// clubRow summarizes a club's senior squad from what is known of its
+// players: only Position and Overall are read.
+func (w *World) clubRow(c registry.Club, team ids.TeamID, squad []PlayerObservation) ClubSummary {
+	row := ClubSummary{
+		ID:         c.ID,
+		Name:       c.Name,
+		ShortName:  c.ShortName,
+		Nation:     w.nationName(c.Nation),
+		SeniorTeam: team,
+		Players:    len(squad),
+	}
+	counts := map[players.Position]int{}
+	total := 0
+	for _, p := range squad {
+		counts[p.Position]++
+		total += p.Overall
+	}
+	for _, pos := range players.Positions() {
+		row.Positions = append(row.Positions, PositionCount{Position: pos, Count: counts[pos]})
+	}
+	if n := len(squad); n > 0 {
+		row.AverageOverall = (2*total + n) / (2 * n)
+	}
+	return row
 }
 
 // SquadPlayer is a derived view of one player, composed from the registry

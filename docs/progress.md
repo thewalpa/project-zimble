@@ -3586,3 +3586,16 @@ Answers `squad--injury-rates`. Injuries were flavor (0.12 a player a season) and
 - `internal/app`: the new test `TestInjuryAndConditionLevelsOverSeasons` checks over 3 seasons (seed 7) that injuries a player a season are 0.3–1.0, players out per club at kickoff 0.4–2.5 and never more than 10, and starters below full condition 15–70% with none below 40. `TestSquadsStayLegalAndBalancedOverTheYears` (15 years) and `TestInjuriesOverSeasons` pass unchanged. The three seed-42 goldens moved.
 - Other lanes' tests the higher rates moved: two `lineup_test` cases now allow players that injuries drop or make unavailable (match), and 12 client tests got new seed scenarios (ui). Both lanes have notes. The two youth-intake tests that rebuild the inbox from event 1 now keep the whole journal, because a year now emits about 1,400 events (898 before) and the journal keeps 1,000. A note asks `data` about retention.
 - `go test ./...` green (`gofmt`, `vet` included).
+
+## data: club aggregates from club knowledge (done)
+
+PAR-10's last data step before uncertainty: the aggregates a manager sees no longer bypass `ObservePlayers`.
+
+- **`World.ObservedClubs(observer)`** returns `Summary().ClubRows`' `[]ClubSummary` with `Positions` and `AverageOverall` aggregated from `observer`'s observations of each club's senior squad; membership stays public. Both views share one `clubRow` helper, so they cannot drift. An unknown or zero observer is refused.
+- **`Summary()` is the administrative view**, read from authoritative profiles: for `cmd/simulate` and the club choosers, which run before a career has a manager.
+- **`Agenda()`** reads its contract items (name, position, age, demand) through the user club's `ObservePlayers` instead of `Squad`.
+- `TestObservedClubsAggregateClubKnowledge` covers equality with the exact summary for two observers under three controllers, detached rows, rejection and read-only access. Observations are exact today, so no output, version, schema or golden moves.
+- Also reviewed match's adoption (`ca727e9`): knowledge feeds only `ai.Candidate`, and every match input comes from `lineupInput`/`matchPlayer`. Accepted.
+- `ui--observed-clubs` asks ui to read the terminal `club` heading from `ObservedClubs`; it is the only manager-facing aggregate in the clients.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
