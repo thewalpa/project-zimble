@@ -61,6 +61,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 ## Backlog
 
+- **Fill `MatchCompleted` appearances and goals:** the agreed contract is in the [note](../handoffs/match--careers-appearances-goals.md) — `Appeared` from `MatchOutcome.Participants`, `Scorers` from `MatchOutcome.Goals` (regulation goals only). Fill `resolve.go`'s emission the session `data` lands the fields.
+
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
