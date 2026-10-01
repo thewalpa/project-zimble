@@ -121,7 +121,7 @@ ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceMentalityByGap
 
 `TestBalanceEngineComparison` in `internal/matches/tick/balance_test.go` plays both engines on the same `enginetest.Input` teams: 11 starters and 7 substitutes, balanced unless stated, full condition, no commands. A team's "strength" is the rating its profile is built around, and it is close to its overall. Each row is 3,000 matches: seeds 1, 42 and 2026 × fixtures 1–1000, with each engine's own `matches.FixtureRandom` stream. Every match is played as a knockout. The contract guarantees that the knockout rule leaves the 90 minutes unchanged, so one run gives both the regulation result and the shootout. With 3,000 matches, a rate near 25% is good to about ±1.6 points (95%), one near 50% to about ±1.8, and a goal average to about ±0.04.
 
-These are synthetic teams, not career squads: the career-season comparison is still to do ([note](handoffs/balance--tick-career-seasons.md)).
+These are synthetic teams, not career squads; the career-season comparison is in ["Career seasons: tick against simple"](#career-seasons-tick-against-simple).
 
 ### Equal teams, 60 v 60
 
@@ -211,3 +211,121 @@ At 50 v 70 the home side is the weaker one and wins 35% (`simple`) or 42% (`tick
 
 - **2026-09-28**, `tick` v1, `simple` v3: `tick` drew 24.9% and scored 2.9 goals at 60 v 60, 4.6 at 80 v 80 and 2.1 at 40 v 40, a 10-point mismatch gave 72% wins and a 20-point one 4.3 goals. Attacking raised the win rate by 20 points with no cost at the back; a defensive side against a balanced one conceded 4.7 goals. A stronger side won 74–80% of shootouts at 65 v 55. Filed `match--tick-goals-by-level`, `match--tick-mentality` and `match--shootout-favourite`.
 - **2026-10-01**, `tick` v6, `simple` v4: this section.
+
+## Career seasons: tick against simple
+
+Measured 2026-10-01 at `tick.ModelVersion` 6 and `simple.ModelVersion` 4 (both `DefaultParams`), `medical.Version` 3, `worldgen.Version` 8, `content.Version` 9, `competitions.ScheduleVersion` 3, `ai.SelectionVersion` 3, at commit `5f07b58`. Answers `balance--tick-career-seasons`; the match statistics in it answer the career half of `balance--tick-match-stats`. Nothing implausible appeared beyond the two notes already open against `match` (`match--simple-home-advantage`, and `match--tick-stats-calibration` for the statistics).
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=1   # about 30 s on 32 cores
+```
+
+`TestBalanceCareerEngines` in `internal/app/balance_test.go` plays the same three seeded AI-only careers (seeds 7, 42 and 2026, three seasons each) on both engines: one world per (seed, engine), so the market, promotions and cups carry over, and each engine plays every fixture of the career. The engines face the same fixtures (asserted). "Upsets" are league matches won by the club with the lower squad average before the season; the gap rows bucket that average gap. Each row is 9 seasons × 224 league matches = 2,016 matches.
+
+### League matches
+
+| | simple | tick | Synthetic 60 v 60, simple / tick | Top leagues, roughly |
+| --- | --- | --- | --- | --- |
+| Goals per match | 2.18 | 2.23 | 2.71 / 2.46 | 2.6–2.9 |
+| Home–away goals | 1.09–1.08 | 1.26–0.97 | 1.37–1.35 / 1.34–1.11 | 1.5–1.2 |
+| Home / draw / away % | 35.4 / 30.3 / 34.3 | 42.8 / 27.8 / 29.4 | 37.2 / 26.3 / 36.6 / 42.4 / 26.8 / 30.8 | 45 / 26 / 29 |
+| Upsets (weaker club wins) % | 27.2 | 28.5 | | |
+| Stronger side win %, gap 0–1 / 2–4 / 5–8 / 9+ | 37 / 36 / 37 / — | 41 / 36 / 40 / 25 | | |
+| matches in those buckets | 628 / 916 / 144 / 0 | 608 / 932 / 134 / 12 | | |
+
+**Career matches score less than synthetic ones.** 2.18–2.23 goals against 2.71 and 2.46 at 60 v 60. Real squads, with attributes spread across roles and a best XI that is stronger than the squad average, produce fewer goals than the synthetic balanced profiles; the draw rate stays right (27.8% in `tick`). `tick` keeps its home edge on real squads (42.8% against 29.4%, home goals 1.30 times away) and `simple` loses any venue effect again (35.4% against 34.3%, 1.01): that is `match--simple-home-advantage` measured on career squads.
+
+**Results separate less by squad average than the synthetic gap table suggests.** At gaps up to 8 points the stronger side by pre-season average wins 36–41% of all matches (51–57% of the decided ones), where the synthetic rows give it 44% at gap 4 (62 v 58 and 58 v 62 pooled) and 55% at gap 10 (65 v 55 and 55 v 65). The best XI compresses the gap — both clubs field their strongest eleven — so the engine sees a smaller difference than the 20-man averages do. The 9+ bucket has 12 matches (the stronger side won 3) on `tick` and none on `simple`, too few to read. Most of the 27–28% "upsets" are near-equal clubs beating each other. Not a note: the mechanism is selection, not the engine.
+
+**Final tables and shootouts agree across engines.**
+
+| | simple | tick |
+| --- | --- | --- |
+| Champion points (of 42) | 26.2 | 26.4 |
+| Last points | 11.8 | 11.6 |
+| Spread | 14.4 | 14.8 |
+| Continental Cup matches a season | 7.0 | 7.0 |
+| Cup matches level after 90 minutes, % | 30 | 27 |
+| Promotion play-off ties a season | 4.0 | 4.0 |
+| Ties to penalties, % | 25 | 19 |
+
+Means over 36 league tables (4 leagues × 9 seasons). The champion takes 1.87 points a match and the last 0.84 — the 8-club leagues are tighter at the top than a real 20-club table (about 2.2 for the champion) and as tight at the bottom. A quarter to a third of cup ties go to penalties, same as the synthetic knockout rate and high because there is no extra time (rules choice, see [Shootouts](#shootouts)). Workload (condition and injuries) is engine-independent and lives under [Injuries](#injuries).
+
+### History
+
+- **2026-10-01**, `tick` v6, `simple` v4: this section.
+
+## Match statistics: tick against real football
+
+Measured 2026-10-01 at `tick.ModelVersion` 6, commit `5f07b58`. Answers `balance--tick-match-stats`. The real-football figures are `match`'s calibration targets from that note. `simple` reports no statistics (no `DetailedStats` capability). Filed to `match` as `match--tick-stats-calibration`.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMatchStats -v -count=1 -timeout 2h   # about 45 s on 32 cores
+```
+
+`TestBalanceMatchStats` in `internal/matches/tick/balance_test.go`, 3,000 synthetic matches a row (seeds 1, 42, 2026 × 1,000 fixtures, `enginetest.Input` teams). The career rows are `TestBalanceCareerEngines`'s 2,016 league matches on `tick` (above). Both sides of a match are listed (home / away where it matters).
+
+### Against real football (per side)
+
+| Stat | Real top leagues | tick 60 v 60 | tick careers | tick 70 v 50 (stronger / weaker) |
+| --- | --- | --- | --- | --- |
+| Shots | 12–13 | 10.8 / 9.5 | 11.7 / 10.2 | 16.4 / 6.3 |
+| On target | 4–5 | 4.4 / 3.7 | 4.2 / 3.5 | 7.9 / 2.0 |
+| Saves | 2–3 | 2.6 / 3.1 | 2.5 / 3.0 | 1.5 / 5.3 |
+| Passes | 400–600 | 954 / 924 | 960 / 925 | 1045 / 823 |
+| Completion % | 75–85 | 79 / 79 | 80 / 79 | 81 / 77 |
+| Tackles | 15–20 | 45.7 / 43.4 | 41.3 / 37.8 | 52.2 / 34.7 |
+| Offsides | ~2 | 1.8 / 1.7 | 1.8 / 1.8 | 2.0 / 1.3 |
+| Possession, stronger side % | 60–65 at a clear gap | 50.9 (even) | 51.0 (even) | 56.6 at gap 20 |
+
+**Passes run 1.7–2.5 times the target** (823–1,045 a side against 400–600) and **tackles 2–3 times** (35–52 against 15–20). Completion is right. **Possession does not separate enough**: 56.6% for a 20-point stronger side and 53.8% at gap 10, against the 60–65% target; equal teams are fine at 51/49. **Shots are a little low and too lopsided**: 20–21 a match between equal teams against the real 24–26, and at gap 20 the split is 16.4–6.3 where real football at gap 10 is about 12.6–9.3. Offsides are right, and the mentality rows reproduce `match`'s own v6 figures (about 4.4 a side when both attack, 0.1 when both defend). Shots, on target, saves and goals are internally consistent (on target = goals + the opponent's saves). The career rows match the synthetic profile almost exactly — real squads change goals and results, not these statistics.
+
+### Synthetic teams, all rows (3,000 matches each)
+
+| Scenario | Side | Shots | On target | Saves | Passes | Completion % | Tackles | Offsides | Possession % |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 60 v 60 | home | 10.8 | 4.4 | 2.6 | 954 | 79 | 45.7 | 1.8 | 50.9 |
+| 60 v 60 | away | 9.5 | 3.7 | 3.1 | 924 | 79 | 43.4 | 1.7 | 49.1 |
+| 65 v 55 | home | 13.4 | 5.9 | 2.0 | 1001 | 80 | 49.0 | 1.9 | 53.8 |
+| 65 v 55 | away | 7.7 | 2.8 | 4.1 | 873 | 78 | 39.2 | 1.5 | 46.2 |
+| 55 v 65 | home | 8.8 | 3.3 | 3.5 | 905 | 78 | 41.9 | 1.6 | 48.0 |
+| 55 v 65 | away | 11.7 | 5.0 | 2.3 | 973 | 80 | 46.9 | 1.8 | 52.0 |
+| 70 v 50 | home | 16.4 | 7.9 | 1.5 | 1045 | 81 | 52.2 | 2.0 | 56.6 |
+| 70 v 50 | away | 6.3 | 2.0 | 5.3 | 823 | 77 | 34.7 | 1.3 | 43.4 |
+| 50 v 70 | home | 7.2 | 2.5 | 4.6 | 854 | 77 | 37.6 | 1.5 | 45.2 |
+| 50 v 70 | away | 14.5 | 6.6 | 1.8 | 1018 | 80 | 50.5 | 2.0 | 54.8 |
+| 80 v 80 | home | 10.7 | 4.4 | 2.6 | 952 | 79 | 46.9 | 1.7 | 50.8 |
+| 80 v 80 | away | 9.6 | 3.8 | 3.1 | 925 | 79 | 45.4 | 1.7 | 49.2 |
+| both attacking | home | 13.4 | 5.7 | 3.4 | 960 | 79 | 44.4 | 4.4 | 50.8 |
+| both attacking | away | 11.9 | 4.8 | 4.0 | 934 | 79 | 42.1 | 4.2 | 49.2 |
+| both defensive | home | 6.6 | 2.5 | 1.4 | 939 | 81 | 42.0 | 0.1 | 51.4 |
+| both defensive | away | 5.6 | 2.0 | 1.8 | 895 | 80 | 40.1 | 0.1 | 48.6 |
+| home attacking | home | 13.4 | 5.5 | 2.7 | 959 | 79 | 46.6 | 2.7 | 49.9 |
+| home attacking | away | 9.5 | 3.8 | 3.8 | 929 | 79 | 41.6 | 2.8 | 50.1 |
+
+An attacking side shoots more and is caught offside more (2.7–4.4 a side) but gains nothing in possession (49.9% for the attacking home side against a balanced one). A defensive block concedes few shots and is almost never caught offside (0.1).
+
+### History
+
+- **2026-10-01**, `tick` v6: this section.
+
+## Injuries
+
+Measured 2026-10-01 at `medical.Version` 3, over the 18 career seasons of [Career seasons](#career-seasons-tick-against-simple) (3 seeds × 3 seasons × 2 engines = 576 club-seasons). Answers the rates half of `balance--injuries-delivered`; the rotation-policy half is still to do. `medical` reads minutes and condition, not the engine, so both engines agree within noise (75.9–76.2 injuries a season); the rows below pool all 18 seasons. Commands as for `TestBalanceCareerEngines`.
+
+| | per season | per club a season | per injury | per injured player a season | per injured club-season |
+| --- | --- | --- | --- | --- | --- |
+| Injuries | 76 | 2.4 | | 2.6 injuries | 2.6 injuries |
+| Days out | 1,047 | 32.7 | 13.7 days | 15.1 days (max 119) | 35.6 days |
+
+**About 76 injuries a season across 32 clubs** (0.12 a player a year on 20-man squads), close to `squad`'s own estimate of 70 on seed 42. A layoff averages 13.7 days; the 29–120 day tail produces single seasons of up to 119 days. Against real football (roughly one reportable injury a player a year) the rate is low: at 2.4 a club a season injuries are flavor, not a management concern. Filed to `squad` as `squad--injury-rates`.
+
+**A club is never short of fit players.** In about 11,000 club-batches (every club before every league round, play-off tie and cup match) not one club could fail to field a legal lineup from its fit players alone, so the emergency rule (injured players play) never fired: 0 emergency starts. Squads of 20 absorb the current rates easily.
+
+**Condition before every round is 99.8 of 100.** The daily recovery restores a match's drain long before the next kickoff — league rounds are weekly and the cup's denser rounds too. The fatigue term in `medical.Roll` (missing condition × `InjuryFatigueStep`) therefore sees almost no missing condition when injuries are rolled, and rotating tired players cannot pay through condition; if rotation is to matter, the drain or the recovery has to give it a reason first.
+
+Still to measure: whether rotating tired players pays in points against always playing the best XI (the manager-policy comparison in the balance backlog), and injury rates again if `squad` moves `DefaultParams`.
+
+### History
+
+- **2026-10-01**, `medical.Version` 3: this section.

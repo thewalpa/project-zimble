@@ -74,6 +74,23 @@ var balanceScenarios = []balanceScenario{
 // maxTally is the last bucket of the goal histograms: that many or more.
 const maxTally = 6
 
+// sideStatsSum accumulates one side's match statistics over a sweep.
+type sideStatsSum struct {
+	shots, onTarget, passes, completed, tackles, saves, offsides int
+	possession                                                   int // permille summed over the matches
+}
+
+func (s *sideStatsSum) add(t matches.TeamStats) {
+	s.shots += int(t.Shots)
+	s.onTarget += int(t.ShotsOnTarget)
+	s.passes += int(t.Passes)
+	s.completed += int(t.PassesCompleted)
+	s.tackles += int(t.Tackles)
+	s.saves += int(t.Saves)
+	s.offsides += int(t.Offsides)
+	s.possession += int(t.PossessionPermille)
+}
+
 type matchProfile struct {
 	n, home, draw, away int
 	goals               [2]int
@@ -81,6 +98,8 @@ type matchProfile struct {
 	perSide             [2][maxTally + 1]int // matches by one side's goals
 	shootouts, penHome  int                  // shootouts, and those the home side won
 	penKicks            int                  // penalties scored in shootouts
+	stats               [2]sideStatsSum      // home and away, when the engine reports them
+	statsN              int                  // matches whose statistics are available
 }
 
 func (p *matchProfile) add(o matches.MatchOutcome) {
@@ -105,6 +124,11 @@ func (p *matchProfile) add(o matches.MatchOutcome) {
 		if w, _ := o.Winner(); w == matches.Home {
 			p.penHome++
 		}
+	}
+	if o.Stats.Available {
+		p.statsN++
+		p.stats[0].add(o.Stats.Teams[0])
+		p.stats[1].add(o.Stats.Teams[1])
 	}
 }
 
@@ -254,6 +278,65 @@ func profileTable(scenarios []balanceScenario, engines []matches.Engine, profile
 		}
 	}
 	return b.String()
+}
+
+// statsScenarios profile tick's match statistics at the gaps a career
+// produces and under mentality, for docs/balance.md's comparison with real
+// football. The home side is listed first.
+var statsScenarios = []balanceScenario{
+	balanced("60 v 60", 60, 60),
+	balanced("65 v 55", 65, 55),
+	balanced("55 v 65", 55, 65),
+	balanced("70 v 50", 70, 50),
+	balanced("50 v 70", 50, 70),
+	balanced("80 v 80", 80, 80),
+	withMentality("both attacking", matches.Attacking, matches.Attacking),
+	withMentality("both defensive", matches.Defensive, matches.Defensive),
+	withMentality("home attacking", matches.Attacking, matches.Balanced),
+}
+
+// statsTable formats one row per scenario and side. n is the number of
+// matches behind each row's means.
+func statsTable(scenarios []balanceScenario, profiles []matchProfile) string {
+	var b strings.Builder
+	b.WriteString("\n| Scenario | Side | n | Shots | On target | Saves | Passes | Completion % | Tackles | Offsides | Possession % |\n")
+	b.WriteString("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for i, sc := range scenarios {
+		for side, name := range []string{"home", "away"} {
+			s := &profiles[i].stats[side]
+			n := float64(profiles[i].statsN)
+			fmt.Fprintf(&b, "| %s | %s | %d | %.1f | %.1f | %.1f | %.0f | %.0f | %.1f | %.1f | %.1f |\n",
+				sc.name, name, profiles[i].statsN,
+				float64(s.shots)/n, float64(s.onTarget)/n, float64(s.saves)/n,
+				float64(s.passes)/n, 100*float64(s.completed)/float64(max(s.passes, 1)),
+				float64(s.tackles)/n, float64(s.offsides)/n, float64(s.possession)/n/10)
+		}
+	}
+	return b.String()
+}
+
+// TestBalanceMatchStats plays tick on the stats scenarios and logs the
+// profile table for docs/balance.md.
+//
+//	ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMatchStats -v -count=1
+func TestBalanceMatchStats(t *testing.T) {
+	if os.Getenv("ZIMBLE_BALANCE") != "1" {
+		t.Skip("set ZIMBLE_BALANCE=1 to run the match-statistics sweep")
+	}
+	e := engine(t)
+	t.Logf("%s v%d: seeds %v, %d fixtures each: %d matches per scenario", e.ID(), e.Version(), balanceSeeds, balanceFixtures, len(balanceSeeds)*balanceFixtures)
+	profiles := make([]matchProfile, len(statsScenarios))
+	for i, sc := range statsScenarios {
+		p, err := sweep(e, sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.statsN != p.n {
+			t.Fatalf("%s: statistics for %d of %d matches", sc.name, p.statsN, p.n)
+		}
+		profiles[i] = p
+	}
+	t.Log(statsTable(statsScenarios, profiles))
 }
 
 // mentalityByGapScenarios put a mentality on the underdog and on the

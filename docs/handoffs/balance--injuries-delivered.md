@@ -25,4 +25,8 @@ Over long runs: injuries per club per season, days lost per player and per club,
 
 ## Answer
 
-Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.
+Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit.
+
+Part one (the rates) is delivered 2026-10-01: [docs/balance.md, "Injuries"](../balance.md#injuries), over 18 career seasons (3 seeds × 3 seasons × 2 engines, 576 club-seasons). 76 injuries a season across 32 clubs (2.4 a club), 13.7 days a layoff, 15.1 days per injured player a season, 0 short-of-fit club-batches in about 11,000 so the emergency rule never fires, and condition 99.8 at every kickoff so the fatigue term cannot reward rotation. Filed [squad--injury-rates](squad--injury-rates.md) on the rate level and the dead fatigue term.
+
+Still open: whether rotating tired players pays in points against always playing the best XI (the manager-policy comparison in the balance backlog). It needs the fatigue path to matter first (see the note), or the comparison measures nothing.
