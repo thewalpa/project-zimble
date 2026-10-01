@@ -520,8 +520,7 @@ func checkCups(leagueDefs []content.League, cupDefs []content.Cup) ([]content.Cu
 				return nil, fmt.Errorf("app: cup %d takes %d places from league %d, which has %d entrants", c.ID, q.Places, q.League, n)
 			}
 		}
-		c.Qualifiers = slices.Clone(c.Qualifiers)
-		cupDefs[i] = c
+		cupDefs[i] = c.Clone()
 	}
 	return cupDefs, nil
 }

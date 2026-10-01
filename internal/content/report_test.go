@@ -2,8 +2,11 @@ package content
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/thewalpa/project-zimble/internal/core/money"
 )
 
 func TestDescribeDefaultSetHasNoProblems(t *testing.T) {
@@ -19,8 +22,8 @@ func TestDescribeDefaultSetHasNoProblems(t *testing.T) {
 			t.Fatalf("league %d matches no division", l.ID)
 		}
 	}
-	if c := r.Cups[0]; c.Entrants != 8 || c.Rounds != 3 {
-		t.Fatalf("cup %+v, want 8 entrants in 3 rounds", c)
+	if c := r.Cups[0]; c.Entrants != 8 || c.Rounds != 3 || !slices.Equal(c.Prizes, DefaultCups()[0].Prizes) {
+		t.Fatalf("cup %+v, want 8 entrants in 3 rounds and the default prizes", c)
 	}
 	for _, q := range r.Roster {
 		if q.Overall[0] > q.Overall[1] || q.Overall[1] > q.Overall[2] || q.Youth[1] > q.Overall[1] {
@@ -40,6 +43,7 @@ func TestDescribeFindsProblems(t *testing.T) {
 			s.Cups[0].Qualifiers = []Qualifier{{League: 1, Places: 9}, {League: 2, Places: 7}}
 		},
 		"cup reuses a league ID":        func(s *Set) { s.Cups[0].ID = s.Leagues[0].ID },
+		"cup prizes increase":           func(s *Set) { s.Cups[0].Prizes = []money.Money{1, 2} },
 		"promotion to a missing league": func(s *Set) { s.Promotions[0].Lower = 99 },
 		"broken definitions":            func(s *Set) { s.Definitions.SquadLimit = 1 },
 	}

@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/players"
 )
 
@@ -89,13 +90,15 @@ type LeagueReport struct {
 	Places int
 }
 
-// CupReport is a cup and its bracket size.
+// CupReport is a cup, its bracket size and its prizes by stage, the
+// champion's first.
 type CupReport struct {
 	ID         ids.CompetitionID
 	Name       string
 	Entrants   int
 	Rounds     int
 	Qualifiers []QualifierReport
+	Prizes     []money.Money
 }
 
 // QualifierReport is one qualifying league's places.
@@ -248,10 +251,7 @@ func (r *Report) describeCompetitions(s Set) {
 			problem("content: cup %d reuses a competition ID", c.ID)
 		}
 		taken[c.ID] = true
-		cr := CupReport{ID: c.ID, Name: c.Name, Entrants: c.Entrants()}
-		for n := c.Entrants(); n > 1; n /= 2 {
-			cr.Rounds++
-		}
+		cr := CupReport{ID: c.ID, Name: c.Name, Entrants: c.Entrants(), Rounds: c.Rounds(), Prizes: slices.Clone(c.Prizes)}
 		for _, q := range c.Qualifiers {
 			cr.Qualifiers = append(cr.Qualifiers, QualifierReport{League: q.League, Places: q.Places})
 			size := 0
@@ -311,6 +311,9 @@ func (r Report) Write(w io.Writer) error {
 		for _, q := range c.Qualifiers {
 			p("    top %d of league %d", q.Places, q.League)
 		}
+		for stage, prize := range c.Prizes {
+			p("    prize for %s: %s", stageName(stage), prize)
+		}
 	}
 	p("")
 	p("weekly wages (demand, offer ceiling)")
@@ -325,4 +328,19 @@ func (r Report) Write(w io.Writer) error {
 		p("problem: %s", pr)
 	}
 	return err
+}
+
+// stageName names a cup stage counted back from the final.
+func stageName(stage int) string {
+	switch stage {
+	case 0:
+		return "the champion"
+	case 1:
+		return "the runner-up"
+	case 2:
+		return "a semi-final exit"
+	case 3:
+		return "a quarter-final exit"
+	}
+	return fmt.Sprintf("a round-of-%d exit", 1<<stage)
 }

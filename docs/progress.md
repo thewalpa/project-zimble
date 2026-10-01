@@ -3529,3 +3529,15 @@ Reran the four match sweeps after `match` delivered `match--attacking-is-free` (
 
 - **`TestBalanceCareerEngines` steps batches itself.** Since `Continue` resolves batches without a user fixture (competitions, `f3652ff`), an AI-only career never returns `FixtureRoundReady`. The sweep then measured 0 matches and still passed, with NaN in every row. It now continues to a minute before each kickoff, samples the squads, continues to the kickoff and folds in the batch, whether `Continue` resolved it or stopped. A season that measures no league or cup matches fails the test.
 - **The market tables stay as the `15ff2fa` baseline**, with a rerun table beside them, because nothing in the AI market moved beyond seed noise.
+
+## data: cup prize tables (done)
+
+The amounts half of cup prize money, for competitions' `data--cup-prize-table`. `content.Cup.Prizes []money.Money` is indexed by the stage an entrant reached, counted back from the final as `competitions.Exit.Stage` counts it: champion, runner-up, semi-final loser, quarter-final loser. An entrant is paid once, for its stage; a stage beyond the table pays nothing. `Cup.Validate` requires non-negative, never increasing amounts and at most `Cup.Rounds()+1` of them (the new `Cup.Rounds` is log2 of the entrants); an empty table means no prize money. `Cup.Clone` copies both slices, and `app` uses it wherever it copies the pinned cups.
+
+The Continental Cup pays 1,000,000 / 600,000 / 350,000 / 200,000, competitions' proposal: the champion's prize is four home gates, against wage bills of about 1.7 million a year. `content.Describe` lists the prizes and reports an invalid table as a problem, so `simulate -content` prints them.
+
+Versions: `content.LeagueVersion` 6 (the default cup definitions changed); `storage.SchemaVersion` 31, because saves pin the cup definitions, with its frozen fixture. No world fingerprint or seeded output changed, and nothing is paid yet: the postings are `squad--cup-prize-postings`, updated with where to read the table.
+
+Also accepted ui's observation composition (`data--ui-observations-adopted`) for exact information. The unscoped aggregates it names (`Summary().ClubRows.AverageOverall`, `Agenda()`) are data's to make observation-aware before uncertainty lands; recorded in the PAR-10 backlog item.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.

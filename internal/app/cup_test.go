@@ -332,6 +332,11 @@ func TestRestoreRejectsInvalidCups(t *testing.T) {
 			s.Cups[0].FirstRoundDelay += sim.Day
 			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
 		},
+		"cup prizes increase, refingerprinted": func(s *WorldSnapshot) {
+			s.Cups[0].Prizes = slices.Clone(s.Cups[0].Prizes)
+			s.Cups[0].Prizes[1] = s.Cups[0].Prizes[0] + 1
+			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)
+		},
 		"cup with a league's ID": func(s *WorldSnapshot) {
 			s.Cups[0].ID = 2
 			s.ContentFingerprint = contentFingerprint(s.Content, leagueDefsOf(s), s.Cups, s.Promotions)

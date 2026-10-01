@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 )
 
@@ -12,8 +13,9 @@ import (
 // DefaultLeagues and DefaultCups. It is separate from Version so competition
 // changes do not alter generated worlds. Version 3 added a second league and
 // the continental cup; version 4 added a second division for each league and
-// the promotion links between them; version 5 dropped League.SeasonInterval.
-const LeagueVersion = 5
+// the promotion links between them; version 5 dropped League.SeasonInterval;
+// version 6 added the cups' prize tables.
+const LeagueVersion = 6
 
 // MaxSeasonSpan is the longest a league season may run, from its first
 // kickoff to its last. Seasons start within three days of their first
@@ -174,6 +176,20 @@ type Cup struct {
 	// a draw is decided by penalties.
 	MaxSubstitutions uint8
 	MaxBench         uint8
+
+	// Prizes are what an entrant is paid for the stage it reached in a
+	// completed edition, indexed by stage counted back from the final
+	// (competitions.Exit.Stage): Prizes[0] for the champion, [1] for the
+	// runner-up, [2] for each semi-final loser, and so on. An entrant is
+	// paid once, for its stage only; a stage beyond the table pays nothing.
+	// Never increasing: a deeper run never pays less. Empty: no prize money.
+	Prizes []money.Money `json:",omitempty"`
+}
+
+// Clone returns a copy that shares no memory with c.
+func (c Cup) Clone() Cup {
+	c.Qualifiers, c.Prizes = slices.Clone(c.Qualifiers), slices.Clone(c.Prizes)
+	return c
 }
 
 // Entrants is the number of teams in each edition.
@@ -185,9 +201,20 @@ func (c Cup) Entrants() int {
 	return n
 }
 
+// Rounds is the number of rounds in each edition: log2 of Entrants.
+func (c Cup) Rounds() int {
+	r := 0
+	for n := c.Entrants(); n > 1; n /= 2 {
+		r++
+	}
+	return r
+}
+
 // Validate checks the definition on its own: a power of two of at least two
-// qualifiers from distinct leagues, and positive timing. Whether each
-// league exists and has enough entrants is checked by the application.
+// qualifiers from distinct leagues, positive timing, and a prize table of at
+// most one non-negative, never increasing amount per stage (Rounds + 1).
+// Whether each league exists and has enough entrants is checked by the
+// application.
 func (c Cup) Validate() error {
 	n := c.Entrants()
 	if !c.ID.Valid() || c.Name == "" || n < 2 || n&(n-1) != 0 || c.FirstRoundDelay <= 0 || c.RoundInterval <= 0 || c.MaxSubstitutions > c.MaxBench {
@@ -196,6 +223,14 @@ func (c Cup) Validate() error {
 	for i, q := range c.Qualifiers {
 		if !q.League.Valid() || q.Places < 1 || slices.ContainsFunc(c.Qualifiers[:i], func(o Qualifier) bool { return o.League == q.League }) {
 			return fmt.Errorf("content: cup %d qualifier %+v is invalid or repeated", c.ID, q)
+		}
+	}
+	if len(c.Prizes) > c.Rounds()+1 {
+		return fmt.Errorf("content: cup %d has %d prizes for %d stages", c.ID, len(c.Prizes), c.Rounds()+1)
+	}
+	for i, p := range c.Prizes {
+		if p < 0 || (i > 0 && p > c.Prizes[i-1]) {
+			return fmt.Errorf("content: cup %d prizes %v are negative or increase", c.ID, c.Prizes)
 		}
 	}
 	return nil
@@ -229,6 +264,8 @@ func (c Cup) Seeding() [][2]int {
 
 // DefaultCups returns the built-in cups: the Continental Cup for the top
 // four of both default leagues, starting two weeks after their final round.
+// Its prizes are scaled to a 250,000 home gate and wage bills of about 1.7
+// million a year: the champion's 1,000,000 is four home gates.
 func DefaultCups() []Cup {
 	return []Cup{{
 		ID:               3,
@@ -238,5 +275,6 @@ func DefaultCups() []Cup {
 		RoundInterval:    sim.Week,
 		MaxSubstitutions: 3,
 		MaxBench:         7,
+		Prizes:           []money.Money{money.Units(1_000_000), money.Units(600_000), money.Units(350_000), money.Units(200_000)},
 	}}
 }

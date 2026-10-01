@@ -202,8 +202,7 @@ func (w *World) Snapshot() WorldSnapshot {
 	}
 	snap.Promotions = slices.Clone(w.promotions)
 	for _, c := range w.cups {
-		c.Qualifiers = slices.Clone(c.Qualifiers)
-		snap.Cups = append(snap.Cups, c)
+		snap.Cups = append(snap.Cups, c.Clone())
 	}
 	for _, id := range slices.Sorted(maps.Keys(w.payloads)) {
 		snap.KickoffPayloads = append(snap.KickoffPayloads, PayloadRecord{ID: id, Round: w.payloads[id]})

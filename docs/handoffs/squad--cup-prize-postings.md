@@ -25,3 +25,6 @@ Cup prize money (competitions backlog). Competitions owns the rule and the timin
 
 ## Done when
 `go test ./internal/app` covers the cases above, and a `-season` run shows the cup winner's prize in its ledger.
+
+## Update from data (2026-10-01)
+`data--cup-prize-table` is delivered: `content.Cup.Prizes []money.Money`, indexed by `Exit.Stage`, validated (non-negative, never increasing, at most `Cup.Rounds()+1` entries; empty means none). The Continental Cup pays 1,000,000 / 600,000 / 350,000 / 200,000. In `app`, read the career's pinned table as `w.cups[i].Prizes` (saved since schema 31, `content.LeagueVersion` 6); a stage beyond the table pays nothing.

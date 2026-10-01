@@ -155,9 +155,27 @@ func TestYouthRange(t *testing.T) {
 
 func TestCupValidation(t *testing.T) {
 	for _, c := range DefaultCups() {
-		if err := c.Validate(); err != nil || c.Entrants() != 8 {
+		if err := c.Validate(); err != nil || c.Entrants() != 8 || c.Rounds() != 3 || len(c.Prizes) != c.Rounds()+1 || c.Prizes[c.Rounds()] <= 0 {
 			t.Fatalf("default cup %+v: %v", c, err)
 		}
+	}
+	// A shorter table, equal stages and no prizes at all are valid.
+	for name, prizes := range map[string][]money.Money{
+		"champion only": {money.Units(5)},
+		"equal stages":  {money.Units(5), money.Units(5), 0},
+		"none":          nil,
+	} {
+		c := DefaultCups()[0].Clone()
+		c.Prizes = prizes
+		if err := c.Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	c := DefaultCups()[0]
+	d := c.Clone()
+	d.Qualifiers[0].Places, d.Prizes[0] = 9, 9
+	if c.Qualifiers[0].Places == 9 || c.Prizes[0] == 9 {
+		t.Error("Cup.Clone shares memory")
 	}
 	cases := map[string]func(*Cup){
 		"six entrants":    func(c *Cup) { c.Qualifiers[1].Places = 2 },
@@ -169,10 +187,14 @@ func TestCupValidation(t *testing.T) {
 		"no interval":     func(c *Cup) { c.RoundInterval = 0 },
 		"no name":         func(c *Cup) { c.Name = "" },
 		"subs over bench": func(c *Cup) { c.MaxSubstitutions = c.MaxBench + 1 },
+		"negative prize":  func(c *Cup) { c.Prizes[3] = -1 },
+		"prize increases": func(c *Cup) { c.Prizes[2] = c.Prizes[1] + 1 },
+		"prize per stage beyond the first round": func(c *Cup) {
+			c.Prizes = append(c.Prizes, 0)
+		},
 	}
 	for name, mutate := range cases {
-		c := DefaultCups()[0]
-		c.Qualifiers = slices.Clone(c.Qualifiers)
+		c := DefaultCups()[0].Clone()
 		mutate(&c)
 		if err := c.Validate(); err == nil {
 			t.Errorf("%s: accepted", name)
