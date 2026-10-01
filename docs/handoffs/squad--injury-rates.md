@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -21,3 +21,7 @@ Raise `InjuryBase` (and the layoff mix if you want more days lost) until injurie
 
 ## Done when
 `DefaultParams` move (or a stated reason to keep the rates), and the rerun shows the injury level you chose and non-zero missing condition at kickoff for some players.
+
+## Answer
+
+Accepted 2026-10-01 into the injury backlog. Flavor-level injuries are not the intended target: aim for roughly 0.5–1.0 injuries per player-year, with some starters below full condition at kickoff. Tune base incidence and recovery together in a separate versioned unit, run population/availability and multi-season checks, then ask balance to repeat its two-engine sweep. This session first adopts shared observations; no unmeasured parameter change is included.

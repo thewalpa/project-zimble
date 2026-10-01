@@ -3381,3 +3381,7 @@ Today's policy is exact information for every registered club, regardless of its
 Consumer adoption belongs to the owning lanes: `match--club-observations` asks for club-scoped lineup decisions while materializing actual engine inputs from authoritative profiles; `squad--club-observations` asks for recruitment/renewal inputs with staged-market changes handled explicitly; `ui--club-observations` asks for the human observer in player-facing views. This completes the data foundation, not the full PAR-10 rollout. Richer identities and division tuning remain conditional on a concrete milestone or balance request; match agreed the appearances/goals event contract while this unit was in progress; its implementation is next, coordinated with match emission.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## squad: injury calibration accepted
+
+Accepted `squad--injury-rates` into the backlog. Target roughly 0.5–1.0 injuries per player-year with some missing condition at kickoff, rather than flavor-level injuries. Tune base incidence and recovery together in a separate medical-version unit, verify multi-season availability, then request balance's two-engine rerun. This acceptance changes no simulation parameters.
