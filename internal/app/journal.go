@@ -15,12 +15,13 @@ import (
 
 // journalRetention is how many of the most recent events the journal keeps.
 // Older events are dropped only after every consumer (the inbox) has
-// consumed them; the inbox keeps its own bounded message history. About 240
-// events are emitted per year with a managed club in an 8-team league (86
-// match and season events, 52 weekly wage postings, 14 gate postings, about
-// 50 contract events and about 35 retirements, youth arrivals and one
-// development, plus a few dozen transfer events in a summer the manager
-// trades), so this keeps roughly the last three to four years.
+// consumed them; the inbox keeps its own bounded message history, and the
+// read models carry history in their own snapshots, so the journal is only
+// the recent tail that restore checks against the modules. The bound caps
+// save size: an event is about 520 bytes of save JSON, so 1,000 events are
+// about a third of a save. A seed-42 career managing club 3 emits about
+// 1,400 events a year (medical.Version 4; about half are injuries and
+// recoveries), so this keeps roughly the last eight months.
 var journalRetention = 1000
 
 // emit stages an event produced by a change that has already been applied

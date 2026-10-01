@@ -26,6 +26,8 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Journal retention answered:** squad's `data--journal-retention-under-a-year`. The bound of 1,000 events stays as a save-size cap (an event is about 520 bytes of save JSON; a year now emits about 1,400); only the comment in `journal.go` changed ([progress](../progress.md#data-journal-retention-stays-a-save-size-bound-done)).
+
 **Club aggregates from club knowledge (PAR-10):** `World.ObservedClubs(observer)` aggregates squad positions and average overall from the observer's `ObservePlayers`; `Agenda()` reads its contract items the same way; `Summary()` is the administrative view. Match's adoption (`ca727e9`) reviewed and accepted. The terminal club heading is asked of `ui` in `ui--observed-clubs` ([progress](../progress.md#data-club-aggregates-from-club-knowledge-done)). No version moves. ui delivered save recovery in both clients (`b58f3e4`), so that backlog item is closed.
 
 **Even league sizes enforced in content:** `League.Validate` rejects odd sizes and sizes above `content.MaxLeagueEntrants` (kept equal to competitions' bound by an app test). Closes `data--even-league-sizes` ([progress](../progress.md#data-content-accepts-only-even-league-sizes-done)).

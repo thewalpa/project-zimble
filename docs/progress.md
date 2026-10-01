@@ -3599,3 +3599,13 @@ PAR-10's last data step before uncertainty: the aggregates a manager sees no lon
 - `ui--observed-clubs` asks ui to read the terminal `club` heading from `ObservedClubs`; it is the only manager-facing aggregate in the clients.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## data: journal retention stays a save-size bound (done)
+
+Answers squad's `data--journal-retention-under-a-year`: since `medical.Version` 4 a managed career emits about 1,400 events a year, so `journalRetention` (1,000) keeps about eight months, not the three to four years its comment claimed.
+
+### Decision
+
+The bound is deliberate and stays. Nothing reads the journal but restore's checks: the inbox and careers consume each event as it commits and save their own history, and an old `MatchCompleted` already falls back when its `RoundStarted` has aged out. The bound is what caps save size: the schema-31 fixture's 1,000 events are 524 KB of its 1.65 MB of compact JSON, and saves are written indented. Keeping a full year would make every save about 30% larger for an audit tail nothing reads, and it would change the frozen current fixture. Retention by game time was not taken because it would tie save size to the event rate, which grows with every new event kind. Tests that rebuild a read model from event 1 lift the bound (`keepWholeJournal`), as squad's do.
+
+The comment in `internal/app/journal.go` now gives the rate, the size per event and what the journal is for. No behavior, version or schema moves.
