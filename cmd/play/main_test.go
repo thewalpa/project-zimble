@@ -696,7 +696,8 @@ func TestSeasonEndSaysMovement(t *testing.T) {
 // club's own to its editors.
 func TestClubShowsAnotherClubsProbableLineup(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "club 1", "club 3", "club nope", "club", "quit")
-	contains(t, out, "Probable lineup if it played today", "Formation ", ", attacking upwards:\n", "POS NAME",
+	contains(t, out, "Hollowick Town (HOL), Westmark: 20 players, average 62.",
+		"Probable lineup if it played today", "Formation ", ", attacking upwards:\n", "POS NAME",
 		"that is your club: type squad, lineup or teamplan", `"nope" is not a club`, "usage: club CLUB")
 }
 

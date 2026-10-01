@@ -3631,3 +3631,7 @@ Also delivered the concurrent UI review note by consolidating the duplicate care
 ## ui: medical v4 client scenarios reviewed (done)
 
 Reviewed squad's medical v4 changes to the terminal, browser and simulator stories. They preserve the cup exit, penalty winner, movement, history and injury-selection flows while using the newly calibrated outcomes. No client rules or app API change was needed. The new automatic-batch tests compare their displayed cup scores with official fixture queries rather than freezing scorelines; their seed-42 club still leaves in the quarter-final and Continue still reaches contract review without another matchday stop. Closes `ui--seed-stories-moved-injury-calibration.md` after all client and repository checks pass.
+
+## ui: club heading uses observed aggregates (done)
+
+The terminal `club` heading reads squad counts and average rating from `World.ObservedClubs` with the managed club as observer. Administrative club choosers and simulator reports keep `Summary`; the browser shows no managed squad average. The existing seed-42 club command test now checks the unchanged heading, and the browsing test verifies no career changes. Closes `ui--observed-clubs.md`.

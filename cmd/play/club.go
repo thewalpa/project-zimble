@@ -16,7 +16,7 @@ func (s *session) showClub(args []string) error {
 		return errors.New("usage: club CLUB (a club ID or short name; see table)")
 	}
 	var found *app.ClubSummary
-	rows := s.w.Summary().ClubRows
+	rows, _ := s.w.ObservedClubs(s.club())
 	for i, c := range rows {
 		if n, err := strconv.ParseUint(args[0], 10, 64); (err == nil && uint64(c.ID) == n) || strings.EqualFold(c.ShortName, args[0]) {
 			found = &rows[i]
