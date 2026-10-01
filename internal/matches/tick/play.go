@@ -112,7 +112,10 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 				d = min(d, onside)
 			}
 			if building && p.role == matches.Forward && slot != s.ball.slot {
-				if s.tick >= p.runUntil && s.chance(s.p.RunPPM[t.mentality]) {
+				// A run in behind bites deepest against a high line: the
+				// defending side's MentalityConcedePermille prices the room
+				// its line leaves.
+				if s.tick >= p.runUntil && s.chance(s.p.RunPPM[t.mentality]*s.p.MentalityConcedePermille[s.teams[1-side].mentality]/permille) {
 					p.runUntil = s.tick + s.p.RunTicks
 				}
 				if s.tick < p.runUntil {
@@ -341,6 +344,8 @@ func (s *session) act(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matc
 	if gd < s.p.ShotRange {
 		left := s.p.ShotRange - gd
 		p := s.p.ShotPPM * left / s.p.ShotRange * left / s.p.ShotRange * s.p.MentalityShotPermille[t.mentality] / permille
+		// A high line leaves room to shoot more often; a deep block less.
+		p = p * s.p.MentalityConcedePermille[s.teams[1-side].mentality] / permille
 		if gd <= s.p.CertainShotRange || s.chance(p) {
 			s.shoot(side, slot)
 			return
@@ -360,7 +365,9 @@ func (s *session) act(targets *[2][matches.StartersPerTeam]vec, sprint *[2][matc
 		passPPM = s.p.PressuredPassPPM
 	}
 	if s.running(side) {
-		passPPM = max(passPPM, s.p.RunPassPPM) // he looks for the run
+		// He looks for the run: the counter pass lands more often against a
+		// high line.
+		passPPM = max(passPPM, s.p.RunPassPPM*s.p.MentalityConcedePermille[s.teams[1-side].mentality]/permille)
 	}
 	if s.chance(passPPM) && s.pass(side, slot) {
 		return

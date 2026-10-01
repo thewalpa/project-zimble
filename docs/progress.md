@@ -3332,3 +3332,40 @@ At 20,000 probe matches the no-edge baseline is 36.6% against 37.4% (symmetric),
 ### Verification
 
 - `TestBalanceEngineComparison` (balance's sweep, `ZIMBLE_BALANCE=1`): 60 v 60 home wins are 15.8 points above away wins (the note's done-when was 4), goals 1.54–1.17, total 2.71. All trend and contract tests hold; `TestFullSeasonIsReproducible` goldens updated (all three moved — every fixture can change).
+
+## match: the mentality trade-off in tick (done)
+
+Delivers [match--attacking-is-free](handoffs/match--attacking-is-free.md) (`balance`): attacking is no longer a free upgrade on `tick`, and defensive pays for the weaker side. `tick.ModelVersion` 7.
+
+### The choice: price the counter, not fatigue
+
+The note offered a counter-chance cost or a stamina cost and asked which one. **The counter is implemented.** A fatigue cost would live in `medical`'s condition drain and needs `squad`; it stays open as a follow-up (the phase-4 workload item).
+
+New `MentalityConcedePermille [4]int64{0, 825, 1000, 1250}` prices "the room a line leaves behind it" (the shape `simple` prices with its permille pair). Indexed by the defending side's mentality, it multiplies the opponents' run in behind (`RunPPM`), their counter pass (`RunPassPPM`) and their shot rate against that shape: 1250‰ at an attacking high line, 825‰ at a defensive deep block. `RunPPM` becomes `{0, 7000, 8000, 10000}` (was `{0, 6000, 8000, 12000}`): attacking's free runs are trimmed, and defensive keeps enough of its own counter to punish the high line it invites.
+
+### Results
+
+Points per match for the side that changes mentality, 3,000 matches a row (seeds 1, 42, 2026), beside `balance`'s v6 table:
+
+| Side | balanced | defensive | attacking | v6 (bal / def / att) |
+| --- | --- | --- | --- | --- |
+| 60 v 60 at home | 1.52 | 1.54 | 1.52 | 1.54 / 1.47 / 1.78 |
+| underdog 55 v 65 at home | 0.99 | 1.05 | 0.99 | 1.01 / 0.95 / 1.16 |
+| favourite 65 v 55 at home | 2.10 | 2.10 | 2.14 | 2.08 / 1.97 / 2.28 |
+| underdog 65 v 55 away | 0.68 | 0.72 | 0.64 | 0.70 / 0.66 / 0.81 |
+
+- **Done-when.** Attacking and balanced are within 0.05 points a match for equal teams — 0.001 on `TestBalanceEngineComparison`'s "60 v 60" rows (`TestBalanceMentalityByGap` has no equal-team row; its rows agree: +0.00 underdog home, +0.04 favourite). Defensive is ahead of balanced for the underdog: +0.07 at 55 v 65 at home, +0.04 at 65 v 55 away (`TestBalanceMentalityByGap`). No escape clause needed.
+- **The trade-off shape.** Defensive's payoff shrinks as the side strengthens: +0.04–0.07 for the underdogs, +0.02 at equal teams, −0.01 for the favourite. Attacking is nearly free at equal teams and +0.04 for the favourite, and −0.04 for the away underdog, which runs into the bill its own high line writes.
+- **Conceded moves now.** Attacking costs +0.15…+0.31 goals conceded (v6: +0.02…+0.11) against +0.13…+0.27 scored — the counter is as large as the boost for the weaker sides. Defensive draws more: 31.3% against 24.3% at 55 v 65 at home, 27.2% against 22.0% at 65 v 55 away, and `TestMentalityTradeOff` sees 200 draws against 174 at 60 v 60.
+
+### Decisions
+
+- **Depth moves cannot price the line.** A run aims a fixed 8 m behind the offside line and a through ball stops at the receiver's onside limit, so the geometry is translation-invariant in the line depth: amplifying `MentalityDefendDepth` would move the line and its trap together and price nothing. The rate multiplier on the three counter actions is what the manager sees in results.
+- **Defensive keeps a counter of its own.** Heavier attack taxes (`RunPPM[def]` 6000–6500) crushed the underdog rows (−0.03 at 55 v 65): a weaker side still needs its own break to score. `RunPPM[def]` 7000 with the 825‰ dampening is the set that pays the underdog and draws at equal teams.
+- **Draws, not wins.** The first tuning cut GA harder than GF and broke `TestMentalityTradeOff`'s draws assertion: goal difference rose and the deep block turned draws into wins. The frozen set cuts both ends nearly evenly at equal teams (1.05–0.80 against 1.31–1.09), so defensive converts wins into draws.
+
+### Verification
+
+- `TestBalanceMentalityByGap` and `TestBalanceEngineComparison` (`ZIMBLE_BALANCE=1`, both engines): the tables above, both green (`balance` reruns both on its side).
+- Trend tests hold: `TestModelTrends`, `TestGoalsFollowTheGapNotTheLevel`, `TestMentalityTradeOff` (defensive scores and concedes fewer at both ends and draws 200 against 174).
+- `TestGolden` re-pinned (`08d0f58f97ed6a72`); `gofmt`, `go vet`, `go test ./...` green.

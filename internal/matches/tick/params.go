@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 6
+const ModelVersion uint32 = 7
 
 // The clock: a tick is one simulated instant.
 const (
@@ -69,6 +69,11 @@ const (
 //     and so makes and allows fewer. Out of possession the line moves
 //     further than in possession, and a deeper back line catches fewer
 //     opponents offside.
+//   - The room behind a line is priced (MentalityConcedePermille, the shape
+//     simple uses): against a high line the opponents start more runs in
+//     behind, play the counter pass more often and take more of their
+//     shots; against a deep block fewer. The counter is the cost of
+//     attacking and the payoff of defensive.
 //   - Marking: out of possession, defenders and opponents within
 //     MarkRadius of the defender's spot pair up nearest first. A defender
 //     stands goal-side of a man within TightMarkRadius of his spot, and
@@ -130,9 +135,12 @@ type Params struct {
 	SprintDistance               int64 // farther than this from his spot, a player sprints
 
 	// Shape: line depths from the own goal line, out of and in possession,
-	// each moved by the side's mentality.
+	// each moved by the side's mentality. MentalityConcedePermille prices
+	// the room a line leaves behind it: the opponents' runs in behind,
+	// counter passes and shots against that mentality.
 	DefendDepth, AttackDepth                   [5]int64
 	MentalityDefendDepth, MentalityAttackDepth [4]int64
+	MentalityConcedePermille                   [4]int64
 	ShiftPermille                              int64
 	LateralPermille                            int64
 	DriftDepth, DriftWidth                     int64  // largest drift from a spot in possession
@@ -218,20 +226,21 @@ func DefaultParams() Params {
 		DefendDepth: [5]int64{0, 0, 2400, 3440, 4640},
 		AttackDepth: [5]int64{0, 0, 3770, 5770, 7670},
 		//                              -, def, bal, att
-		MentalityDefendDepth: [4]int64{0, -300, 0, 100},
-		MentalityAttackDepth: [4]int64{0, -40, 0, 30},
-		ShiftPermille:        450,
-		LateralPermille:      300,
-		MarkRadius:           1800,
-		MarkDistance:         150,
-		TightMarkRadius:      800,
-		DriftDepth:           250,
-		DriftWidth:           250,
-		DriftTicks:           5 * TicksPerSecond,
-		KeeperDepth:          300,
-		KeeperTrackPermille:  150,
+		MentalityDefendDepth:     [4]int64{0, -300, 0, 100},
+		MentalityAttackDepth:     [4]int64{0, -40, 0, 30},
+		MentalityConcedePermille: [4]int64{0, 825, 1000, 1250},
+		ShiftPermille:            450,
+		LateralPermille:          300,
+		MarkRadius:               1800,
+		MarkDistance:             150,
+		TightMarkRadius:          800,
+		DriftDepth:               250,
+		DriftWidth:               250,
+		DriftTicks:               5 * TicksPerSecond,
+		KeeperDepth:              300,
+		KeeperTrackPermille:      150,
 
-		RunPPM:          [4]int64{0, 6_000, 8_000, 12_000},
+		RunPPM:          [4]int64{0, 7_000, 8_000, 10_000},
 		RunTicks:        3 * TicksPerSecond,
 		RunDepth:        800,
 		RunPassPPM:      300_000,
@@ -368,6 +377,7 @@ func (p Params) Validate() error {
 	}
 	for m := matches.Defensive; m <= matches.Attacking; m++ {
 		if p.ProgressPermille[m] < 0 || p.MentalityShotPermille[m] <= 0 || p.MentalityShotPermille[m] > 4*permille ||
+			p.MentalityConcedePermille[m] <= 0 || p.MentalityConcedePermille[m] > 4*permille ||
 			p.Pressers[m] < 0 || p.Pressers[m] > matches.StartersPerTeam-1 || p.RunPPM[m] < 0 || p.RunPPM[m] > ppm {
 			return bad("mentality settings")
 		}

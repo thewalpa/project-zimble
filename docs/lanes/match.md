@@ -31,7 +31,9 @@ The match engine and everything on matchday: the match contract, the engine that
 
 **Tick engine: offside is delivered (phase 4, first rule).** Forwards make runs in behind, back lines hold, passers play through balls, and a receiver beyond the second-last opponent when the ball is played is caught offside, giving a free kick. Equal sides are caught about 1.8 times a side at the old goal level (2.54). `TeamStats.Offsides`, schema 28, `tick.ModelVersion` 6 ([progress](../progress.md#match-offside-in-tick-done)). The mentality effect is smaller than at v5 (both attacking 3.27 goals, both defensive 1.21). `tick` stays opt-in (a season costs about 12.5 s against 0.26 s on `simple`).
 
-**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: the mentality trade-off `balance` asks for (`match--attacking-is-free`), then fouls, free kicks and cards (phase 4).
+**Tick's mentality is a trade-off** (`tick.ModelVersion` 7: `MentalityConcedePermille` prices the room behind a line into the opponents' runs, counter passes and shots — the counter cost `balance` asked for in `match--attacking-is-free`, a fatigue cost left open for `squad`). Attacking is within 0.05 points a match of balanced at equal teams; defensive is the underdog's tool (+0.04–0.07) and draws more ([progress](../progress.md#match-the-mentality-trade-off-in-tick-done)).
+
+**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: fouls, free kicks and cards (phase 4).
 
 ## Tick engine roadmap
 
