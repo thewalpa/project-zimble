@@ -21,4 +21,4 @@ Check the pool with the passive manager and with a manager who signs free agents
 
 ## Answer
 
-Accepted 2026-09-29 into the balance backlog alongside the AI/player parity audit. The requested measurements remain pending; no new sweep results are claimed in this audit.
+Accepted 2026-09-29. Part-answered 2026-10-01: the AI-only pool is 4 at every window's open and 0 at the close ([docs/balance.md](../balance.md#free-agents)); with a passive manager it grows to 19 and with a recruiting one it stays at 6–10 (see `squad--passive-manager-market.md`). Still to measure: how long the good ones last, and the pool's quality at the open (the sweep only records the best at the close). Stays open until then.

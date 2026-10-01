@@ -23,22 +23,20 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
-The user-requested [AI/player rule audit](../ai-manager-parity.md) is delivered; fixes are queued with their owners. The five incoming measurement requests are accepted below and remain pending.
+The AI market is measured on 32 clubs at the current versions, for AI-only, passive and recruiting managers: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market). One note went to `squad` (`squad--passive-manager-market`). The match engines are profiled on synthetic teams at `tick.ModelVersion` 1 (stale: see the pending `match` notes below). Matches measured over career seasons, money over 10 seasons and the population remain.
 
-**A baseline.** The market part is done: see [docs/balance.md, "AI transfer market"](../balance.md#ai-transfer-market) and its sweep in `internal/app/balance_test.go`. The match engines are profiled on synthetic teams: see ["Match engines: tick against simple"](../balance.md#match-engines-tick-against-simple) and `internal/matches/tick/balance_test.go`. Matches measured over career seasons, money over 10 seasons and the population remain.
+Pending incoming measurement requests (accepted): [tick career seasons](../handoffs/balance--tick-career-seasons.md), [tick match statistics](../handoffs/balance--tick-match-stats.md), [tick mentality and goals-by-level refresh](../handoffs/balance--tick-mentality-delivered.md), [injuries](../handoffs/balance--injuries-delivered.md), [attribute spreads](../handoffs/balance--match-attribute-spreads.md), and what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open).
 
-Measure the current game over a fixed seed set and record it in `docs/balance.md`:
+**A baseline.** Measure the current game over a fixed seed set and record it in `docs/balance.md`. Done: the market. Remaining:
 
-- **Matches:** home, draw and away rates, goals per match, win rate by overall gap, the effect of mentality, and how often cup ties go to penalties.
-- **Money:** club balances over 10 seasons, wages against gate receipts, and how many clubs trend towards insolvency.
-- **Population:** squad sizes, age and overall distributions over 30 years, retirements against youth intake.
-- **Market:** transfers per window, fees against valuations, and how long vacancies stay open.
-
-Then add always-on bounds for the most important of these, and file notes for anything implausible.
+- **Matches:** home, draw and away rates, goals per match, win rate by overall gap, the effect of mentality, and how often cup ties go to penalties, over career seasons.
+- **Money:** club balances over 10 seasons by division, wages against gate receipts, and how many clubs trend towards insolvency. The market sweep shows no club below zero in 30 years and a poorest club stuck near 1M; it doesn't split by division.
+- **Population:** squad sizes, age and overall distributions over 30 years, retirements against youth intake, and whether the second divisions should be weaker (the first and second divisions are generated equally strong).
 
 ## Backlog
 
-- Rerun the market sweep for the delivered star-churn and free-agent changes (accepted notes below), then add an always-on churn bound if the new measurements justify it (a few seeds, loose limits).
+- Add an always-on market bound if the numbers justify it: a few seeds, loose limits (stars moved per window, completions per window, no AI club below zero, AI vacancies at the close). The 30-year sweep takes 100 s, so an always-on version needs about 5 years and 2 seeds.
+- Record the manager's division and the clubs' by-division strength and balance in the market sweep (it reports titles only).
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work, and after promotion and relegation lands.
 - Rerun `TestBalanceEngineComparison` when `match` answers `match--tick-mentality`, `match--tick-goals-by-level` or `match--shootout-favourite`. Then propose always-on bounds for mentality and shootouts (a few seeds, loose limits) to `match`, whose trend tests they would sit beside.
 - Once `app` can run a career on `tick` (`match` roadmap phase 2), compare the two engines over league seasons: goals, home and draw rates, upsets, final-table spread.

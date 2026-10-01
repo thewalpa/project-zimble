@@ -9,8 +9,10 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/finance"
+	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
@@ -30,6 +32,9 @@ func requireBalanceSweep(t *testing.T) {
 // (money and the free-agent pool after expiries and AI signings).
 type marketYear struct {
 	Bids, Completed, Rejected, Expired, Collapsed int
+	Refused                                       int // accepted, but the player refused to join the buyer
+	Short                                         int // AI players missing from the rosters at the close, summed over clubs
+	ShortClubs                                    int // AI clubs with at least one missing
 	MaxClubMoves                                  int // most completed transfers in and out of one AI club
 	ToWeaker                                      int // completed transfers to a club with a lower squad average before the window
 	StarsMoved                                    int // of the 16 best active players at the close, those who moved in the window
@@ -41,6 +46,8 @@ type marketYear struct {
 	Negative                                      int // AI clubs below zero at the contract-year end
 	UserBids, UserBidsExpired                     int // bids for the manager's players, and those left unanswered
 	UserAverage                                   int
+	UserSigned, UserBought, UserSold, UserRenewed int // the manager's signings, purchases, sales and renewals in the year
+	UserFailed                                    int // his commands the world refused
 	UserBalance                                   money.Money
 }
 
@@ -65,7 +72,7 @@ type marketRun struct {
 // sweepMarket plays years of a career (AI-only when club is zero, else with
 // a passive manager at club: he submits nothing, answers no bid and lists
 // no one) and measures its transfer market.
-func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRun {
+func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int, policy *managerPolicy) marketRun {
 	t.Helper()
 	var w *World
 	if club == 0 {
@@ -87,18 +94,22 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRu
 		for _, row := range w.Summary().ClubRows {
 			before[row.ID] = row.AverageOverall
 		}
-		mustContinue(t, w, w.TransferWindow().Closes)
-
+		// The journal keeps only the latest events, and a window of 32 clubs
+		// can overflow it: read it after every day.
 		listed := map[ids.PlayerID]ids.ClubID{}
-		if len(w.journal) > 0 && w.journal[0].ID > seen+1 {
-			t.Fatalf("seed %d year %d: the journal dropped events %d..%d before they were read", seed, year, seen+1, w.journal[0].ID-1)
-		}
-		for _, e := range w.journal {
-			if e.ID > seen && e.Kind == events.KindPlayerListed && e.PlayerListed.Club != w.userClub {
-				listed[e.PlayerListed.Player] = e.PlayerListed.Club
+		for closes := w.TransferWindow().Closes; w.Now() < closes; {
+			policy.window(t, w, &y)
+			mustContinue(t, w, min(closes, w.Now()+sim.GameInstant(sim.Day)))
+			if len(w.journal) > 0 && w.journal[0].ID > seen+1 {
+				t.Fatalf("seed %d year %d: the journal dropped events %d..%d before they were read", seed, year, seen+1, w.journal[0].ID-1)
 			}
+			for _, e := range w.journal {
+				if e.ID > seen && e.Kind == events.KindPlayerListed && e.PlayerListed.Club != w.userClub {
+					listed[e.PlayerListed.Player] = e.PlayerListed.Club
+				}
+			}
+			seen = w.lastEvent
 		}
-		seen = w.lastEvent
 		y.Listed = len(listed)
 
 		clubMoves := map[ids.ClubID]int{}
@@ -113,6 +124,14 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRu
 			}
 			switch o.Status {
 			case transfers.StatusCompleted:
+				if club != 0 && o.Buyer == w.userClub {
+					y.UserBought++
+					continue
+				}
+				if club != 0 && o.Seller == w.userClub {
+					y.UserSold++
+					continue
+				}
 				y.Completed++
 				moved[o.Player] = true
 				if before[o.Buyer] < before[o.Seller] {
@@ -135,6 +154,8 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRu
 				y.Expired++
 			case transfers.StatusCollapsed:
 				y.Collapsed++
+			case transfers.StatusRefused:
+				y.Refused++
 			}
 		}
 		offers = len(w.transfers.Offers())
@@ -152,6 +173,21 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRu
 		for _, p := range active[:16] {
 			if moved[p.Player] {
 				y.StarsMoved++
+			}
+		}
+		for _, c := range w.registry.Clubs() {
+			if c.ID == w.userClub {
+				continue
+			}
+			team, _ := w.registry.SeniorTeam(c.ID)
+			counts := w.squadCounts(team)
+			missing := 0
+			for _, q := range w.defs.Roster {
+				missing += max(0, q.Count-counts[q.Position])
+			}
+			y.Short += missing
+			if missing > 0 {
+				y.ShortClubs++
 			}
 		}
 		pool := w.FreeAgents()
@@ -183,7 +219,9 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int) marketRu
 		run.LastRank = order
 
 		playSeason(t, w)
+		policy.renew(t, w, &y)
 		mustContinue(t, w, w.ContractYearEnd())
+		seen = w.lastEvent // listings happen only inside a window
 
 		var balances []money.Money
 		for _, c := range w.registry.Clubs() {
@@ -238,13 +276,13 @@ func thousands(m money.Money) string {
 	return fmt.Sprintf("%dk", int64(m)/money.MinorPerUnit/1000)
 }
 
-func sweepSeeds(t *testing.T, seeds []uint64, club ids.ClubID, years int) []marketRun {
+func sweepSeeds(t *testing.T, seeds []uint64, club ids.ClubID, years int, policy *managerPolicy) []marketRun {
 	runs := make([]marketRun, len(seeds))
 	t.Run("seeds", func(t *testing.T) {
 		for i, s := range seeds {
 			t.Run(fmt.Sprint(s), func(t *testing.T) {
 				t.Parallel()
-				runs[i] = sweepMarket(t, s, club, years)
+				runs[i] = sweepMarket(t, s, club, years, policy)
 			})
 		}
 	})
@@ -257,7 +295,7 @@ func reportMarket(t *testing.T, runs []marketRun, user bool) {
 	var b strings.Builder
 	years := len(runs[0].Years)
 	fmt.Fprintf(&b, "\n%d seeds, %d years, means over seeds\n", len(runs), years)
-	fmt.Fprintln(&b, "year  bids done rej exp col maxclub weaker stars16 listed unsold  fa-open fa-close best-fa  avg-top avg-bot avg-mean  bal-min bal-med bal-max neg")
+	fmt.Fprintln(&b, "year  bids done rej exp col refused short shortclubs maxclub weaker stars16 listed unsold  fa-open fa-close best-fa  avg-top avg-bot avg-mean  bal-min bal-med bal-max neg")
 	all := make([]int, years)
 	for i := range all {
 		all[i] = i + 1
@@ -300,10 +338,12 @@ func reportMarket(t *testing.T, runs []marketRun, user bool) {
 		if len(row) > 1 {
 			label = "all"
 		}
-		fmt.Fprintf(&b, "%4s  %4d %4d %3d %3d %3d %7d %6d %7d %6d %6d  %7d %8d %7d  %7d %7d %8d  %7s %7s %7s %3d\n", label,
+		fmt.Fprintf(&b, "%4s  %4d %4d %3d %3d %3d %7d %5d %9d %7d %6d %7d %6d %6d  %7d %8d %7d  %7d %7d %8d  %7s %7s %7s %3d\n", label,
 			col(func(y marketYear) int { return y.Bids }), col(func(y marketYear) int { return y.Completed }),
 			col(func(y marketYear) int { return y.Rejected }), col(func(y marketYear) int { return y.Expired }),
-			col(func(y marketYear) int { return y.Collapsed }), col(func(y marketYear) int { return y.MaxClubMoves }),
+			col(func(y marketYear) int { return y.Collapsed }), col(func(y marketYear) int { return y.Refused }),
+			col(func(y marketYear) int { return y.Short }), col(func(y marketYear) int { return y.ShortClubs }),
+			col(func(y marketYear) int { return y.MaxClubMoves }),
 			col(func(y marketYear) int { return y.ToWeaker }), col(func(y marketYear) int { return y.StarsMoved }),
 			col(func(y marketYear) int { return y.Listed }), col(func(y marketYear) int { return y.Unsold }),
 			col(func(y marketYear) int { return y.FreeAgentsOpen }), col(func(y marketYear) int { return y.FreeAgentsClose }),
@@ -314,20 +354,50 @@ func reportMarket(t *testing.T, runs []marketRun, user bool) {
 			mcol(func(y marketYear) money.Money { return y.BalanceMax }), col(func(y marketYear) int { return y.Negative }))
 	}
 	if user {
-		fmt.Fprintln(&b, "\nmanager's club (passive): year  bids-for-his-players expired  squad-avg  balance")
+		fmt.Fprintln(&b, "\nmanager's club, mean over seeds:  year  bids-for-his-players expired  signed bought sold renewed refused  squad-avg  balance")
 		for _, yr := range []int{1, 2, 3, 5, 10, 20, 30} {
 			if yr > years {
 				continue
 			}
-			var bids, expired, avg, bal []int
-			for _, r := range runs {
-				y := r.Years[yr-1]
-				bids, expired, avg = append(bids, y.UserBids), append(expired, y.UserBidsExpired), append(avg, y.UserAverage)
-				bal = append(bal, int(int64(y.UserBalance)/money.MinorPerUnit/1000))
+			col := func(f func(marketYear) int) int {
+				var xs []int
+				for _, r := range runs {
+					xs = append(xs, f(r.Years[yr-1]))
+				}
+				return mean(xs)
 			}
-			fmt.Fprintf(&b, "  %4d  %4d %4d  %4d  %dk\n", yr, mean(bids), mean(expired), mean(avg), mean(bal))
+			fmt.Fprintf(&b, "  %4d  %4d %4d  %4d %4d %4d %4d %4d  %4d  %4dk\n", yr,
+				col(func(y marketYear) int { return y.UserBids }), col(func(y marketYear) int { return y.UserBidsExpired }),
+				col(func(y marketYear) int { return y.UserSigned }), col(func(y marketYear) int { return y.UserBought }),
+				col(func(y marketYear) int { return y.UserSold }), col(func(y marketYear) int { return y.UserRenewed }),
+				col(func(y marketYear) int { return y.UserFailed }), col(func(y marketYear) int { return y.UserAverage }),
+				col(func(y marketYear) int { return int(int64(y.UserBalance) / money.MinorPerUnit / 1000) }))
+		}
+		fmt.Fprintln(&b, "manager's club per seed: average over the career (squad-avg), titles (all competitions), balance at year 30")
+		for _, r := range runs {
+			var avgs []int
+			for _, y := range r.Years {
+				avgs = append(avgs, y.UserAverage)
+			}
+			titles := 0
+			for _, byClub := range r.Titles {
+				titles += byClub[userClub3]
+			}
+			fmt.Fprintf(&b, "  %4d  avg %d (%d-%d)  titles %d  balance %s\n", r.Seed, mean(avgs), slices.Min(avgs), slices.Max(avgs), titles,
+				thousands(r.Years[len(r.Years)-1].UserBalance))
 		}
 	}
+	windows, short, missing := 0, 0, 0
+	for _, r := range runs {
+		for _, y := range r.Years {
+			windows++
+			if y.Short > 0 {
+				short++
+				missing += y.Short
+			}
+		}
+	}
+	fmt.Fprintf(&b, "\nwindows closing with an AI club short of its roster: %d of %d (%d players missing in all)\n", short, windows, missing)
 	fmt.Fprintln(&b, "\nper seed over the career:")
 	fmt.Fprintln(&b, "seed  transfers/window(min-max) listed unsold%  movers moved>=3 max-moves streak>=2 max-streak  buys/club(min-max)  spend/club(min..max)  top4-kept  players(min-max)  titles")
 	for _, r := range runs {
@@ -388,10 +458,157 @@ var balanceSeeds = []uint64{1, 2, 3, 5, 7, 11, 13, 42, 99, 2026}
 
 func TestBalanceAIMarketSweep(t *testing.T) {
 	requireBalanceSweep(t)
-	reportMarket(t, sweepSeeds(t, balanceSeeds, 0, 30), false)
+	reportMarket(t, sweepSeeds(t, balanceSeeds, 0, 30, nil), false)
 }
 
 func TestBalanceAIMarketWithPassiveManager(t *testing.T) {
 	requireBalanceSweep(t)
-	reportMarket(t, sweepSeeds(t, []uint64{7, 42, 99, 2026}, userClub3, 30), true)
+	reportMarket(t, sweepSeeds(t, []uint64{7, 42, 99, 2026}, userClub3, 30, nil), true)
+}
+
+func TestBalanceAIMarketWithRecruitingManager(t *testing.T) {
+	requireBalanceSweep(t)
+	reportMarket(t, sweepSeeds(t, []uint64{7, 42, 99, 2026}, userClub3, 30, &managerPolicy{}), true)
+}
+
+// managerPolicy is a scripted manager for the sweeps: it renews the players
+// worth keeping, signs useful free agents, bids for listed upgrades, lists
+// his surplus and accepts every bid for it. The nil policy is the passive
+// manager, who does nothing. All of its commands may be refused (counted in
+// UserFailed); it never stops the sweep.
+type managerPolicy struct{}
+
+func (p *managerPolicy) fail(y *marketYear, err error) bool {
+	if err != nil {
+		y.UserFailed++
+	}
+	return err == nil
+}
+
+// renew renews the expiring players who are at least the squad average, and
+// those at a position that would otherwise fall below its roster count.
+func (p *managerPolicy) renew(t *testing.T, w *World, y *marketYear) {
+	if p == nil || w.userClub == 0 {
+		return
+	}
+	end := w.ContractYearEnd()
+	if end-sim.GameInstant(sim.Day) > w.Now() {
+		mustContinue(t, w, end-sim.GameInstant(sim.Day))
+	}
+	squad, _ := w.Squad(w.userClub)
+	counts := w.squadCounts(mustUserTeam(t, w))
+	avg := squadAverage(w, w.userClub)
+	for _, sp := range squad {
+		if sp.Contract.Expires != end {
+			continue
+		}
+		if sp.Overall < avg-2 && counts[sp.Position] > w.defs.Quota(sp.Position).Min {
+			continue
+		}
+		offer, err := w.SuggestContract(sp.Player)
+		if !p.fail(y, err) {
+			continue
+		}
+		_, err = w.RenewContract(RenewContract{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: sp.Player, Offer: offer})
+		if p.fail(y, err) {
+			y.UserRenewed++
+		}
+	}
+}
+
+// window acts once a day while the transfer window is open.
+func (p *managerPolicy) window(t *testing.T, w *World, y *marketYear) {
+	if p == nil || w.userClub == 0 {
+		return
+	}
+	tw := w.TransferWindow()
+	if !tw.Open || w.Now()+sim.GameInstant(sim.Day) >= tw.BidsClose {
+		return
+	}
+	team := mustUserTeam(t, w)
+	// Accept every open bid for his players (the world refuses one that
+	// would leave a position under its minimum).
+	for _, o := range w.Offers() {
+		if o.Seller == w.userClub && o.Status == transfers.StatusOpen {
+			_, err := w.RespondToOffer(RespondToOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Offer: o.ID, Accept: true})
+			p.fail(y, err)
+		}
+	}
+	weakest := func(squad []SquadPlayer, pos players.Position) int {
+		low := 101
+		for _, sp := range squad {
+			if sp.Position == pos {
+				low = min(low, sp.Overall)
+			}
+		}
+		return low
+	}
+	squad, _ := w.Squad(w.userClub)
+	balance, _ := w.finance.Balance(w.userClub)
+	// Sign the best useful free agent.
+	if len(squad) < w.defs.SquadLimit && balance > money.Money(2_000_000*money.MinorPerUnit) {
+		pool := w.FreeAgents()
+		slices.SortStableFunc(pool, func(a, b SquadPlayer) int { return b.Overall - a.Overall })
+		counts := w.squadCounts(team)
+		for _, fa := range pool {
+			if counts[fa.Position] >= w.defs.Quota(fa.Position).Min && fa.Overall < weakest(squad, fa.Position)+3 {
+				continue
+			}
+			offer, err := w.SuggestContract(fa.Player)
+			if !p.fail(y, err) {
+				continue
+			}
+			if _, err = w.SignPlayer(SignPlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: fa.Player, Offer: offer}); p.fail(y, err) {
+				y.UserSigned++
+			}
+			break
+		}
+	}
+	// Bid for the best listed player who beats a position's weakest by 4,
+	// for no more than a quarter of the balance. At most two bids a day,
+	// and none while the squad plus his open bids would pass the limit.
+	squad, _ = w.Squad(w.userClub)
+	open := 0
+	for _, o := range w.Offers() {
+		if o.Buyer == w.userClub && o.Status == transfers.StatusOpen {
+			open++
+		}
+	}
+	listed := w.TransferList()
+	slices.SortStableFunc(listed, func(a, b ListedPlayer) int { return b.Overall - a.Overall })
+	bids := 0
+	for _, lp := range listed {
+		if bids == 2 || len(squad)+open+bids >= w.defs.SquadLimit {
+			break
+		}
+		if lp.Club == w.userClub || !biddable(w, lp.Player) || lp.Overall < weakest(squad, lp.Position)+4 || lp.Value > balance/4 {
+			continue
+		}
+		offer, err := w.SuggestContract(lp.Player)
+		if !p.fail(y, err) {
+			continue
+		}
+		if _, err = w.MakeTransferOffer(MakeTransferOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: lp.Player, Fee: lp.Value, Offer: offer}); p.fail(y, err) {
+			bids++
+		}
+	}
+	// List up to two surplus players (above a position's roster count),
+	// the lowest rated first, when the squad is nearly full.
+	if len(squad) >= w.defs.SquadLimit-2 {
+		counts := w.squadCounts(team)
+		slices.SortStableFunc(squad, func(a, b SquadPlayer) int { return a.Overall - b.Overall })
+		listings := 0
+		for _, sp := range squad {
+			if listings == 2 {
+				break
+			}
+			if sp.Listed || counts[sp.Position] <= w.defs.Quota(sp.Position).Count || !biddable(w, sp.Player) { // a player who moved in the window cannot be listed
+				continue
+			}
+			if _, err := w.ListPlayer(ListPlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: sp.Player, Asking: sp.Value}); p.fail(y, err) {
+				listings++
+				counts[sp.Position]--
+			}
+		}
+	}
 }

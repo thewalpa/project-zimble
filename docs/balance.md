@@ -4,80 +4,109 @@ Measurements of the seeded game over long careers: the current numbers, the seed
 
 ## AI transfer market
 
-Measured 2026-09-28 at `ai.TransfersVersion` 2, `ai.ContractsVersion` 2, `ai.SelectionVersion` 3, `players.DevelopmentVersion` 1, `worldgen.YouthVersion` 1, `content.LeagueVersion` 3. Knobs: `ai.UpgradeMargin` 8, `ai.ListingPermille` 800, `ai.TransferMargin` 5, `ai.ReserveWeeks` 26. Requested by `squad` (note `balance--ai-transfer-market`).
+Measured 2026-10-01 on 32 clubs (four leagues of 8) at `ai.TransfersVersion` 6, `ai.ContractsVersion` 2, `ai.SelectionVersion` 3, `players.DevelopmentVersion` 1, `worldgen.Version` 8, `worldgen.YouthVersion` 4, `content.Version` 9, `content.LeagueVersion` 5, `competitions.ScheduleVersion` 3, `medical.Version` 3, at commit `15ff2fa`. Knobs: `ai.UpgradeMargin` 8, `ai.ListingPermille` 800, `ai.TransferMargin` 5, `ai.ReserveWeeks` 26, `ai.StarMargin` 10, `ai.KeyPermillePerPoint` 60 (6%), `freeAgentReserve` 4. Answers `balance--rerun-baseline-32-clubs`, `balance--star-churn-delivered`, `balance--free-agent-pool-delivered` and `balance--consent-at-completion-delivered`. The previous baseline (16 clubs, `ai.TransfersVersion` 2) is in the [history](#history).
 
 ```sh
-ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalance -v -count=1   # about 20 s
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceAIMarket -v -count=1   # about 100 s on 32 cores
 ```
 
 - `TestBalanceAIMarketSweep`: AI-only, 30 years, seeds 1, 2, 3, 5, 7, 11, 13, 42, 99 and 2026.
-- `TestBalanceAIMarketWithPassiveManager`: the same with a manager at club 3 who does nothing (submits no lineup, answers no bid, lists no one, renews no one). Seeds 7, 42, 99 and 2026.
+- `TestBalanceAIMarketWithPassiveManager`: the same with a manager at club 3 who does nothing (submits no lineup, answers no bid, lists no one, renews no one, signs no one). Seeds 7, 42, 99 and 2026.
+- `TestBalanceAIMarketWithRecruitingManager`: the same seeds with a scripted manager (`managerPolicy` in `internal/app/balance_test.go`). Every year he renews the expiring players who rate within 2 of his squad average (and any whose position would otherwise fall below its minimum), signs the best free agent who beats his position's weakest by 3 (or fills a position under its minimum), bids at the asking price for up to two listed players a day who beat his position's weakest by 4 and cost under a quarter of his balance, lists up to two surplus players when the squad is within 2 of the limit, and accepts every bid for his players. He does not choose lineups (the fitted one plays). It is one reasonable policy, not an optimum.
 
-Each year runs to the close of the transfer window, which is where the market is measured. It then plays the season and cups and runs on to the contract-year end, where money is measured. The 15 or 16 AI clubs are split into two leagues of 8 (Founders League and Harbour League), plus the Continental Cup.
+Each year runs to the close of the transfer window, read day by day (the journal keeps only the latest 1,000 events, and a 32-club window overflows it). It then plays the season, the promotion play-offs and the cups, and runs on to the contract-year end, where money is measured. The 31 AI clubs (32 when AI-only) play in two leagues of 8 and their two second divisions, with promotion and relegation, plus the Continental Cup. Counts below are AI-to-AI transfers; the manager's own purchases and sales are counted separately.
 
 ### Transfers per window (AI-only, mean over 10 seeds)
 
 | | year 1 | year 5 | year 10 | year 20 | year 30 | all 30 years |
 | --- | --- | --- | --- | --- | --- | --- |
-| Bids made | 28 | 27 | 27 | 28 | 28 | 28 |
-| Completed | 28 | 27 | 27 | 27 | 26 | 27 |
-| Rejected / expired / collapsed | 0 / 0 / 1 | 0 / 0 / 1 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
-| AI listings | 12 | 11 | 12 | 12 | 12 | 12 |
-| Listed players still unsold at the close | 0 | 0 | 0 | 0 | 1 | 0 |
-| Most moves in and out of one club | 6 | 6 | 5 | 5 | 5 | 6 |
-| Moves to a club with a lower squad average | 11 | 11 | 12 | 12 | 11 | 12 |
-| Of the 16 best players, moved in this window | 10 | 10 | 12 | 12 | 12 | 12 |
+| Bids made | 57 | 56 | 55 | 59 | 57 | 56 |
+| Completed | 53 | 50 | 47 | 48 | 46 | 48 |
+| Rejected / expired / collapsed | 0 / 0 / 1 | 1 / 0 / 1 | 2 / 0 / 1 | 3 / 0 / 2 | 2 / 0 / 1 | 2 / 0 / 1 |
+| Refused by the player | 3 | 4 | 4 | 6 | 7 | 5 |
+| AI listings | 24 | 20 | 19 | 20 | 18 | 20 |
+| Listed players still unsold at the close | 0 | 1 | 2 | 2 | 1 | 1 |
+| Most moves in and out of one club | 7 | 7 | 7 | 7 | 7 | 7 |
+| Moves to a club with a lower squad average | 18 | 17 | 17 | 16 | 16 | 17 |
+| Of the 16 best players, moved in this window | 2 | 1 | 3 | 5 | 5 | 3 |
 
-Per seed over 30 years: 26–28 transfers per window (range 22–32). Each AI club buys 35–62 players in 30 years. 0–3% of listed players go unsold.
+Per seed over 30 years: 46–48 transfers per window (range 40–58), about 1.5 per club, against 27 per window on 16 clubs. Each AI club buys 33–59 players in 30 years. 4–14% of listed players go unsold.
 
-**Every bid completes.** Of 8,358 AI bids in 300 windows, none was rejected or expired, and 106 collapsed. Sellers accept any bid at or above the price, even for their best player.
+**Refusals grow with the years.** Consent at completion (`ai.Joins`) closes 3 offers per window as refused at the start and 7 at year 30, out of about 57 bids, while completions fall from 53 to 46. Over 30 years about 9% of bids end as refusals. They grow together with the squad-strength gap (below), which fits the rule that a star joins only a club at least as strong, but I haven't isolated the cause. A refused offer moves nothing. No problem for play yet; worth watching if completions keep falling.
+
+**AI squads rarely end a window short.** 13 of 300 AI-only windows (4%) close with at least one AI club below its roster, 16 players missing in all, 1–2 players at a time. With a passive manager: 1 of 120. With the recruiting manager: 24 of 120 (20%) windows, 31 players missing in all, more often than before the recruiting manager existed (I didn't run it earlier). It is a short-lived gap: squads are measured at the window close, and `squad` says the next player year refills them. It is the "thin market" item in `docs/lanes/squad.md`. The sweep doesn't show how many of those clubs have a zero transfer budget.
 
 ### Churn
 
-Across the 10 seeds, 275–308 different players move in 30 years. Of them, 90–109 move three times or more, and 114–141 move in two consecutive windows or more.
+Across the 10 seeds, 741–796 different players move in 30 years (275–308 on 16 clubs), of whom 168–188 move three times or more, and 54–72 move in two consecutive windows or more. The most-moved player moves 6–8 times (13–18 before the star rules) and the longest streak is 4–6 consecutive windows (16–19 before).
 
-**The best players move every year.** 12 of the 16 best players in the game change clubs in each window. The most-moved player moves 13–18 times. Seed 42's player 13 moved in 16 consecutive windows, from age 19 to 34, while rated 78–90, and once more at 36. He was never listed; each buyer took him as its largest upgrade. 9 of his 17 moves went to a club with a weaker squad than his seller's. Across all transfers, 44% go to a weaker club. This is churn for its own sake: a club's best player is the one every other club wants, and no rule protects him. Filed as `squad--star-churn`.
+**Stars no longer churn.** 1–3 of the 16 best players move per window in the first ten years, 5 by year 30 (12 of 16 before `ai.TransfersVersion` 4). 17 of 48 completed moves (35%) go to a club with a lower squad average than the seller's: down from 44%, but above the 31% that `squad` measured on 16 clubs, and the same late in a career (16 of 46 at year 30). The remainder is fringe surplus flowing down, as `squad` expected. No note is filed.
 
 ### Strength and titles (AI-only)
 
 | | year 1 | year 5 | year 10 | year 20 | year 30 |
 | --- | --- | --- | --- | --- | --- |
-| Strongest AI squad average | 63 | 61 | 63 | 63 | 62 |
-| Weakest AI squad average | 57 | 54 | 55 | 56 | 55 |
+| Strongest AI squad average | 63 | 62 | 64 | 65 | 64 |
+| Weakest AI squad average | 56 | 52 | 52 | 53 | 52 |
 | Mean AI squad average | 60 | 58 | 59 | 59 | 59 |
 
-**Strength doesn't concentrate.** The gap between the strongest and weakest squad stays at 6–8 points. Of the four strongest squads after the first window, 0–2 are still in the top four after the thirtieth. Over 30 seasons each 8-club league has 7 or 8 different champions, and the most titles for one club is 6–10. The Continental Cup has 12–15 different winners. The rotation of stars shown above is what keeps it level.
+**The gap widens from 7 to 11–12 points and then stays there.** The strongest squad stays at 62–65, the weakest drops from 56 to 52. The first and second divisions are generated equally strong (`data` note), and the measurement doesn't separate the divisions. Of the four strongest squads after the first window, 0–1 are still in the top four after the thirtieth.
+
+**Strength does not concentrate in titles.** With promotion and relegation, each of the two first divisions has 10–15 different champions in 30 seasons and the most titles for one club is 4–8; the second divisions have 12–16 champions (most 3–7). The Continental Cup has 14–20 winners (most 3–5). The counts are not comparable with the 16-club baseline (7–8 champions per league): clubs now move between divisions, which gives more champions. No club wins dynastically, so the wider squad gap does not yet turn into titles.
 
 ### Money (AI clubs, at each contract-year end, mean over 10 seeds)
 
 | | year 1 | year 5 | year 10 | year 20 | year 30 |
 | --- | --- | --- | --- | --- | --- |
-| Lowest balance | 1.15M | 1.10M | 1.18M | 1.43M | 2.25M |
-| Median balance | 2.16M | 3.10M | 4.48M | 5.90M | 8.47M |
-| Highest balance | 3.91M | 6.29M | 8.63M | 12.49M | 15.42M |
+| Lowest balance | 1.09M | 0.92M | 0.83M | 0.98M | 1.02M |
+| Median balance | 2.08M | 2.43M | 2.96M | 4.55M | 6.50M |
+| Highest balance | 3.88M | 9.23M | 14.37M | 17.54M | 24.38M |
 | Clubs below zero | 0 | 0 | 0 | 0 | 0 |
 
-**No club trends towards insolvency.** Every club starts on 2M, and the median club gains about 0.2M a year, because gate receipts exceed wages. Balances diverge: the spread between the richest and poorest club goes from 2.8M to 13.2M. Most of that spread comes from transfers: net spend per club over 30 years ranges from −8.7M to +7.9M. Fees (0.1–2M) are small against balances, so money rarely stops an AI bid. No tuning is requested yet. Money has no sink, which is worth revisiting when promotion and relegation or other costs land.
+**No club trends towards insolvency**, but the lowest balance sits near 1M for 30 years while the median grows and the highest reaches 24M: the poorest club gains nothing in the long run. The median gains 0.15M a year (0.2M on 16 clubs), because gate receipts exceed wages. Net transfer spend over 30 years, per club, ranges across seeds from −8.9M…−19.9M at the low end (a net seller) to +5.4M…+8.8M at the high end: a few clubs sell much more than any club buys, which the sweep doesn't connect to who ends up rich. No tuning is requested yet: money still has no sink. The `AI money` item in `docs/lanes/squad.md` is where this belongs.
 
 ### Free agents
 
-| | AI-only | passive manager |
-| --- | --- | --- |
-| Pool when the window opens | 0 every year | 2–4 in years 2–10, 0–2 later |
-| Pool when the window closes | 0 every year | 0–1 |
-| Best overall in the pool at the close, when not empty | – | 36–43 in years 2–10 (squad averages are about 59) |
+| | AI-only | passive manager | recruiting manager |
+| --- | --- | --- | --- |
+| Pool when the window opens, year 2 / 10 / 30 | 4 / 4 / 4 | 8 / 15 / 19 | 6 / 7 / 10 |
+| Pool when the window closes, year 2 / 10 / 30 | 0 / 0 / 0 | 0 / 5 / 9 | 0 / 0 / 2 |
+| Best overall in the pool at the close, when not empty | 28 (rare) | 36–44 | 26–36 |
 
-**A manager finds no free agents.** AI clubs sign every useful free agent at the contract-year end. Whatever the manager's expiring contracts add is signed during the window. What's left is one player rated about 40. Filed as `squad--free-agent-pool`.
+**The pool is the designed 4 at every window's open when AI-only, and empty at the close** (`freeAgentReserve` 4, `freeAgentGrace` half a window). With a passive manager it is not: it rises to 19 at the open and 9 at the close by year 30. His expiring players are never signed back, and the AI clubs pass over what is left: the best in the pool at the close rates 36–44 against squad averages of 59. The active population peaks at 659–665 (640–643 AI-only). It is harmless for play, but unwanted players stay a long time in the pool; I haven't measured how long, or whether they retire at the usual age.
 
-### With a passive manager (mean over 4 seeds)
+**A manager who signs does find players.** The recruiting manager signs 2–4 free agents a year. What is left at the close rates 26–36 (36–44 when passive): the pool holds what AI clubs didn't want. `squad` measured the reserve's 4 players at about the squad average (59) at the window's open in its own runs; this sweep only records the best player at the close, so I don't know how good the manager's signings are, nor how long the good ones last (asked in the note). Not measured yet: the quality of the pool at the open. The half-window grace and a reserve of 4 keep AI squads full (see the vacancy count above); whether they are the right numbers for a manager depends on that.
 
-The market runs a little slower: 24 transfers per window against 27, one fewer AI buyer. 8–15% of listings go unsold, against 0–3% AI-only. Churn, strength and money look like the AI-only numbers.
+### Passive manager (mean over 4 seeds)
 
-AI clubs never bid for the manager's players: 0 bids in 120 windows. They only bid for players he lists (the seller check in `market.candidates` in [transfers.go](../internal/app/transfers.go)), so incoming offers only reach a manager who lists someone. That is the rule as designed, not a bug. It does mean the incoming-offer flow never happens on its own.
+| year | squad average | balance | bids for his players |
+| --- | --- | --- | --- |
+| 1 | 60 | 2.4M | 0 |
+| 3 | 55 | 3.8M | 0 |
+| 5 | 51 | 5.5M | 0 |
+| 10 | 51 | 10.1M | 0 |
+| 30 | 51 | 28.5M | 0 |
 
-A passive manager's squad average falls from 60 to 46–48 from year 5 on, because only the minimum quotas are refilled from the pool. His balance climbs to 29M by year 30.
+The market runs slower (36 completed transfers a window against 48), and **55–59% of the listed players go unsold, against 4–14% AI-only and 8–15% at the previous baseline**. A sample of the unsold ones (seed 7, years 5 and 10) are fringe players: rated 32–44, mostly aged 31–34 or 16–18, at clubs averaging 57–63. I haven't isolated the cause. The free-agent pool is large in the same runs and the numbers fit a world where the pool replaces the listed fringe, but that is a guess; a passive manager's world simply loses most of its fringe trade. Seed 7, year 10: 23 listed, 15 unsold, pool 5; the same seed AI-only: 22 listed, 1 unsold, pool 0. Filed to `squad` as `squad--fringe-listings-unsold`.
 
-The active population stays at 315–321 in every run.
+AI clubs bid for none of the passive manager's players (0 bids in 120 windows), as before: AI clubs only bid for the players he lists. A passive manager's squad average falls from 60 to 51 by year 5 and then stays there, because only the minimum quotas are refilled. He is not relegated within the measured years, but this sweep doesn't record his division (a gap). His balance climbs to 28M, so a manager who does nothing is richer than any AI club, which reinforces the money item above. Titles in 30 seasons, over all competitions: 1–4 (the sweep doesn't record his division).
+
+### Recruiting manager (mean over 4 seeds)
+
+| year | squad average | balance | signed | bought | sold | renewed | bids for his players |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 60 | 2.4M | 0 | 0 | 0 | 3 | 0 |
+| 2 | 59 | 3.6M | 2 | 1 | 2 | 3 | 2 |
+| 5 | 59 | 5.5M | 4 | 1 | 2 | 4 | 2 |
+| 10 | 61 | 6.7M | 4 | 0 | 3 | 5 | 3 |
+| 30 | 62 | 13.2M | 3 | 0 | 1 | 3 | 1 |
+
+A simple recruiting policy keeps the managed club at 59–62, one point above the AI mean (59) and 8–11 above the passive one. Over 30 seasons that club's squad average is 60–62 per seed (range 53–68) and it wins 3–7 titles (all competitions), against 1–4 for the passive manager. It is not dominant: the policy buys 0–1 players a year (I haven't measured why: asking prices against his budget limit, or few listed upgrades). His balance still climbs to 13M. None of his commands was refused. AI clubs bid for 1–3 of the players he lists each window and he accepts every bid. This policy does not test lineups, rotation, injuries or tactics: see the backlog.
+
+### History
+
+- **2026-09-28**, 16 clubs, `ai.TransfersVersion` 2: 27 transfers a window, every bid completed, the 16 best players 12 a window, strength gap 6–8, median balance 8.5M at year 30, free-agent pool empty (AI-only) or 2–4 (passive). Filed `squad--star-churn` and `squad--free-agent-pool`.
+- **2026-10-01**, 32 clubs, `ai.TransfersVersion` 6: this section.
 
 ## Match engines: tick against simple
 
