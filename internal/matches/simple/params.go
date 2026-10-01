@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match.
-const ModelVersion uint32 = 4
+const ModelVersion uint32 = 5
 
 // Units: probabilities are parts per million (ppm), multipliers are permille
 // (1000 = x1), readiness is per 10,000 and fatigue per 100,000 of a rating.
@@ -42,8 +42,10 @@ func (w Weights) sum() int64 { return w.A + w.B + w.C }
 //   - Team defense = role-weighted mean over outfield players of
 //     Defending:Pace:Passing in DefenseWeights; role weights DefenseShare.
 //   - Chance per minute = BaseChance * 2*A/(A+D_opp), times the side's own
-//     MentalityOwn, the opponent's MentalityConcede and, for the home side,
-//     HomeAdvantage; clamped to [MinChance, MaxChance].
+//     MentalityOwn, the opponent's MentalityConcede and the home edge:
+//     HomeAdvantage for the home side and its reciprocal for the away side
+//     (permille²/HomeAdvantage), so one parameter splits the edge between a
+//     home boost and an away handicap. Clamped to [MinChance, MaxChance].
 //   - Shooter: weighted by ShotShare[role] * effective Finishing.
 //   - Conversion = BaseConversion * (Finishing + ConversionOffset) /
 //     (opponent Goalkeeping + ConversionOffset), clamped.
@@ -90,7 +92,7 @@ func DefaultParams() Params {
 		MinConversionPPM:      30_000,
 		MaxConversionPPM:      450_000,
 		ConversionOffset:      100,
-		HomeAdvantagePermille: 1050,
+		HomeAdvantagePermille: 1150, // 60 v 60: 45–46% home wins against 29% away, 1.5–1.2 goals
 		//                        -, defensive, balanced, attacking
 		MentalityOwnPermille:     [4]int64{0, 800, 1000, 1200},
 		MentalityConcedePermille: [4]int64{0, 850, 1000, 1150},

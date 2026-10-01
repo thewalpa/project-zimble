@@ -24,9 +24,9 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by player consent at completion
-// (ai.TransfersVersion 6: consent is judged against the squads a run has
-// staged, so a few first-window transfers moved).
+// this value. Last changed by the home edge (simple.ModelVersion 5: the
+// away side now plays against HomeAdvantagePermille's reciprocal, and the
+// edge is 1150, so every result moved).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
@@ -34,9 +34,9 @@ import (
 // competitions.ScheduleVersion 3: the promotion play-offs take fixture IDs
 // before the cup the moved-on leagues draw, so the cup's fixtures shifted.
 const (
-	goldenSeasonSeed42       = "8ce20082fb04e9c55e43aef5808ddf8f0eaa437cf46d3dc5c17ca4d3a2ff1f4a"
-	goldenSecondLeagueSeed42 = "f77b19c9e381c90ef87cc870db59b2387732441b84d337d97eccc8bac8dec789"
-	goldenCupSeed42          = "bf8c05dd1c74e26e1c8649d90a8b48b4640f42f39f765178115a7e195153df7a"
+	goldenSeasonSeed42       = "bac10f0a1a366edef412291200b4892790856df3b16beeeeb2fbed53c8ec6f3a"
+	goldenSecondLeagueSeed42 = "406af9e1659e69f683095b5d98b37a851609259becb672e7832fa3e19a48c613"
+	goldenCupSeed42          = "b35f9d20599f351e2df0640d0c1af8a4277c5d528d17e920a783009c66edca14"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

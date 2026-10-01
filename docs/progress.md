@@ -3307,3 +3307,28 @@ Fixed the fallout: the ignored `ok` from `leagueIndex(l.Lower)` could have silen
 ## match: appearances and goals contract answered (done)
 
 Answered [match--careers-appearances-goals](handoffs/match--careers-appearances-goals.md) (`data`): agreed that `MatchCompleted` gains `Appeared []ids.PlayerID` (starters and substitutes who came on, one slice, ascending ID; an unused substitute does not count) and `Scorers []ids.PlayerID` (one entry per regulation goal in match order; shootout kicks excluded). Own goals do not exist in the engine, so the `Scorer` struct waits for them. `resolve.go`'s emission fills the fields from `MatchOutcome.Participants` and `.Goals` once `data` lands them.
+
+## match: simple has a home edge again (done)
+
+`simple.ModelVersion` 5. The home edge is now split: the home side's chance rate is multiplied by `HomeAdvantagePermille` and the away side's by its reciprocal (`permille²/HomeAdvantagePermille`), so one parameter is a home boost and an away handicap. The value is 1150 (was 1050, home boost only — measured as no edge at all: 37.2% home wins against 36.6% away). Delivers [match--simple-home-advantage](handoffs/match--simple-home-advantage.md).
+
+### Results
+
+`TestBalanceEngineComparison`, 3,000 matches, `simple` v5 against the real-football column:
+
+| 60 v 60 | v4 | v5 | Top leagues, roughly |
+| --- | --- | --- | --- |
+| Home / draw / away % | 37.2 / 26.3 / 36.6 | 44.9 / 26.1 / 29.1 | 45 / 26 / 29 |
+| Home–away goals | 1.37–1.35 | 1.54–1.17 | 1.5–1.2 |
+| Goals per match | 2.71 | 2.71 | 2.6–2.9 |
+
+At 20,000 probe matches the no-edge baseline is 36.6% against 37.4% (symmetric), so the edge is worth about +8 points of home wins and −8 of away wins — past the note's "+5 and −5" but exactly on its "45% against 29%" and "1.5 to 1.2 goals" targets, which is what "close to real football" was measured by. 1100 (42.1 / 26.2 / 31.7, 1.44–1.22) is the milder choice if `balance` prefers it.
+
+### Decisions
+
+- **One parameter, split.** Boosting only the home side could not hold the goal level at 2.7 while raising the home share: at 1050 boost-only the goals ratio was 1.03. The reciprocal makes the total stay put and the ratio move.
+- **Shootout flake fixed.** `TestShootoutsFavourBetterTakers` required 65% of shootouts for the better takers, which is the true rate (65.5% at every home edge, measured over 1,200–1,500 shootouts per row): the bound was a coin toss. It is now 60%, several standard errors under the true rate.
+
+### Verification
+
+- `TestBalanceEngineComparison` (balance's sweep, `ZIMBLE_BALANCE=1`): 60 v 60 home wins are 15.8 points above away wins (the note's done-when was 4), goals 1.54–1.17, total 2.71. All trend and contract tests hold; `TestFullSeasonIsReproducible` goldens updated (all three moved — every fixture can change).

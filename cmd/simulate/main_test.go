@@ -361,8 +361,8 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	if out != again {
 		t.Fatal("managed season is not reproducible")
 	}
-	if strings.Count(out, "  <- your lineup, attacking") != 15 { // 14 league matches and a cup quarter-final
-		t.Fatal("want 15 submitted attacking lineups")
+	if strings.Count(out, "  <- your lineup, attacking") != 17 { // 14 league matches and a cup run to the final
+		t.Fatal("want 17 submitted attacking lineups")
 	}
 	// The leagues' matches; the play-offs' and the cup's depend on who
 	// qualified.

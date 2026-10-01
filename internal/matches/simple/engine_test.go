@@ -176,7 +176,9 @@ func TestShootoutsFavourBetterTakers(t *testing.T) {
 			wins++
 		}
 	}
-	if level < 100 || wins*100 < level*65 {
+	// The true win rate for these takers is about 65%; the bound is several
+	// standard errors below it (the rate does not depend on HomeAdvantage).
+	if level < 100 || wins*100 < level*60 {
 		t.Fatalf("the better side won %d of %d shootouts", wins, level)
 	}
 }

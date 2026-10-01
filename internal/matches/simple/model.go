@@ -63,6 +63,10 @@ func (s *session) chancePPM(side matches.Side) int64 {
 	c = c * s.p.MentalityConcedePermille[opp.mentality] / permille
 	if side == matches.Home {
 		c = c * s.p.HomeAdvantagePermille / permille
+	} else {
+		// The edge is split: the home side's boost is the away side's
+		// handicap (permille²/HomeAdvantagePermille).
+		c = c * permille / s.p.HomeAdvantagePermille
 	}
 	return min(max(c, s.p.MinChancePPM), s.p.MaxChancePPM)
 }
