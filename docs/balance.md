@@ -358,3 +358,99 @@ Still to measure: whether rotating tired players pays in points against always p
 ### History
 
 - **2026-10-01**, `medical.Version` 3: this section, at `tick` v6 and `simple` v4. Rerun at `tick` v7 and `simple` v5 (commit `64874ae`): 76.1 and 75.9 injuries a season, 13.6–13.7 days a layoff, 15.0–15.1 days per injured player (max 119), 0 short-of-fit club-batches and condition 99.8 before every round. The section stands unchanged.
+
+## Population
+
+Measured 2026-10-01 at commit `37a4f99`: `players.DevelopmentVersion` 1, `worldgen.Version` 8, `worldgen.YouthVersion` 4, `content.Version` 9, `content.LeagueVersion` 6, `ai.ContractsVersion` 2, `ai.TransfersVersion` 6, `ai.SelectionVersion` 3, `medical.Version` 4, `competitions.ScheduleVersion` 3, `simple.ModelVersion` 5 (the career default). AI-only, 32 clubs, 30 years, seeds 1, 2, 3, 5, 7, 11, 13, 42, 99 and 2026. Each year plays the season, the play-offs and the cup, then runs to the contract-year end, where everything below is measured (after the player year's development, retirements and youth intake, and the contract year's expiries and signings). A club's division is the one it plays in the coming season, read from the league tables, so promotion and relegation are followed.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalancePopulation -v -count=1   # about 30 s on 32 cores
+```
+
+The same test reports [Attributes](#attributes) and [Money by division](#money-by-division). The always-on guard for this section is `squad`'s `TestSquadsStayLegalAndBalancedOverTheYears` (seed 7, 15 years: 600–680 active players, overall within 6 of the start, mean age 22–28), which these numbers sit well inside; no separate balance bound is needed.
+
+| year | active | free | retired | youth | retire age | squads | age mean (p10–p90) | aged ≤20 | aged ≥31 | overall mean (p10–p90) | division 1 | division 2 | div. 2 clubs above div. 1's median |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 640 | 0 | | | | 20–20 | 25 (18–33) | 21% | 21% | 60 (49–70) | 60 | 59 | 6.4 of 16 |
+| 1 | 640 | 4 | 26 | 26 | 34 | 18–20 | 26 (19–33) | 20% | 23% | 59 (47–70) | 59 | 59 | 5.5 |
+| 3 | 640 | 4 | 41 | 41 | 35 | 19–20 | 26 (18–33) | 21% | 22% | 58 (44–72) | 58 | 58 | 5.5 |
+| 5 | 640 | 4 | 35 | 35 | 35 | 19–21 | 25 (18–33) | 25% | 22% | 58 (42–73) | 58 | 58 | 5.0 |
+| 10 | 640 | 4 | 34 | 34 | 35 | 18–20 | 25 (18–33) | 24% | 23% | 59 (43–75) | 59 | 58 | 4.5 |
+| 20 | 641 | 4 | 29 | 29 | 35 | 19–21 | 26 (18–33) | 21% | 22% | 59 (45–74) | 59 | 59 | 6.8 |
+| 30 | 640 | 4 | 36 | 36 | 35 | 18–21 | 25 (18–33) | 24% | 23% | 59 (44–73) | 59 | 58 | 5.6 |
+
+Means over seeds; ages and overalls pooled. Over the 30 years each seed retires 1,028–1,060 players and takes in the same number of youths (two seeds one more); the active population stays at 640–643, the mean age at 25–26 and the mean overall at 57–60.
+
+**The population is stable.** Retirements equal youth intake every year (the academy replaces each retiree at his position), so the population, the age profile and the mean overall hold for 30 years. Squads are 18–21 at the contract-year end: with the free-agent reserve some AI clubs sit a player or two under the roster of 20 until the window (see [Free agents](#free-agents)).
+
+**Generation is out of equilibrium for its first decade.** Generated players draw their attributes independently of their age, so at year 0 a 17-year-old is as good as a 27-year-old (overall 55–62 in every age band; see [by age band](#attributes)). Development then grows the generated teenagers by 4 a year and shrinks the veterans: the overall spread widens from 49–70 (p10–p90) to 43–75 by year 10 and settles at 44–74 once the generated players have retired. In the settled world a 16–20-year-old rates about 11 below a player at his peak. Filed to `data` as [data--generated-age-curve](handoffs/data--generated-age-curve.md).
+
+**The second divisions are as strong as the first, for good.** The divisions are generated equally strong (60 against 59), and 30 years of promotion and relegation never separate them: the gap between the divisions' mean squad averages stays within −2..+3 in every seed and year, and on average 4–7 of a seed's 16 second-division clubs rate above the first division's median club at every checkpoint. Nothing sustains a gap: youth intake and gate receipts are the same in every division, and the first division earns only its cup gates ([Money by division](#money-by-division)). Filed to `data` as [data--weaker-lower-divisions](handoffs/data--weaker-lower-divisions.md).
+
+### History
+
+- **2026-10-01**: this section (the population half of the baseline), first measured at `f2e6b75` (`medical.Version` 3) and restated at `37a4f99` (`medical.Version` 4): population and attributes within a point, the division gap's range −2..+4 then, and money by division within the seed noise noted there.
+
+## Attributes
+
+The five attributes added at `content.Version` 7 (dribbling, heading, strength, acceleration, positioning), with the first six for comparison, per position, from the [Population](#population) sweep (10 seeds pooled). Answers `balance--match-attribute-spreads`.
+
+Mean (p10–p90) at generation and after 30 years (10 and 20 years lie between and are in the test's log):
+
+| | year | goalkeeping | defending | passing | finishing | pace | stamina | dribbling | heading | strength | acceleration | positioning | overall |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| GK | 0 | 69 (52–86) | 24 (13–35) | 40 (26–54) | 9 (2–16) | 30 (14–45) | 48 (31–65) | 9 (2–16) | 21 (9–34) | 48 (31–65) | 29 (14–45) | 39 (26–54) | 55 (44–66) |
+| GK | 30 | 69 (50–88) | 25 (11–38) | 40 (22–58) | 15 (4–25) | 29 (12–46) | 46 (26–66) | 15 (4–24) | 25 (11–38) | 49 (29–68) | 30 (12–47) | 41 (23–58) | 54 (39–69) |
+| DF | 0 | 6 (2–10) | 67 (47–86) | 43 (26–60) | 21 (8–34) | 50 (31–70) | 60 (41–79) | 30 (15–45) | 64 (47–80) | 61 (41–80) | 50 (31–70) | 67 (47–85) | 59 (49–69) |
+| DF | 30 | 14 (3–23) | 66 (45–87) | 43 (23–62) | 25 (12–39) | 49 (27–71) | 59 (37–81) | 31 (14–47) | 63 (44–82) | 61 (41–82) | 50 (28–72) | 67 (46–88) | 58 (43–73) |
+| MF | 0 | 6 (2–10) | 44 (26–60) | 66 (47–85) | 43 (26–60) | 53 (36–70) | 67 (47–86) | 50 (31–69) | 37 (21–54) | 45 (26–64) | 53 (36–70) | 53 (36–70) | 62 (52–72) |
+| MF | 30 | 13 (3–23) | 43 (23–62) | 66 (45–86) | 42 (23–62) | 51 (31–71) | 65 (43–86) | 50 (29–71) | 37 (18–55) | 46 (25–67) | 52 (32–71) | 53 (34–73) | 61 (46–75) |
+| FW | 0 | 6 (2–11) | 22 (9–35) | 48 (30–65) | 67 (47–86) | 66 (47–86) | 54 (36–70) | 60 (42–79) | 51 (31–70) | 51 (31–70) | 67 (47–86) | 60 (41–80) | 60 (50–70) |
+| FW | 30 | 14 (3–23) | 25 (12–39) | 48 (29–68) | 66 (46–87) | 65 (44–86) | 52 (33–71) | 61 (40–81) | 50 (29–71) | 52 (30–73) | 65 (44–87) | 62 (42–83) | 60 (45–73) |
+
+Means by age band after 30 years (the settled world):
+
+| | ages | dribbling | heading | strength | acceleration | positioning | overall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| DF | 21–25 | 35 | 67 | 63 | 55 | 71 | 63 |
+| DF | 26–30 | 35 | 67 | 65 | 55 | 71 | 63 |
+| DF | 31–36 | 28 | 61 | 60 | 42 | 67 | 52 |
+| MF | 26–30 | 56 | 42 | 50 | 57 | 59 | 66 |
+| MF | 31–36 | 47 | 35 | 46 | 46 | 52 | 55 |
+| FW | 26–30 | 65 | 54 | 56 | 70 | 66 | 64 |
+| FW | 31–36 | 59 | 47 | 51 | 59 | 62 | 55 |
+
+**The five new attributes hold their level.** Over 30 years each outfield position's mean dribbling, heading, strength, acceleration and positioning stays within 2 of its generated mean, and the p10–p90 spreads widen by 2–5 points, as the first six do. The youth gap and the growth rules keep them level. The exceptions are the attributes generated near the floor: a goalkeeper's dribbling and heading (below).
+
+**Nothing implausible in the order.** Goalkeepers never out-head defenders (25 against 63) and stay well below them in strength (49 against 61). Positioning does not run away: it matches defending at a defender's peak (71 each), as at generation (67 each), and its slower decline from 29 to 32 leaves a 31–36-year-old defender 4 points down on his peak against 9 for defending and 13 for acceleration, which reads as experience. It is ahead of the key attributes only for veterans, and it is not in `Overall`.
+
+**The lowest attributes creep up and out of their ranges.** Outfield goalkeeping rises from 6 (generated range 1–11) to 13–14 with a p90 of 23; a goalkeeper's finishing and dribbling from 9 (range 1–17) to 15 with a p90 of 25; other low attributes by 3–4 (a goalkeeper's heading 21 to 25, a defender's finishing and a forward's defending 21–22 to 25). The youth range is each position's range lowered by `Youth.RatingGap` (13) but never below 1, so a 1–11 range becomes 1–1 instead of the −12..−2 the gap intends. Development then adds the same growth to it as to every attribute (about 24 points from 16 to 24), so these attributes settle up to 8 points above their generated level. Harmless while no outfield player keeps goal and no goalkeeper shoots, but it is an unintended drift in generated facts the tick engine may read. Filed to `data` as [data--youth-floor-attributes](handoffs/data--youth-floor-attributes.md).
+
+### History
+
+- **2026-10-01**: this section.
+
+## Money by division
+
+From the [Population](#population) sweep: AI-only, 10 seeds, 30 years, each club counted in the division it played that year (16 clubs a division a seed). Thousands of whole units, at each contract-year end, over the contract year just ended. There are no other postings yet: the cup prize table exists in content (`content.LeagueVersion` 6) but nothing pays it (`squad--cup-prize-postings`). The sweep checks every club's balance change against its gate, wages, fees and payoffs every year.
+
+| year | div | balance mean (min–max) | gate | wages | gate − wages | net fees | below 0 | below 500k | balance fell | gate < wages |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 2,194 (1,143–4,872) | 1,922 | 1,683 | +238 | −43 | 0 | 0 | 81 of 160 | 17 |
+| 1 | 2 | 2,140 (898–4,228) | 1,750 | 1,653 | +96 | +44 | 0 | 0 | 76 | 32 |
+| 5 | 1 | 3,045 (878–12,360) | 1,922 | 1,601 | +320 | +23 | 0 | 0 | 66 | 7 |
+| 5 | 2 | 3,139 (880–13,692) | 1,750 | 1,562 | +187 | −22 | 0 | 0 | 81 | 6 |
+| 10 | 1 | 3,656 (719–17,890) | 1,922 | 1,669 | +252 | +72 | 0 | 0 | 69 | 26 |
+| 10 | 2 | 4,713 (816–18,381) | 1,750 | 1,594 | +155 | −71 | 0 | 0 | 89 | 32 |
+| 20 | 1 | 5,878 (695–20,865) | 1,922 | 1,664 | +257 | +120 | 0 | 0 | 83 | 23 |
+| 20 | 2 | 5,775 (806–22,259) | 1,750 | 1,643 | +107 | −119 | 0 | 0 | 90 | 40 |
+| 30 | 1 | 6,994 (707–28,689) | 1,922 | 1,660 | +261 | −28 | 0 | 0 | 82 | 21 |
+| 30 | 2 | 8,461 (1,006–29,784) | 1,750 | 1,606 | +143 | +29 | 0 | 0 | 86 | 28 |
+
+**Money only grows.** An average club's gate exceeds its wage bill (by 230–320k a year in the first division, 95–190k in the second), and there is no other cost, so the mean balance climbs from 2.0M to 4.2M at year 10 and 7.7M at year 30: about 180k a club a year. The richest club ends on 16–30M per seed. The poorest club per seed has 0.7–1.0M at year 10 and 0.7–1.8M at year 30, consistent with AI clubs keeping a wage reserve (`ai.ReserveWeeks` 26): in 320 club-careers no club ever went below zero or below 500k at a contract-year end, and only 0–2 clubs per seed saw their balance fall in two years of three. 40–58% of the clubs' balances fall in any one year (transfer fees), and 4–32% of clubs have a wage bill above their gate, but none trends towards insolvency.
+
+**The divisions earn almost the same.** Gate receipts are a flat 250k a home match, so the only difference is the first division's Continental Cup home matches: 1,922k against 1,750k a year. After the first three years the division a club played in says little about its balance: the second division's mean is as often above the first's as below (8.5M against 7.0M at year 30; 4.7M against 3.7M at year 10; 5.8M against 5.9M at year 20). Clubs move between divisions, so the split by division is noisier than the whole: rows move by up to 0.8M between the `medical.Version` 3 and 4 runs while the overall mean holds at 7.7M. The cup prize table, once paid, adds 3.1M a year to the first division's eight cup clubs. Filed to `squad` as [squad--money-only-grows](handoffs/squad--money-only-grows.md).
+
+### History
+
+- **2026-10-01**: this section (the money half of the baseline), restated at `medical.Version` 4 (commit `37a4f99`); at v3 (`f2e6b75`) the same conclusions, with the divisions at 7.7M each at year 30.

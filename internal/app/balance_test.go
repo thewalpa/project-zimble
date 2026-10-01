@@ -1088,3 +1088,403 @@ func pctMean(k, n int) float64 {
 	}
 	return 100 * float64(k) / float64(n)
 }
+
+// popYear is the population and the money of an AI-only world at one
+// contract-year end (year 0: as generated).
+type popYear struct {
+	Active, FreeAgents       int
+	Retired, Youth           int   // retirements and youth intake in the year
+	RetireAges               []int // ages of the year's retirees at the contract-year end
+	SquadMin, SquadMax       int
+	Ages, Overalls           []int // every active player, sorted
+	Division                 map[ids.ClubID]int
+	ClubAverage              map[ids.ClubID]int
+	Balance                  map[ids.ClubID]money.Money
+	Gate, Wages, Net, Payoff map[ids.ClubID]money.Money // the year's postings per club (Net: transfer fees)
+	Other                    map[ids.ClubID]money.Money // any other posting (cup prizes, once they are paid)
+}
+
+// popRun is one seeded AI-only career: a popYear per year, with every active
+// player kept at the attribute checkpoints.
+type popRun struct {
+	Seed      uint64
+	Years     []popYear
+	Snapshots map[int][]SquadPlayer
+}
+
+var popCheckpoints = []int{0, 10, 20, 30}
+
+// sweepPopulation plays an AI-only career for years and measures, at each
+// contract-year end, its players and its clubs' money. A club's division is
+// the one it plays in the coming season (promotion moves clubs).
+func sweepPopulation(t *testing.T, seed uint64, years int) popRun {
+	t.Helper()
+	w := newWorld(t, seed)
+	run := popRun{Seed: seed, Snapshots: map[int][]SquadPlayer{}}
+	upper := map[ids.CompetitionID]bool{}
+	for _, p := range w.Promotions() {
+		upper[p.Upper] = true
+	}
+	measure := func(year int, from sim.GameInstant, active map[ids.PlayerID]bool) popYear {
+		s := w.Summary()
+		y := popYear{
+			Active: s.Players, FreeAgents: s.FreeAgents, SquadMin: 1 << 30,
+			Division: map[ids.ClubID]int{}, ClubAverage: map[ids.ClubID]int{}, Balance: map[ids.ClubID]money.Money{},
+			Gate: map[ids.ClubID]money.Money{}, Wages: map[ids.ClubID]money.Money{}, Net: map[ids.ClubID]money.Money{}, Payoff: map[ids.ClubID]money.Money{},
+			Other: map[ids.ClubID]money.Money{},
+		}
+		for _, row := range s.ClubRows {
+			y.SquadMin, y.SquadMax = min(y.SquadMin, row.Players), max(y.SquadMax, row.Players)
+			y.ClubAverage[row.ID] = row.AverageOverall
+			f, _ := w.Finances(row.ID)
+			y.Balance[row.ID] = f.Balance
+		}
+		for _, table := range w.Tables() {
+			div := 2
+			if upper[table.Competition] {
+				div = 1
+			}
+			for _, r := range table.Rows {
+				y.Division[r.Label.Club] = div
+			}
+		}
+		if len(y.Division) != s.Clubs {
+			t.Fatalf("seed %d year %d: %d clubs in the leagues, want %d", seed, year, len(y.Division), s.Clubs)
+		}
+		var snap []SquadPlayer
+		now := map[ids.PlayerID]bool{}
+		for _, id := range w.activePlayers() {
+			sp := w.squadPlayer(id)
+			now[id] = true
+			snap = append(snap, sp)
+			y.Ages = append(y.Ages, sp.Age)
+			y.Overalls = append(y.Overalls, sp.Overall)
+			if !active[id] && year > 0 {
+				y.Youth++
+			}
+		}
+		for id := range active {
+			if !now[id] {
+				y.Retired++
+				age, err := w.age(id, w.Now())
+				if err != nil {
+					t.Fatal(err)
+				}
+				y.RetireAges = append(y.RetireAges, age)
+			}
+		}
+		clear(active)
+		for id := range now {
+			active[id] = true
+		}
+		slices.Sort(y.Ages)
+		slices.Sort(y.Overalls)
+		slices.Sort(y.RetireAges)
+		if slices.Contains(popCheckpoints, year) {
+			run.Snapshots[year] = snap
+		}
+		for _, e := range w.finance.All() {
+			if e.At <= from || e.At > w.Now() {
+				continue
+			}
+			switch e.Kind {
+			case finance.KindGate:
+				y.Gate[e.Club] += e.Amount
+			case finance.KindWages:
+				y.Wages[e.Club] -= e.Amount
+			case finance.KindTransfer:
+				y.Net[e.Club] += e.Amount
+			case finance.KindPayoff:
+				y.Payoff[e.Club] -= e.Amount
+			default:
+				y.Other[e.Club] += e.Amount
+			}
+		}
+		return y
+	}
+	active := map[ids.PlayerID]bool{}
+	from := w.Now()
+	run.Years = append(run.Years, measure(0, from, active))
+	for year := 1; year <= years; year++ {
+		from = w.Now()
+		playSeason(t, w)
+		mustContinue(t, w, w.ContractYearEnd())
+		y := measure(year, from, active)
+		prev := run.Years[year-1]
+		for c, bal := range y.Balance {
+			if moved := y.Gate[c] + y.Net[c] + y.Other[c] - y.Wages[c] - y.Payoff[c]; bal-prev.Balance[c] != moved {
+				t.Fatalf("seed %d year %d club %d: balance moved %d, postings %d", seed, year, c, bal-prev.Balance[c], moved)
+			}
+		}
+		run.Years = append(run.Years, y)
+		if err := w.Validate(); err != nil {
+			t.Fatalf("seed %d year %d: %v", seed, year, err)
+		}
+	}
+	return run
+}
+
+// pct returns the p-th percentile of sorted xs (nearest rank, rounded down).
+func pct(xs []int, p int) int {
+	if len(xs) == 0 {
+		return 0
+	}
+	return xs[(len(xs)-1)*p/100]
+}
+
+// TestBalancePopulation plays AI-only careers for 30 years and logs the
+// population (sizes, ages, overall, retirements against youth intake,
+// strength by division), every attribute's spread per position, and the
+// clubs' money by division, for docs/balance.md.
+//
+//	ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalancePopulation -v -count=1
+func TestBalancePopulation(t *testing.T) {
+	requireBalanceSweep(t)
+	const years = 30
+	runs := make([]popRun, len(balanceSeeds))
+	t.Run("seeds", func(t *testing.T) {
+		for i, s := range balanceSeeds {
+			t.Run(fmt.Sprint(s), func(t *testing.T) {
+				t.Parallel()
+				runs[i] = sweepPopulation(t, s, years)
+			})
+		}
+	})
+	t.Log(reportPopulation(runs, years))
+	t.Log(reportAttributes(runs))
+	t.Log(reportMoney(runs, years))
+}
+
+func reportPopulation(runs []popRun, years int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\npopulation: %d seeds, means over seeds (ages and overall pooled)\n", len(runs))
+	fmt.Fprintln(&b, "year  active free  retired youth ret-age  squad   age mean p10 p90 <=20% >=31%   ovr mean p10 p90   div1 div2 gap  div2>div1-median")
+	for _, yr := range []int{0, 1, 2, 3, 5, 10, 15, 20, 25, 30} {
+		if yr > years {
+			continue
+		}
+		col := func(f func(popYear) int) int {
+			var xs []int
+			for _, r := range runs {
+				xs = append(xs, f(r.Years[yr]))
+			}
+			return mean(xs)
+		}
+		var ages, ovrs, retire []int
+		var div [3][]int
+		above, lo, hi := 0, 1<<30, 0
+		for _, r := range runs {
+			y := r.Years[yr]
+			ages, ovrs, retire = append(ages, y.Ages...), append(ovrs, y.Overalls...), append(retire, y.RetireAges...)
+			lo, hi = min(lo, y.SquadMin), max(hi, y.SquadMax)
+			var d1 []int
+			for c, d := range y.Division {
+				div[d] = append(div[d], y.ClubAverage[c])
+				if d == 1 {
+					d1 = append(d1, y.ClubAverage[c])
+				}
+			}
+			slices.Sort(d1)
+			for c, d := range y.Division {
+				if d == 2 && y.ClubAverage[c] > pct(d1, 50) {
+					above++
+				}
+			}
+		}
+		slices.Sort(ages)
+		slices.Sort(ovrs)
+		young, old := 0, 0
+		for _, a := range ages {
+			if a <= 20 {
+				young++
+			}
+			if a >= 31 {
+				old++
+			}
+		}
+		d1, d2 := mean(div[1]), mean(div[2])
+		fmt.Fprintf(&b, "%4d  %6d %4d  %7d %5d %7d  %2d-%2d   %8d %3d %3d %5d %5d   %8d %3d %3d   %4d %4d %3d  %.1f\n", yr,
+			col(func(y popYear) int { return y.Active }), col(func(y popYear) int { return y.FreeAgents }),
+			col(func(y popYear) int { return y.Retired }), col(func(y popYear) int { return y.Youth }), mean(retire),
+			lo, hi, mean(ages), pct(ages, 10), pct(ages, 90), 100*young/len(ages), 100*old/len(ages),
+			mean(ovrs), pct(ovrs, 10), pct(ovrs, 90), d1, d2, d1-d2, float64(above)/float64(len(runs)))
+	}
+	// Over the whole career, per seed: retirements against intake, and the
+	// population's range.
+	fmt.Fprintln(&b, "\nper seed over the career: retired youth  active(min-max)  age-mean(min-max)  ovr-mean(min-max)  div-gap(min..max)")
+	for _, r := range runs {
+		ret, youth := 0, 0
+		var act, age, ovr, gap []int
+		for i, y := range r.Years {
+			ret, youth = ret+y.Retired, youth+y.Youth
+			act, age, ovr = append(act, y.Active), append(age, mean(y.Ages)), append(ovr, mean(y.Overalls))
+			if i > 0 {
+				var div [3][]int
+				for c, d := range y.Division {
+					div[d] = append(div[d], y.ClubAverage[c])
+				}
+				gap = append(gap, mean(div[1])-mean(div[2]))
+			}
+		}
+		fmt.Fprintf(&b, "%4d  %4d %4d  (%d-%d)  (%d-%d)  (%d-%d)  (%d..%d)\n", r.Seed, ret, youth,
+			slices.Min(act), slices.Max(act), slices.Min(age), slices.Max(age), slices.Min(ovr), slices.Max(ovr), slices.Min(gap), slices.Max(gap))
+	}
+	return b.String()
+}
+
+// reportAttributes logs, per position, each attribute's mean and 10th-90th
+// percentiles at the checkpoints, then the means by age band at the first
+// and the last checkpoint. Pooled over seeds.
+func reportAttributes(runs []popRun) string {
+	var b strings.Builder
+	short := []string{"gk", "def", "pas", "fin", "pac", "sta", "dri", "hea", "str", "acc", "pos"}
+	head := func() {
+		fmt.Fprint(&b, "      ")
+		for _, s := range short {
+			fmt.Fprintf(&b, " %10s", s)
+		}
+		fmt.Fprintf(&b, " %10s\n", "overall")
+	}
+	for _, cp := range popCheckpoints {
+		if runs[0].Snapshots[cp] == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "\nattributes at year %d: mean (p10-p90), %d seeds pooled\n", cp, len(runs))
+		head()
+		for _, pos := range players.Positions() {
+			vals := make([][]int, players.NumAttributes+1)
+			for _, r := range runs {
+				for _, p := range r.Snapshots[cp] {
+					if p.Position != pos {
+						continue
+					}
+					for a, v := range p.Attributes {
+						vals[a] = append(vals[a], int(v))
+					}
+					vals[players.NumAttributes] = append(vals[players.NumAttributes], p.Overall)
+				}
+			}
+			fmt.Fprintf(&b, "%-4s %3d", pos, len(vals[0])/len(runs))
+			for _, xs := range vals {
+				slices.Sort(xs)
+				fmt.Fprintf(&b, " %10s", fmt.Sprintf("%d(%d-%d)", mean(xs), pct(xs, 10), pct(xs, 90)))
+			}
+			fmt.Fprintln(&b)
+		}
+	}
+	bands := [][2]int{{16, 20}, {21, 25}, {26, 30}, {31, 36}}
+	for _, cp := range []int{popCheckpoints[0], popCheckpoints[len(popCheckpoints)-1]} {
+		if runs[0].Snapshots[cp] == nil {
+			continue
+		}
+		fmt.Fprintf(&b, "\nattribute means by age band at year %d, %d seeds pooled (n per seed)\n", cp, len(runs))
+		fmt.Fprint(&b, "            ")
+		for _, s := range short {
+			fmt.Fprintf(&b, " %4s", s)
+		}
+		fmt.Fprintln(&b, "  ovr")
+		for _, pos := range players.Positions() {
+			for _, band := range bands {
+				vals := make([][]int, players.NumAttributes+1)
+				for _, r := range runs {
+					for _, p := range r.Snapshots[cp] {
+						if p.Position != pos || p.Age < band[0] || p.Age > band[1] {
+							continue
+						}
+						for a, v := range p.Attributes {
+							vals[a] = append(vals[a], int(v))
+						}
+						vals[players.NumAttributes] = append(vals[players.NumAttributes], p.Overall)
+					}
+				}
+				fmt.Fprintf(&b, "%-3s %2d-%2d %3d", pos, band[0], band[1], len(vals[0])/len(runs))
+				for _, xs := range vals {
+					fmt.Fprintf(&b, " %4d", mean(xs))
+				}
+				fmt.Fprintln(&b)
+			}
+		}
+	}
+	return b.String()
+}
+
+// reportMoney logs the clubs' money by division: per year, the mean balance
+// and its range, gate receipts, wages, net transfer fees and payoffs, and
+// how many clubs are below zero or below a quarter of the opening balance,
+// how many balances fell in the year and how many gates did not cover the
+// wages.
+func reportMoney(runs []popRun, years int) string {
+	var b strings.Builder
+	k := func(m money.Money) int { return int(int64(m) / money.MinorPerUnit / 1000) }
+	fmt.Fprintf(&b, "\nmoney by division (the division played in the year), %d seeds pooled, thousands\n", len(runs))
+	fmt.Fprintln(&b, "year div  bal-mean bal-min bal-max   gate wages  gate-wages  transfers payoffs other  <0 <500k  fell op-loss")
+	for _, yr := range []int{1, 2, 3, 5, 10, 15, 20, 25, 30} {
+		if yr > years {
+			continue
+		}
+		for div := 1; div <= 2; div++ {
+			var bal, gate, wages, op, net, pay, other []int
+			neg, poor, fell, opLoss := 0, 0, 0, 0
+			for _, r := range runs {
+				y, played := r.Years[yr], r.Years[yr-1].Division
+				for c, d := range played {
+					if d != div {
+						continue
+					}
+					bal = append(bal, k(y.Balance[c]))
+					gate, wages = append(gate, k(y.Gate[c])), append(wages, k(y.Wages[c]))
+					op = append(op, k(y.Gate[c]-y.Wages[c]))
+					net, pay, other = append(net, k(y.Net[c])), append(pay, k(y.Payoff[c])), append(other, k(y.Other[c]))
+					if y.Balance[c] < 0 {
+						neg++
+					}
+					if y.Balance[c] < money.Units(500_000) {
+						poor++
+					}
+					if y.Balance[c] < r.Years[yr-1].Balance[c] {
+						fell++
+					}
+					if y.Gate[c] < y.Wages[c] {
+						opLoss++
+					}
+				}
+			}
+			fmt.Fprintf(&b, "%4d %3d  %8d %7d %7d  %5d %5d  %10d  %9d %7d %5d  %2d %5d  %4d %7d\n", yr, div,
+				mean(bal), slices.Min(bal), slices.Max(bal), mean(gate), mean(wages), mean(op), mean(net), mean(pay), mean(other), neg, poor, fell, opLoss)
+		}
+	}
+	// A club trends towards insolvency when its balance falls in most years.
+	fmt.Fprintln(&b, "\nper seed: clubs whose balance fell in at least 2 of 3 years over the career; poorest club at years 10 and 30; richest at 30")
+	for _, r := range runs {
+		falling := 0
+		for c := range r.Years[0].Balance {
+			down := 0
+			for i := 1; i < len(r.Years); i++ {
+				if r.Years[i].Balance[c] < r.Years[i-1].Balance[c] {
+					down++
+				}
+			}
+			if 3*down >= 2*(len(r.Years)-1) {
+				falling++
+			}
+		}
+		lowest := func(y popYear) money.Money {
+			m := money.Money(1 << 62)
+			for _, v := range y.Balance {
+				m = min(m, v)
+			}
+			return m
+		}
+		highest := func(y popYear) money.Money {
+			var m money.Money
+			for _, v := range y.Balance {
+				m = max(m, v)
+			}
+			return m
+		}
+		last := r.Years[len(r.Years)-1]
+		fmt.Fprintf(&b, "%4d  falling %d  poorest %s / %s  richest %s\n", r.Seed, falling,
+			thousands(lowest(r.Years[min(10, len(r.Years)-1)])), thousands(lowest(last)), thousands(highest(last)))
+	}
+	return b.String()
+}

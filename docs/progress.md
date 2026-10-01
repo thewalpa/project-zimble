@@ -3635,3 +3635,17 @@ Reviewed squad's medical v4 changes to the terminal, browser and simulator stori
 ## ui: club heading uses observed aggregates (done)
 
 The terminal `club` heading reads squad counts and average rating from `World.ObservedClubs` with the managed club as observer. Administrative club choosers and simulator reports keep `Summary`; the browser shows no managed squad average. The existing seed-42 club command test now checks the unchanged heading, and the browsing test verifies no career changes. Closes `ui--observed-clubs.md`.
+
+## balance: population, attributes and money by division (done)
+
+The two remaining baseline items, plus `data`'s attribute-spreads request, from one sweep: `TestBalancePopulation` plays 10 seeded AI-only careers for 30 years and measures, at every contract-year end, the population, every attribute per position, and each club's money by the division it played in. Results in [docs/balance.md](balance.md): "Population", "Attributes" and "Money by division", at `medical.Version` 4 (commit `37a4f99`; the first run at v3 agreed). Closes `balance--match-attribute-spreads`.
+
+- **The population is stable.** 640 active players, retirements equal to youth intake every year, mean age 25–26 and mean overall 57–60 for 30 years in every seed.
+- **The five new attributes hold their level** for outfield players, and nothing is out of order: goalkeepers never out-head defenders, and positioning's slower decline leaves veteran defenders 4 points down where defending is 9.
+- **Filed** `data--generated-age-curve`: generated players' attributes ignore their age, so the first decade is a transient (overall p10–p90 49–70 at generation, 43–75 at year 10, 44–74 settled). `data--youth-floor-attributes`: attributes generated near 1 settle up to 8 above their range because the youth gap clamps at 1. `data--weaker-lower-divisions`: the second divisions stay as strong as the first for 30 years (gap −2..+3), the request `data` parked until balance asked. `squad--money-only-grows`: every club's gate beats its wages, the mean balance climbs from 2.0M to 7.7M by year 30 with no club ever below 500k, and the divisions earn the same.
+
+### Decisions
+
+- **One sweep for population and money.** Both need the same AI-only 30-year careers; measuring them together costs about 30 s instead of twice that.
+- **The sweep checks the ledger.** Every year, each club's balance change must equal its gate, wages, fees and payoffs plus any other posting, which shows up in its own column: cup prizes will appear there without the sweep needing a change.
+- **No new always-on bound.** `squad`'s `TestSquadsStayLegalAndBalancedOverTheYears` already guards the population's size, overall and age over 15 years, and the sweep sits well inside its limits. An attribute-level bound waits on `data`'s answers, since it would fail today on the floor attributes.
