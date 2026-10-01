@@ -248,3 +248,11 @@ func TestLoadRejectsInvalidLeagueDefinition(t *testing.T) {
 		}
 	}
 }
+
+// Content validates league sizes against its own copy of the scheduling
+// bound, since it cannot import competitions.
+func TestContentLeagueBoundIsCompetitions(t *testing.T) {
+	if content.MaxLeagueEntrants != competitions.MaxLeagueEntrants {
+		t.Fatalf("content.MaxLeagueEntrants %d, competitions.MaxLeagueEntrants %d", content.MaxLeagueEntrants, competitions.MaxLeagueEntrants)
+	}
+}

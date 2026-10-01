@@ -17,6 +17,11 @@ import (
 // version 6 added the cups' prize tables.
 const LeagueVersion = 6
 
+// MaxLeagueEntrants is the largest league competitions can schedule
+// (competitions.MaxLeagueEntrants, which app's tests keep equal). A league
+// has an even number of entrants: an odd one would need byes.
+const MaxLeagueEntrants = 128
+
 // MaxSeasonSpan is the longest a league season may run, from its first
 // kickoff to its last. Seasons start within three days of their first
 // kickoff's anniversary, so consecutive seasons are at least 359 days apart;
@@ -44,10 +49,11 @@ type League struct {
 // Rounds is the number of rounds in one double round-robin season.
 func (l League) Rounds() int { return 2 * (l.Entrants - 1) }
 
-// Validate checks the definition. A season's last kickoff must come within
+// Validate checks the definition: an even number of entrants up to
+// MaxLeagueEntrants, and a season whose last kickoff comes within
 // MaxSeasonSpan of its first, so that it ends before the next season starts.
 func (l League) Validate() error {
-	if !l.ID.Valid() || l.Name == "" || l.Entrants < 2 || l.RoundInterval <= 0 || l.MaxSubstitutions > l.MaxBench {
+	if !l.ID.Valid() || l.Name == "" || l.Entrants < 2 || l.Entrants%2 != 0 || l.Entrants > MaxLeagueEntrants || l.RoundInterval <= 0 || l.MaxSubstitutions > l.MaxBench {
 		return fmt.Errorf("content: invalid league definition %+v", l)
 	}
 	if l.RoundInterval > MaxSeasonSpan {

@@ -26,6 +26,8 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Even league sizes enforced in content:** `League.Validate` rejects odd sizes and sizes above `content.MaxLeagueEntrants` (kept equal to competitions' bound by an app test). Closes `data--even-league-sizes` ([progress](../progress.md#data-content-accepts-only-even-league-sizes-done)).
+
 **Cup prize tables delivered:** `content.Cup.Prizes` by exit stage, validated, with the Continental Cup's 1,000,000 / 600,000 / 350,000 / 200,000; `content.LeagueVersion` 6, save schema 31 with its fixture. Squad's posting note was updated. Closes `data--cup-prize-table` ([progress](../progress.md#data-cup-prize-tables-done)). Also accepted ui's observation composition (`data--ui-observations-adopted`). The next free numbers are `storage.SchemaVersion` 32 and `content.LeagueVersion` 7.
 
 **Appearances and goals in careers delivered:** `events.MatchCompleted` carries `Appeared` and `Scorers` (`events.SchemaVersion` 2), filled from the checked outcome in `resolveBatch` and checked against the command's `MatchReport` on restore. Each `careers.Spell` counts `Appearances` and `Goals`. Save schema 30 with its fixture; schema 29 saves are refused. Match was told about the emission in `match--match-completed-facts`; the career columns are asked of `ui` in `ui--career-appearances-goals` ([progress](../progress.md#data-appearances-and-goals-in-careers-done)).
@@ -52,6 +54,7 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
+- **Divisions of other sizes** (only when content adds them): check at load that `Division.Clubs` sums to the leagues' `Entrants` in block order (load checks only the total), and ask competitions for the football-year check it offered in `data--even-league-sizes` (seasons plus cup inside the contract year; today only `TestSeasonsStayInsideTheContractYear` covers the built-in content).
 - **Complete save recovery UI:** deliver the explicit recovery choice in both clients from `ui--save-recovery`.
 
 ### AI/player rule parity audit

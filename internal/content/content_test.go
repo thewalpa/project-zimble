@@ -99,8 +99,12 @@ func TestLeagueValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*League){
-		"zero ID":                func(l *League) { l.ID = 0 },
-		"one entrant":            func(l *League) { l.Entrants = 1 },
+		"zero ID":      func(l *League) { l.ID = 0 },
+		"one entrant":  func(l *League) { l.Entrants = 1 },
+		"odd entrants": func(l *League) { l.Entrants = 7 },
+		"too many entrants": func(l *League) {
+			l.Entrants, l.RoundInterval = MaxLeagueEntrants+2, sim.Hour
+		},
 		"no round interval":      func(l *League) { l.RoundInterval = 0 },
 		"too many substitutions": func(l *League) { l.MaxSubstitutions = l.MaxBench + 1 },
 		"season too long":        func(l *League) { l.RoundInterval = MaxSeasonSpan/13 + 1 },
@@ -117,6 +121,13 @@ func TestLeagueValidation(t *testing.T) {
 	l.RoundInterval = MaxSeasonSpan / 13
 	if err := l.Validate(); err != nil {
 		t.Fatalf("season of the longest span rejected: %v", err)
+	}
+	for _, n := range []int{2, 6, 10, MaxLeagueEntrants} {
+		l := DefaultLeague()
+		l.Entrants, l.RoundInterval = n, sim.Hour
+		if err := l.Validate(); err != nil {
+			t.Errorf("%d entrants rejected: %v", n, err)
+		}
 	}
 }
 

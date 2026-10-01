@@ -3541,3 +3541,11 @@ Versions: `content.LeagueVersion` 6 (the default cup definitions changed); `stor
 Also accepted ui's observation composition (`data--ui-observations-adopted`) for exact information. The unscoped aggregates it names (`Summary().ClubRows.AverageOverall`, `Agenda()`) are data's to make observation-aware before uncertainty lands; recorded in the PAR-10 backlog item.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## data: content accepts only even league sizes (done)
+
+For competitions' `data--even-league-sizes`: `content.League.Validate` rejects an odd `Entrants` (it would need byes) and one above `content.MaxLeagueEntrants` (128), so such content fails in `content` and in `content.Describe` instead of only at world creation. Content cannot import `competitions`, so it keeps its own copy of the bound; `TestContentLeagueBoundIsCompetitions` in `app` keeps the two equal. The built-in leagues are unchanged: no version, schema or golden moves.
+
+Not taken now: checking at load that `Division.Clubs` sums to the leagues' `Entrants` in block order, and that the football year (seasons plus cup) fits the contract year. Both matter only once divisions of other sizes are added; they are in the data backlog, the second to be handed to competitions as it offered.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
