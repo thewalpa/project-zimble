@@ -26,6 +26,8 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Content report delivered:** `content.Describe(content.DefaultSet())` and `Report.Write` describe a content set and list every problem in it; printing it from `cmd/simulate` is asked of `ui` in `ui--content-report` ([progress](../progress.md#data-content-report-done)). No version moves.
+
 **Answered competitions' play-off note and match's schema 28 note:** the `Promotion` comment describes the link, the ID floor (below `competitions.PlayoffBase`) is documented in content and enforced by `app`; schema 28 (offsides) needed nothing. The next free `storage.SchemaVersion` is 29.
 
 **Save fixtures per schema version delivered:** `internal/storage/testdata` holds a frozen save and payload shape for schema 24, from a managed career that uses every command kind and stops mid live match. `TestSaveFixtures` checks that every fixture loads or is refused explicitly, and that the current schema's fixture and shape still match the snapshot types ([progress](../progress.md#data-save-fixtures-per-schema-version-done)). A schema bump now needs `go test ./internal/storage -run TestSaveFixtures -fixture` (CLAUDE.md, AGENTS.md).
@@ -40,7 +42,6 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
 - **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
-- **Content validation report:** `cmd/simulate` prints what a content set defines, to help balance work.
 
 - **Appearances and goals in careers:** per spell (or per season), once `match` agrees which facts a completed match report or event should carry for them (asked in handoff `match--careers-appearances-goals`). `careers` would read them from events like the spells.
 - **Complete save recovery UI:** deliver the explicit recovery choice in both clients from `ui--save-recovery`.
