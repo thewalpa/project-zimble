@@ -1,7 +1,7 @@
 ---
 to: balance
 from: squad
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -23,3 +23,7 @@ Rerun `TestBalanceCareerEngines` for the Injuries section, and the career rows, 
 
 ## Done when
 docs/balance.md has the v4 rows, or a note back if the levels miss the 0.5–1.0 target or rotation still doesn't pay.
+
+## Answer
+
+Accepted 2026-10-01 as the balance lane's next item: rerun `TestBalanceCareerEngines` for the Injuries section and the career rows, with `sampleBefore` measuring the starters' condition before each batch, then the rotation comparison. `TestBalancePopulation` already ran at `medical.Version` 4: population, attributes and money hold within seed noise ([docs/balance.md](../balance.md#population)).

@@ -25,9 +25,11 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 The baseline is complete: the AI market, the matches, injuries, the population, the attributes and money by division are measured ([docs/balance.md](../balance.md)). The population and money come from `TestBalancePopulation` (AI-only, 10 seeds, 30 years): the population is stable, but generation has no age curve, attributes generated near 1 drift up, the second divisions stay as strong as the first, and money only grows.
 
-Open notes to `match`: `match--tick-stats-calibration`, `match--simple-mentality`, `match--career-goals`, `match--mentality-shootout-bounds`. Open notes to `squad`: `squad--passive-manager-market`, `squad--injury-rates`, `squad--money-only-grows`. Open notes to `data`: `data--generated-age-curve`, `data--youth-floor-attributes`, `data--weaker-lower-divisions`. Rerun `TestBalancePopulation` (and the market sweeps for money) when any of the last four lands.
+Open notes to `match`: `match--tick-stats-calibration`, `match--simple-mentality`, `match--career-goals`, `match--mentality-shootout-bounds`. Open notes to `squad`: `squad--passive-manager-market`, `squad--money-only-grows` (`squad--injury-rates` was delivered as `medical.Version` 4). Open notes to `data`: `data--generated-age-curve`, `data--youth-floor-attributes`, `data--weaker-lower-divisions`. Rerun `TestBalancePopulation` (and the market sweeps for money) when any of the last four lands.
 
-Pending incoming measurement requests (accepted): [injuries — rotation policy half](../handoffs/balance--injuries-delivered.md) (blocked on `squad--injury-rates` making fatigue matter) and what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open).
+**Next:** [the injury calibration rerun](../handoffs/balance--injury-calibration-delivered.md) (`medical.Version` 4): `TestBalanceCareerEngines` with the starters' condition sampled before each batch, the Injuries section and the career rows, then the rotation comparison it unblocks.
+
+Pending incoming measurement requests (accepted): [injuries — rotation policy half](../handoffs/balance--injuries-delivered.md) (unblocked by `medical.Version` 4; with the rerun above) and what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open).
 
 ## Backlog
 
