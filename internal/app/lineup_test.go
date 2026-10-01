@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/events"
@@ -187,7 +188,7 @@ func TestSubmittedLineupIsPlayed(t *testing.T) {
 			by := p.selected[side.Index()]
 			if in.Team != team {
 				ai, _ := w.selectTeam(in.Team, p.input.Rules)
-				if by != SelectedByAI || !reflect.DeepEqual(in, ai) {
+				if want, _ := w.lineupInput(in.Team, ai, p.input.Rules); by != SelectedByAI || !reflect.DeepEqual(in, want) {
 					t.Fatalf("fixture %d: opponent team %d not the AI selection", p.fixture.ID, in.Team)
 				}
 				continue
@@ -197,13 +198,13 @@ func TestSubmittedLineupIsPlayed(t *testing.T) {
 				t.Fatalf("fixture %d: user side %+v, selected by %s", p.fixture.ID, in, by)
 			}
 			for i, s := range l.Starters {
-				c, _ := w.candidate(s.Player)
-				if in.Starters[i] != (matches.PlayerInput{Player: s.Player, Role: s.Role, Ratings: c.Ratings, Condition: c.Condition}) {
+				want, _ := w.matchPlayer(s.Player)
+				if want.Role = s.Role; in.Starters[i] != want {
 					t.Fatalf("starter %d is %+v, submitted %+v", i, in.Starters[i], s)
 				}
 			}
 			for i, id := range l.Bench {
-				if c, _ := w.candidate(id); in.Bench[i] != (matches.PlayerInput{Player: id, Role: c.Natural, Ratings: c.Ratings, Condition: c.Condition}) {
+				if want, _ := w.matchPlayer(id); in.Bench[i] != want {
 					t.Fatalf("substitute %d is %+v, submitted %d", i, in.Bench[i], id)
 				}
 			}
@@ -720,8 +721,8 @@ func TestCarriedLineupReplacesPlayersWhoLeft(t *testing.T) {
 }
 
 // The match contract carries every player attribute: matches.Ratings has one
-// field per players.Attribute, in the same order, and candidate copies them.
-func TestCandidateCopiesEveryAttribute(t *testing.T) {
+// field per players.Attribute, in the same order, and matchPlayer copies them.
+func TestMatchPlayerCopiesEveryAttribute(t *testing.T) {
 	w := newWorld(t, 42)
 	if n := reflect.TypeFor[matches.Ratings]().NumField(); n != players.NumAttributes {
 		t.Fatalf("matches.Ratings has %d fields, players have %d attributes", n, players.NumAttributes)
@@ -731,11 +732,14 @@ func TestCandidateCopiesEveryAttribute(t *testing.T) {
 		if _, ok := w.medical.Condition(id); !ok {
 			continue // retired
 		}
-		c, err := w.candidate(id)
+		c, err := w.matchPlayer(id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		p, _ := w.players.Profile(id)
+		if c.Role != roleOf(p.Position) {
+			t.Fatalf("player %d plays %d, natural %s", id, c.Role, p.Position)
+		}
 		r := reflect.ValueOf(c.Ratings)
 		for a := range players.NumAttributes {
 			if got, want := r.Field(int(a)).Uint(), uint64(p.Attributes[a]); got != want {
@@ -1299,5 +1303,109 @@ func TestRestoreRejectsInvalidReportLineups(t *testing.T) {
 	}
 	if _, err := Restore(base); err != nil {
 		t.Fatalf("unmodified snapshot rejected: %v", err)
+	}
+}
+
+// A club's lineup decision depends on the club and its state, not on who
+// manages it: the human's suggestion and team plan start are the selection
+// the AI makes for the same club, from the same knowledge and to the same
+// match input.
+func TestSelectionIsControllerIndependent(t *testing.T) {
+	human, nobody := userWorld(t, 42, userClub3), userWorld(t, 42, 0)
+	team := mustUserTeam(t, human)
+	rules, err := human.leagueRules(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	squad := human.availableSquad(team)
+	if !slices.Equal(squad, nobody.availableSquad(team)) {
+		t.Fatal("setup: different available squads")
+	}
+	known, err := human.knownCandidates(team, squad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other, _ := nobody.knownCandidates(team, squad); !reflect.DeepEqual(known, other) {
+		t.Fatal("the club knows its players differently under a human and the AI")
+	}
+	want, err := nobody.ProbableLineup(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := human.selectTeam(team, rules)
+	if err != nil || !mine.Equal(want) {
+		t.Fatalf("human club's selection %+v (%v), AI's %+v", mine, err, want)
+	}
+	if plan, err := human.TeamPlan(); err != nil || plan.Saved || !plan.Lineup.Equal(want) {
+		t.Fatalf("team plan start %+v (%v), want the AI's selection", plan, err)
+	}
+	a, errA := human.lineupInput(team, mine, rules)
+	b, errB := nobody.lineupInput(team, want, rules)
+	if errA != nil || errB != nil || !reflect.DeepEqual(a, b) {
+		t.Fatalf("match inputs differ (%v, %v)", errA, errB)
+	}
+}
+
+// What a club knows decides whom it picks, never how its players play: a
+// selection made from overrated knowledge still takes the field with every
+// player's actual attributes and condition.
+func TestKnowledgeSteersSelectionNotMatchInput(t *testing.T) {
+	w := newWorld(t, 42)
+	team := ids.TeamID(1)
+	rules, err := w.leagueRules(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := w.Snapshot()
+	known, err := w.knownCandidates(team, w.availableSquad(team))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range known {
+		if actual, _ := w.matchPlayer(c.Player); c.Ratings != actual.Ratings || c.Condition != actual.Condition || c.Natural != actual.Role {
+			t.Fatalf("player %d: known %+v, actual %+v; today's knowledge is exact", c.Player, c, actual)
+		}
+	}
+	exact, err := ai.SelectTeam(team, known, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The club believes its worst forward on the bench is a world-beater.
+	var dud ids.PlayerID
+	for _, c := range known {
+		starts := slices.ContainsFunc(exact.Starters, func(s ai.Slot) bool { return s.Player == c.Player })
+		if c.Natural == matches.Forward && !starts && (dud == 0 || ai.RoleScore(c.Ratings, matches.Forward) < ai.RoleScore(known[slices.IndexFunc(known, func(x ai.Candidate) bool { return x.Player == dud })].Ratings, matches.Forward)) {
+			dud = c.Player
+		}
+	}
+	if dud == 0 {
+		t.Fatal("setup: every forward starts")
+	}
+	overrated := slices.Clone(known)
+	for i := range overrated {
+		if overrated[i].Player == dud {
+			v := uint8(100)
+			overrated[i].Ratings = matches.Ratings{Goalkeeping: v, Defending: v, Passing: v, Finishing: v, Pace: v, Stamina: v,
+				Dribbling: v, Heading: v, Strength: v, Acceleration: v, Positioning: v}
+		}
+	}
+	sel, err := ai.SelectTeam(team, overrated, rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := w.lineupInput(team, aiLineup(sel), rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(in.Starters, func(p matches.PlayerInput) bool { return p.Player == dud })
+	if i < 0 {
+		t.Fatalf("the overrated forward %d does not start", dud)
+	}
+	actual, _ := w.matchPlayer(dud)
+	if actual.Role = in.Starters[i].Role; in.Starters[i] != actual {
+		t.Fatalf("forward %d takes the field as %+v, actually %+v", dud, in.Starters[i], actual)
+	}
+	if !reflect.DeepEqual(w.Snapshot(), before) {
+		t.Fatal("selection changed the world")
 	}
 }

@@ -69,10 +69,8 @@ func TestInjuredPlayersAreNotSelected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, p := range append(slices.Clone(after.Starters), after.Bench...) {
-			if p.Player == hurt {
-				t.Fatalf("AI team %d selects injured player %d", f.Home, hurt)
-			}
+		if slices.Contains(after.Players(), hurt) {
+			t.Fatalf("AI team %d selects injured player %d", f.Home, hurt)
 		}
 		break
 	}

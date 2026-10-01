@@ -35,19 +35,39 @@ func squad() []Candidate {
 	return out
 }
 
-func mustSelect(t *testing.T, c []Candidate) matches.TeamInput {
+func mustSelect(t *testing.T, c []Candidate) Lineup {
 	t.Helper()
-	in, err := SelectTeam(9, c, rules)
+	sel, err := SelectTeam(9, c, rules)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return sel
+}
+
+// find returns the candidate with player ID id.
+func find(c []Candidate, id ids.PlayerID) Candidate {
+	return c[slices.IndexFunc(c, func(x Candidate) bool { return x.Player == id })]
+}
+
+// teamInput builds the match input of a selection from the candidates, as
+// the caller does from its authoritative data.
+func teamInput(team ids.TeamID, sel Lineup, c []Candidate) matches.TeamInput {
+	in := matches.TeamInput{Team: team, Tactics: sel.Tactics}
+	for _, s := range sel.Starters {
+		x := find(c, s.Player)
+		in.Starters = append(in.Starters, matches.PlayerInput{Player: x.Player, Role: s.Role, Ratings: x.Ratings, Condition: x.Condition})
+	}
+	for _, id := range sel.Bench {
+		x := find(c, id)
+		in.Bench = append(in.Bench, matches.PlayerInput{Player: x.Player, Role: x.Natural, Ratings: x.Ratings, Condition: x.Condition})
 	}
 	return in
 }
 
 func TestSelectionIsLegalAndValidates(t *testing.T) {
-	sel := mustSelect(t, squad())
-	mi := matches.MatchInput{Match: 1, Home: sel, Away: mustSelect(t, shift(squad(), 100)), Rules: rules}
-	mi.Away.Team = 10
+	home, away := squad(), shift(squad(), 100)
+	sel := mustSelect(t, home)
+	mi := matches.MatchInput{Match: 1, Home: teamInput(9, sel, home), Away: teamInput(10, mustSelect(t, away), away), Rules: rules}
 	if err := mi.Validate(7); err != nil {
 		t.Fatalf("selected lineup rejected by the match contract: %v", err)
 	}
@@ -58,7 +78,7 @@ func TestSelectionIsLegalAndValidates(t *testing.T) {
 	if roles[matches.Goalkeeper] != 1 || roles[matches.Defender] != 4 || roles[matches.Midfielder] != 4 || roles[matches.Forward] != 2 {
 		t.Fatalf("starting roles %v, want 4-4-2", roles)
 	}
-	if len(sel.Bench) != 7 || sel.Bench[0].Role != matches.Goalkeeper {
+	if len(sel.Bench) != 7 || find(home, sel.Bench[0]).Natural != matches.Goalkeeper {
 		t.Fatalf("bench %+v: want 7 players, goalkeeper first", sel.Bench)
 	}
 	if sel.Tactics.Mentality != matches.Balanced {
@@ -81,15 +101,15 @@ func TestSelectionPicksBestNaturalPlayers(t *testing.T) {
 			if other.Natural != p.Role || other.Player == p.Player || inStarters(sel, other.Player) {
 				continue
 			}
-			if RoleScore(other.Ratings, p.Role) > RoleScore(p.Ratings, p.Role) {
+			if mine := find(c, p.Player).Ratings; RoleScore(other.Ratings, p.Role) > RoleScore(mine, p.Role) {
 				t.Fatalf("benched %d (%d) is better than starter %d (%d) at role %d",
-					other.Player, RoleScore(other.Ratings, p.Role), p.Player, RoleScore(p.Ratings, p.Role), p.Role)
+					other.Player, RoleScore(other.Ratings, p.Role), p.Player, RoleScore(mine, p.Role), p.Role)
 			}
 		}
 	}
 }
 
-func inStarters(sel matches.TeamInput, id ids.PlayerID) bool {
+func inStarters(sel Lineup, id ids.PlayerID) bool {
 	for _, p := range sel.Starters {
 		if p.Player == id {
 			return true
@@ -165,13 +185,13 @@ func TestSmallBenchRules(t *testing.T) {
 	// One goalkeeper and 11 outfield players: one spare, and no keeper for
 	// the bench.
 	sel, err = SelectTeam(9, squad()[2:14], rules)
-	if err != nil || len(sel.Bench) != 1 || sel.Bench[0].Role == matches.Goalkeeper {
+	if err != nil || len(sel.Bench) != 1 || find(squad(), sel.Bench[0]).Natural == matches.Goalkeeper {
 		t.Fatalf("bench %v, err %v; want the single spare outfield player", sel.Bench, err)
 	}
 }
 
 // A tired player gives way to a fresher one of similar ability, but not to
-// a much weaker one; condition also travels into the match input.
+// a much weaker one.
 func TestSelectionWeighsCondition(t *testing.T) {
 	c := squad()
 	fresh := mustSelect(t, c)
@@ -203,8 +223,8 @@ func TestSelectionWeighsCondition(t *testing.T) {
 	if tired.Starters[0].Player != backup.Player {
 		t.Fatalf("goalkeeper %d at condition %d still starts over %d", star, condition, backup.Player)
 	}
-	if tired.Bench[0].Player != star || tired.Bench[0].Condition != condition {
-		t.Fatalf("tired goalkeeper not first on the bench with their condition: %+v", tired.Bench[0])
+	if tired.Bench[0] != star {
+		t.Fatalf("tired goalkeeper %d not first on the bench: %v", star, tired.Bench)
 	}
 	// A little tiredness is not enough.
 	for i := range c {
@@ -229,15 +249,7 @@ func TestSelectionWeighsCondition(t *testing.T) {
 func savedLineup(t *testing.T) ([]Slot, []ids.PlayerID) {
 	t.Helper()
 	sel := mustSelect(t, squad())
-	var slots []Slot
-	for _, p := range sel.Starters {
-		slots = append(slots, Slot{Player: p.Player, Role: p.Role})
-	}
-	var bench []ids.PlayerID
-	for _, p := range sel.Bench {
-		bench = append(bench, p.Player)
-	}
-	return slots, bench
+	return sel.Starters, sel.Bench
 }
 
 func TestRefillKeepsAFullLineup(t *testing.T) {

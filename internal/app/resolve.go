@@ -428,52 +428,91 @@ func (w *World) sideSelection(f competitions.Fixture, side matches.Side, rules m
 		}
 		return in, SelectedByManager, carried, nil
 	}
-	in, err := w.selectTeam(team, rules)
-	return in, SelectedByAI, nil, err
+	l, err := w.selectTeam(team, rules)
+	if err != nil {
+		return matches.TeamInput{}, 0, nil, err
+	}
+	in, err := w.lineupInput(team, l, rules)
+	if err != nil {
+		return matches.TeamInput{}, 0, nil, fmt.Errorf("app: fixture %d: AI lineup: %w", f.ID, err)
+	}
+	return in, SelectedByAI, nil, nil
 }
 
-// selectTeam builds AI candidates from the team's available squad (see
-// availableSquad) and picks a lineup. The candidates are detached copies of module data.
-func (w *World) selectTeam(team ids.TeamID, rules matches.Rules) (matches.TeamInput, error) {
+// selectTeam is the AI's lineup for a senior team: chosen from its
+// available squad (see availableSquad) by what its club knows about those
+// players (see knownCandidates). It is a decision only; lineupInput builds
+// the match input from it. Read-only.
+func (w *World) selectTeam(team ids.TeamID, rules matches.Rules) (selection.Lineup, error) {
 	t, ok := w.registry.Team(team)
 	if !ok || t.Kind != registry.TeamSenior {
-		return matches.TeamInput{}, fmt.Errorf("app: team %d is not a registered senior team", team)
+		return selection.Lineup{}, fmt.Errorf("app: team %d is not a registered senior team", team)
 	}
-	var candidates []ai.Candidate
-	for _, id := range w.availableSquad(team) {
-		c, err := w.candidate(id)
-		if err != nil {
-			return matches.TeamInput{}, err
-		}
-		candidates = append(candidates, c)
+	candidates, err := w.knownCandidates(team, w.availableSquad(team))
+	if err != nil {
+		return selection.Lineup{}, err
 	}
-	return ai.SelectTeam(team, candidates, rules)
+	sel, err := ai.SelectTeam(team, candidates, rules)
+	if err != nil {
+		return selection.Lineup{}, err
+	}
+	return aiLineup(sel), nil
 }
 
-// candidate is a detached copy of a player's profile and current condition.
-func (w *World) candidate(id ids.PlayerID) (ai.Candidate, error) {
+// aiLineup is an AI selection as a lineup.
+func aiLineup(sel ai.Lineup) selection.Lineup {
+	l := selection.Lineup{Bench: slices.Clone(sel.Bench), Tactics: sel.Tactics}
+	for _, s := range sel.Starters {
+		l.Starters = append(l.Starters, selection.Slot{Player: s.Player, Role: s.Role})
+	}
+	return l
+}
+
+// knownCandidates is what team's club knows about the given players (see
+// ObservePlayers) as AI selection candidates, whoever manages the club. It
+// steers lineup decisions only (the AI's, suggestions and refilled
+// vacancies); match input never comes from it (see matchPlayer), so a
+// club's knowledge decides who plays, never how well. Read-only.
+func (w *World) knownCandidates(team ids.TeamID, squad []ids.PlayerID) ([]ai.Candidate, error) {
+	t, ok := w.registry.Team(team)
+	if !ok {
+		return nil, fmt.Errorf("app: team %d is not registered", team)
+	}
+	known, err := w.ObservePlayers(t.Club, squad)
+	if err != nil {
+		return nil, fmt.Errorf("app: team %d: %w", team, err)
+	}
+	out := make([]ai.Candidate, 0, len(known.Players))
+	for _, p := range known.Players {
+		out = append(out, ai.Candidate{Player: p.Player, Natural: roleOf(p.Position), Ratings: matchRatings(p.Attributes), Condition: p.Condition})
+	}
+	return out, nil
+}
+
+// matchPlayer is a player's authoritative match input in his natural role:
+// his profile's attributes and his current condition. Detached.
+func (w *World) matchPlayer(id ids.PlayerID) (matches.PlayerInput, error) {
 	p, ok := w.players.Profile(id)
 	if !ok {
-		return ai.Candidate{}, fmt.Errorf("app: player %d has no profile", id)
+		return matches.PlayerInput{}, fmt.Errorf("app: player %d has no profile", id)
 	}
 	condition, ok := w.medical.Condition(id)
 	if !ok {
-		return ai.Candidate{}, fmt.Errorf("app: player %d has no condition record", id)
+		return matches.PlayerInput{}, fmt.Errorf("app: player %d has no condition record", id)
 	}
-	a := p.Attributes
-	return ai.Candidate{
-		Player:  p.Player,
-		Natural: roleOf(p.Position),
-		Ratings: matches.Ratings{
-			Goalkeeping: uint8(a[players.Goalkeeping]), Defending: uint8(a[players.Defending]),
-			Passing: uint8(a[players.Passing]), Finishing: uint8(a[players.Finishing]),
-			Pace: uint8(a[players.Pace]), Stamina: uint8(a[players.Stamina]),
-			Dribbling: uint8(a[players.Dribbling]), Heading: uint8(a[players.Heading]),
-			Strength: uint8(a[players.Strength]), Acceleration: uint8(a[players.Acceleration]),
-			Positioning: uint8(a[players.Positioning]),
-		},
-		Condition: condition,
-	}, nil
+	return matches.PlayerInput{Player: p.Player, Role: roleOf(p.Position), Ratings: matchRatings(p.Attributes), Condition: condition}, nil
+}
+
+// matchRatings is the match contract's view of a player's attributes.
+func matchRatings(a players.Attributes) matches.Ratings {
+	return matches.Ratings{
+		Goalkeeping: uint8(a[players.Goalkeeping]), Defending: uint8(a[players.Defending]),
+		Passing: uint8(a[players.Passing]), Finishing: uint8(a[players.Finishing]),
+		Pace: uint8(a[players.Pace]), Stamina: uint8(a[players.Stamina]),
+		Dribbling: uint8(a[players.Dribbling]), Heading: uint8(a[players.Heading]),
+		Strength: uint8(a[players.Strength]), Acceleration: uint8(a[players.Acceleration]),
+		Positioning: uint8(a[players.Positioning]),
+	}
 }
 
 func roleOf(p players.Position) matches.Role {

@@ -3401,3 +3401,18 @@ Exact information remains the policy: no authoritative save fields, versions, go
 Regression coverage verifies club knowledge and suggested demands under controller swaps, task-instant ages, detached per-club ratings, seller pricing and authoritative consent, staged signings/transfers including observations first read after staging, canonical allocation without duplicate signings, and identical window decisions after save/restore. Existing season goldens, frozen save fixtures and long-run legal-squad/money checks pass unchanged.
 
 Corrected the stale Now entry: PAR-04 consent at completion was already delivered. Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed, including the new regression tests and existing fifteen-year squad checks.
+## match: lineup decisions from club knowledge (done)
+
+Delivers `match--club-observations` (PAR-10 adoption in selection). Lineup decisions and match input now come from separate sources:
+
+- **Decisions read club knowledge.** `knownCandidates(team, squad)` projects the team's club's `ObservePlayers` into `ai.Candidate`s, whoever manages the club. It feeds the AI's selection, the manager's `SuggestLineup`, `ProbableLineup`, the team plan's starting point and `ai.RefillLineup` for a plan or carried lineup. Who may play (`availableSquad`, `eligibility`) stays authoritative.
+- **Decisions carry no ratings.** `ai.SelectTeam` returns an `ai.Lineup` (slots, bench, tactics) instead of a `matches.TeamInput`, so an estimate cannot reach the engine by construction. `ai.Candidate`'s ratings are documented as the club's knowledge.
+- **One materializer.** Every side's match input, AI or manager, is built by `lineupInput` from `matchPlayer`: the profile's attributes and medical condition. The AI path now passes the same squad and eligibility checks as a submitted lineup. `candidate` is gone; `matchRatings` is the one attribute-to-ratings mapping.
+
+Under today's exact policy nothing moves: the same lineups and results for every seed (season output byte-identical on seeds 42 and 7 with a managed club), no version, golden or schema change, and the same speed (0.14 s a season).
+
+Tests: `TestSelectionIsControllerIndependent` (the human club's selection, team plan start and match input equal the AI's for the same club and state); `TestKnowledgeSteersSelectionNotMatchInput` (knowledge is exact today; a forward the club overrates gets picked but takes the field with his actual attributes and condition; reads leave the world unchanged); `TestMatchPlayerCopiesEveryAttribute` (renamed). The ai tests build their match input from the decision.
+
+When scouting adds uncertainty, nothing in match needs to change: `ObservePlayers` returns estimates and the decisions follow them. Not covered here: AI in-match decisions (PAR-08) still do not exist.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.

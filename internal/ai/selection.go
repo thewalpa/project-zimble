@@ -1,6 +1,6 @@
 // Package ai holds decision heuristics for non-user managers. It works on
-// detached data (the match contract's player input) and returns decisions;
-// it never reads or writes module state.
+// detached data (what a club knows, in the match contract's ratings) and
+// returns decisions; it never reads or writes module state.
 package ai
 
 import (
@@ -19,9 +19,11 @@ const SelectionVersion = 3
 
 var ErrNoLegalLineup = errors.New("ai: no legal lineup")
 
-// Candidate is a squad player available for selection. Natural is the
-// player's own position, used as their role unless moved to fill a gap.
-// Condition is their current fitness, 1..matches.MaxCondition (100).
+// Candidate is a squad player available for selection, as the selecting
+// club knows him: Ratings and Condition are the club's knowledge (today
+// exact; with scouting, estimates), never the match engine's input. Natural
+// is the player's own position, used as their role unless moved to fill a
+// gap. Condition is their fitness, 1..matches.MaxCondition (100).
 type Candidate struct {
 	Player    ids.PlayerID
 	Natural   matches.Role
@@ -63,6 +65,16 @@ func fitScore(c Candidate, role matches.Role) int {
 	return RoleScore(c.Ratings, role) * int(c.Condition)
 }
 
+// Lineup is a selection decision: who starts in which role, the bench in
+// order, and the tactics. It carries no ratings, so what a club knows about
+// its players steers who plays but never how they play: the caller builds
+// the match input from authoritative data.
+type Lineup struct {
+	Starters []Slot
+	Bench    []ids.PlayerID
+	Tactics  matches.Tactics
+}
+
 // SelectTeam picks a legal 4-4-2 starting eleven and bench for team.
 //
 //   - Candidates are canonicalized by player ID first; input order is
@@ -76,16 +88,16 @@ func fitScore(c Candidate, role matches.Role) int {
 //   - Bench: the best remaining goalkeeper (if any), then the best remaining
 //     players by their natural-role fitScore, up to rules.MaxBench.
 //   - Mentality is Balanced. No in-match decisions are made yet.
-func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (matches.TeamInput, error) {
-	fail := func(format string, args ...any) (matches.TeamInput, error) {
-		return matches.TeamInput{}, fmt.Errorf("%w for team %d: "+format, append([]any{ErrNoLegalLineup, team}, args...)...)
+func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (Lineup, error) {
+	fail := func(format string, args ...any) (Lineup, error) {
+		return Lineup{}, fmt.Errorf("%w for team %d: "+format, append([]any{ErrNoLegalLineup, team}, args...)...)
 	}
 	if !team.Valid() {
 		return fail("invalid team ID")
 	}
 	pool, err := canonicalPool(team, candidates)
 	if err != nil {
-		return matches.TeamInput{}, err
+		return Lineup{}, err
 	}
 	if len(pool) < matches.StartersPerTeam {
 		return fail("%d players, need %d", len(pool), matches.StartersPerTeam)
@@ -107,7 +119,7 @@ func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (m
 		return pick
 	}
 
-	input := matches.TeamInput{Team: team, Tactics: matches.Tactics{Mentality: matches.Balanced}}
+	out := Lineup{Tactics: matches.Tactics{Mentality: matches.Balanced}}
 	for _, slot := range formation {
 		for range slot.count {
 			i := best(slot.role, func(c Candidate) bool { return c.Natural == slot.role })
@@ -118,22 +130,20 @@ func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (m
 				return fail("cannot fill %d %s slots", slot.count, roleName(slot.role))
 			}
 			used[i] = true
-			c := pool[i]
-			input.Starters = append(input.Starters, matches.PlayerInput{Player: c.Player, Role: slot.role, Ratings: c.Ratings, Condition: c.Condition})
+			out.Starters = append(out.Starters, Slot{Player: pool[i].Player, Role: slot.role})
 		}
 	}
 
 	addBench := func(i int) {
 		used[i] = true
-		c := pool[i]
-		input.Bench = append(input.Bench, matches.PlayerInput{Player: c.Player, Role: c.Natural, Ratings: c.Ratings, Condition: c.Condition})
+		out.Bench = append(out.Bench, pool[i].Player)
 	}
 	if rules.MaxBench > 0 {
 		if i := best(matches.Goalkeeper, func(c Candidate) bool { return c.Natural == matches.Goalkeeper }); i >= 0 {
 			addBench(i)
 		}
 	}
-	for len(input.Bench) < int(rules.MaxBench) {
+	for len(out.Bench) < int(rules.MaxBench) {
 		pick := -1
 		for i, c := range pool {
 			if used[i] {
@@ -148,7 +158,7 @@ func SelectTeam(team ids.TeamID, candidates []Candidate, rules matches.Rules) (m
 		}
 		addBench(pick)
 	}
-	return input, nil
+	return out, nil
 }
 
 // canonicalPool returns a copy of candidates sorted by player ID, rejecting

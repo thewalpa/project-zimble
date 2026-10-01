@@ -189,11 +189,7 @@ func (w *World) SuggestLineup(fixture ids.FixtureID) (selection.Lineup, error) {
 	if err != nil {
 		return selection.Lineup{}, err
 	}
-	in, err := w.selectTeam(team, rules)
-	if err != nil {
-		return selection.Lineup{}, err
-	}
-	return lineupOf(in), nil
+	return w.selectTeam(team, rules)
 }
 
 // ProbableLineup returns the lineup the AI would field for a senior team of
@@ -210,11 +206,7 @@ func (w *World) ProbableLineup(team ids.TeamID) (selection.Lineup, error) {
 	if err != nil {
 		return selection.Lineup{}, err
 	}
-	in, err := w.selectTeam(team, rules)
-	if err != nil {
-		return selection.Lineup{}, err
-	}
-	return lineupOf(in), nil
+	return w.selectTeam(team, rules)
 }
 
 // lineupOf returns the lineup a team input fields.
@@ -327,15 +319,11 @@ func (w *World) fitLineup(team ids.TeamID, saved selection.Lineup, rules matches
 			bench = append(bench, p)
 		}
 	}
-	var candidates []ai.Candidate
-	for _, id := range available {
-		c, err := w.candidate(id)
-		if err != nil {
-			return selection.Lineup{}, nil, false, err
-		}
-		candidates = append(candidates, c)
+	candidates, err := w.knownCandidates(team, available)
+	if err != nil {
+		return selection.Lineup{}, nil, false, err
 	}
-	slots, bench, err := ai.RefillLineup(team, slots, bench, candidates, rules)
+	slots, bench, err = ai.RefillLineup(team, slots, bench, candidates, rules)
 	if errors.Is(err, ai.ErrNoLegalLineup) {
 		return selection.Lineup{}, nil, false, nil
 	}
@@ -422,11 +410,7 @@ func (w *World) planStart(team ids.TeamID) (selection.Lineup, error) {
 			return l, err
 		}
 	}
-	in, err := w.selectTeam(team, rules)
-	if err != nil {
-		return selection.Lineup{}, err
-	}
-	return lineupOf(in), nil
+	return w.selectTeam(team, rules)
 }
 
 // leagueRules returns the match rules of the league team plays in this
@@ -691,8 +675,9 @@ func sameSubmission(a, b SubmitLineup) bool {
 }
 
 // lineupInput validates a lineup against the team's current squad and the
-// competition's rules, and builds its detached match input with current
-// condition. Starters play their slot's role; bench players their natural
+// competition's rules, and builds its detached match input from the
+// authoritative profiles and current condition (see matchPlayer), whoever
+// chose it. Starters play their slot's role; bench players their natural
 // role.
 func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.Rules) (matches.TeamInput, error) {
 	fail := func(format string, args ...any) (matches.TeamInput, error) {
@@ -705,30 +690,31 @@ func (w *World) lineupInput(team ids.TeamID, l selection.Lineup, rules matches.R
 		return fail("bench of %d exceeds %d", len(l.Bench), rules.MaxBench)
 	}
 	squad := w.eligibility(team)
-	player := func(id ids.PlayerID) (ai.Candidate, error) {
+	player := func(id ids.PlayerID) (matches.PlayerInput, error) {
 		i, ok := slices.BinarySearchFunc(squad, id, func(e LineupEligibility, id ids.PlayerID) int { return cmp.Compare(e.Player, id) })
 		if !ok {
-			return ai.Candidate{}, fmt.Errorf("player %d is not in the squad", id)
+			return matches.PlayerInput{}, fmt.Errorf("player %d is not in the squad", id)
 		}
 		if e := squad[i]; !e.Eligibility.Selectable() {
-			return ai.Candidate{}, fmt.Errorf("player %d is %s for %d more days", id, e.Eligibility, e.DaysOut)
+			return matches.PlayerInput{}, fmt.Errorf("player %d is %s for %d more days", id, e.Eligibility, e.DaysOut)
 		}
-		return w.candidate(id)
+		return w.matchPlayer(id)
 	}
 	in := matches.TeamInput{Team: team, Tactics: l.Tactics}
 	for _, s := range l.Starters {
-		c, err := player(s.Player)
+		p, err := player(s.Player)
 		if err != nil {
 			return fail("%v", err)
 		}
-		in.Starters = append(in.Starters, matches.PlayerInput{Player: c.Player, Role: s.Role, Ratings: c.Ratings, Condition: c.Condition})
+		p.Role = s.Role
+		in.Starters = append(in.Starters, p)
 	}
 	for _, id := range l.Bench {
-		c, err := player(id)
+		p, err := player(id)
 		if err != nil {
 			return fail("%v", err)
 		}
-		in.Bench = append(in.Bench, matches.PlayerInput{Player: c.Player, Role: c.Natural, Ratings: c.Ratings, Condition: c.Condition})
+		in.Bench = append(in.Bench, p)
 	}
 	return in, nil
 }

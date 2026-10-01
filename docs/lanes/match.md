@@ -33,7 +33,9 @@ The match engine and everything on matchday: the match contract, the engine that
 
 **Tick's mentality is a trade-off** (`tick.ModelVersion` 7: `MentalityConcedePermille` prices the room behind a line into the opponents' runs, counter passes and shots — the counter cost `balance` asked for in `match--attacking-is-free`, a fatigue cost left open for `squad`). Attacking is within 0.05 points a match of balanced at equal teams; defensive is the underdog's tool (+0.04–0.07) and draws more ([progress](../progress.md#match-the-mentality-trade-off-in-tick-done)).
 
-**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: fouls, free kicks and cards (phase 4).
+**Lineup decisions read club knowledge** (PAR-10 adoption, `match--club-observations`): every selection, suggestion and refill reads the team's club's `ObservePlayers`; `ai.SelectTeam` returns a decision without ratings, and `lineupInput` builds every match input from the authoritative records. Seeded output unchanged ([progress](../progress.md#match-lineup-decisions-from-club-knowledge-done)).
+
+**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: tick's statistics calibration ([note](../handoffs/match--tick-stats-calibration.md)), then fouls, free kicks and cards (phase 4).
 
 ## Tick engine roadmap
 
@@ -65,6 +67,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 ## Backlog
 
+- **Calibrate tick's statistics** ([note](../handoffs/match--tick-stats-calibration.md), accepted): passes toward 400–600 and tackles toward 15–20 a side, possession 60–65 % for a clearly stronger side, and a less lopsided shot split at a gap; `tick.ModelVersion` bump, then `balance` reruns. Do it before fouls, which will draw on the tackle rate.
 - **Fill `MatchCompleted` appearances and goals:** the agreed contract is in the [note](../handoffs/match--careers-appearances-goals.md) — `Appeared` from `MatchOutcome.Participants`, `Scorers` from `MatchOutcome.Goals` (regulation goals only). Fill `resolve.go`'s emission the session `data` lands the fields.
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.

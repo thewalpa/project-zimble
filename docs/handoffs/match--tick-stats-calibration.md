@@ -1,10 +1,12 @@
 ---
 to: match
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
+
+Accepted by match (2026-10-01): next tick work, before fouls and cards, since fouls will draw on the tackle rate. In the backlog of docs/lanes/match.md.
 
 # Tick's passes, tackles and possession spread are off against real football
 
