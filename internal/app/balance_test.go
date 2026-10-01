@@ -698,25 +698,43 @@ func gapBucket(gap int) int {
 }
 
 // playCareerPhase plays the rounds that come due before target and measures
-// each batch. It is playUntil (resolve_test.go) with a hook around each
-// resolve; phase is "league", "playoff" or "cup".
+// each batch; phase is "league", "playoff" or "cup". Continue resolves a
+// batch without a user fixture on the way, so the sweep stops the clock one
+// minute before each kickoff to sample the squads, then continues to the
+// kickoff and folds the batch in, whether Continue resolved it or stopped.
 func playCareerPhase(t *testing.T, w *World, y *careerSeason, seen *events.ID, target func(*World) sim.GameInstant, phase string, avg map[ids.ClubID]int) {
 	t.Helper()
-	for id := CommandID(len(w.commands) + 1); ; id++ {
-		res := mustContinue(t, w, target(w))
-		ready, ok := res.(FixtureRoundReady)
-		if !ok {
+	for {
+		end := target(w)
+		kickoff, ok := nextKickoff(w)
+		if !ok || kickoff > end {
+			if res := mustContinue(t, w, end); len(asRounds(res)) > 0 {
+				t.Fatalf("seed %d %s: Continue to %d resolved a batch with no kickoff scheduled", w.seed, phase, end)
+			}
 			return
 		}
+		if kickoff-1 > w.Now() {
+			if res := mustContinue(t, w, kickoff-1); len(asRounds(res)) > 0 {
+				t.Fatalf("seed %d %s: a batch was resolved before the next kickoff %d", w.seed, phase, kickoff)
+			}
+		}
 		y.sampleBefore(w)
-		resolved, err := w.ResolveRounds(commandFor(ready, id))
-		if err != nil {
-			t.Fatalf("seed %d %s: resolve %d: %v", w.seed, phase, id, err)
+		res := mustContinue(t, w, kickoff)
+		batches := asRounds(res)
+		if ready, ok := res.(FixtureRoundReady); ok {
+			resolved, err := w.ResolveRounds(commandFor(ready, w.NextCommandID()))
+			if err != nil {
+				t.Fatalf("seed %d %s: resolve at %d: %v", w.seed, phase, ready.At, err)
+			}
+			batches = append(batches, resolved)
+		}
+		if len(batches) != 1 {
+			t.Fatalf("seed %d %s: %d batches at kickoff %d, want 1", w.seed, phase, len(batches), kickoff)
 		}
 		if len(w.journal) > 0 && w.journal[0].ID > *seen+1 {
 			t.Fatalf("seed %d %s: the journal dropped events %d..%d before they were read", w.seed, phase, *seen+1, w.journal[0].ID-1)
 		}
-		y.addBatch(w, resolved, phase, avg, seen)
+		y.addBatch(w, batches[0], phase, avg, seen)
 	}
 }
 
@@ -869,6 +887,11 @@ func sweepCareer(t *testing.T, seed uint64, engine string, seasons int) careerRu
 		}
 		playCareerPhase(t, w, &y, &seen, playoffEnd, "playoff", avg)
 		playCareerPhase(t, w, &y, &seen, cupEnd, "cup", avg)
+		// An empty sample means the sweep stopped seeing batches, not a quiet
+		// season.
+		if y.Matches == 0 || y.CupMatches == 0 || y.CondSamples == 0 {
+			t.Fatalf("seed %d %s season %d: measured %d league and %d cup matches, %d samples", seed, engine, s, y.Matches, y.CupMatches, y.CondSamples)
+		}
 		run.Seasons = append(run.Seasons, y)
 		if err := w.Validate(); err != nil {
 			t.Fatalf("seed %d %s season %d: %v", seed, engine, s, err)
