@@ -3244,3 +3244,7 @@ Answers `ui--promotion-playoffs`.
 - **Table marks.** `app.TableMark(ref, pos)` combines `SeasonMove`, `InPlayoff` and `PromotionPlaces`. A place is a play-off place (up or down zone) until the ties decide, then promoted or relegated. A play-off place that won its tie the other way keeps its play-off mark. Web: △/▽ play-off places, ▲/▼ decided movement, with tooltips and a legend that lists only the marks in use. Terminal and `simulate`: `playoff`, `up`, `down`. The old "were promoted/relegated" wording is gone.
 - `cmd/simulate` names play-off sections and its inbox lines with `PlayoffTitle`.
 - Tests: `TestTableMarksAndPlayoffNames` (app); `TestPromotionAndRelegationMarks` and `TestPlayingAPlayoffTie` (web); `TestPromotionMarksAndHistory` and `TestSeasonEndSaysMovement` (play); `TestSeasonModePlaysEveryRound` and `TestSecondSeasonAfterSaveAndLoad` (simulate).
+
+## data: promotion comment and play-off ID floor (done)
+
+`content.Promotion`'s comment no longer promises a direct swap: it describes the link and points at `competitions/movement.go` for the movement rule (play-offs). It also notes that authored league and cup IDs stay below `competitions.PlayoffBase` (1000); `app` already rejects any at or above it when loading (`world.go`), and content cannot import `competitions`, so the enforcement stays there. Read the save schema 28 note (offsides in `MatchStats`; the fixture and shape were written by `match`): no data change needed. Comment-only; no version moves.

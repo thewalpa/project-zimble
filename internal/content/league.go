@@ -72,10 +72,13 @@ func DefaultLeagues() []League {
 	return []League{DefaultLeague(), harbour, foundersTwo, harbourTwo}
 }
 
-// Promotion links two adjacent divisions: at a season's end the bottom Places
-// teams of Upper's final ranking swap leagues with the top Places teams of
-// Lower's (a direct swap, so both keep their size). Only Upper and Lower need
-// be known to apply it; the movement itself is competitions' rule.
+// Promotion links two adjacent divisions: the boundary places between them
+// (the bottom Places of Upper's final ranking and the top Places of Lower's).
+// Only Upper, Lower and Places need be known to apply it; what happens at those
+// places (the play-offs) is competitions' rule, see competitions/movement.go.
+// Authored league and cup IDs must stay below competitions.PlayoffBase (1000),
+// where the derived play-off competitions begin; app.World loading rejects any
+// at or above it.
 type Promotion struct {
 	Upper, Lower ids.CompetitionID
 	Places       int

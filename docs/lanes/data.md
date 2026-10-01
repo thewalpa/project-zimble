@@ -26,11 +26,13 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Answered competitions' play-off note and match's schema 28 note:** the `Promotion` comment describes the link, the ID floor (below `competitions.PlayoffBase`) is documented in content and enforced by `app`; schema 28 (offsides) needed nothing. The next free `storage.SchemaVersion` is 29.
+
 **Save fixtures per schema version delivered:** `internal/storage/testdata` holds a frozen save and payload shape for schema 24, from a managed career that uses every command kind and stops mid live match. `TestSaveFixtures` checks that every fixture loads or is refused explicitly, and that the current schema's fixture and shape still match the snapshot types ([progress](../progress.md#data-save-fixtures-per-schema-version-done)). A schema bump now needs `go test ./internal/storage -run TestSaveFixtures -fixture` (CLAUDE.md, AGENTS.md).
 
 **Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
 
-**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 28 (27 is `match`'s statistics).
+**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5, `content.LeagueVersion` 6 and `storage.SchemaVersion` 29 (27 and 28 are `match`'s statistics).
 
 **Reviewed match's engine choice and statistics (PAR-09):** the engine ID and version are pinned in `Versions`, an unknown engine is `ErrIncompatibleSave`, and `restoreResolve`/`restoreStep` require statistics exactly when the engine has `DetailedStats`. Nothing was missed; no data change needed.
 
