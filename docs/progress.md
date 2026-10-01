@@ -3445,3 +3445,7 @@ Accepted `ui--club-observations` for the next feature after the content-report c
 ## ui: formatting handoff reviewed (done)
 
 `gofmt -l .` is already clean after the merged formatting fix. Removed the stale repeat request; no source change was needed.
+
+## ui: simple v5 seeded stories reviewed (done)
+
+Reviewed match's new seed-42 scenarios in all three clients. The updated tests preserve the cup, penalty, promotion, bid and season-opener flows and pass with simple v5. Removed the read-and-delete handoff.
