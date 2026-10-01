@@ -221,3 +221,85 @@ func TestInjuriesAreDeterministic(t *testing.T) {
 		t.Fatal("the same seed produced different injuries")
 	}
 }
+
+// The calibrated levels (medical.Version 4, squad--injury-rates): over three
+// AI-only seasons a player is hurt about once every two seasons, a club has
+// about one player out at a kickoff (a rare crisis reaches six to eight, and
+// its tired starters keep playing), and a week's rest leaves some starters
+// short of full condition. Bounds are wide; docs/balance.md has the measured
+// values.
+func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
+	w := newWorld(t, 7)
+	end, nextYear := w.Now()+3*365*day, w.Now()
+	seen := w.lastEvent
+	var playerSeasons, injuries, starters, tired, kickoffs, out, mostOut int
+	lowest := int(medical.MaxCondition)
+	for {
+		if w.Now() >= nextYear {
+			nextYear += 365 * day
+			for _, c := range w.registry.Clubs() {
+				team, _ := w.registry.SeniorTeam(c.ID)
+				playerSeasons += len(w.employment.Squad(team))
+			}
+		}
+		kick := end
+		for _, task := range w.scheduler.Pending() {
+			if task.Kind == taskRoundKickoff && task.DueAt < kick {
+				kick = task.DueAt
+			}
+		}
+		if kick == end {
+			break
+		}
+		mustContinue(t, w, kick-1)
+		before := map[ids.PlayerID]medical.Record{}
+		for _, r := range w.medical.Records() {
+			before[r.Player] = r
+		}
+		res, ok := mustContinue(t, w, kick).(ReachedTarget)
+		if !ok {
+			t.Fatalf("an AI-only career stopped at %d", kick)
+		}
+		for _, b := range res.Resolved {
+			for _, m := range b.Matches {
+				for side, team := range []ids.TeamID{m.Home.Team, m.Away.Team} {
+					n := 0
+					for _, id := range w.employment.Squad(team) {
+						if before[id].DaysOut > 0 {
+							n++
+						}
+					}
+					kickoffs, out, mostOut = kickoffs+1, out+n, max(mostOut, n)
+					for _, s := range m.Lineups[side].Starters {
+						c := int(before[s.Player].Condition)
+						starters++
+						if c < int(medical.MaxCondition) {
+							tired++
+						}
+						lowest = min(lowest, c)
+					}
+				}
+			}
+		}
+		for _, e := range w.Events() {
+			if e.ID > seen && e.PlayerInjured != nil {
+				injuries++
+			}
+		}
+		seen = w.lastEvent
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%d injuries in %d player-seasons; %.2f out per club at kickoff (most %d); %d of %d starters tired, lowest %d",
+		injuries, playerSeasons, float64(out)/float64(kickoffs), mostOut, tired, starters, lowest)
+	if perHundred := injuries * 100 / playerSeasons; perHundred < 30 || perHundred > 100 {
+		t.Errorf("%d injuries per 100 player-seasons, want 30-100", perHundred)
+	}
+	if perHundred := out * 100 / kickoffs; perHundred < 40 || perHundred > 250 || mostOut > 10 {
+		t.Errorf("%d players out per 100 club kickoffs (most %d), want 40-250 and never more than 10", perHundred, mostOut)
+	}
+	if pct := tired * 100 / starters; pct < 15 || pct > 70 || lowest < 40 {
+		t.Errorf("%d%% of starters below full condition at kickoff (lowest %d), want 15-70%% and none below 40", pct, lowest)
+	}
+}

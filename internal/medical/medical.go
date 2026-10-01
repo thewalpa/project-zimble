@@ -25,8 +25,9 @@ import (
 )
 
 // Version identifies DefaultParams and the rules below. Bump it whenever the
-// same condition, stamina and exposure would produce a different condition.
-const Version = 3
+// same condition, stamina and exposure would produce a different condition
+// or injury.
+const Version = 4
 
 // MaxCondition is full fitness.
 const MaxCondition uint8 = 100
@@ -61,8 +62,12 @@ var ErrStalePlan = errors.New("medical: plan is stale")
 //     MinorDays), moderate (ModeratePermille, ModerateDays) and, for the
 //     rest, serious (SeriousDays); days are inclusive ranges.
 //
-// With DefaultParams a player of stamina about 45 who plays 90 minutes every
-// week holds level; fitter players recover fully and less fit ones decline.
+// With DefaultParams a player who plays 90 minutes every week holds level
+// at stamina 69 and above, and the less fit lose a few points a week, so a
+// team that never rotates its starters runs tired. Stamina acts through the
+// drain, which is rounded once a match; a day of rest restores the same three
+// points to everyone (a stamina step would round to a cliff between two whole
+// points a day).
 type Params struct {
 	MinCondition                      uint8
 	DrainBase, DrainStaminaStep       int // per 10,000 of a point, per minute
@@ -76,12 +81,13 @@ type Params struct {
 func DefaultParams() Params {
 	return Params{
 		MinCondition: 20,
-		DrainBase:    2_000, DrainStaminaStep: 20, // stamina 30: 31 per 90'; 90: 20
-		RecoveryBase: 300, RecoveryStaminaStep: 2, // stamina 30: 4 a day; 90: 5
+		DrainBase:    1_500, DrainStaminaStep: 28, // stamina 30: 31 per 90'; 50: 26; 70: 21; 90: 16
+		RecoveryBase: 300, RecoveryStaminaStep: 0, // 3 a day, 21 a week
 
-		// A fit player risks about 1.4% a match, one at condition 60 about 3.2%.
-		InjuryBase: 150, InjuryFatigueStep: 5,
-		MinorPermille: 600, ModeratePermille: 300, // 60% minor, 30% moderate, 10% serious
+		// A fit player risks about 5.9% a match, one at condition 90 about
+		// 8.6%: roughly half an injury a player a season of 14 weekly rounds.
+		InjuryBase: 650, InjuryFatigueStep: 30,
+		MinorPermille: 500, ModeratePermille: 350, // 50% minor, 35% moderate, 15% serious; about 20 days on average
 		MinorDays: [2]int{2, 7}, ModerateDays: [2]int{8, 28}, SeriousDays: [2]int{29, 120},
 	}
 }

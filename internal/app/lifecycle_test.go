@@ -404,10 +404,20 @@ func TestManagerSeesThePlayerYear(t *testing.T) {
 	}
 }
 
+// keepWholeJournal lifts the journal's retention for the rest of a test, so
+// that a career of a season or more can still rebuild its inbox from the
+// first event (see withController).
+func keepWholeJournal(t *testing.T) {
+	t.Helper()
+	retention := journalRetention
+	t.Cleanup(func() { journalRetention = retention })
+	journalRetention = 1 << 20
+}
+
 // withController restores a copy of a snapshot with a different user club
 // (zero: none), so two worlds differ only in who manages the club. The
 // inbox, a read model for the manager, is rebuilt from the journal, which
-// must still start at the first event.
+// must still start at the first event (keepWholeJournal).
 func withController(t *testing.T, snap WorldSnapshot, club ids.ClubID) *World {
 	t.Helper()
 	data, err := json.Marshal(snap)
@@ -492,6 +502,7 @@ func retiredAt(w *World, at sim.GameInstant, club ids.ClubID) int {
 // whether the club is managed or not. Retirees are replaced as well, and
 // the squad is back at the roster count.
 func TestYouthIntakeDoesNotDependOnTheController(t *testing.T) {
+	keepWholeJournal(t)
 	w := userWorld(t, 42, userClub3)
 	playSeason(t, w)
 	at := playerYearTask(t, w).DueAt
@@ -520,6 +531,7 @@ func TestYouthIntakeDoesNotDependOnTheController(t *testing.T) {
 // limit, for either controller: a full squad with a positional vacancy gets
 // no youth beyond its retirees' replacements.
 func TestYouthIntakeStopsAtTheSquadLimit(t *testing.T) {
+	keepWholeJournal(t)
 	w := userWorld(t, 42, userClub3)
 	playSeason(t, w)
 	at := playerYearTask(t, w).DueAt

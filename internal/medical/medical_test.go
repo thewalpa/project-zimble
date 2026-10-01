@@ -88,11 +88,54 @@ func TestRecoveryRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := func(id ids.PlayerID) int { v, _ := s.Condition(id); return int(v) }
-	if c(1) != 50+p.Recovery(30) || c(2) != 50+p.Recovery(90) || c(1) >= c(2) {
+	if c(1) != 50+p.Recovery(30) || c(2) != 50+p.Recovery(90) || c(1) > c(2) || c(1) == 50 {
 		t.Fatalf("recovery %d, %d", c(1), c(2))
 	}
 	if c(3) != int(MaxCondition) {
 		t.Fatalf("recovery not capped: %d", c(3))
+	}
+}
+
+// A week of rest makes up a weekly full match for the fittest only: with
+// DefaultParams a starter of stamina 69 or more holds full condition, and
+// the less fit lose more each week the lower their stamina.
+func TestWeeklyMatchesTireTheLessFit(t *testing.T) {
+	stamina := []uint8{30, 50, 68, 69, 90}
+	s := store(t, 100, 100, 100, 100, 100)
+	for week := 0; week < 4; week++ {
+		var ex []Exposure
+		var rest []Rest
+		for i, st := range stamina {
+			ex = append(ex, Exposure{Player: ids.PlayerID(i + 1), Minutes: 90, Stamina: st})
+			rest = append(rest, Rest{Player: ids.PlayerID(i + 1), Stamina: st})
+		}
+		plan, err := s.PlanExposure(ex, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Apply(plan); err != nil {
+			t.Fatal(err)
+		}
+		for day := 0; day < 7; day++ {
+			plan, err := s.PlanRecovery(rest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Apply(plan); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	var got []uint8
+	for i := range stamina {
+		c, _ := s.Condition(ids.PlayerID(i + 1))
+		got = append(got, c)
+	}
+	if got[3] != MaxCondition || got[4] != MaxCondition {
+		t.Fatalf("after four weeks of 90 minutes, stamina 69 and 90 are at %d and %d, want full", got[3], got[4])
+	}
+	if !(got[0] < got[1] && got[1] < got[2] && got[2] < MaxCondition) {
+		t.Fatalf("after four weeks of 90 minutes, stamina %v are at %v: want the less fit lower, all below full", stamina[:3], got[:3])
 	}
 }
 
@@ -173,18 +216,19 @@ func TestRoundingOfWholePoints(t *testing.T) {
 		stamina uint8
 		want    int
 	}{
-		{90, 30, 31}, // 90 * 0.34 = 30.6
-		{90, 50, 27}, // 90 * 0.30 = 27.0
-		{90, 75, 23}, // 90 * 0.25 = 22.5, half up
-		{90, 90, 20}, // 90 * 0.22 = 19.8
-		{1, 100, 0},  // 0.2
+		{90, 30, 31}, // 90 * 0.346 = 31.14
+		{90, 50, 26}, // 90 * 0.29 = 26.1
+		{90, 68, 22}, // 90 * 0.2396 = 21.564
+		{90, 69, 21}, // 90 * 0.2368 = 21.312
+		{50, 100, 8}, // 50 * 0.15 = 7.5, half up
+		{1, 100, 0},  // 0.15
 		{0, 1, 0},
 	} {
 		if got := p.Drain(c.minutes, c.stamina); got != c.want {
 			t.Errorf("Drain(%d, %d) = %d, want %d", c.minutes, c.stamina, got, c.want)
 		}
 	}
-	for stamina, want := range map[uint8]int{1: 3, 20: 3, 25: 4, 30: 4, 75: 5, 100: 5} {
+	for stamina, want := range map[uint8]int{1: 3, 30: 3, 75: 3, 100: 3} {
 		if got := p.Recovery(stamina); got != want {
 			t.Errorf("Recovery(%d) = %d, want %d", stamina, got, want)
 		}
@@ -262,7 +306,7 @@ func TestInjuryRollIsDeterministicAndBounded(t *testing.T) {
 		}
 		total += len(ex)
 	}
-	if rate := hurt * 1000 / total; rate < 5 || rate > 50 { // about 1.4% to 3.2% a match
+	if rate := hurt * 1000 / total; rate < 60 || rate > 180 { // about 5.9% (fit) to 16.7% (condition 60) a match
 		t.Fatalf("%d injuries per 1000 matches", rate)
 	}
 	// The tired are hurt more often than the fit.

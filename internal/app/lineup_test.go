@@ -644,8 +644,13 @@ func TestLineupCarriesOverToLaterMatches(t *testing.T) {
 				if m, _ = carried.MatchdayLineup(f); m.Source != LineupFromSubmission {
 					t.Fatalf("after submitting: source %s", m.Source)
 				}
-			} else if m.Source != LineupCarriedOver || m.From != last || len(m.Dropped) != 0 {
-				t.Fatalf("fixture %d: source %s from %d, dropped %v; want carried over from %d", f, m.Source, m.From, m.Dropped, last)
+			} else if m.Source != LineupCarriedOver || m.From != last {
+				t.Fatalf("fixture %d: source %s from %d; want carried over from %d", f, m.Source, m.From, last)
+			}
+			for _, id := range m.Dropped { // nobody leaves in the season; injuries drop players
+				if _, injured := carried.Injury(id); !injured {
+					t.Fatalf("fixture %d: dropped %d, who is fit", f, id)
+				}
 			}
 			plays[f] = m.Lineup
 			submit(t, explicit, f, m.Lineup)
@@ -1019,9 +1024,15 @@ func TestTeamPlanKeepsUnavailablePlayers(t *testing.T) {
 	if _, err := w.ReleasePlayer(ReleasePlayer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Player: gone}); err != nil {
 		t.Fatal(err)
 	}
+	var unavailable []ids.PlayerID // hurt and gone, and any planned player round 1 injured
+	for _, id := range plan.Players() {
+		if _, injured := w.medical.DaysOut(id); injured || id == gone {
+			unavailable = append(unavailable, id)
+		}
+	}
 	p := mustTeamPlan(t, w)
-	if !p.Lineup.Equal(plan) || !slices.Equal(p.Unavailable, []ids.PlayerID{hurt, gone}) {
-		t.Fatalf("unavailable %v, want %d (injured) and %d (released)", p.Unavailable, hurt, gone)
+	if !p.Lineup.Equal(plan) || !slices.Equal(p.Unavailable, unavailable) || !slices.Contains(unavailable, hurt) {
+		t.Fatalf("unavailable %v, want %v: %d (injured) and %d (released) among them", p.Unavailable, unavailable, hurt, gone)
 	}
 
 	ready := readyBatch(t, w)

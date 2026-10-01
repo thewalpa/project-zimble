@@ -3549,3 +3549,40 @@ For competitions' `data--even-league-sizes`: `content.League.Validate` rejects a
 Not taken now: checking at load that `Division.Clubs` sums to the leagues' `Entrants` in block order, and that the football year (seasons plus cup) fits the contract year. Both matter only once divisions of other sizes are added; they are in the data backlog, the second to be handed to competitions as it offered.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## squad: injury and condition calibration (`medical.Version` 4)
+
+Answers `squad--injury-rates`. Injuries were flavor (0.12 a player a season) and a week's rest restored every starter, so neither the fatigue term in `medical.Roll` nor the AI's condition-weighted selection had anything to work on. `DefaultParams` now make both a squad concern.
+
+### Rules (`DefaultParams`)
+
+| | v3 | v4 |
+| --- | --- | --- |
+| Drain per minute (ten-thousandths of a point) | `2000 + 20 × (100 − stamina)` | `1500 + 28 × (100 − stamina)`: 90' costs 31 at stamina 30, 26 at 50, 21 at 70, 16 at 90 |
+| Recovery a day | `(300 + 2 × stamina)/100`: 3–5 | 3 for everyone (21 a week) |
+| Injury ppm a minute | `150 + 5 × missing condition` | `650 + 30 × missing condition`: 5.9% a fit 90', 8.6% at condition 90 |
+| Layoff mix | 60% minor (2–7 days), 30% moderate (8–28), 10% serious (29–120) | 50% / 35% / 15%, same ranges: about 20 days on average |
+
+### Decisions
+
+- **Per season, not per real-world match.** A club plays about 15 matches a year (a 14-round league a week apart, the odd play-off or cup tie, then a long break), so reaching half an injury a player a season needs a per-match risk well above real football's. The rate was chosen against balance's target of 0.5–1.0, at its lower end, because each injury already shows as a match event to the manager (about 0.8 a team a match).
+- **Stamina acts through the drain, not the recovery.** Recovery is rounded to whole points once a day, so a stamina step there turns into a cliff (3 against 4 points a day changes a week by 7). The drain is rounded once a match, so its stamina slope is smooth. A starter of stamina 69 or more who plays every week stays at full condition; below that, he loses 1–10 points a week.
+- **Rotation comes from the existing AI.** `ai` ranks by `RoleScore × condition`, so tired starters drop out on their own. Starters of stamina 30–69 average 93–96 at kickoff instead of sliding to the floor. A rare injury crisis still makes a club start tired players: in the seed-7 test one club once had 8 out, and a midfielder started at condition 48.
+- **No rule change in `app`.** The emergency rule (injured players play when the fit cannot field a lineup) still never fires at these rates: 0 short-of-fit club-batches in 9 seasons.
+
+### Measured (3 AI-only seasons × seeds 7, 42, 2026 on simple; tick v4: 0.55, 11.1, 19.3, 1.08, 96.0 and 41%)
+
+| | v3 | v4 |
+| --- | --- | --- |
+| Injuries a player a season | 0.12 | 0.56 |
+| Injuries a club a season | 2.4 | 11.1 |
+| Days per injury | 13.7 | 19.4 |
+| Players out per club at kickoff | 0.14 | 1.09 |
+| Starters' condition at kickoff | 99.5 (8.5% below full, 1.5% below 90) | 96.0 (41% below full, 14% below 90, 4% below 80) |
+
+### Verification
+
+- `internal/medical`: the rounding table moved to the new rates; `TestWeeklyMatchesTireTheLessFit` pins the weekly cycle (stamina 69 and 90 stay full over four weeks of 90'; 30 < 50 < 68 < full); the roll test expects 6–18% a match on its population.
+- `internal/app`: the new test `TestInjuryAndConditionLevelsOverSeasons` checks over 3 seasons (seed 7) that injuries a player a season are 0.3–1.0, players out per club at kickoff 0.4–2.5 and never more than 10, and starters below full condition 15–70% with none below 40. `TestSquadsStayLegalAndBalancedOverTheYears` (15 years) and `TestInjuriesOverSeasons` pass unchanged. The three seed-42 goldens moved.
+- Other lanes' tests the higher rates moved: two `lineup_test` cases now allow players that injuries drop or make unavailable (match), and 12 client tests got new seed scenarios (ui). Both lanes have notes. The two youth-intake tests that rebuild the inbox from event 1 now keep the whole journal, because a year now emits about 1,400 events (898 before) and the journal keeps 1,000. A note asks `data` about retention.
+- `go test ./...` green (`gofmt`, `vet` included).

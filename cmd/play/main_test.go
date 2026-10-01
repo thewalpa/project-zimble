@@ -362,12 +362,12 @@ func TestCup(t *testing.T) {
 	contains(t, out,
 		"No cup has been drawn yet",
 		"Continental Cup 1 drawn: first kickoff Sat 2025-11-22 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final",
+		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the quarter-final",
 		"Quarter-finals, Sat 2025-11-22 15:00 UTC",
-		"  Glenrock Town            1-1 Brackenmoor Town (4-3 on penalties)",
-		"  Eldhaven United          1-1 Ironbridge Wanderers (4-5 on penalties)",
+		"* Ironbridge Wanderers     2-1 Quillford FC",
+		"  Saltmere Athletic        2-2 Ironbridge Wanderers (3-4 on penalties)",
 		"Final, Sat 2025-12-06 15:00 UTC",
-		"Winner: Saltmere Athletic",
+		"Winner: Ironbridge Wanderers",
 	)
 }
 
@@ -375,22 +375,22 @@ func TestCup(t *testing.T) {
 // result can be decided on penalties, and the inbox says how far it went.
 func TestManagedCupRun(t *testing.T) {
 	script := []string{"season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "inbox 20", "q", "q"}
-	// Brackenmoor Town (club 4) goes out in the quarter-final, the tie
+	// Saltmere Athletic (club 5) goes out in the semi-final, the tie
 	// decided on penalties.
-	out := play(t, []string{"-seed", "42", "-club", "4"}, script...)
+	out := play(t, []string{"-seed", "42", "-club", "5"}, script...)
 	contains(t, out,
-		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final v Ironbridge Wanderers (home).",
-		"matchday: Continental Cup quarter-final v Ironbridge Wanderers (home)",
-		"FULL TIME  Brackenmoor Town 2-2 Ironbridge Wanderers (3-4 on penalties)  (L)",
+		"MATCHDAY Sat 2025-11-29 15:00 UTC: Continental Cup semi-final v Ironbridge Wanderers (home).",
+		"matchday: Continental Cup semi-final v Ironbridge Wanderers (home)",
+		"FULL TIME  Saltmere Athletic 2-2 Ironbridge Wanderers (3-4 on penalties)  (L)",
 		"result: 2-2 (3-4 on penalties) v Ironbridge Wanderers (home)",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final",
+		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the semi-final",
 	)
-	// Saltmere Athletic (club 5) wins it.
-	out = play(t, []string{"-seed", "42", "-club", "5"}, script...)
+	// On seed 3, Dunmarrow United (club 5) wins it.
+	out = play(t, []string{"-seed", "3", "-club", "5"}, script...)
 	contains(t, out,
-		"matchday: Continental Cup final v Ironbridge Wanderers (home)",
-		"FULL TIME  Saltmere Athletic 2-0 Ironbridge Wanderers  (W)",
-		"Continental Cup 1 won by Saltmere Athletic: your club won it!",
+		"matchday: Continental Cup final v Greyfen City (home)",
+		"FULL TIME  Dunmarrow United 2-1 Greyfen City  (W)",
+		"Continental Cup 1 won by Dunmarrow United: your club won it!",
 	)
 }
 
@@ -573,10 +573,10 @@ func TestHistory(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "continue", "continue", "continue", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
 	contains(t, out,
 		"Founders League", "in progress",
-		"4* QUI",                                  // the manager's club is marked in the table
+		"3* QUI",                                  // the manager's club is marked in the table
 		"Continental Cup   ", "Saltmere Athletic", // the league champion
 		"Founders League season 1 (14/14 rounds)",
-		"Winner: Saltmere Athletic",
+		"Winner: Ironbridge Wanderers", // the cup's
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)
@@ -646,7 +646,8 @@ func TestNationalitiesAndAttributes(t *testing.T) {
 // Tables mark the promotion and relegation places; the history's name column
 // fits the longest competition name.
 func TestPromotionMarksAndHistory(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "table", "playoffs", "season", "playoffs", "continue", "table", "playoffs", "history", "history 1000 1", "inbox 60", "quit", "quit")
+	// On seed 7 a Founders League club loses its tie and goes down.
+	out := play(t, []string{"-seed", "7", "-club", "3"}, "table", "playoffs", "season", "playoffs", "continue", "table", "playoffs", "history", "history 1000 1", "inbox 60", "quit", "quit")
 	contains(t, out, "playoff: the bottom 2 play off to stay in this division (type playoffs).", "No play-off has been drawn yet")
 	if strings.Count(out, "  playoff\n") < 2 {
 		t.Fatalf("want the play-off places marked:\n%s", out)
@@ -686,7 +687,7 @@ func TestInjuriesInTheTerminal(t *testing.T) {
 // The season-end message says when the club goes up or down a division,
 // once the play-offs have decided its place.
 func TestSeasonEndSaysMovement(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "24"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
+	out := play(t, []string{"-seed", "7", "-club", "18"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
 	contains(t, out, "you finished 2nd: promoted to the division above", "matchday: Promotion Play-off v ",
 		"Founders Second Division) season 1 decided: each tie's winner plays in Founders League next season; you won your tie\n")
 }

@@ -701,33 +701,34 @@ func TestGameReportsWhenClickingOnScores(t *testing.T) {
 // trophy, the bracket (penalties included), the club's fixtures and both
 // league tables. Then a tie decided on penalties.
 func TestCupInTheBrowser(t *testing.T) {
-	c := newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")}) // Saltmere Athletic
+	c := newClient(t, config{seed: 3, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")}) // Dunmarrow United
 	contains(t, c.get("/cup"), "No edition has been drawn yet")
 	c.post("/season", nil)
 	// The play-offs decide and draw the cup before its first matchday.
-	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Foxmere Town (home).")
-	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Foxmere Town (home)")
-	page := c.post("/continue", nil) // the quarter-final
-	contains(t, page, "Saltmere Athletic 2-0 Foxmere Town", `class="pill W"`)
+	contains(t, c.post("/continue", nil), "Matchday: Continental Cup quarter-final v Glenrock Rovers (away).")
+	contains(t, c.get("/lineup"), "Continental Cup quarter-final v Glenrock Rovers (away)")
+	page := c.post("/continue", nil) // the quarter-final, won on penalties
+	contains(t, page, "Glenrock Rovers 1-1 Dunmarrow United", `class="pill W"`)
 	// The win leaves the semi-final as the home page's next match.
-	contains(t, c.get("/"), "Next match", "Continental Cup semi-final v Glenrock Town (home)")
-	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "1-1 (4-3 on penalties)", "Your club is in it.")
+	contains(t, c.get("/"), "Next match", "Continental Cup semi-final v Ashcombe United (away)")
+	contains(t, c.get("/cup"), "Continental Cup 1", "Quarter-finals", "Semi-finals", "Final", "1-1 (3-4 on penalties)", "Your club is in it.")
 	contains(t, c.get("/fixtures"), "Continental Cup quarter-final")
 	contains(t, c.get("/table"), "Founders League season 1", "Harbour League season 1")
 	for range 5 { // the semi-final and the final, each a matchday and a match; then the cup ends
 		c.post("/continue", nil)
 	}
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic: your club won it!", "2-0 v Ironbridge Wanderers (home), Continental Cup final")
-	contains(t, c.get("/cup"), "Won by <b>Saltmere Athletic</b>")
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Dunmarrow United: your club won it!", "2-1 v Greyfen City (home), Continental Cup final")
+	contains(t, c.get("/cup"), "Won by <b>Dunmarrow United</b>")
 
-	// Brackenmoor Town (club 4) goes out in the quarter-final on penalties.
-	c = newClient(t, config{seed: 42, club: 4, savePath: filepath.Join(t.TempDir(), "career.json")})
+	// On seed 42 Saltmere Athletic (club 5) goes out in the semi-final on
+	// penalties.
+	c = newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
-	for range 7 { // the manager's quarter-final, then the other ties to the final; the cup ends
+	for range 7 { // the manager's quarter-final and semi-final, then the final; the cup ends
 		c.post("/continue", nil)
 	}
-	contains(t, c.get("/inbox"), "2-2 (3-4 on penalties) v Ironbridge Wanderers (home), Continental Cup quarter-final",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the quarter-final.")
+	contains(t, c.get("/inbox"), "2-2 (3-4 on penalties) v Ironbridge Wanderers (home), Continental Cup semi-final",
+		"Continental Cup 1 won by Ironbridge Wanderers; you went out in the semi-final.")
 }
 
 // In the window the manager bids from the market, the answer arrives with
@@ -1175,14 +1176,16 @@ func TestComparePlayersPage(t *testing.T) {
 // History lists the champions of past seasons and shows any season's final
 // table or bracket.
 func TestHistoryInTheBrowser(t *testing.T) {
-	c := newClient(t, config{seed: 42, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
+	// On seed 7 Quillford Wanderers win the league and the cup, and a
+	// Founders League club is relegated in the play-offs.
+	c := newClient(t, config{seed: 7, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
 	contains(t, c.get("/history"), "Founders League", "in progress")
 	c.post("/season", nil)
 	for range 7 {
 		c.post("/continue", nil)
 	}
 	page := c.get("/history")
-	contains(t, page, "Founders League", "Continental Cup", "Saltmere Athletic", "/history?competition=")
+	contains(t, page, "Founders League", "Continental Cup", "Quillford Wanderers", "/history?competition=")
 	m := regexp.MustCompile(`href="(/history\?competition=[^"]+)"`).FindAllStringSubmatch(page, -1)
 	if len(m) == 0 {
 		t.Fatal("no season links")
@@ -1191,7 +1194,7 @@ func TestHistoryInTheBrowser(t *testing.T) {
 	for _, l := range m {
 		all += c.get(strings.ReplaceAll(l[1], "&amp;", "&"))
 	}
-	contains(t, all, "final table", "▽ the bottom 2 play off to stay up", `title="Relegated"`, "Quarter-finals", "Won by <b>Saltmere Athletic</b>", "← All seasons",
+	contains(t, all, "final table", "▽ the bottom 2 play off to stay up", `title="Relegated"`, "Quarter-finals", "Won by <b>Quillford Wanderers</b>", "← All seasons",
 		"Promotion Play-off (Founders League / Founders Second Division) season 1</h1>", "Each tie's winner plays in Founders League next season")
 	contains(t, page, "Promotion Play-off (Harbour League / Harbour Second Division)", "ties decided")
 	res, err := c.srv.Client().Get(c.srv.URL + "/history?competition=999&season=9")
@@ -1354,6 +1357,9 @@ func TestInjuriesInTheBrowser(t *testing.T) {
 	contains(t, c.get("/player?id="+strconv.Itoa(int(out.Player))), fmt.Sprintf("out %d d", out.DaysOut))
 	fixture, _ := c.s.pendingFixture()
 	form := lineupForm(c, fixture, "balanced")
+	if l, _ := c.s.w.SuggestLineup(fixture); len(l.Bench) > 0 { // keep the bench within its limit
+		form.Set(fmt.Sprintf("slot-%d", l.Bench[0]), "out")
+	}
 	form.Set(fmt.Sprintf("slot-%d", out.Player), "bench")
 	contains(t, c.post("/lineup", form), fmt.Sprintf("player %d is injured", out.Player))
 }
@@ -1362,7 +1368,8 @@ func TestInjuriesInTheBrowser(t *testing.T) {
 // moved. The play-off has its page, its name on the matchday and in the
 // inbox, and no champion.
 func TestPromotionAndRelegationMarks(t *testing.T) {
-	c := career(t)
+	// On seed 7 a Founders League club loses its tie and goes down.
+	c := newClient(t, config{seed: 7, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
 	page := c.get("/table")
 	contains(t, page, "▽ the bottom 2 play off to stay up", "△ the top 2 play off for promotion", `(<a href="/playoffs">play-offs</a>)`, "Harbour Second Division")
 	if up, down := strings.Count(page, `class="up"`), strings.Count(page, `class="out"`); up != 4 || down != 4 {
@@ -1461,7 +1468,7 @@ func TestMarketRefusalsInTheBrowser(t *testing.T) {
 // The season-end message says when the club goes up or down a division,
 // once the play-offs have decided its place.
 func TestSeasonEndSaysMovement(t *testing.T) {
-	c := newClient(t, config{seed: 42, club: 24, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c := newClient(t, config{seed: 7, club: 18, savePath: filepath.Join(t.TempDir(), "career.json")})
 	c.post("/season", nil)
 	for range 3 { // the play-off matchday and its match decide the movement
 		c.post("/continue", nil)

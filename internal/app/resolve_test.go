@@ -24,19 +24,21 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by the home edge (simple.ModelVersion 5: the
-// away side now plays against HomeAdvantagePermille's reciprocal, and the
-// edge is 1150, so every result moved).
+// this value. Last changed by the injury calibration (medical.Version 4:
+// about five times the injuries, and a week's rest no longer makes up a
+// full match for the less fit, so lineups and every result moved; all three
+// goldens).
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
-// edition have their own goldens. The cup golden last moved with
-// competitions.ScheduleVersion 3: the promotion play-offs take fixture IDs
-// before the cup the moved-on leagues draw, so the cup's fixtures shifted.
+// edition have their own goldens. The cup golden moved with
+// competitions.ScheduleVersion 3 too: the promotion play-offs take fixture
+// IDs before the cup the moved-on leagues draw, so the cup's fixtures
+// shifted.
 const (
-	goldenSeasonSeed42       = "bac10f0a1a366edef412291200b4892790856df3b16beeeeb2fbed53c8ec6f3a"
-	goldenSecondLeagueSeed42 = "406af9e1659e69f683095b5d98b37a851609259becb672e7832fa3e19a48c613"
-	goldenCupSeed42          = "b35f9d20599f351e2df0640d0c1af8a4277c5d528d17e920a783009c66edca14"
+	goldenSeasonSeed42       = "38a2c7ce6afdf96663235e0ff3edcbb428baf31c64fcfb8267b5136add60cddc"
+	goldenSecondLeagueSeed42 = "421c21a47e7c5b7ab4eb6b99754c478c5c93cf3245fc319cee9d03de86f394ce"
+	goldenCupSeed42          = "f4042489e248af038e10efeb81b61f1e63543c1765b028edc6d6c49ee55fc48b"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

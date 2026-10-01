@@ -370,8 +370,8 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	if out != again {
 		t.Fatal("managed season is not reproducible")
 	}
-	if strings.Count(out, "  <- your lineup, attacking") != 17 { // 14 league matches and a cup run to the final
-		t.Fatal("want 17 submitted attacking lineups")
+	if strings.Count(out, "  <- your lineup, attacking") != 14 { // 14 league matches; the club misses the cup
+		t.Fatal("want 14 submitted attacking lineups")
 	}
 	// The leagues' matches; the play-offs' and the cup's depend on who
 	// qualified.
@@ -414,12 +414,13 @@ func TestManagedCareerSaveLoad(t *testing.T) {
 		strings.Count(inboxSection, "\n  ") != 10 {
 		t.Fatalf("inbox section:\n%s", inboxSection)
 	}
-	// The status lists the squad with condition; some starters are tired.
+	// The status lists the squad with condition (an injured player's row
+	// goes on to his recovery days); some starters are tired.
 	var rows, tired int
 	for _, line := range strings.Split(section(t, status, "Squad (condition"), "\n")[3:] {
-		if strings.HasSuffix(line, "%") {
+		if cond, _, _ := strings.Cut(line, "%"); cond != line {
 			rows++
-			if !strings.HasSuffix(line, " 100%") {
+			if !strings.HasSuffix(cond, " 100") {
 				tired++
 			}
 		}
