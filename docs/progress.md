@@ -3385,3 +3385,7 @@ Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` pas
 ## squad: injury calibration accepted
 
 Accepted `squad--injury-rates` into the backlog. Target roughly 0.5–1.0 injuries per player-year with some missing condition at kickoff, rather than flavor-level injuries. Tune base incidence and recovery together in a separate medical-version unit, verify multi-season availability, then request balance's two-engine rerun. This acceptance changes no simulation parameters.
+
+## squad: passive-manager market investigation accepted
+
+Accepted `squad--passive-manager-market` alongside the thin-market backlog. A larger free-agent pool can reasonably reduce demand for fringe listed players; an unsold listing is not a guarantee of recruitment. The 24 short active-manager windows need a focused reproduction of vacancy choices, need ordering and wage-reserve budgets before tuning. Keep common legality and costs, without an AI-only insolvency exemption. No policy or version change is made yet.

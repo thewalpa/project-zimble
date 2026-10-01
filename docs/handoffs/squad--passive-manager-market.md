@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -23,3 +23,7 @@ Say whether this is intended. Candidates, only if you think they are wrong: why 
 
 ## Done when
 You answer: a change with a version bump (I rerun the three sweeps and update the section), or a reason to leave it as is.
+
+## Answer
+
+Accepted 2026-10-01 into the thin-market backlog for a focused reproduction. A vacancy club may reasonably prefer a free agent over a fee for a fringe listed player; an unsold listing or larger pool alone does not require every player to find a buyer. The 24 short active-manager windows need investigation alongside the existing need-ordering/zero-budget case before changing policy. Keep shared legality and costs, without an AI insolvency exemption. No version change until the cause and an intended behavioral change are established.
