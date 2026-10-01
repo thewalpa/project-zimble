@@ -35,7 +35,9 @@ The match engine and everything on matchday: the match contract, the engine that
 
 **Lineup decisions read club knowledge** (PAR-10 adoption, `match--club-observations`): every selection, suggestion and refill reads the team's club's `ObservePlayers`; `ai.SelectTeam` returns a decision without ratings, and `lineupInput` builds every match input from the authoritative records. Seeded output unchanged ([progress](../progress.md#match-lineup-decisions-from-club-knowledge-done)).
 
-**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: tick's statistics calibration ([note](../handoffs/match--tick-stats-calibration.md)), then fouls, free kicks and cards (phase 4).
+**Tick's statistics are calibrated per minute of ball in play** (`tick.ModelVersion` 8, `match--tick-stats-calibration`). Tackles are at 27 a side, the real rate per minute of ball in play. Possession separates through first touch: 57.5% at gap 10 and 62.7% at gap 20. Equal teams take 11–12 shots a side. On-target is now counted at the goal line, and keepers leave shots going wide. Results by gap and the v7 mentality shape are kept. Passes stay ~1.6× because the ball is in play ~88 minutes (real ~58), and the stoppage rules fix that. The shot split at a gap needs the compact block ([progress](../progress.md#match-ticks-statistics-calibrated-done), [note to `balance`](../handoffs/balance--tick-v8-rerun.md)).
+
+**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: fouls, free kicks and cards (phase 4), with realistic restart durations.
 
 ## Tick engine roadmap
 
@@ -49,9 +51,11 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 3. **Done: match statistics.** `matches.MatchStats` in the view, the outcome and reports, advertised through `DetailedStats`, unavailable from `simple`; schema 27; notes to `ui` and `balance`.
 4. **Richer football**, one rule per step, each with its trend test:
    - **done (v6):** offside, with runs in behind, through balls and a back line that holds;
-   - fouls, free kicks, penalties and cards (`Cards` capability, with `competitions` for suspensions);
+   - **done (v8):** statistics calibrated per minute of ball in play (tackles, possession through first touch, shot counting at the goal line);
+   - fouls, free kicks, penalties and cards (`Cards` capability, with `competitions` for suspensions), each restart taking a realistic time (today ~1 minute of a match is dead, against ~30 in real football, which is why passes run 1.6× the real total);
    - the ball in the air: crosses, headers, long balls, goalkeepers catching crosses (needs aerial attributes from `data`);
-   - smarter movement: runs into space beyond forwards' runs in behind, overlaps, a compact block, keeper distribution;
+   - smarter movement: runs into space beyond forwards' runs in behind, overlaps, a compact block (the weaker side's shots: v8's split at a gap is 15.2–7.7 against a real ~12.6–9.3), keeper distribution;
+   - shot accuracy: on target 5.6 / 4.6 a side at 60 v 60 (real 4–5) since v8 counts at the goal line; `ShotErrorPermille` moves goals, so tune it with a goal-rate check;
    - game state: a side that leads comfortably eases off, which would further temper goals in mismatches (v5 note);
    - formations and roles beyond GK/DF/MF/FW (the backlog item), fed from `selection`;
    - live injuries (`Injuries` capability) and workload from distance and sprints rather than minutes, handed to `squad` for condition.
@@ -60,14 +64,13 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## What the tick engine needs from other lanes
 
 - **`data`:** delivered: the five phase-4 attributes are in `matches.Ratings`. Heading, Strength, Acceleration and Positioning wait for their phase-4 rules.
-- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered (a refresh of the tick tables at v6 is requested). The career-season comparison ([note](../handoffs/balance--tick-career-seasons.md)) and a statistics comparison with real football ([note](../handoffs/balance--tick-match-stats.md)) are requested.
+- **`balance`:** the synthetic-team review is delivered in [docs/balance.md](../balance.md#match-engines-tick-against-simple), and the shootout, mentality and goals-by-level notes are delivered. The career-season and statistics comparisons are delivered; a refresh at v8 is requested ([note](../handoffs/balance--tick-v8-rerun.md)).
 - **`ui`:** an `-engine` flag and a pitch view from `LiveFrames` ([note](../handoffs/ui--tick-career-and-pitch-view.md)); statistics in reports and the live match ([note](../handoffs/ui--match-stats.md)).
 - **`squad`:** later, workload from distance run instead of minutes played (phase 4).
 - **`competitions`:** play-off match rules are reviewed and accepted (a tie is knockout to penalties; the link's lower division supplies the squad rules). Extra time before penalties would need the reserved `Resolution` value.
 
 ## Backlog
 
-- **Calibrate tick's statistics** ([note](../handoffs/match--tick-stats-calibration.md), accepted): passes toward 400–600 and tackles toward 15–20 a side, possession 60–65 % for a clearly stronger side, and a less lopsided shot split at a gap; `tick.ModelVersion` bump, then `balance` reruns. Do it before fouls, which will draw on the tackle rate.
 - **Fill `MatchCompleted` appearances and goals:** the agreed contract is in the [note](../handoffs/match--careers-appearances-goals.md) — `Appeared` from `MatchOutcome.Participants`, `Scorers` from `MatchOutcome.Goals` (regulation goals only). Fill `resolve.go`'s emission the session `data` lands the fields.
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.

@@ -219,7 +219,7 @@ type ball struct {
 	carried      bool
 	side, slot   int   // carrier, while carried; the kicker's side and slot after a kick
 	shot         bool  // loose after a shot
-	onGoal       bool  // the shot was aimed between the posts
+	onGoal       bool  // the shot crosses the goal line between the posts
 	finishing    int64 // the shooter's effective Finishing, while shot
 	passTo       int   // receiving slot of a pass in flight, or -1
 	aim          vec

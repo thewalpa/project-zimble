@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 7
+const ModelVersion uint32 = 8
 
 // The clock: a tick is one simulated instant.
 const (
@@ -105,10 +105,12 @@ const (
 //     the ground than in the air (shots). Any player within reach of
 //     its path may try to control it, the first along the path first; the
 //     chance falls with ball speed and distance and rises with Passing (or
-//     Defending, for an interception). A goalkeeper in his area reaches
-//     further and saves with Goalkeeping; a failed save may be parried,
-//     and any other failed control may deflect the ball. Players arriving
-//     on a ball at the same instant contest it evenly.
+//     Defending, for an interception): a first touch is where the better
+//     side keeps the ball. A goalkeeper in his area reaches further, leaves
+//     a shot going wide and saves one on target with Goalkeeping; a failed
+//     save may be parried, and any other failed control may deflect the
+//     ball. Players arriving on a ball at the same instant contest it
+//     evenly.
 //   - A defender within TackleRadius of the carrier may tackle: Defending
 //     against the carrier's Dribbling.
 //   - Offside: when a player passes or shoots, his team-mates beyond the
@@ -214,7 +216,7 @@ func DefaultParams() Params {
 		FatigueCapPer100k:         30_000,
 		ConditionFloorPer10k:      7000,
 		ContestReference:          6000,
-		ContestPermille:           340,
+		ContestPermille:           250,
 
 		MinSprint:       110, // 5.5 m/s
 		MaxSprint:       170, // 8.5 m/s
@@ -228,7 +230,7 @@ func DefaultParams() Params {
 		//                              -, def, bal, att
 		MentalityDefendDepth:     [4]int64{0, -300, 0, 100},
 		MentalityAttackDepth:     [4]int64{0, -40, 0, 30},
-		MentalityConcedePermille: [4]int64{0, 825, 1000, 1250},
+		MentalityConcedePermille: [4]int64{0, 825, 1000, 1300},
 		ShiftPermille:            450,
 		LateralPermille:          300,
 		MarkRadius:               1800,
@@ -240,7 +242,7 @@ func DefaultParams() Params {
 		KeeperDepth:              300,
 		KeeperTrackPermille:      150,
 
-		RunPPM:          [4]int64{0, 7_000, 8_000, 10_000},
+		RunPPM:          [4]int64{0, 8_000, 8_000, 10_000},
 		RunTicks:        3 * TicksPerSecond,
 		RunDepth:        800,
 		RunPassPPM:      300_000,
@@ -255,8 +257,8 @@ func DefaultParams() Params {
 
 		ControlRadius:          110,
 		KeeperReach:            300,
-		ControlPPM:             950_000,
-		ControlSkillPPM:        150_000,
+		ControlPPM:             750_000,
+		ControlSkillPPM:        1_000_000,
 		EasySpeed:              180,
 		ControlSpeedPenaltyPPM: 1500,
 		InterceptPermille:      500,
@@ -287,14 +289,14 @@ func DefaultParams() Params {
 
 		ShotRange:             2600,
 		CertainShotRange:      700,
-		ShotPPM:               400_000,
+		ShotPPM:               440_000,
 		MentalityShotPermille: [4]int64{0, 850, 1000, 1150},
 		MinShotSpeed:          380,
 		MaxShotSpeed:          520,
 		ShotErrorPermille:     1600,
 
 		TackleRadius:     170,
-		TackleAttemptPPM: 80_000,
+		TackleAttemptPPM: 45_000,
 		TacklePPM:        400_000,
 		WinBallPPM:       500_000,
 		BeatenTicks:      5,

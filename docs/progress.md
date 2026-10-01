@@ -3649,3 +3649,53 @@ The two remaining baseline items, plus `data`'s attribute-spreads request, from 
 - **One sweep for population and money.** Both need the same AI-only 30-year careers; measuring them together costs about 30 s instead of twice that.
 - **The sweep checks the ledger.** Every year, each club's balance change must equal its gate, wages, fees and payoffs plus any other posting, which shows up in its own column: cup prizes will appear there without the sweep needing a change.
 - **No new always-on bound.** `squad`'s `TestSquadsStayLegalAndBalancedOverTheYears` already guards the population's size, overall and age over 15 years, and the sweep sits well inside its limits. An attribute-level bound waits on `data`'s answers, since it would fail today on the floor attributes.
+
+## match: tick's statistics calibrated (done)
+
+Delivers [match--tick-stats-calibration](handoffs/match--tick-stats-calibration.md) (`balance`). `tick.ModelVersion` 8. Results by rating gap and the v7 mentality trade-off are kept. Tackles and possession separation move to real football. Passes stay high, for a stated reason. Shots between equal teams rise toward the target, but the split at a gap does not level.
+
+### Where the minutes go
+
+Temporary counters (not committed) split a tick match: the ball is carried about 45 minutes, loose or in flight about 44, and dead about **1 minute**. There are ~12 restarts a match (4.5 throw-ins, 9 goal kicks, 0.3 corners, 3.4 offside free kicks). Real football has ~45 throw-ins, ~10 corners and ~25 fouls, and about 58 minutes of ball in play. Per minute of ball in play, tick's pass cycle is ~3.0 s against a real ~3.5 s (passes ~15% high), so **the 1.6× pass total is ball-in-play time, not tempo.** It cannot be tuned away by rates: halving the pressured pass rate tripled goals, because dribblers run through; a longer first touch cut goals more than passes; and harder pokes from a tackle did not put the ball out of play. Stoppages arrive with the next phase-4 rules (fouls and free kicks, then crosses, clearances and long balls), and each restart then needs a realistic duration. So rates are now calibrated **per minute of ball in play**, and totals should fall into range as those rules land.
+
+### Changes
+
+- **Shot accuracy is measured where the ball crosses the goal line.** `onGoal` was taken at the aim point 3 m beyond the line, so angled shots between the posts counted as wide. Shots on target and saves were undercounted.
+- **A keeper leaves a shot going wide** instead of collecting it. Goal kicks double (4.3 → 9 a match). Before the fix above, this rule let angled goals in (4.0 goals a match); with it, goals are unchanged.
+- **Tackles:** `TackleAttemptPPM` 80k → 45k. That is 0.30 tackles per ball-in-play minute a side, the real rate (~17 a side in ~58 minutes), and 27 a side over tick's 88 minutes. At 30k (18 a side, the total target) a defensive underdog lost its edge: a deep block wins the ball by tackling.
+- **Possession: a first touch is where the better side keeps the ball.** `ControlPPM` 950k → 750k and `ControlSkillPPM` 150k → 1M. Before, control sat at its 98% cap for both sides, and skill moved an interception by ~1%. `ContestPermille` 340 → 250 keeps the results by gap where they were.
+- **Mentality re-balanced** (the new set made attacking free again, +0.09 at equal teams): `MentalityConcedePermille[attacking]` 1250 → 1300 and `RunPPM[defensive]` 7000 → 8000 (the underdog's own counter). `ShotPPM` 400k → 440k for shot volume. A longer `ShotRange` added shots but favoured attacking, so the range stays at 26 m.
+
+### Results
+
+`TestBalanceMatchStats` (3,000 matches a row, per side):
+
+| Stat | Target | v7 60 v 60 | v8 60 v 60 | v8 65 v 55 | v8 70 v 50 |
+| --- | --- | --- | --- | --- | --- |
+| Passes | 400–600 | 954 / 924 | 965 / 905 | 1064 / 803 | 1148 / 710 |
+| Completion % | 75–85 | 79 / 79 | 79 / 77 | 83 / 73 | 85 / 68 |
+| Tackles | 15–20 | 45.7 / 43.4 | 26.9 / 26.4 | 27.0 / 25.1 | 26.8 / 23.1 |
+| Possession, home % | 60–65 at a clear gap | 50.9 | 51.7 | 57.5 (53.8) | 62.7 (56.6) |
+| Shots | 12–13 | 10.8 / 9.5 | 11.9 / 10.2 | 15.2 / 7.7 | 19.0 / 5.7 |
+| On target | 4–5 | 4.4 / 3.7 | 5.6 / 4.6 | 7.6 / 3.3 | 10.1 / 2.3 |
+
+The bracketed figures are v7. Results and mentality, from the tuning harness (12,000 matches a row, about ±0.017 on a points difference): 60 v 60 at 43/27/30, 2.40 goals (v7 parameters on the same fixtures: 42/28/30, 2.31); 65 v 55 at 63/22/15 (61/23/16); 70 v 50 at 82/13/5 (79/15/7). Goals at 40, 60 and 80 v themselves are 2.41, 2.35 and 2.42. Points a match against balanced:
+
+| | v7 | v8 |
+| --- | --- | --- |
+| Equal teams: attacking / defensive | ±0.00 / +0.02 | +0.02 / −0.03 |
+| Underdog 55 v 65: defensive / attacking | +0.06 / 0.00 | +0.045 / 0.00 |
+| Favourite 65 v 55: attacking / defensive | +0.04 / −0.01 | +0.05 / −0.03 |
+
+### Kept, with reasons
+
+- **Passes (900–1,150 a side):** ball-in-play time, above. They fall with the stoppage rules.
+- **Shot split at a gap** (15.2–7.7 at gap 10; real ~12.6–9.3): shots follow territory. Each point of possession bought through skill also widened the split, and range or rate changes scaled both sides alike. Real underdogs out-shoot their possession through a deep block and counters, which are the roadmap's compact-block and game-state items, not constants.
+- **Possession at gap 10** is 57.5%, short of 60–65 (gap 20: 62.7%). Pushing further steepened results past v7 (69/18/13 at gap 10).
+- **On target and saves are now a little high** (5.6 / 4.6 on target, 3.6 / 4.3 saves). That is the counting fix: v7 undercounted. Shot accuracy (`ShotErrorPermille`) is left for a later step, because it moves goals.
+
+### Verification
+
+- Trend tests hold: `TestModelTrends`, `TestGoalsFollowTheGapNotTheLevel`, `TestMentalityTradeOff` (defensive draws 165 against 155), `TestConditionMatters`. `TestGolden` re-pinned (`a3c844127275aa2d`).
+- `TestBalanceMentalityByGap` and `TestBalanceMatchStats` run; [note to `balance`](handoffs/balance--tick-v8-rerun.md) for the refresh. A saved `tick` career at v7 no longer loads (engine version check, as for every bump); `simple` careers are untouched.
+- `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.

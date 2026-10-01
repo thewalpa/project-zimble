@@ -304,7 +304,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "08d0f58f97ed6a72"
+const goldenHash = "a3c844127275aa2d"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

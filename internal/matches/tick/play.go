@@ -543,12 +543,13 @@ func (s *session) shoot(side, slot int) {
 	skill := s.against(c.eff[effFinishing], s.teams[1-side].level.goalkeeping)
 	miss := d * (per10k - skill) / per10k * s.p.ShotErrorPermille / permille
 	aim.y += s.spread(miss)
+	onGoal := abs64(aim.y-pitchW/2) < postHalf // where it crosses the line
 	// Aim beyond the line so the ball crosses it.
 	aim = aim.add(aim.sub(c.pos).withLength(300))
 	speed := s.p.MinShotSpeed + (s.p.MaxShotSpeed-s.p.MinShotSpeed)*skill/per10k
 	s.kick(side, slot, aim, speed, s.p.AirDecel)
 	s.ball.shot, s.ball.finishing = true, c.eff[effFinishing]
-	s.ball.onGoal = abs64(aim.y-pitchW/2) < postHalf
+	s.ball.onGoal = onGoal
 	s.stats.shots[side]++
 }
 
@@ -704,6 +705,9 @@ func (s *session) fly(dst *matches.MatchStepResult) {
 		if s.flagged(c.side, c.slot) {
 			s.caughtOffside(c.side, c.slot)
 			return
+		}
+		if c.hands && s.ball.shot && c.side != s.lastSide && !s.ball.onGoal {
+			continue // a keeper leaves a shot going wide
 		}
 		p := s.teams[c.side].at(c.slot)
 		reach := s.p.ControlRadius
