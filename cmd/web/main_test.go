@@ -1512,7 +1512,6 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	c.post("/season", nil)
 	page := c.post("/continue", nil)
 	contains(t, page, "Other matchdays", "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches.",
-		"Ashcombe City 0-0 Ravensmoor Town (4-5 on penalties)",
 		"Matchday: Continental Cup quarter-final")
 	if strings.Count(page, "Automatically played:") != 1 {
 		t.Fatal("a batch was omitted or repeated at a managed fixture stop")
@@ -1523,11 +1522,11 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	if strings.Contains(page, "Automatically played:") {
 		t.Fatal("the previous action's automatic results survived the next Continue")
 	}
-	contains(t, page, "Latest result", "Drakeford City 3-2 Quillford FC")
+	contains(t, page, "Latest result", `class="pill L"`, "Quillford FC")
 	page = c.post("/continue", nil)
 	semi := "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches."
 	final := "Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match."
-	contains(t, page, semi, final, "Saltmere Athletic 2-0 Ironbridge Wanderers", "7 of your players&#39; contracts end tomorrow.")
+	contains(t, page, semi, final, "7 of your players&#39; contracts end tomorrow.")
 	if strings.Count(page, "Automatically played:") != 2 || strings.Index(page, semi) > strings.Index(page, final) {
 		t.Fatal("target stop did not list exactly two automatic batches in order")
 	}
@@ -1537,6 +1536,11 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	// Results are ordinary links, usable without JavaScript. Their detailed
 	// report was call-local, so a later query must say it has only the score.
 	finals := c.s.w.Cups()[0].Rounds
+	for _, round := range finals[1:] {
+		for _, f := range round.Ties {
+			contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
+		}
+	}
 	finalFixture := finals[len(finals)-1].Ties[0].ID
 	contains(t, page, fmt.Sprintf("href=\"/report?fixture=%d\"", finalFixture))
 	report := c.get(fmt.Sprintf("/report?fixture=%d", finalFixture))
@@ -1568,7 +1572,7 @@ func TestSeasonReportsAutomaticBatches(t *testing.T) {
 	page := c.post("/season", nil)
 	contains(t, page, "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches.",
 		"Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match.",
-		"Saltmere Athletic 2-0 Ironbridge Wanderers", "Founders League season 2", "14 of 14 rounds played")
+		"Founders League season 2", "14 of 14 rounds played")
 	if strings.Count(page, "Automatically played:") != 2 {
 		t.Fatal("the season redirect omitted or repeated automatic batches")
 	}

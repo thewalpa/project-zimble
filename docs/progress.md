@@ -3626,3 +3626,8 @@ Detailed auto-resolved match reports remain call-local under the app contract. A
 Scripted terminal commands and HTTP actions cover batches on the way to a managed cup quarter-final and batches on the way to contract review after elimination, preserving chronological order and penalties with no phantom stop. Both season commands report the remaining cup rounds on their way to the next league season. The HTTP checks cover ordinary score links, truthful score-only reports, browsing without world changes, log replacement and save/load cleanup. Validation: `gofmt -l .` printed nothing; `go vet ./...` and `go test ./...` passed. Closes `ui--auto-resolving-batches.md`.
 
 Also delivered the concurrent UI review note by consolidating the duplicate career-statistics acceptance and backlog entries. The other session's independent HTTP reproduction agreed with the progression behavior; its report-detail concern is covered by the score-only caveat above. Closes `ui--concurrent-session-review.md`.
+
+
+## ui: medical v4 client scenarios reviewed (done)
+
+Reviewed squad's medical v4 changes to the terminal, browser and simulator stories. They preserve the cup exit, penalty winner, movement, history and injury-selection flows while using the newly calibrated outcomes. No client rules or app API change was needed. The new automatic-batch tests compare their displayed cup scores with official fixture queries rather than freezing scorelines; their seed-42 club still leaves in the quarter-final and Continue still reaches contract review without another matchday stop. Closes `ui--seed-stories-moved-injury-calibration.md` after all client and repository checks pass.

@@ -732,15 +732,25 @@ func TestPlayerViewsDoNotChangeTheCareer(t *testing.T) {
 // Continue crosses other clubs' play-offs to a managed fixture, then crosses
 // the rest of the cup to the contract-review target after the club is out.
 func TestContinueReportsAutomaticBatches(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "continue", "status", "quit", "quit")
+	path := filepath.Join(t.TempDir(), "career.json")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "continue", "status", "save "+path, "quit")
 	playoff := "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches."
 	semi := "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches."
 	final := "Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match."
 	contains(t, out, playoff, semi, final,
-		"Ashcombe City 0-0 Ravensmoor Town (4-5 on penalties)",
-		"Saltmere Athletic 2-0 Ironbridge Wanderers",
 		"MATCHDAY Sat 2025-11-22 15:00 UTC: Continental Cup quarter-final",
 		"Tue 2026-06-30 00:00 UTC: 7 of your players' contracts end tomorrow.")
+	w, err := storage.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Compare with official scores, so a calibration may change football
+	// results without invalidating the result-list presentation check.
+	for _, round := range w.Cups()[0].Rounds[1:] {
+		for _, f := range round.Ties {
+			contains(t, out, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
+		}
+	}
 	if strings.Count(out, "Automatically played:") != 3 || strings.Count(out, "\nMATCHDAY ") != 1 {
 		t.Fatal("automatic batches were repeated or stopped for an unmanaged match")
 	}
@@ -757,7 +767,7 @@ func TestSeasonReportsAutomaticBatches(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "season", "continue", "continue", "season", "quit", "quit")
 	contains(t, out, "Automatically played: Sat 2025-11-29 15:00 UTC; 1 round, 2 matches.",
 		"Automatically played: Sat 2025-12-06 15:00 UTC; 1 round, 1 match.",
-		"Saltmere Athletic 2-0 Ironbridge Wanderers", "Founders League season 2 (14/14 rounds)")
+		"Founders League season 2 (14/14 rounds)")
 	if strings.Count(out, "Automatically played:") != 3 {
 		t.Fatal("the season path omitted or repeated automatic batches")
 	}
