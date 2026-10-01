@@ -123,3 +123,33 @@ func TestSigningsRejectInvalidInput(t *testing.T) {
 		}
 	}
 }
+
+func TestSigningsUseEachClubsKnowledgeWithoutDoubleSigning(t *testing.T) {
+	clubs := []ClubNeeds{
+		{Club: 1, Average: 50, Needs: []RoleCount{{matches.Defender, 1}}},
+		{Club: 2, Average: 60, Needs: []RoleCount{{matches.Defender, 2}}},
+	}
+	pools := map[ids.ClubID][]FreeAgent{
+		1: {{Player: 1, Role: matches.Defender, Overall: 90}, {Player: 2, Role: matches.Defender, Overall: 70}, {Player: 3, Role: matches.Defender, Overall: 50}},
+		2: {{Player: 1, Role: matches.Defender, Overall: 99}, {Player: 2, Role: matches.Defender, Overall: 40}, {Player: 3, Role: matches.Defender, Overall: 95}},
+	}
+	want := []Signing{{1, 1}, {2, 3}, {2, 2}}
+	got, err := SigningsForClubs(clubs, pools)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("signings %v, %v; want %v", got, err, want)
+	}
+	before1, before2 := slices.Clone(pools[1]), slices.Clone(pools[2])
+	slices.Reverse(clubs)
+	slices.Reverse(pools[1])
+	slices.Reverse(pools[2])
+	again, err := SigningsForClubs(clubs, pools)
+	slices.Reverse(pools[1])
+	slices.Reverse(pools[2])
+	if err != nil || !reflect.DeepEqual(again, want) || !reflect.DeepEqual(pools[1], before1) || !reflect.DeepEqual(pools[2], before2) {
+		t.Fatal("club observations were modified or input order changed signings")
+	}
+	delete(pools, 2)
+	if _, err := SigningsForClubs(clubs, pools); err == nil {
+		t.Fatal("accepted a club with no observed pool")
+	}
+}

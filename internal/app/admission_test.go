@@ -67,7 +67,7 @@ func admitForActor(t *testing.T, w *World, club ids.ClubID, player ids.PlayerID)
 		return err
 	}
 	m.at = m.open
-	m.pool = w.freeAgentPool()
+	m.pool = w.freeAgentIDs()
 	return m.sign(club, player)
 }
 

@@ -27,7 +27,7 @@ The clubs' people and money between matches: contracts, wages and the ledger, th
 
 ## Now
 
-Next: PAR-04 (revalidate player consent at transfer completion; see the audit). Delivered: PAR-03, shared staged squad admission checks, and PAR-01's common youth intake rule (see progress.md). `ui` may warn before intake ([note](../handoffs/ui--academy-fills-managed-vacancies.md)); `data` reviews the rule ([note](../handoffs/data--academy-intake-rule.md)).
+Delivered: club-scoped recruitment and renewal policy inputs (PAR-10 consumer adoption; closes `squad--club-observations`), including staged membership, per-club free-agent comparisons and seller-observed prices. PAR-04 consent at completion, PAR-03 shared staged admission and PAR-01 common academy intake are delivered. Next: injury incidence/recovery calibration; passive-manager market investigation remains accepted alongside the thin-market work. PAR-02 and PAR-06 await shared decision timing with competitions.
 
 ## Backlog
 

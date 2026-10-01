@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -114,19 +115,25 @@ func (w *World) contractYearsLeft(expires, t sim.GameInstant) (int, error) {
 // valuation is ai.Valuation of an employed player at t.
 func (w *World) valuation(player ids.PlayerID, t sim.GameInstant) (money.Money, error) {
 	a, ok := w.employment.Assignment(player)
-	p, profiled := w.players.Profile(player)
-	if !ok || !profiled {
+	if !ok {
 		return 0, fmt.Errorf("app: player %d has no club or profile", player)
 	}
-	age, err := w.age(player, t)
+	known, err := w.ObservePlayers(a.Club, []ids.PlayerID{player})
 	if err != nil {
 		return 0, err
+	}
+	p := known.Players[0]
+	if t != known.AsOf {
+		p.Age, err = w.age(player, t)
+		if err != nil {
+			return 0, err
+		}
 	}
 	years, err := w.contractYearsLeft(a.Contract.Expires, t)
 	if err != nil {
 		return 0, err
 	}
-	return ai.Valuation(p.Overall(), age, years), nil
+	return ai.Valuation(p.Overall, p.Age, years), nil
 }
 
 // squadAverage is the mean overall of a club's senior squad, rounded half
@@ -157,8 +164,19 @@ func (w *World) sellingPrice(player ids.PlayerID, t sim.GameInstant) (money.Mone
 		return 0, err
 	}
 	a, _ := w.employment.Assignment(player)
-	p, _ := w.players.Profile(player)
-	return w.clubPrice(a.Club, p.Overall(), value, w.squadAverage(a.Club)), nil
+	known, err := w.ObservePlayers(a.Club, w.employment.Squad(a.Team))
+	if err != nil {
+		return 0, err
+	}
+	overall, total := 0, 0
+	for _, p := range known.Players {
+		total += p.Overall
+		if p.Player == player {
+			overall = p.Overall
+		}
+	}
+	n := len(known.Players)
+	return w.clubPrice(a.Club, overall, value, (2*total+n)/(2*n)), nil
 }
 
 // clubPrice is the fee at which a club with a squad average sells an
@@ -184,12 +202,12 @@ func (w *World) transferContract(t sim.GameInstant, terms transfers.Terms) (empl
 
 // windowTerms are the terms an AI club offers in the window opened at open:
 // aiOffer for the contract year under way.
-func (w *World) windowTerms(player ids.PlayerID, open sim.GameInstant) (transfers.Terms, error) {
+func (w *World) windowTerms(club ids.ClubID, player ids.PlayerID, open sim.GameInstant) (transfers.Terms, error) {
 	year, err := w.yearOf(open)
 	if err != nil {
 		return transfers.Terms{}, err
 	}
-	o, err := w.aiOffer(player, year)
+	o, err := w.aiOffer(club, player, year)
 	return transfers.Terms(o), err
 }
 
@@ -209,17 +227,19 @@ type market struct {
 	wages    map[ids.ClubID]money.Money
 	moved    map[ids.PlayerID]bool               // completed a transfer in this window
 	settling map[ids.PlayerID]bool               // joined his club by transfer in the previous window
-	averages map[ids.ClubID]int                  // squad averages before the staged changes
+	averages map[ids.ClubID]int                  // seller-observed averages before staged changes
 	overalls map[ids.ClubID]int                  // sums of the staged squads' overalls
 	bought   map[ids.ClubID]bool                 // bought a player in this window
 	bidFor   map[[2]uint64]bool                  // (buyer, player) offers made in this window
 	offers   map[ids.OfferID]transfers.Offer     // open offers
 	openBids map[ids.ClubID]int                  // open offers by buyer
 	openFor  map[ids.PlayerID]int                // open offers by player
-	pool     []ai.FreeAgent                      // free agents not signed yet, best first
+	pool     []ids.PlayerID                      // unsigned free-agent IDs, ascending ID
 	terms    map[ids.OfferID]employment.Contract // completed offers' contracts
 	listings map[ids.PlayerID]transfers.Listing  // the transfer list
-	values   map[ids.PlayerID]money.Money        // valuations at m.at, computed once
+	values   map[ids.PlayerID]money.Money        // seller-observed valuations at m.at
+
+	knowledge map[ids.ClubID]map[ids.PlayerID]PlayerObservation // initial club observations
 
 	jobs     employment.Changes
 	postings []finance.Posting
@@ -252,7 +272,7 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 		overalls: map[ids.ClubID]int{}, bought: map[ids.ClubID]bool{}, bidFor: map[[2]uint64]bool{},
 		offers: map[ids.OfferID]transfers.Offer{}, openBids: map[ids.ClubID]int{}, openFor: map[ids.PlayerID]int{},
 		terms: map[ids.OfferID]employment.Contract{}, listings: map[ids.PlayerID]transfers.Listing{},
-		values: map[ids.PlayerID]money.Money{},
+		values: map[ids.PlayerID]money.Money{}, knowledge: map[ids.ClubID]map[ids.PlayerID]PlayerObservation{},
 	}
 	previous, err := w.addYears(open, -1)
 	if err != nil {
@@ -260,7 +280,6 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 	}
 	for _, c := range w.registry.Clubs() {
 		m.counts[c.ID] = map[players.Position]int{}
-		m.averages[c.ID] = w.squadAverage(c.ID)
 		m.balances[c.ID], _ = w.finance.Balance(c.ID)
 		if m.wages[c.ID], err = w.employment.WageBill(c.ID); err != nil {
 			return nil, err
@@ -294,16 +313,67 @@ func (w *World) newMarket(at sim.GameInstant) (*market, error) {
 	return m, nil
 }
 
-// value is ai.Valuation of a player employed since before the market, at
-// m.at.
+// observations caches the deciding club's initial knowledge for this run.
+// Staged employment is kept in employer/counts. Policies combine that overlay
+// with these ratings; they never rebuild squads from pre-cohort assignments.
+// The seller's original average is retained for pricing, as before.
+func (m *market) observations(club ids.ClubID) (map[ids.PlayerID]PlayerObservation, error) {
+	if known, ok := m.knowledge[club]; ok {
+		return known, nil
+	}
+	known, err := m.w.recruitmentPlayers(club, m.at)
+	if err != nil {
+		return nil, err
+	}
+	total, n := 0, 0
+	for _, p := range known {
+		if p.Club == club {
+			total += p.Overall
+			n++
+		}
+	}
+	if n > 0 {
+		m.averages[club] = (2*total + n) / (2 * n)
+	}
+	m.knowledge[club] = known
+	return known, nil
+}
+
+// freeAgents projects the remaining staged pool through the deciding club's
+// observations. A signing removes the ID for all clubs; ratings never leak
+// from another club's comparison. Equal ratings retain ascending player ID.
+func (m *market) freeAgents(club ids.ClubID) ([]ai.FreeAgent, error) {
+	known, err := m.observations(club)
+	if err != nil {
+		return nil, err
+	}
+	var pool []ai.FreeAgent
+	for _, id := range m.pool {
+		p := known[id]
+		pool = append(pool, ai.FreeAgent{Player: id, Role: roleOf(p.Position), Overall: p.Overall})
+	}
+	slices.SortFunc(pool, func(a, b ai.FreeAgent) int {
+		return cmp.Or(cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
+	})
+	return pool, nil
+}
+
+// value is the seller's observed valuation of a player employed before the
+// market. A player already moved in this window cannot be offered again.
 func (m *market) value(player ids.PlayerID) (money.Money, error) {
 	if v, ok := m.values[player]; ok {
 		return v, nil
 	}
-	v, err := m.w.valuation(player, m.at)
+	known, err := m.observations(m.employer[player])
 	if err != nil {
 		return 0, err
 	}
+	p := known[player]
+	years, err := m.w.contractYearsLeft(p.Contract.Expires, m.at)
+	if err != nil {
+		return 0, err
+	}
+	v := ai.Valuation(p.Overall, p.Age, years)
 	m.values[player] = v
 	return v, nil
 }
@@ -340,9 +410,12 @@ func (m *market) price(player ids.PlayerID) (money.Money, error) {
 	if err != nil {
 		return 0, err
 	}
-	a, _ := m.w.employment.Assignment(player) // not moved in this window: the store's assignment
-	p, _ := m.w.players.Profile(player)
-	return m.w.clubPrice(a.Club, p.Overall(), value, m.averages[a.Club]), nil
+	seller := m.employer[player]
+	known, err := m.observations(seller)
+	if err != nil {
+		return 0, err
+	}
+	return m.w.clubPrice(seller, known[player].Overall, value, m.averages[seller]), nil
 }
 
 // list stages a listing at m.at, replacing the player's listing if he has
@@ -487,7 +560,7 @@ func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
 	if err := m.w.checkAdmission(m.counts[club], p.Position); err != nil {
 		return err
 	}
-	terms, err := m.w.windowTerms(player, m.open)
+	terms, err := m.w.windowTerms(club, player, m.open)
 	if err != nil {
 		return err
 	}
@@ -506,7 +579,7 @@ func (m *market) sign(club ids.ClubID, player ids.PlayerID) error {
 	m.counts[club][p.Position]++
 	m.overalls[club] += p.Overall()
 	m.employer[player], m.position[player] = club, p.Position
-	m.pool = slices.DeleteFunc(m.pool, func(f ai.FreeAgent) bool { return f.Player == player })
+	m.pool = slices.DeleteFunc(m.pool, func(id ids.PlayerID) bool { return id == player })
 	m.actions = append(m.actions, marketAction{bid: -1, signing: a})
 	return nil
 }
@@ -671,8 +744,7 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 			m.closeOffer(o, failedStatus(err))
 		}
 	}
-	m.pool = w.freeAgentPool()
-	slices.SortStableFunc(m.pool, func(a, b ai.FreeAgent) int { return b.Overall - a.Overall })
+	m.pool = w.freeAgentIDs()
 	if at >= m.close {
 		if err := m.fillSquads(); err != nil {
 			return err
@@ -703,18 +775,24 @@ func (w *World) transferRun(at sim.GameInstant, cohort []sim.Task) error {
 // fillSquads signs free agents for every AI club's vacancies at the close.
 func (m *market) fillSquads() error {
 	var needs []ai.ClubNeeds
+	pools := map[ids.ClubID][]ai.FreeAgent{}
 	for _, c := range m.w.registry.Clubs() {
 		if c.ID == m.w.userClub {
 			continue
 		}
 		if n := m.needs(c.ID); len(n) > 0 {
+			var err error
+			pools[c.ID], err = m.freeAgents(c.ID)
+			if err != nil {
+				return err
+			}
 			needs = append(needs, ai.ClubNeeds{Club: c.ID, Needs: n})
 		}
 	}
 	if len(needs) == 0 {
 		return nil
 	}
-	signings, err := ai.Signings(needs, m.pool)
+	signings, err := ai.SigningsForClubs(needs, pools)
 	if err != nil {
 		return err
 	}
@@ -727,15 +805,18 @@ func (m *market) fillSquads() error {
 }
 
 // members returns a club's players at a position, as staged.
-func (m *market) members(club ids.ClubID, pos players.Position) []ai.Member {
+func (m *market) members(club ids.ClubID, pos players.Position) ([]ai.Member, error) {
+	known, err := m.observations(club)
+	if err != nil {
+		return nil, err
+	}
 	var out []ai.Member
 	for _, id := range slices.Sorted(maps.Keys(m.employer)) {
 		if m.employer[id] == club && m.position[id] == pos {
-			p, _ := m.w.players.Profile(id)
-			out = append(out, ai.Member{Player: id, Overall: p.Overall()})
+			out = append(out, ai.Member{Player: id, Overall: known[id].Overall})
 		}
 	}
-	return out
+	return out, nil
 }
 
 // hasSurplus reports whether a club holds more players than its roster
@@ -757,7 +838,14 @@ func (m *market) listSurplus() error {
 		}
 		surplus := map[ids.PlayerID]bool{}
 		for _, q := range w.defs.Roster {
-			for _, id := range ai.Surplus(m.members(c.ID, q.Position), q.Count) {
+			if m.counts[c.ID][q.Position] <= q.Count {
+				continue
+			}
+			members, err := m.members(c.ID, q.Position)
+			if err != nil {
+				return err
+			}
+			for _, id := range ai.Surplus(members, q.Count) {
 				surplus[id] = !m.moved[id]
 			}
 		}
@@ -821,8 +909,12 @@ func (m *market) aiActions() error {
 				pos = q.Position
 			}
 		}
-		best := -1 // the best free agent at the position, index into the pool
-		for i, f := range m.pool {
+		pool, err := m.freeAgents(c.ID)
+		if err != nil {
+			return err
+		}
+		best := -1 // the best free agent at the position, index into this club's pool
+		for i, f := range pool {
 			if f.Role == role {
 				best = i
 				break
@@ -831,7 +923,7 @@ func (m *market) aiActions() error {
 		if canBid {
 			floor := 0
 			if best >= 0 {
-				floor = m.pool[best].Overall
+				floor = pool[best].Overall
 			}
 			listedOnly := m.bought[c.ID]
 			cands, err := m.candidates(c.ID, func(id ids.PlayerID) bool {
@@ -850,7 +942,7 @@ func (m *market) aiActions() error {
 			}
 		}
 		if best >= 0 && m.at >= m.open+freeAgentGrace(w.defs.Transfers.WindowDays) {
-			if err := m.sign(c.ID, m.pool[best].Player); err != nil {
+			if err := m.sign(c.ID, pool[best].Player); err != nil {
 				return err
 			}
 		}
@@ -862,7 +954,11 @@ func (m *market) aiActions() error {
 func (m *market) upgrade(club ids.ClubID) error {
 	weakest := map[matches.Role]int{}
 	for _, q := range m.w.defs.Roster {
-		for i, mem := range m.members(club, q.Position) {
+		members, err := m.members(club, q.Position)
+		if err != nil {
+			return err
+		}
+		for i, mem := range members {
 			if r := roleOf(q.Position); i == 0 || mem.Overall < weakest[r] {
 				weakest[r] = mem.Overall
 			}
@@ -881,7 +977,7 @@ func (m *market) upgrade(club ids.ClubID) error {
 
 // aiBid stages an AI club's bid of its target's price, on windowTerms.
 func (m *market) aiBid(club ids.ClubID, target ai.TransferCandidate) error {
-	terms, err := m.w.windowTerms(target.Player, m.open)
+	terms, err := m.w.windowTerms(club, target.Player, m.open)
 	if err != nil {
 		return err
 	}
@@ -901,6 +997,10 @@ func (m *market) aiBid(club ids.ClubID, target ai.TransferCandidate) error {
 // ones who joined it by transfer in the previous window, and ones it needs
 // when the answer comes too late for it to replace them (see replaceable).
 func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.TransferCandidate, error) {
+	known, err := m.observations(club)
+	if err != nil {
+		return nil, err
+	}
 	w := m.w
 	answer, err := w.nextTransferRun(m.at)
 	if err != nil {
@@ -928,8 +1028,8 @@ func (m *market) candidates(club ids.ClubID, ok func(ids.PlayerID) bool) ([]ai.T
 		if err != nil {
 			return nil, err
 		}
-		p, _ := w.players.Profile(id)
-		cands = append(cands, ai.TransferCandidate{Player: id, Club: seller, Role: roleOf(pos), Overall: p.Overall(), Value: price, Listed: listed})
+		p := known[id]
+		cands = append(cands, ai.TransferCandidate{Player: id, Club: seller, Role: roleOf(p.Position), Overall: p.Overall, Value: price, Listed: listed})
 	}
 	return cands, nil
 }

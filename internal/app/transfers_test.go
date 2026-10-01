@@ -880,7 +880,7 @@ func plantBid(t *testing.T, w *World, player ids.PlayerID, buyer ids.ClubID, fee
 	if err != nil {
 		t.Fatal(err)
 	}
-	terms, _ := w.windowTerms(player, m.open)
+	terms, _ := w.windowTerms(buyer, player, m.open)
 	if _, err := m.bid(player, buyer, fee, terms); err != nil {
 		t.Fatal(err)
 	}
@@ -1123,7 +1123,7 @@ func TestAskingPriceAndSuggestedTerms(t *testing.T) {
 
 func mustAIOffer(t *testing.T, w *World, player ids.PlayerID, year int) ContractOffer {
 	t.Helper()
-	o, err := w.aiOffer(player, year)
+	o, err := w.aiOffer(w.userClub, player, year)
 	if err != nil {
 		t.Fatal(err)
 	}

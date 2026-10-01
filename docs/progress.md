@@ -3389,3 +3389,15 @@ Accepted `squad--injury-rates` into the backlog. Target roughly 0.5–1.0 injuri
 ## squad: passive-manager market investigation accepted
 
 Accepted `squad--passive-manager-market` alongside the thin-market backlog. A larger free-agent pool can reasonably reduce demand for fringe listed players; an unsold listing is not a guarantee of recruitment. The 24 short active-manager windows need a focused reproduction of vacancy choices, need ordering and wage-reserve budgets before tuning. Keep common legality and costs, without an AI-only insolvency exemption. No policy or version change is made yet.
+
+## squad: recruitment and renewal use club observations (done)
+
+Closes `squad--club-observations` (PAR-10 consumer adoption). Annual renewal decisions, retained-squad averages, free-agent allocation, reservation rankings, transfer candidates, surplus/upgrade comparisons, contract suggestions and seller valuation/price policy read `World.ObservePlayers` in the deciding club's scope. `ai.SigningsForClubs` accepts detached per-club pools while retaining the existing weaker-club-first allocation, role order and one signing per player. `ai.Signings` remains the common-pool adapter.
+
+The market keeps availability as player IDs, caches each club's observations for one run, and overlays staged employers/counts when building members or removing signed players from every club's pool. Consent still uses authoritative staged overalls and current squad averages. Prices retain the seller's original observed average, preserving the existing pricing policy. Annual departures are overlaid on each club's observed pool, including ReleasedBy. Cohorts run before the scheduler commits its clock, so observed ages are projected from public birth dates to the decision instant. No observation cache is saved.
+
+Exact information remains the policy: no authoritative save fields, versions, goldens, football rules or seeded results change. Actor/provenance unification and scouting remain separate work. The existing compatibility views (`FreeAgents`, `PlayerProfile`) keep their return types; explicit human observer adoption remains ui's existing `ui--club-observations` request. Data receives the overlay and adoption contract in `data--squad-observations-adopted`.
+
+Regression coverage verifies club knowledge and suggested demands under controller swaps, task-instant ages, detached per-club ratings, seller pricing and authoritative consent, staged signings/transfers including observations first read after staging, canonical allocation without duplicate signings, and identical window decisions after save/restore. Existing season goldens, frozen save fixtures and long-run legal-squad/money checks pass unchanged.
+
+Corrected the stale Now entry: PAR-04 consent at completion was already delivered. Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed, including the new regression tests and existing fifteen-year squad checks.

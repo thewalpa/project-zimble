@@ -92,15 +92,15 @@ type ContractOffer struct {
 
 // aiOffer is what an AI club offers a player: ai.ContractLength years keyed
 // by the calendar year the contract starts, at the player's demand.
-func (w *World) aiOffer(player ids.PlayerID, startYear int) (ContractOffer, error) {
-	p, ok := w.players.Profile(player)
-	if !ok {
-		return ContractOffer{}, fmt.Errorf("app: player %d has no profile", player)
+func (w *World) aiOffer(club ids.ClubID, player ids.PlayerID, startYear int) (ContractOffer, error) {
+	known, err := w.ObservePlayers(club, []ids.PlayerID{player})
+	if err != nil {
+		return ContractOffer{}, err
 	}
 	e := w.defs.Economy
 	return ContractOffer{
 		Years:      ai.ContractLength(w.seed, player, startYear, e.ContractYears[0], e.ContractYears[1]),
-		WeeklyWage: e.Demand(p.Overall()),
+		WeeklyWage: known.Players[0].Demand,
 	}, nil
 }
 
@@ -188,16 +188,20 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 		return err
 	}
 	var changes employment.Changes
-	pool := w.freeAgentPool()
+	known := map[ids.ClubID]map[ids.PlayerID]PlayerObservation{}
+	released := map[ids.PlayerID]ids.ClubID{}
 	counts := map[ids.ClubID]map[players.Position]int{}
 	var needs []ai.ClubNeeds
 	for _, c := range w.registry.Clubs() {
+		known[c.ID], err = w.recruitmentPlayers(c.ID, at)
+		if err != nil {
+			return err
+		}
 		team, _ := w.registry.SeniorTeam(c.ID)
 		squad := w.employment.Squad(team)
 		average := 0
 		for _, id := range squad {
-			p, _ := w.players.Profile(id)
-			average += p.Overall()
+			average += known[c.ID][id].Overall
 		}
 		if n := len(squad); n > 0 {
 			average = (2*average + n) / (2 * n)
@@ -206,18 +210,14 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 		kept, keptTotal := 0, 0
 		for _, id := range squad {
 			a, _ := w.employment.Assignment(id)
-			p, _ := w.players.Profile(id)
+			p := known[c.ID][id]
 			if a.Contract.Expires == at {
-				age, err := w.age(id, at)
-				if err != nil {
-					return err
-				}
-				if c.ID == w.userClub || !ai.Renew(p.Overall(), average, age) {
+				if c.ID == w.userClub || !ai.Renew(p.Overall, average, p.Age) {
 					changes.Departures = append(changes.Departures, id)
-					pool = append(pool, ai.FreeAgent{Player: id, Role: roleOf(p.Position), Overall: p.Overall(), ReleasedBy: c.ID})
+					released[id] = c.ID
 					continue
 				}
-				offer, err := w.aiOffer(id, year)
+				offer, err := w.aiOffer(c.ID, id, year)
 				if err != nil {
 					return err
 				}
@@ -229,7 +229,7 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 			}
 			counts[c.ID][p.Position]++
 			kept++
-			keptTotal += p.Overall()
+			keptTotal += p.Overall
 		}
 		need := ai.ClubNeeds{Club: c.ID}
 		if kept > 0 {
@@ -246,13 +246,17 @@ func (w *World) contractYear(at sim.GameInstant, cohort []sim.Task) error {
 		}
 		needs = append(needs, need)
 	}
-	signings, err := ai.Signings(needs, pool)
+	pools := map[ids.ClubID][]ai.FreeAgent{}
+	for _, c := range w.registry.Clubs() {
+		pools[c.ID] = observedFreeAgents(known[c.ID], released)
+	}
+	signings, err := ai.SigningsForClubs(needs, pools)
 	if err != nil {
 		return err
 	}
-	signings = w.holdBack(signings, counts)
+	signings = w.holdBack(signings, counts, known)
 	for _, s := range signings {
-		offer, err := w.aiOffer(s.Player, year)
+		offer, err := w.aiOffer(s.Club, s.Player, year)
 		if err != nil {
 			return err
 		}
@@ -325,7 +329,7 @@ const freeAgentReserve = 4
 // holds each club's players by position, the signings not included. The
 // clubs stay short until AI clubs sign free agents in the window, after the
 // manager's first days (see freeAgentGrace), or at its close.
-func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[players.Position]int) []ai.Signing {
+func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[players.Position]int, known map[ids.ClubID]map[ids.PlayerID]PlayerObservation) []ai.Signing {
 	type pick struct {
 		i       int
 		overall int
@@ -333,13 +337,13 @@ func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[player
 	added := map[ids.ClubID]map[players.Position]int{}
 	var eligible []pick
 	for i, s := range signings {
-		p, _ := w.players.Profile(s.Player)
+		p := known[s.Club][s.Player]
 		if added[s.Club] == nil {
 			added[s.Club] = map[players.Position]int{}
 		}
 		added[s.Club][p.Position]++
 		if s.Club != w.userClub {
-			eligible = append(eligible, pick{i, p.Overall()})
+			eligible = append(eligible, pick{i, p.Overall})
 		}
 	}
 	slices.SortFunc(eligible, func(a, b pick) int {
@@ -351,7 +355,7 @@ func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[player
 			break
 		}
 		s := signings[e.i]
-		p, _ := w.players.Profile(s.Player)
+		p := known[s.Club][s.Player]
 		if counts[s.Club][p.Position]+added[s.Club][p.Position]-1 < w.defs.Quota(p.Position).Min {
 			continue
 		}
@@ -367,15 +371,62 @@ func (w *World) holdBack(signings []ai.Signing, counts map[ids.ClubID]map[player
 	return out
 }
 
-// freeAgentPool lists every active player without an employer.
+// recruitmentPlayers reads policy inputs in the deciding club's scope.
+// Cohort handlers run before the scheduler commits its clock, so ages are
+// projected from public birth dates to the decision instant when necessary.
+// Membership changes are overlaid by the annual plan or market, never by
+// rereading employment after a staged change.
+func (w *World) recruitmentPlayers(club ids.ClubID, at sim.GameInstant) (map[ids.PlayerID]PlayerObservation, error) {
+	known, err := w.ObservePlayers(club, w.activePlayers())
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[ids.PlayerID]PlayerObservation, len(known.Players))
+	for _, p := range known.Players {
+		if at != known.AsOf {
+			p.Age, err = w.age(p.Player, at)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out[p.Player] = p
+	}
+	return out, nil
+}
+
+// observedFreeAgents includes players leaving in the annual staged plan.
+// Ratings and roles come from the observing club; ReleasedBy remains a
+// public employment fact used to prefer players released by other clubs.
+func observedFreeAgents(known map[ids.PlayerID]PlayerObservation, released map[ids.PlayerID]ids.ClubID) []ai.FreeAgent {
+	var out []ai.FreeAgent
+	for _, id := range slices.Sorted(maps.Keys(known)) {
+		p := known[id]
+		if !p.Retired && (p.Club == 0 || released[id] != 0) {
+			out = append(out, ai.FreeAgent{Player: id, Role: roleOf(p.Position), Overall: p.Overall, ReleasedBy: released[id]})
+		}
+	}
+	return out
+}
+
+// freeAgentIDs lists active unemployed players as an authoritative availability
+// fact. Recruitment policies project these IDs through their club observations.
+func (w *World) freeAgentIDs() []ids.PlayerID {
+	var out []ids.PlayerID
+	for _, id := range w.activePlayers() {
+		if _, employed := w.employment.Assignment(id); !employed {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// freeAgentPool is the compatibility projection for unscoped summary views.
+// Manager policy uses observedFreeAgents or market.freeAgents instead.
 func (w *World) freeAgentPool() []ai.FreeAgent {
 	var out []ai.FreeAgent
-	for _, id := range w.activePlayers() {
-		if _, employed := w.employment.Assignment(id); employed {
-			continue
-		}
-		profile, _ := w.players.Profile(id)
-		out = append(out, ai.FreeAgent{Player: id, Role: roleOf(profile.Position), Overall: profile.Overall()})
+	for _, id := range w.freeAgentIDs() {
+		p := w.playerObservation(id)
+		out = append(out, ai.FreeAgent{Player: id, Role: roleOf(p.Position), Overall: p.Overall})
 	}
 	return out
 }
@@ -739,13 +790,13 @@ func (w *World) SuggestContract(player ids.PlayerID) (ContractOffer, error) {
 		if err := w.checkFreeAgent(player); err != nil {
 			return ContractOffer{}, err
 		}
-		return w.aiOffer(player, year-1) // the contract year under way
+		return w.aiOffer(w.userClub, player, year-1) // the contract year under way
 	case a.Club != w.userClub:
-		return w.aiOffer(player, year-1) // as windowTerms
+		return w.aiOffer(w.userClub, player, year-1) // as windowTerms
 	case a.Contract.Expires != end:
 		return ContractOffer{}, fmt.Errorf("%w: player %d", ErrNotFinalYear, player)
 	}
-	return w.aiOffer(player, year)
+	return w.aiOffer(w.userClub, player, year)
 }
 
 // FreeAgents returns every active player without a club in ascending ID

@@ -136,7 +136,7 @@ func TestContractYearRenewsReleasesAndSigns(t *testing.T) {
 		age, _ := w.age(id, end)
 		if ai.Renew(p.Overall(), averages[old.Club], age) {
 			renewed++
-			offer, _ := w.aiOffer(id, year)
+			offer, _ := w.aiOffer(old.Club, id, year)
 			want, _ := w.addYears(end, offer.Years)
 			if !employed || now.Club != old.Club || now.Team != old.Team || now.Contract != (employment.Contract{Expires: want, WeeklyWage: offer.WeeklyWage}) {
 				t.Fatalf("player %d should be renewed on %+v, has %+v", id, offer, now)
@@ -160,7 +160,7 @@ func TestContractYearRenewsReleasesAndSigns(t *testing.T) {
 	for _, e := range eventsAt[events.KindPlayerSigned] {
 		p := e.PlayerSigned
 		a, _ := w.employment.Assignment(p.Player)
-		offer, _ := w.aiOffer(p.Player, year)
+		offer, _ := w.aiOffer(p.Club, p.Player, year)
 		want, _ := w.addYears(end, offer.Years)
 		if a.Club != p.Club || a.Contract.Expires != want || a.Contract.WeeklyWage != offer.WeeklyWage || p.Expires != want {
 			t.Fatalf("signing %+v, assignment %+v, offer %+v", p, a, offer)

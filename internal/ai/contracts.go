@@ -82,14 +82,40 @@ type Signing struct {
 // anyone. Inputs are canonicalized and not modified; signings are returned
 // in pick order.
 func Signings(clubs []ClubNeeds, pool []FreeAgent) ([]Signing, error) {
+	if _, err := signingAgents(pool); err != nil {
+		return nil, err
+	}
+	pools := make(map[ids.ClubID][]FreeAgent, len(clubs))
+	for _, c := range clubs {
+		pools[c.Club] = pool
+	}
+	return SigningsForClubs(clubs, pools)
+}
+
+// SigningsForClubs uses each deciding club's detached knowledge of the pool.
+// Allocation order and role preferences follow Signings. A player picked by
+// one club is unavailable to every later club, regardless of their ratings.
+// Inputs are canonicalized and left unchanged; a missing pool is an error.
+func SigningsForClubs(clubs []ClubNeeds, pools map[ids.ClubID][]FreeAgent) ([]Signing, error) {
 	clubs = slices.Clone(clubs)
 	slices.SortFunc(clubs, func(a, b ClubNeeds) int {
 		return cmp.Or(cmp.Compare(a.Average, b.Average), cmp.Compare(a.Club, b.Club))
 	})
 	need := make([]map[matches.Role]int, len(clubs))
+	seen := map[ids.ClubID]bool{}
+	agents := map[ids.ClubID][]FreeAgent{}
 	for i, c := range clubs {
-		if !c.Club.Valid() || (i > 0 && clubs[i-1].Club == c.Club) {
+		if !c.Club.Valid() || seen[c.Club] {
 			return nil, fmt.Errorf("ai: club %d invalid or listed twice", c.Club)
+		}
+		seen[c.Club] = true
+		pool, ok := pools[c.Club]
+		if !ok {
+			return nil, fmt.Errorf("ai: club %d has no observed free-agent pool", c.Club)
+		}
+		var err error
+		if agents[c.Club], err = signingAgents(pool); err != nil {
+			return nil, fmt.Errorf("ai: club %d: %w", c.Club, err)
 		}
 		need[i] = map[matches.Role]int{}
 		for _, n := range c.Needs {
@@ -99,25 +125,13 @@ func Signings(clubs []ClubNeeds, pool []FreeAgent) ([]Signing, error) {
 			need[i][n.Role] += n.Count
 		}
 	}
-	agents := slices.Clone(pool)
-	slices.SortFunc(agents, func(a, b FreeAgent) int {
-		return cmp.Or(cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
-	})
-	for i, a := range agents {
-		if !a.Player.Valid() || !a.Role.Valid() {
-			return nil, fmt.Errorf("ai: free agent %+v", a)
-		}
-		if slices.ContainsFunc(agents[:i], func(b FreeAgent) bool { return b.Player == a.Player }) {
-			return nil, fmt.Errorf("ai: free agent %d listed twice", a.Player)
-		}
-	}
-	taken := make([]bool, len(agents))
+	taken := map[ids.PlayerID]bool{}
 	// bestFor returns the index of the best untaken agent of role for club,
 	// preferring those the club did not release, or -1.
 	bestFor := func(role matches.Role, club ids.ClubID) int {
 		fallback := -1
-		for i, a := range agents {
-			if taken[i] || a.Role != role {
+		for i, a := range agents[club] {
+			if taken[a.Player] || a.Role != role {
 				continue
 			}
 			if a.ReleasedBy != club {
@@ -144,11 +158,31 @@ func Signings(clubs []ClubNeeds, pool []FreeAgent) ([]Signing, error) {
 			if pick < 0 {
 				continue
 			}
-			taken[pick] = true
-			need[i][agents[pick].Role]--
-			out = append(out, Signing{Club: c.Club, Player: agents[pick].Player})
+			agent := agents[c.Club][pick]
+			taken[agent.Player] = true
+			need[i][agent.Role]--
+			out = append(out, Signing{Club: c.Club, Player: agent.Player})
 			signed = true
 		}
 	}
 	return out, nil
+}
+
+// signingAgents validates and detaches a club's candidates before sorting.
+func signingAgents(pool []FreeAgent) ([]FreeAgent, error) {
+	agents := slices.Clone(pool)
+	slices.SortFunc(agents, func(a, b FreeAgent) int {
+		return cmp.Or(cmp.Compare(b.Overall, a.Overall), cmp.Compare(a.Player, b.Player))
+	})
+	seen := map[ids.PlayerID]bool{}
+	for _, a := range agents {
+		if !a.Player.Valid() || !a.Role.Valid() {
+			return nil, fmt.Errorf("ai: free agent %+v", a)
+		}
+		if seen[a.Player] {
+			return nil, fmt.Errorf("ai: free agent %d listed twice", a.Player)
+		}
+		seen[a.Player] = true
+	}
+	return agents, nil
 }
