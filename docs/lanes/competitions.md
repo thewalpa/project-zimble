@@ -25,14 +25,15 @@ The shape of the football year: game time and the task queue, `Continue`, league
 
 ## Now
 
-Cup prize money, the competitions half: `competitions.Store.Exits` (each entrant's stage in a completed knockout) is the rule, and the inbox's cup stage reads it. Waiting on `data--cup-prize-table` (amounts on `content.Cup.Prizes`), then `squad--cup-prize-postings` (ledger kind, postings in `endSeasons`, validation). When squad delivers, review their edit in `season.go`. Open from earlier: `ui--auto-resolving-batches` (accepted by ui). `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below.
+Cup prize money, the competitions half: `competitions.Store.Exits` (each entrant's stage in a completed knockout) is the rule, and the inbox's cup stage reads it. Waiting on `data--cup-prize-table` (amounts on `content.Cup.Prizes`), then `squad--cup-prize-postings` (ledger kind, postings in `endSeasons`, validation). When squad delivers, review their edit in `season.go`. League sizes: any even size is in, and `data--even-league-sizes` asks content to reject odd ones. Open from earlier: `ui--auto-resolving-batches` (accepted by ui). `competitions--shared-manager-decision-stops` stays accepted as the PAR-07 item below.
 
 ## Backlog
 
 - **Cup prize money (waiting on data and squad):** the rule is delivered (`Exits`). Review squad's `endSeasons` edit when it lands; league prize money by final position could follow the same pattern from `Ranking`.
 - **Two-legged ties and extra time:** they need a `match` note for engine support.
 - **Registration and eligibility per competition** (the architecture assigns it to competitions), once squads have more than one team.
-- **League sizes other than eight** (`competitions.SupportedEntrants`).
+- **Odd league sizes (byes):** even sizes are in (`competitions.MaxLeagueEntrants`). An odd size needs a bye slot per round and `content.League.Rounds()` changed with it, so coordinate with `data`. A content-driven reason should come first.
+- **The football year at load:** a league's season plus its cup must finish before the contract-year end. Only `TestSeasonsStayInsideTheContractYear` checks that, for built-in content. Offered to `data` in `data--even-league-sizes`; it involves squad's contract-year and window dates.
 
 - **Season review before rollover:** support `ui`'s "play the rest of the season" flow with an explicit stop after the relevant league and cup fixtures finish, before creating the next season. Define what happens when competitions finish on different dates; distinguish the final match, contract deadlines and rollover so a review screen never promises an already-expired renewal. Coordinate stops with `squad` and `ui`; repeated Continue and save/load must neither skip the review nor create a season twice.
 - **Minimum rest across competitions:** extend clash checking from identical kickoffs to a content-defined recovery interval across league and cup fixtures. Ask `data` for the rule and agree the condition implications with `squad`. Scheduling should deterministically find a valid slot or report an impossible calendar, including when cup progression adds fixtures.

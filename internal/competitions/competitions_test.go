@@ -27,6 +27,15 @@ func teams(idsIn ...ids.TeamID) []ids.TeamID { return idsIn }
 
 func eight() []ids.TeamID { return teams(1, 2, 3, 4, 5, 6, 7, 8) }
 
+// numbered returns teams 1..n.
+func numbered(n int) []ids.TeamID {
+	out := make([]ids.TeamID, n)
+	for i := range out {
+		out[i] = ids.TeamID(i + 1)
+	}
+	return out
+}
+
 func create(t *testing.T, seed random.Seed, ref SeasonRef, entrants []ids.TeamID) *Store {
 	t.Helper()
 	s := New()
@@ -45,11 +54,16 @@ func fingerprint(fixtures []Fixture) string {
 }
 
 // assertLeagueInvariants checks the required properties directly, without
-// using checkDoubleRoundRobin.
+// using checkDoubleRoundRobin: for n entrants, 2(n-1) rounds of n/2
+// fixtures, each pair meeting once at each venue, and no team at the same
+// venue more than twice in a row within a half or three times across the
+// halfway point.
 func assertLeagueInvariants(t *testing.T, entrants []ids.TeamID, fixtures []Fixture) {
 	t.Helper()
-	if len(fixtures) != 56 {
-		t.Fatalf("got %d fixtures, want 56", len(fixtures))
+	n := len(entrants)
+	rounds := Round(2 * (n - 1))
+	if len(fixtures) != n*(n-1) {
+		t.Fatalf("%d entrants: got %d fixtures, want %d", n, len(fixtures), n*(n-1))
 	}
 	isEntrant := map[ids.TeamID]bool{}
 	for _, e := range entrants {
@@ -84,12 +98,12 @@ func assertLeagueInvariants(t *testing.T, entrants []ids.TeamID, fixtures []Fixt
 		away[f.Away]++
 		venues[[2]ids.TeamID{f.Home, f.Away}]++
 	}
-	if len(perRound) != 14 {
-		t.Fatalf("got %d rounds, want 14", len(perRound))
+	if len(perRound) != int(rounds) {
+		t.Fatalf("got %d rounds, want %d", len(perRound), rounds)
 	}
-	for r := Round(1); r <= 14; r++ {
-		if perRound[r] != 4 {
-			t.Fatalf("round %d has %d fixtures, want 4", r, perRound[r])
+	for r := Round(1); r <= rounds; r++ {
+		if perRound[r] != n/2 {
+			t.Fatalf("round %d has %d fixtures, want %d", r, perRound[r], n/2)
 		}
 		for _, e := range entrants {
 			if playsInRound[r][e] != 1 {
@@ -98,7 +112,7 @@ func assertLeagueInvariants(t *testing.T, entrants []ids.TeamID, fixtures []Fixt
 		}
 	}
 	for _, a := range entrants {
-		if home[a] != 7 || away[a] != 7 {
+		if home[a] != n-1 || away[a] != n-1 {
 			t.Fatalf("team %d has %d home and %d away", a, home[a], away[a])
 		}
 		for _, b := range entrants {
@@ -107,10 +121,40 @@ func assertLeagueInvariants(t *testing.T, entrants []ids.TeamID, fixtures []Fixt
 			}
 		}
 	}
+	atHome := map[ids.TeamID][]bool{} // by round
+	for _, f := range fixtures {
+		atHome[f.Home] = append(atHome[f.Home], true)
+		atHome[f.Away] = append(atHome[f.Away], false)
+	}
+	half := int(rounds) / 2
+	for _, e := range entrants {
+		run := 0
+		for r, h := range atHome[e] {
+			if r > 0 && h == atHome[e][r-1] {
+				run++
+			} else {
+				run = 1
+			}
+			limit := 2
+			if r >= half && r-run+1 < half {
+				limit = 3 // the run crosses the halfway point
+			}
+			if run > limit {
+				t.Fatalf("%d entrants: team %d is at the same venue %d rounds in a row up to round %d", n, e, run, r+1)
+			}
+		}
+	}
 }
 
 func TestScheduleInvariantsAcrossSeeds(t *testing.T) {
 	entrantSets := [][]ids.TeamID{eight(), teams(40, 3, 17, 9, 1000, 2, 58, 11)}
+	for _, n := range []int{2, 4, 6, 10, 12, 16, 20} {
+		set := make([]ids.TeamID, n)
+		for i := range set {
+			set[i] = ids.TeamID(3*n - 2*i) // descending, not dense
+		}
+		entrantSets = append(entrantSets, set)
+	}
 	for _, entrants := range entrantSets {
 		for seed := range random.Seed(200) {
 			for _, ref := range []SeasonRef{league1, {1, 2}, {7, 3}} {
@@ -178,6 +222,8 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 	}{
 		"seven entrants":      {league1, teams(1, 2, 3, 4, 5, 6, 7)},
 		"nine entrants":       {league1, teams(1, 2, 3, 4, 5, 6, 7, 8, 9)},
+		"one entrant":         {league1, teams(1)},
+		"too many entrants":   {league1, numbered(MaxLeagueEntrants + 2)},
 		"no entrants":         {league1, nil},
 		"zero team ID":        {league1, teams(0, 2, 3, 4, 5, 6, 7, 8)},
 		"duplicate entrant":   {league1, teams(1, 2, 3, 4, 5, 6, 7, 1)},
@@ -339,7 +385,7 @@ func TestCreateLeagueSeasonsIsAtomicAndCanonical(t *testing.T) {
 	s := create(t, 42, league1, eight())
 	before := s.Snapshot()
 	for name, batch := range map[string][]NewSeason{
-		"second invalid":      {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: teams(1, 2), Timing: weekly}},
+		"second invalid":      {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: teams(1, 2, 3), Timing: weekly}},
 		"duplicate in batch":  {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: a, Entrants: other, Timing: weekly}},
 		"existing season":     {{Ref: b, Entrants: other, Timing: weekly}, {Ref: league1, Entrants: eight(), Timing: weekly}},
 		"bad timing in batch": {{Ref: a, Entrants: eight(), Timing: weekly}, {Ref: b, Entrants: other, Timing: Timing{}}},

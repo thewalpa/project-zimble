@@ -37,8 +37,10 @@ const ScheduleVersion = 3
 // not reshuffle every career's fixtures.
 const pairingDraw = 1
 
-// SupportedEntrants is the only league size this milestone accepts.
-const SupportedEntrants = 8
+// MaxLeagueEntrants is the largest league: its double round-robin's
+// 2(n-1) rounds must fit in a Round. A league takes any even number of
+// entrants from 2 up to this; an odd number would need byes.
+const MaxLeagueEntrants = 128
 
 // Season is a 1-based season number within a career.
 type Season uint16
@@ -344,8 +346,8 @@ func (se *season) checkFormat() error {
 
 // canonicalEntrants validates entrants and returns a sorted copy.
 func canonicalEntrants(entrants []ids.TeamID) ([]ids.TeamID, error) {
-	if len(entrants) != SupportedEntrants {
-		return nil, fmt.Errorf("competitions: %d entrants, only %d supported", len(entrants), SupportedEntrants)
+	if n := len(entrants); n < 2 || n%2 != 0 || n > MaxLeagueEntrants {
+		return nil, fmt.Errorf("competitions: a league needs an even number of 2 to %d entrants, not %d", MaxLeagueEntrants, n)
 	}
 	out := slices.Clone(entrants)
 	slices.Sort(out)

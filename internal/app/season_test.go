@@ -11,6 +11,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/medical"
+	"github.com/thewalpa/project-zimble/internal/worldgen"
 )
 
 func seasonRef(comp ids.CompetitionID, season competitions.Season) competitions.SeasonRef {
@@ -401,6 +402,96 @@ func TestSeasonsStayInsideTheContractYear(t *testing.T) {
 					t.Fatalf("season %d cup final %s is not before the player year %s", season, w.calendar.Format(final), w.calendar.Format(yearEnd))
 				}
 			}
+		}
+	}
+}
+
+// A career runs with leagues of other sizes than eight: two linked divisions
+// of ten and two of six, the Continental Cup drawn from both top divisions.
+// Each season is a full double round-robin of its size, the play-offs keep
+// every division's size, the cup takes its places, the world validates
+// throughout, and a save in the middle continues identically.
+func TestLeaguesOfOtherSizesPlayConsecutiveSeasons(t *testing.T) {
+	defs := content.Default()
+	snap, err := worldgen.Generate(defs, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sizes := map[ids.CompetitionID]int{1: 10, 2: 6, 4: 10, 5: 6}
+	leagues := content.DefaultLeagues()
+	for i := range leagues {
+		leagues[i].Entrants = sizes[leagues[i].ID]
+	}
+	w, err := load(defs, leagues, content.DefaultCups(), content.DefaultPromotions(), DefaultEpoch(), snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fp := w.Summary().Fingerprint; fp != newWorld(t, 42).Summary().Fingerprint {
+		t.Fatal("league sizes changed the world fingerprint")
+	}
+
+	checkSeason := func(ref competitions.SeasonRef) {
+		t.Helper()
+		n := sizes[ref.Competition]
+		entrants, ok := w.competitions.Entrants(ref)
+		if !ok || len(entrants) != n || len(w.competitions.Rounds(ref)) != 2*(n-1) || len(w.competitions.Fixtures(ref)) != n*(n-1) {
+			t.Fatalf("%s: %d entrants, %d rounds, %d fixtures for a league of %d", ref, len(entrants), len(w.competitions.Rounds(ref)), len(w.competitions.Fixtures(ref)), n)
+		}
+		if table, ok := w.Table(ref); !ok || len(table.Rows) != n {
+			t.Fatalf("%s: table of %d rows", ref, len(table.Rows))
+		}
+	}
+	for comp := range sizes {
+		checkSeason(seasonRef(comp, 1))
+	}
+
+	playLeagues(t, w)
+	saved := roundTrip(t, w)
+	for _, x := range []*World{w, saved} {
+		playPlayoffs(t, x)
+		playCup(t, x)
+		playSeason(t, x)
+	}
+	if !reflect.DeepEqual(saved.Snapshot(), w.Snapshot()) {
+		t.Fatal("a save after the leagues continued differently")
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	for comp := range sizes {
+		for _, n := range []competitions.Season{1, 2} {
+			ref := seasonRef(comp, n)
+			checkSeason(ref)
+			if !w.competitions.SeasonCompleted(ref) {
+				t.Fatalf("%s is not complete", ref)
+			}
+		}
+		checkSeason(seasonRef(comp, 3))
+	}
+	// Two places cross each link: the sizes hold and the divisions swap
+	// exactly the teams the play-offs moved.
+	for _, link := range content.DefaultPromotions() {
+		u1, _ := w.competitions.Entrants(seasonRef(link.Upper, 1))
+		u2, _ := w.competitions.Entrants(seasonRef(link.Upper, 2))
+		l2, _ := w.competitions.Entrants(seasonRef(link.Lower, 2))
+		left := 0
+		for _, team := range u1 {
+			if !slices.Contains(u2, team) {
+				left++
+				if !slices.Contains(l2, team) {
+					t.Fatalf("team %d left %d but is not in %d", team, link.Upper, link.Lower)
+				}
+			}
+		}
+		if left > link.Places {
+			t.Fatalf("%d teams left league %d over %d places", left, link.Upper, link.Places)
+		}
+	}
+	for _, edition := range []competitions.SeasonRef{seasonRef(3, 1), seasonRef(3, 2)} {
+		entrants, ok := w.competitions.Entrants(edition)
+		if !ok || len(entrants) != 8 || !w.competitions.SeasonCompleted(edition) {
+			t.Fatalf("%s: %d entrants, complete %v", edition, len(entrants), w.competitions.SeasonCompleted(edition))
 		}
 	}
 }

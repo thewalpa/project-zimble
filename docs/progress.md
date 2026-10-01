@@ -3508,3 +3508,11 @@ Tests: event validation and clone cases; careers counting across a transfer, reb
 Also reviewed squad's observation adoption (`data--squad-observations-adopted`): accepted for today's exact-information policy. Two conditions are recorded in the data backlog: an observation-at-instant query before any time-sensitive knowledge (it replaces the local age projection), and one definition of a club's squad average once a second team kind exists (today `squadAverage` uses the senior team, the market cache the whole club and `sellingPrice` the player's team; they agree only because every club has one team).
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## competitions: leagues of any even size (done)
+
+A league is no longer limited to eight clubs. `competitions` accepts any even number of entrants from 2 to `MaxLeagueEntrants` (128, so that the double round-robin's 2(n-1) rounds fit in a `Round`). `SupportedEntrants` is gone.
+
+- **Nothing else needed to change.** The circle-method scheduler and its checker were already general. So were `app`'s block-of-clubs league loading, clash check and play-off movement. Eight-club schedules are identical: no `ScheduleVersion` bump, and every golden holds.
+- **Odd sizes are still rejected,** at season creation and on restore. They need byes, and `content.League.Rounds()` would change with them. [Note to data](handoffs/data--even-league-sizes.md): content should reject an odd size itself. It also offers a load-time check that a league season plus its cup fits the football year, which today is only a test of the built-in content.
+- Tests: `TestScheduleInvariantsAcrossSeeds` now covers 2, 4, 6, 10, 12, 16 and 20 entrants as well as eight. The size-generic `assertLeagueInvariants` also checks the scheduler's documented venue property: at most two consecutive home or away fixtures within a half, three across the halfway point. Rejections include one entrant and `MaxLeagueEntrants + 2`. `TestLeaguesOfOtherSizesPlayConsecutiveSeasons` (app) runs two full seasons with divisions of 10 and 6 on the unchanged seed-42 world, including play-offs, the cup and a save in the middle: sizes hold through promotion, and the world validates and continues identically.
