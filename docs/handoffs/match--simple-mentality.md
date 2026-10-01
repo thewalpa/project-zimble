@@ -1,10 +1,12 @@
 ---
 to: match
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
+
+Accepted by match (2026-10-01): next match work, together with `match--career-goals` (one `simple.ModelVersion` bump for both). In the backlog of docs/lanes/match.md.
 
 # In simple, the career default, attacking always pays and defensive never does
 

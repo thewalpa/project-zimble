@@ -1,10 +1,12 @@
 ---
 to: match
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
+
+Accepted by match (2026-10-01): career squads set the goal target, since they are what a player sees. Taken with `match--simple-mentality` (one `simple` bump), calibrating against a career-like `enginetest` profile; `tick` follows in its own bump. In the backlog of docs/lanes/match.md.
 
 # Career league matches score 2.2–2.3 goals in both engines, below real football
 

@@ -37,7 +37,7 @@ The match engine and everything on matchday: the match contract, the engine that
 
 **Tick's statistics are calibrated per minute of ball in play** (`tick.ModelVersion` 8, `match--tick-stats-calibration`). Tackles are at 27 a side, the real rate per minute of ball in play. Possession separates through first touch: 57.5% at gap 10 and 62.7% at gap 20. Equal teams take 11–12 shots a side. On-target is now counted at the goal line, and keepers leave shots going wide. Results by gap and the v7 mentality shape are kept. Passes stay ~1.6× because the ball is in play ~88 minutes (real ~58), and the stoppage rules fix that. The shot split at a gap needs the compact block ([progress](../progress.md#match-ticks-statistics-calibrated-done), [note to `balance`](../handoffs/balance--tick-v8-rerun.md)).
 
-**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: fouls, free kicks and cards (phase 4), with realistic restart durations.
+**Simple has a home edge again** (`simple.ModelVersion` 5: `HomeAdvantagePermille` 1150, split between a home boost and an away handicap — 45/26/29 and 1.5–1.2 goals at 60 v 60). The seeded client stories were re-pinned to the new results ([progress](../progress.md#match-simple-has-a-home-edge-again-done), [note to `ui`](../handoffs/ui--seed-stories-moved-home-edge.md)). Next: the career goal level and `simple`'s mentality trade-off (one `simple` bump), then fouls, free kicks and cards (phase 4) with realistic restart durations. `tick`'s mentality payoff and shootouts now have always-on bounds in `model_test.go`.
 
 ## Tick engine roadmap
 
@@ -71,7 +71,7 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 ## Backlog
 
-- **Fill `MatchCompleted` appearances and goals:** the agreed contract is in the [note](../handoffs/match--careers-appearances-goals.md) — `Appeared` from `MatchOutcome.Participants`, `Scorers` from `MatchOutcome.Goals` (regulation goals only). Fill `resolve.go`'s emission the session `data` lands the fields.
+- **Career goal level and `simple`'s mentality** (accepted [match--career-goals](../handoffs/match--career-goals.md) and [match--simple-mentality](../handoffs/match--simple-mentality.md), one `simple.ModelVersion` bump): career league matches score 2.2–2.3 goals on both engines against 2.6–2.9 real, so calibrate against a career-like `enginetest` profile (`TestBalanceCareerEngines` is the check), keeping the career home/draw/away split; and give `simple` tick's trade-off shape (attacking within ±0.05 of balanced at equal teams, defensive at least level for the underdog). `tick`'s career goals follow in its own bump.
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.

@@ -20,6 +20,12 @@ type tally struct {
 	shots, onTarget, passes, completed [2]int
 	tackles, saves, offsides           [2]int
 	possession                         [2]int // permille summed over matches
+	shootouts, homeShootoutWins        int    // knockouts level after 90 minutes
+}
+
+// homePoints is the home side's points a match: three a win, one a draw.
+func (r tally) homePoints() float64 {
+	return float64(3*r.homeWins+r.matches-r.homeWins-r.awayWins) / float64(r.matches)
 }
 
 // simulate plays fixtures 1..n in parallel and folds them in fixture order.
@@ -27,9 +33,11 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 	t.Helper()
 	e := engine(t)
 	type result struct {
-		score [2]uint16
-		stats matches.MatchStats
-		err   error
+		score    [2]uint16
+		shootout [2]uint16
+		pens     bool
+		stats    matches.MatchStats
+		err      error
 	}
 	results := make([]result, n)
 	var next atomic.Int64
@@ -50,7 +58,8 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 					results[i].err = err
 					continue
 				}
-				results[i] = result{score: dst.Outcome.Score, stats: dst.Outcome.Stats}
+				o := &dst.Outcome
+				results[i] = result{score: o.Score, shootout: o.Shootout, pens: o.Resolution == matches.ResolutionPenalties, stats: o.Stats}
 			}
 		})
 	}
@@ -80,6 +89,12 @@ func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput
 			r.homeWins++
 		case a > h:
 			r.awayWins++
+		}
+		if res.pens {
+			r.shootouts++
+			if res.shootout[0] > res.shootout[1] {
+				r.homeShootoutWins++
+			}
 		}
 	}
 	return r
@@ -216,6 +231,51 @@ func TestMentalityTradeOff(t *testing.T) {
 	}
 	if d := attacking.homeWins - balanced.homeWins; d*100 > n*12 || d*100 < -n*12 {
 		t.Errorf("attacking changed home wins by %d of %d, want a modest change", d, n)
+	}
+	// Attacking is not free: v6's +0.24 points a match would fail.
+	if d := attacking.homePoints() - balanced.homePoints(); d > 0.15 {
+		t.Errorf("attacking is worth %+.2f points a match against balanced, want at most +0.15", d)
+	}
+}
+
+// Defensive is not a trap for the underdog: a deep block at least holds its
+// own against a stronger side (v8: +0.05 points a match at 12,000 matches a
+// row). At 1,000 matches a row the bound is about 2.5 standard errors below
+// that, so it catches a backfire, not a small drift.
+func TestDefensiveServesTheUnderdog(t *testing.T) {
+	if testing.Short() {
+		t.Skip("plays 2,000 matches")
+	}
+	const n = 1000
+	underdog := func(m matches.Mentality) func(ids.FixtureID) *matches.MatchInput {
+		return func(f ids.FixtureID) *matches.MatchInput {
+			in := input(f, 55, 65)
+			in.Home.Tactics.Mentality = m
+			return in
+		}
+	}
+	balanced := simulate(t, n, underdog(matches.Balanced))
+	defensive := simulate(t, n, underdog(matches.Defensive))
+	t.Logf("55 v 65, home balanced: %.3f points a match; home defensive: %.3f", balanced.homePoints(), defensive.homePoints())
+	if d := defensive.homePoints() - balanced.homePoints(); d < -0.10 {
+		t.Errorf("defensive costs the underdog %.2f points a match, want at most 0.10", -d)
+	}
+}
+
+// Shootouts stay close: the better side's edge in Finishing and Goalkeeping
+// shows, but a shootout remains near a coin toss (v7: 56% at 65 v 55).
+func TestShootoutsStayClose(t *testing.T) {
+	if testing.Short() {
+		t.Skip("plays 1,000 matches")
+	}
+	r := simulate(t, 1000, func(f ids.FixtureID) *matches.MatchInput {
+		in := input(f, 65, 55)
+		in.Rules.Knockout = true
+		return in
+	})
+	t.Logf("65 v 55 knockouts: the stronger side won %d of %d shootouts", r.homeShootoutWins, r.shootouts)
+	if r.shootouts < 200 || r.homeShootoutWins*100 > r.shootouts*65 {
+		t.Errorf("the stronger side won %d of %d shootouts, want at most 65%% of at least 200", r.homeShootoutWins, r.shootouts)
 	}
 }
 

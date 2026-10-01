@@ -3699,3 +3699,17 @@ The bracketed figures are v7. Results and mentality, from the tuning harness (12
 - Trend tests hold: `TestModelTrends`, `TestGoalsFollowTheGapNotTheLevel`, `TestMentalityTradeOff` (defensive draws 165 against 155), `TestConditionMatters`. `TestGolden` re-pinned (`a3c844127275aa2d`).
 - `TestBalanceMentalityByGap` and `TestBalanceMatchStats` run; [note to `balance`](handoffs/balance--tick-v8-rerun.md) for the refresh. A saved `tick` career at v7 no longer loads (engine version check, as for every bump); `simple` careers are untouched.
 - `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
+
+## match: notes answered — tick's always-on bounds, two reviews, two acceptances (done)
+
+- **`match--mentality-shootout-bounds` (`balance`), delivered** in `internal/matches/tick/model_test.go`. Three bounds:
+  - `TestMentalityTradeOff` asserts attacking is worth at most +0.15 points a match over balanced, at no extra cost (v8: −0.04 on its 600-match rows; v6's +0.24 would fail).
+  - `TestDefensiveServesTheUnderdog` asserts defensive costs the 55 v 65 home underdog at most 0.10 points a match. It uses 1,000 matches a row, rather than the proposed 600, to put the bound ~2.5 standard errors below v8's +0.05 (on its rows: 0.860 balanced, 0.993 defensive).
+  - `TestShootoutsStayClose` (`tick`'s twin of `simple`'s) asserts that in 1,000 knockouts at 65 v 55 the stronger side wins at most 65% of at least 200 shootouts (v8: 119 of 212, 56%).
+  
+  `simulate`'s tally gains shootouts and `homePoints`. The new tests skip under `-short`.
+- **`match--match-completed-facts` (`data`), reviewed:** `outcomeFacts` reads `Participants` (unique, which `checkOutcome` validates) and regulation `Goals`, as agreed. Kept; the backlog item is closed.
+- **`match--injury-calibration-tests` (`squad`), reviewed:** the edits to `TestLineupCarriesOverToLaterMatches` and `TestTeamPlanKeepsUnavailablePlayers` keep their invariants: a carried lineup drops only injured players, and a plan lists exactly its unavailable players. Selection keeps `RoleScore × condition`; no `ai.SelectionVersion` change.
+- **Accepted `match--career-goals` and `match--simple-mentality` (`balance`)** as the next match work, under one `simple.ModelVersion` bump. Career squads set the goal target, since they are what a player sees.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed.
