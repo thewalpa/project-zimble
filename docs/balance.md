@@ -339,24 +339,54 @@ An attacking side shoots more and is caught offside more (2.3–4.3 a side); at 
 
 ## Injuries
 
-Measured 2026-10-01 at `medical.Version` 3, over the 18 career seasons of [Career seasons](#career-seasons-tick-against-simple) (3 seeds × 3 seasons × 2 engines = 576 club-seasons). Answers the rates half of `balance--injuries-delivered`; the rotation-policy half is still to do. `medical` reads minutes and condition, not the engine, so both engines agree within noise (75.9–76.2 injuries a season); the rows below pool all 18 seasons. Commands as for `TestBalanceCareerEngines`.
+Measured 2026-10-02 at `medical.Version` 4, `tick` v8 and `simple` v5, `ScheduleVersion` 4, commit `6de7f91`, over the 18 career seasons of [Career seasons](#career-seasons-tick-against-simple) (3 seeds × 3 seasons × 2 engines = 576 club-seasons). Answers `balance--injuries-delivered` and `balance--injury-calibration-delivered`. `medical` reads minutes and condition, not the engine, so both engines agree within noise; the rows below pool all 18 seasons.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=1       # rates and condition, about 80 s on 4 cores
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceRotation -v -count=1 -timeout 3h # the policy comparison, about 10 min on 4 cores
+```
 
 | | per season | per club a season | per injury | per injured player a season | per injured club-season |
 | --- | --- | --- | --- | --- | --- |
-| Injuries | 76 | 2.4 | | 2.6 injuries | 2.6 injuries |
-| Days out | 1,047 | 32.7 | 13.7 days | 15.1 days (max 119) | 35.6 days |
+| Injuries | 354 | 11.1 | | 1.3 injuries | 11.1 injuries |
+| Days out | 6,950 | 217 | 19.7 days | 25.6 days (max 202) | 217 days |
 
-**About 76 injuries a season across 32 clubs** (0.12 a player a year on 20-man squads), close to `squad`'s own estimate of 70 on seed 42. A layoff averages 13.7 days; the 29–120 day tail produces single seasons of up to 119 days. Against real football (roughly one reportable injury a player a year) the rate is low: at 2.4 a club a season injuries are flavor, not a management concern. Filed to `squad` as `squad--injury-rates`.
+**Rates now meet `squad`'s 0.5–1.0 target.** 354 injuries a season across 32 clubs is 11.1 a club, about 0.55 a player a year on 20-man squads (it was 76 and 0.12 at `medical.Version` 3), and a layoff averages 19.7 days (`squad`'s own run: 11.1 a club, 19.4 days). A club loses about 217 player-days a season.
 
-**A club is never short of fit players.** In about 11,000 club-batches (every club before every league round, play-off tie and cup match) not one club could fail to field a legal lineup from its fit players alone, so the emergency rule (injured players play) never fired: 0 emergency starts. Squads of 20 absorb the current rates easily.
+**Starters are tired.** A starter's condition before his match averages 95.3–95.4 (both engines), with 44% of starts below 100 and 17% below 90; the mean over every active player, bench and free agents included, is 95.1. The fatigue term now has something to work on, and `squad`'s own figure (96.0) agrees within seed noise.
 
-**Condition before every round is 99.8 of 100.** The daily recovery restores a match's drain long before the next kickoff — league rounds are weekly and the cup's denser rounds too. The fatigue term in `medical.Roll` (missing condition × `InjuryFatigueStep`) therefore sees almost no missing condition when injuries are rolled, and rotating tired players cannot pay through condition; if rotation is to matter, the drain or the recovery has to give it a reason first.
+**A club is still never short of fit players.** 0 short-of-fit club-batches and 0 emergency starts in about 11,000 club-batches: the emergency rule (injured players play) never fires at 11 injuries a club a season.
 
-Still to measure: whether rotating tired players pays in points against always playing the best XI (the manager-policy comparison in the balance backlog), and injury rates again if `squad` moves `DefaultParams`.
+### Rotation policy on matched worlds
+
+The `TestBalanceRotation` sweep plays one football year of the same seeded world once per lineup policy for each managed club. The manager signs and renews nobody, so the arms differ only in his lineups; results are compared on matched (seed, club) pairs. The policies are **carry** (submit the AI's selection for the first match, nothing after: the world carries it forward and refills only injured places), **rotate** (submit the AI's selection every match: `RoleScore × condition`, so a tired player gives way) and **best** (the same selection with every condition read as 100: the strongest eleven whoever is tired). A manager who never submits gets the AI's selection every match, identical to rotate: the carry-over chain starts only from a stored lineup.
+
+`simple`, 128 pairs (seeds 1–4, every club):
+
+| Policy | League points (of 42) | Injuries | Days lost | Starters' condition | Starts below 90 % | Players used |
+| --- | --- | --- | --- | --- | --- | --- |
+| carry | 17.94 | 15.10 | 297 | 86.6 | 39 | 15.7 |
+| rotate | 18.80 | 11.04 | 214 | 96.4 | 12 | 17.0 |
+| best | 18.19 | 14.85 | 294 | 87.0 | 38 | 15.6 |
+
+Differences against rotate (mean ± standard error): carry −0.87 ± 0.19 points, +4.06 ± 0.21 injuries, +82.7 ± 6.5 days; best −0.62 ± 0.18 points, +3.81 ± 0.22 injuries, +80.1 ± 6.4 days.
+
+`tick`, 24 pairs (seeds 7, 42, 2026, every fourth club):
+
+| Policy | League points | Injuries | Days lost | Starters' condition | Starts below 90 % | Players used |
+| --- | --- | --- | --- | --- | --- | --- |
+| carry | 16.33 | 15.25 | 288 | 85.7 | 41 | 15.6 |
+| rotate | 19.29 | 11.21 | 212 | 95.9 | 15 | 17.1 |
+| best | 17.17 | 14.67 | 283 | 86.3 | 39 | 15.6 |
+
+Differences against rotate: carry −2.96 ± 1.21 points, +4.04 ± 0.51 injuries, +75.2 ± 14.4 days; best −2.12 ± 1.09 points, +3.46 ± 0.40 injuries, +70.4 ± 10.6 days.
+
+**Rotation pays, on both engines and on every measure.** Rotating the squad by condition earns 0.6–0.9 points a season more than the strongest eleven or a fixed one on `simple` (about 3–5%) and 2–3 points on `tick` (24 pairs, so ±1.1–1.2), with over a quarter fewer injuries and days lost. Best and carry differ little: both leave the starters at 86–87 condition, because a 4-4-2 starter without a break plays on tired. No policy is dominant or pointless; the AI's default is the best of the three, so a manager has nothing to gain by taking the lineup into his own hands unless he beats the AI at it. The squad's depth matters: rotate uses 17 players a year against 15.6. Not measured: a manager who rotates by choice rather than by the AI's rule, in-match substitutions, and money (injured players keep their wages).
 
 ### History
 
-- **2026-10-01**, `medical.Version` 3: this section, at `tick` v6 and `simple` v4. Rerun at `tick` v7 and `simple` v5 (commit `64874ae`): 76.1 and 75.9 injuries a season, 13.6–13.7 days a layoff, 15.0–15.1 days per injured player (max 119), 0 short-of-fit club-batches and condition 99.8 before every round. The section stands unchanged.
+- **2026-10-01**, `medical.Version` 3: 76 injuries a season (0.12 a player), 13.7 days a layoff, condition 99.8 before every round, 0 short-of-fit club-batches. Filed `squad--injury-rates`.
+- **2026-10-02**, `medical.Version` 4: this section (354 injuries, 19.7 days, starters 95.3, rotation comparison).
 
 ## Population
 

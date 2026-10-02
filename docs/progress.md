@@ -3728,3 +3728,15 @@ Calendar-sensitive squad tests retain positional legality, accounting, populatio
 Built-in league spacing remains weekly. The existing August-to-May content step is handed to data; the three-week calendar is covered by a two-year application test and century-long civil-calendar bounds. UI, squad and balance receive the changed calendar contract. The existing decision-stop and other backlog items were not implemented.
 
 Validation: explicit timing/rejection tests, future-round clash regression, two-year August-to-May saves and stepping, century bounds, resumed cup reporting, all client stories and thirty-year squad/accounting checks; `gofmt -l .`, `go vet ./...` and `go test ./...`.
+
+## balance: injuries and rotation at `medical.Version` 4, career sweep on the football-year calendar (done)
+
+Closes `balance--injury-calibration-delivered`, `balance--injuries-delivered` (both halves) and `balance--midweek-cup-calendar`. Results in [docs/balance.md](balance.md): "Career seasons" and "Injuries", at `tick` v8, `simple` v5, `medical` 4, `ScheduleVersion` 4.
+
+- **The career sweep follows `ScheduleVersion` 4.** `playCareerPhase` classifies each match by its competition's format (`matchPhase`), since cup editions are played between the next season's league matchdays, and finishes the year with `cupsUnderwayEnd` as `playSeason` does. Season 1 has no cup, so the cup rows count the seasons that have one.
+- **Starters' condition is measured before each batch** (the all-player mean included the bench and free agents). Starters average 95.3, 44% below 100 and 17% below 90.
+- **Injury rates meet `squad`'s 0.5–1.0 target:** 354 a season, 11.1 a club, 19.7 days each, 0 short-of-fit club-batches and 0 emergency starts.
+- **`TestBalanceRotation` (new):** the same seeded football year per managed club under three lineup policies. Rotating by condition (the AI's default) beats the strongest eleven and a lineup set once, on both engines: +0.6 to +0.9 points on `simple` (128 pairs), +2 to +3 on `tick` (24 pairs), with over a quarter fewer injuries and days lost. A manager who never submits gets the AI's selection every match, so the carry-over chain starts only from a stored lineup.
+- **Career goals fell on `tick`:** 2.30 to 2.16 at v8, against the real 2.6–2.9 (`match--career-goals` stands, with a worse figure).
+- **Filed** `ui--tired-carried-lineup` (warn when a carried or saved lineup fields tired starters) and `ui--simulate-test-gofmt` (`gofmt -l .` prints `cmd/simulate/main_test.go` on `main`).
+
