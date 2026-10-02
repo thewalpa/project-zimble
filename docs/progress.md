@@ -4013,3 +4013,15 @@ Mentality keeps the v7 trade-off on career squads (3,000 matches a row at 670k, 
 **Not affected.** `tick` is opt-in, so no seeded `simple` career, golden or client story moved. A saved `tick` career at v8 no longer loads (the engine version check, as for every bump). [Note to `balance`](handoffs/balance--tick-v9-rerun.md) for the refresh. Closes `match--career-goals`.
 
 Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, already filed to `ui` as `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`; `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines`.
+
+## match: tired starters of a carried-over or planned lineup (done)
+
+Closes [match--tired-starters](handoffs/match--tired-starters.md), the app-owned cue behind `ui--tired-carried-lineup`.
+
+**Rule.** `app.TiredCondition` (90, on the one 100-point scale) and `MatchdayLineup.Tired []ids.PlayerID`: the starters whose current condition is below it, in slot order. It is set only when `Source` is `LineupCarriedOver` or `LineupFromPlan`. A lineup submitted for the fixture is the manager's explicit choice and the AI's suggestion already weighs condition (`fitScore`), so both list none. A tired starter stays in the lineup: the field only says who. `SuggestLineup` is the alternative the clients can offer beside it.
+
+**Why 90.** Balance measured starters of a carried lineup at 86-87 condition against 96 under the AI's rotation, and 53-61% of carried starters below 90 before a short-rest cup match, against almost none after a week's rest on the football year, so the flag appears where it matters without any rest-day logic in `app`.
+
+**Scope.** Read-only: no command, event, save field, version or golden changed, and `ResolveRounds` and `PlayMatch` field exactly the lineup they did. The flag is computed in `MatchdayLineup` only, not in `managerLineup`, so the resolution path is untouched. Test: `TestMatchdayLineupListsTiredStarters` (flags equal an independent condition check, worn starters are flagged and stay named, the plan is checked the same way, a submission and a suggestion list none, the slice is a copy).
+
+Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.

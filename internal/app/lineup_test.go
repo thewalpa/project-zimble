@@ -12,6 +12,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/events"
 	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/selection"
 )
@@ -1429,5 +1430,96 @@ func TestKnowledgeSteersSelectionNotMatchInput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(w.Snapshot(), before) {
 		t.Fatal("selection changed the world")
+	}
+}
+
+// drain wears a player down through the medical store, as matches do.
+func drain(t *testing.T, w *World, player ids.PlayerID) {
+	t.Helper()
+	plan, err := w.medical.PlanExposure([]medical.Exposure{{Player: player, Minutes: 90, Stamina: 20}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.applyMedical(plan)
+}
+
+// A carried-over or planned lineup lists the starters below TiredCondition,
+// in slot order, computed from their current condition; a lineup submitted
+// for the fixture, or the AI's suggestion, lists none, and the list is a copy.
+func TestMatchdayLineupListsTiredStarters(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	first := readyBatch(t, w).UserFixtures[0]
+	if m, err := w.MatchdayLineup(first); err != nil || m.Source != LineupSuggested || len(m.Tired) != 0 {
+		t.Fatalf("suggested lineup: source %s, tired %v, %v", m.Source, m.Tired, err)
+	}
+	submitted := changedLineup(t, w, first)
+	submit(t, w, first, submitted)
+	resolveNow(t, w)
+
+	next := readyBatch(t, w).UserFixtures[0]
+	m, err := w.MatchdayLineup(next)
+	if err != nil || m.Source != LineupCarriedOver {
+		t.Fatalf("source %s, %v", m.Source, err)
+	}
+	for _, p := range m.Tired {
+		if c, _ := w.medical.Condition(p); c >= TiredCondition {
+			t.Fatalf("player %d at %d is flagged tired", p, c)
+		}
+	}
+	// Wear out three starters; the rest keep whatever they have.
+	var worn []ids.PlayerID
+	for _, i := range []int{7, 2, 9} {
+		p := m.Lineup.Starters[i].Player
+		drain(t, w, p)
+		if c, _ := w.medical.Condition(p); c >= TiredCondition {
+			t.Fatalf("draining left player %d at %d", p, c)
+		}
+		worn = append(worn, p)
+	}
+	m, err = w.MatchdayLineup(next)
+	if err != nil || m.Source != LineupCarriedOver {
+		t.Fatalf("source %s, %v", m.Source, err)
+	}
+	var want []ids.PlayerID
+	for _, s := range m.Lineup.Starters {
+		if c, _ := w.medical.Condition(s.Player); c < TiredCondition {
+			want = append(want, s.Player)
+		}
+	}
+	if !slices.Equal(m.Tired, want) {
+		t.Fatalf("tired %v, want %v", m.Tired, want)
+	}
+	for _, p := range worn { // tiredness does not drop a player: he is still named
+		if !slices.Contains(m.Tired, p) {
+			t.Fatalf("worn starter %d is not flagged: %v", p, m.Tired)
+		}
+	}
+	if len(m.Tired) == 0 {
+		t.Fatal("nobody is flagged although starters were worn down")
+	}
+	m.Tired[0] = 0
+	if again, _ := w.MatchdayLineup(next); again.Tired[0] == 0 {
+		t.Fatal("Tired aliases internal state")
+	}
+
+	// The plan is checked the same way.
+	setPlan(t, w, attackingPlan(t, w))
+	if p, _ := w.MatchdayLineup(next); p.Source != LineupFromPlan {
+		t.Fatalf("source %s, want the plan", p.Source)
+	} else {
+		for _, id := range p.Tired {
+			if c, _ := w.medical.Condition(id); c >= TiredCondition || !slices.ContainsFunc(p.Lineup.Starters, func(s selection.Slot) bool { return s.Player == id }) {
+				t.Fatalf("planned lineup flags %d (condition %d)", id, c)
+			}
+		}
+	}
+
+	// A submitted lineup is the manager's explicit choice: no flags.
+	for _, s := range m.Lineup.Starters {
+		drain(t, w, s.Player)
+	}
+	submit(t, w, next, m.Lineup)
+	if s, _ := w.MatchdayLineup(next); s.Source != LineupFromSubmission || len(s.Tired) != 0 {
+		t.Fatalf("submitted lineup: source %s, tired %v", s.Source, s.Tired)
 	}
 }

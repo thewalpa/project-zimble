@@ -29,6 +29,8 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
+**Tired starters are flagged** (`MatchdayLineup.Tired`, `app.TiredCondition` 90, closes `match--tired-starters`): carried-over and planned lineups list their starters below 90 condition in slot order; submissions and AI suggestions list none. Read-only, no version or schema change ([progress](../progress.md#match-tired-starters-of-a-carried-over-or-planned-lineup-done), `ui` is unblocked in [ui--tired-carried-lineup](../handoffs/ui--tired-carried-lineup.md)). Next: the live formation change, or fouls, free kicks and cards.
+
 **Tick scores a career's goals** (`tick.ModelVersion` 9, closes `match--career-goals`): `SavePPM` 800,000 → 640,000 lifts career seasons from 2.19 to 2.56 goals a league match (1.41–1.15, 43.1 / 26.0 / 30.9 %), shots and the v8 statistics unchanged, v7's mentality trade-off kept ([progress](../progress.md#match-tick-scores-a-careers-goals-done), [note to `balance`](../handoffs/balance--tick-v9-rerun.md)). Next: fouls, free kicks and cards, or the two accepted notes in the backlog.
 
 **Tick engine: offside is delivered (phase 4, first rule).** Forwards make runs in behind, back lines hold, passers play through balls, and a receiver beyond the second-last opponent when the ball is played is caught offside, giving a free kick. Equal sides are caught about 1.8 times a side at the old goal level (2.54). `TeamStats.Offsides`, schema 28, `tick.ModelVersion` 6 ([progress](../progress.md#match-offside-in-tick-done)). The mentality effect is smaller than at v5 (both attacking 3.27 goals, both defensive 1.21). `tick` stays opt-in (a season costs about 12.5 s against 0.26 s on `simple`).
@@ -76,7 +78,6 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 ## Backlog
 
 - **Change the formation during a live match** (accepted [match--live-formation](../handoffs/match--live-formation.md)): a `CommandSetRoles`, an `EventFormationChange`, current roles in the view, both engines, the AI, the replay log. A contract change: notes to `ui`, `balance`.
-- **Tired starters of a carried-over or planned lineup** (accepted [match--tired-starters](../handoffs/match--tired-starters.md)): a condition threshold owned here and `MatchdayLineup.Tired`; small, and independent of the calibration above.
 
 - **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.

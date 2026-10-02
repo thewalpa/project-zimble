@@ -32,7 +32,7 @@ The live match fits the window: on a desktop the page never scrolls (head over a
 
 Player-facing gaps in the current clients. Check with the owning lane before starting anything that needs new `app` state.
 
-- **Tired starters in a carried-over or planned lineup (accepted):** mark them on both lineup screens and offer `SuggestLineup` beside them. Waits for `match`'s app-owned cue ([match--tired-starters](../handoffs/match--tired-starters.md)). See [handoff](../handoffs/ui--tired-carried-lineup.md).
+- **Tired starters in a carried-over or planned lineup (accepted, unblocked):** mark the players of `MatchdayLineup.Tired` on both lineup screens and offer `SuggestLineup` beside them. See [handoff](../handoffs/ui--tired-carried-lineup.md).
 - **Decision overview, next step:** replace the home notes and `status` lines that the agenda now duplicates (the home page's Matchday/Next panel now also repeats the band), and show renewal urgency (positions at risk) once `squad` delivers its [contract-planning view](squad.md#backlog). Show the deadline on the season-review stop when `competitions` delivers it.
 - **Formation View, rest:** the formation is shown for both sides of a report and for other clubs' squads, and the live match has a pitch replay on engines with frames. Left: a formation view of the live match with substitutions applied on `simple`, if `match` wants one.
 - **Live formation changes (waiting):** a formation editor in the web live match's "Your changes" panel (the lineup pitch) and a `formation` command in `cmd/play`, once `match` delivers the command ([match--live-formation](../handoffs/match--live-formation.md)).

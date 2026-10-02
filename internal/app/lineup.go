@@ -85,11 +85,22 @@ type MatchdayLineup struct {
 	// place is refilled by the AI) or the bench is longer than this
 	// competition allows.
 	Dropped []ids.PlayerID
+	// Carried over or from the plan: the starters whose condition is below
+	// TiredCondition, in slot order. A lineup the manager submitted for this
+	// fixture, or the AI's selection (which weighs condition), lists none.
+	Tired []ids.PlayerID
 }
+
+// TiredCondition is the condition (0-100) below which a starter of a carried
+// over or planned lineup is flagged in MatchdayLineup.Tired. A rested squad
+// kicks off near the maximum; the AI's rotation fields starters at about 96,
+// a carried lineup after a short rest at 86-87.
+const TiredCondition uint8 = 90
 
 func (m MatchdayLineup) clone() MatchdayLineup {
 	m.Lineup = m.Lineup.Clone()
 	m.Dropped = slices.Clone(m.Dropped)
+	m.Tired = slices.Clone(m.Tired)
 	return m
 }
 
@@ -232,6 +243,8 @@ func lineupOf(in matches.TeamInput) selection.Lineup {
 //   - else, or when the plan or carried lineup cannot be refilled, the
 //     AI's selection (SuggestLineup).
 //
+// A plan or carried lineup also lists its tired starters (see Tired).
+//
 // A plan or carried lineup is fitted to the match: players who left the
 // squad or are injured are dropped and their starting places refilled by
 // ai.RefillLineup, and the bench is cut to the competition's limit.
@@ -244,14 +257,32 @@ func (w *World) MatchdayLineup(fixture ids.FixtureID) (MatchdayLineup, error) {
 	}
 	f, _ := w.competitions.Fixture(fixture)
 	m, ok, err := w.managerLineup(f, team, rules)
-	if err != nil || ok {
+	if err != nil {
 		return m, err
+	}
+	if ok {
+		if m.Source == LineupCarriedOver || m.Source == LineupFromPlan {
+			m.Tired = w.tiredStarters(m.Lineup)
+		}
+		return m, nil
 	}
 	l, err := w.SuggestLineup(fixture)
 	if err != nil {
 		return MatchdayLineup{}, err
 	}
 	return MatchdayLineup{Fixture: fixture, Lineup: l, Source: LineupSuggested}, nil
+}
+
+// tiredStarters returns the starters of l whose condition is below
+// TiredCondition, in slot order. Read-only.
+func (w *World) tiredStarters(l selection.Lineup) []ids.PlayerID {
+	var out []ids.PlayerID
+	for _, s := range l.Starters {
+		if c, ok := w.medical.Condition(s.Player); ok && c < TiredCondition {
+			out = append(out, s.Player)
+		}
+	}
+	return out
 }
 
 // managerLineup returns team's lineup for fixture f if the manager has one:
