@@ -3768,3 +3768,14 @@ Closes `ui--career-appearances-goals`, `ui--august-may-calendar`, `ui--midweek-c
 - **Accepted** `ui--tired-carried-lineup`, waiting for an app-owned tiredness cue: filed `match--tired-starters`, since a condition threshold is a rule the clients may not own.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; new client tests for a scorer's one-spell career (seed 42, club 3, player 57: 3 apps, 2 goals) and a sold player's two spells with a total (player 44).
+
+## ui: UI-of-choice research (done)
+
+[ui-choice.md](ui-choice.md) answers the lane's "What is the UI of choice" question.
+
+- **Recommendation:** the browser stays the UI. Godot, Unity, a TypeScript SPA and native Go toolkits were compared on the management screens, the match viewer, the bridge to the Go core, the cost while lanes keep adding features, and shipping. A game engine is strong for the match and weak for the dense tables and forms that make up most of the game. Any non-Go client also needs a typed API and display strings from Go, because clients may not format money or apply rules.
+- **Measured complexity:** most of the client code is view composition (about 2,900 lines in `cmd/web`, 3,500 in `cmd/play`), not markup (about 1,450 lines of templates). The two clients each compose the same phrases (inbox messages, match names, result letters, shoot-out text, career spells). Fixing that comes first, whatever renderer is chosen.
+- **Plan:** shared presentation, then a web redesign on the same stack, then scripted islands (canvas match replay), then desktop packaging with a webview shell. An engine is used only for a later match viewer fed by `matches.Frame`.
+- **Open:** four decisions for the owner, listed in the document: confirm the direction, reduce `cmd/play` to a developer console, allow a presentation package under `cmd/`, allow embedded progressive-enhancement scripts. Lane rules are unchanged until then.
+
+Validation: documentation only; `gofmt -l .`, `go vet ./...` and `go test ./...` pass.
