@@ -14,7 +14,9 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/competitions"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -824,4 +826,52 @@ func TestSeasonReviewStop(t *testing.T) {
 	}
 	loaded := play(t, []string{"-load", path}, "status", "review", "continue", "review", "q", "q")
 	contains(t, loaded, "Your league season has every result: type review, then continue to end it.", "SEASON REVIEW, Sat 2026-05-09 15:00 UTC", "! no season awaits its review")
+}
+
+// The medical command names who is out and when the forecast says he heals,
+// shows the position counts, and, when every goalkeeper is injured, says that
+// the lineup rules admit them without calling them fit.
+func TestMedicalInTheTerminal(t *testing.T) {
+	script := []string{}
+	for range 8 { // four matchdays played: two players are out, healing and full condition apart
+		script = append(script, "continue")
+	}
+	script = append(script, "medical", "medical now", "quit", "quit")
+	out := play(t, []string{"-seed", "42", "-club", "3"}, script...)
+	contains(t, out, "SQUAD  INJURED  FIT  ROSTER", "INJURY", "Out 15 days, fit about Sun 2025-10-26 00:00 UTC", "Unavailable (injured)",
+		"Return dates are forecasts", "! usage: medical")
+	if strings.Contains(out, "cannot field an eleven") {
+		t.Fatal("a healthy squad reported an emergency")
+	}
+
+	cfg := app.DefaultConfig(42)
+	cfg.UserClub = 3
+	w, err := app.NewWorld(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := w.Snapshot()
+	keepers := map[ids.PlayerID]bool{}
+	squad, _ := w.Squad(3)
+	for _, p := range squad {
+		keepers[p.Player] = p.Position == players.Goalkeeper
+	}
+	for i := range snap.Medical {
+		if keepers[snap.Medical[i].Player] {
+			snap.Medical[i].DaysOut = 9
+		}
+	}
+	injured, err := app.Restore(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "career.json")
+	if err := storage.Save(path, injured); err != nil {
+		t.Fatal(err)
+	}
+	emergency := play(t, []string{"-load", path}, "medical", "quit")
+	contains(t, emergency, "The fit players cannot field an eleven", "They are still injured.", "Emergency only (injured)", "Out 9 days, fit about")
+	if strings.Contains(emergency, "Unavailable (injured)") {
+		t.Fatal("emergency selection should admit the injured goalkeepers")
+	}
 }

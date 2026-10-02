@@ -242,6 +242,8 @@ func (s *session) loop() {
 			s.agenda()
 		case "squad":
 			err = s.squad(args)
+		case "medical", "injuries":
+			err = s.medical(args)
 		case "club":
 			err = s.showClub(args)
 		case "player", "p":
@@ -361,6 +363,7 @@ func (s *session) help() {
   status (s)            date, season progress and your next match
   agenda (todo)         what is ahead: the matchday, bids to answer, matches, contracts ending
   squad                 your players: ID, position, rating, condition
+  medical (injuries)    injuries, condition and recovery forecasts, and each position's availability
   club CLUB             another club's probable lineup and players (ID or short name)
   player ID             one player of any club: attributes, contract, status
   compare PLAYER PLAYER  compare players (quote squad names with spaces; others by ID)

@@ -26,6 +26,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/storage"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -1543,6 +1544,18 @@ func TestInjuriesInTheBrowser(t *testing.T) {
 		t.Fatalf("unavailable injured player %d is visible in the filtered editor", out.Player)
 	}
 	contains(t, c.get("/inbox"), out.Name+" is out for ")
+	medical := mainOf(c.get("/medical"))
+	c.post("/save", nil)
+	if got := mainOf(newClient(t, config{loadPath: c.s.savePath}).get("/medical")); got != medical {
+		t.Error("the medical page changed after loading the save")
+	}
+	m, _ := c.s.w.SquadMedical(c.s.club())
+	for _, p := range m.Injured {
+		if p.Player == out.Player {
+			contains(t, c.get("/medical"), out.Name, fmt.Sprintf("Out %d %s, fit about %s", out.DaysOut, map[bool]string{true: "day", false: "days"}[out.DaysOut == 1], c.s.w.Calendar().Format(p.FitFrom)),
+				"Return dates are forecasts", `href="/medical"`)
+		}
+	}
 	contains(t, c.get("/player?id="+strconv.Itoa(int(out.Player))), fmt.Sprintf("out %d d", out.DaysOut))
 	fixture, _ := c.s.pendingFixture()
 	form := lineupForm(c, fixture, "balanced")
@@ -1803,4 +1816,38 @@ func TestSeasonReviewStop(t *testing.T) {
 	contains(t, loaded.get("/"), `href="/review"`)
 	loaded.post("/continue", nil)
 	contains(t, loaded.get("/review"), "No season awaits its review")
+}
+
+// With every goalkeeper injured the squad cannot field an eleven healthy, so
+// the lineup rules admit injured players: the medical page says so without
+// calling them fit, and shows the position's availability.
+func TestMedicalEmergencySelectionInTheBrowser(t *testing.T) {
+	c := career(t)
+	snap := c.s.w.Snapshot()
+	squad, _ := c.s.w.Squad(c.s.club())
+	keepers := map[ids.PlayerID]bool{}
+	for _, p := range squad {
+		if p.Position == players.Goalkeeper {
+			keepers[p.Player] = true
+		}
+	}
+	for i := range snap.Medical {
+		if keepers[snap.Medical[i].Player] {
+			snap.Medical[i].DaysOut = 9
+		}
+	}
+	w, err := app.Restore(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.s.w = w
+	page := c.get("/medical")
+	contains(t, page, "The fit players cannot field an eleven", "They are still injured.", "Emergency only (injured)", "Out 9 days, fit about")
+	if strings.Contains(page, "Unavailable (injured)") {
+		t.Fatal("emergency selection should admit the injured goalkeepers")
+	}
+	// A squad that can field an eleven shows no emergency.
+	if healthy := career(t).get("/medical"); strings.Contains(healthy, "cannot field an eleven") || !strings.Contains(healthy, "0 injured") {
+		t.Fatal("a healthy squad shows an emergency")
+	}
 }

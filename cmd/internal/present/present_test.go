@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 )
 
@@ -61,5 +62,27 @@ func TestOutcomeAndPenalties(t *testing.T) {
 	}
 	if Penalties([2]uint16{}) != "" || Penalties([2]uint16{4, 3}) != " (4-3 on penalties)" {
 		t.Error("Penalties")
+	}
+}
+
+func TestMedicalWording(t *testing.T) {
+	w, err := app.NewWorld(app.DefaultConfig(42))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cal := w.Calendar()
+	back := sim.GameInstant(13 * sim.Day)
+	cells := Medical(cal, true, app.MedicalPlayer{DaysOut: 3, FitFrom: back})
+	if want := "Out 3 days, fit about " + cal.Format(back); cells.Injury != want || cells.Eligibility != "Unavailable (injured)" {
+		t.Errorf("cells = %+v, want injury %q", cells, want)
+	}
+	if c := Medical(cal, false, app.MedicalPlayer{DaysOut: 1, FitFrom: back}); !strings.HasPrefix(c.Injury, "Out 1 day,") || c.Eligibility != "Emergency only (injured)" {
+		t.Errorf("an injured player in an emergency reads %+v", c)
+	}
+	if c := Medical(cal, true, app.MedicalPlayer{Condition: 80}); c != (MedicalCells{Injury: "Fit", Eligibility: "Available"}) {
+		t.Errorf("a tired fit player reads %+v", c)
+	}
+	if Supply(app.PositionAvailability{Short: true, Critical: true}) != "critical: below the minimum" || Supply(app.PositionAvailability{Short: true}) != "short" || Supply(app.PositionAvailability{}) != "" {
+		t.Error("Supply")
 	}
 }

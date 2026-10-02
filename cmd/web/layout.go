@@ -62,7 +62,7 @@ type layout struct {
 }
 
 // navOf is the navigation entry of pages that have none of their own.
-var navOf = map[string]string{"player": "squad", "compare": "squad", "live": "lineup", "report": "fixtures"}
+var navOf = map[string]string{"player": "squad", "compare": "squad", "live": "lineup", "report": "fixtures", "medical": "squad"}
 
 func (s *server) layout(page string, data any) layout {
 	nav := cmp.Or(navOf[page], page)
@@ -90,7 +90,7 @@ func (s *server) layout(page string, data any) layout {
 	case clubView:
 		l.ClubHead = &v.Head
 	default:
-		if page == "lineup" || page == "finances" {
+		if page == "lineup" || page == "finances" || page == "medical" {
 			if h, ok := s.clubHeadOf(s.club(), page); ok {
 				l.ClubHead = &h
 			}

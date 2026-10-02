@@ -31,7 +31,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "club", "clubs", "lineup", "table", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs", "review"}
+var pageNames = []string{"choose", "home", "club", "clubs", "lineup", "table", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs", "review", "medical"}
 
 type config struct {
 	seed     random.Seed
@@ -125,7 +125,7 @@ func newServer(cfg config) (*server, error) {
 		view func(*http.Request) (string, any, error)
 	}{
 		{"/club/{id}", s.clubPage}, {"/club/{id}/{tab}", s.clubPage}, {"/clubs", s.clubs}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/cup", s.cup}, {"/playoffs", s.playoffs}, {"/review", s.review}, {"/history", s.history},
-		{"/report", s.reportPage}, {"/live", s.live}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
+		{"/report", s.reportPage}, {"/live", s.live}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/medical", s.medical}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
 	}

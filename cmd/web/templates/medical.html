@@ -1,0 +1,29 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Medical</h1>
+{{if $d.Emergency}}<div class="note error">{{$d.Note}}</div>{{end}}
+<p class="muted">{{len $d.Injured}} injured, {{$d.Fit}} fit. {{$d.Forecast}}</p>
+<div class="grid">
+<div class="panel scroll">
+  <h2>Availability by position</h2>
+  <table>
+    <tr><th>Position</th><th class="n">Squad</th><th class="n">Injured</th><th class="n">Fit</th><th class="n">Roster</th><th></th></tr>
+    {{range $d.Positions}}<tr><td>{{.Position}}</td><td class="n">{{.Squad}}</td><td class="n">{{.Injured}}</td><td class="n">{{.Fit}}</td><td class="n">{{.Count}} (min {{.Min}})</td><td>{{if .Supply}}<span class="out">{{.Supply}}</span>{{end}}</td></tr>{{end}}
+  </table>
+</div>
+</div>
+<div class="panel scroll">
+  <h2>Injured</h2>
+  {{if $d.Injured}}<table>
+    <tr><th>Pos</th><th>Name</th><th class="n">Condition</th><th>Injury</th><th>Lineup</th></tr>
+    {{range $d.Injured}}<tr><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Condition}}</td><td><span class="out">{{.Injury}}</span></td><td>{{.Eligibility}}</td></tr>{{end}}
+  </table>{{else}}<p class="muted">No injuries.</p>{{end}}
+</div>
+{{if $d.Tired}}<div class="panel scroll">
+  <h2>Tired</h2>
+  <table>
+    <tr><th>Pos</th><th>Name</th><th class="n">Condition</th></tr>
+    {{range $d.Tired}}<tr><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Condition}}</td></tr>{{end}}
+  </table>
+</div>{{end}}
+{{end}}

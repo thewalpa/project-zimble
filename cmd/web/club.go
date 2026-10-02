@@ -18,7 +18,7 @@ import (
 //
 // A club has a page, /club/{id}, with a submenu of tabs, /club/{id}/{tab}:
 // overview, squad, fixtures, transfers and history. The manager's own club
-// adds Lineup and Finances, which are pages of their own that carry the same
+// adds Lineup, Medical and Finances, which are pages of their own that carry the same
 // heading and submenu.
 
 // errNotFound makes a page answer 404.
@@ -55,6 +55,7 @@ func (s *server) clubHeadOf(club ids.ClubID, current string) (clubHead, bool) {
 	add("squad", "Squad", base+"/squad")
 	if h.Mine {
 		add("lineup", "Lineup", "/lineup")
+		add("medical", "Medical", "/medical")
 	}
 	add("fixtures", "Fixtures", base+"/fixtures")
 	add("transfers", "Transfers", base+"/transfers")

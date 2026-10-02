@@ -258,3 +258,50 @@ func PlayoffTie(w *app.World, ref competitions.SeasonRef, club ids.ClubID) (app.
 	}
 	return app.FixtureLine{}, false
 }
+
+// Forecast and emergency wording of the medical view.
+const (
+	MedicalForecastNote  = "Return dates are forecasts: a later match can injure a player again, and a sale or release ends the forecast."
+	MedicalEmergencyNote = "The fit players cannot field an eleven, so injured players are admitted to a lineup. They are still injured."
+)
+
+// MedicalCells is one medical row's wording.
+type MedicalCells struct {
+	Injury      string // "Fit", or the days left and the forecast return
+	Eligibility string // whether the player can be put in a lineup today
+}
+
+// Medical words a player's medical row from app's view (World.SquadMedical):
+// canField is the view's CanField, false when selection admits the injured.
+func Medical(cal sim.Calendar, canField bool, p app.MedicalPlayer) MedicalCells {
+	c := MedicalCells{Injury: "Fit", Eligibility: "Available"}
+	if p.DaysOut > 0 {
+		c.Injury = fmt.Sprintf("Out %d %s", p.DaysOut, plural(int(p.DaysOut), "day", "days"))
+		if p.FitFrom != 0 {
+			c.Injury += ", fit about " + cal.Format(p.FitFrom)
+		}
+		c.Eligibility = "Unavailable (injured)"
+		if !canField {
+			c.Eligibility = "Emergency only (injured)"
+		}
+	}
+	return c
+}
+
+// Supply words a position's fit players against its roster quota.
+func Supply(p app.PositionAvailability) string {
+	switch {
+	case p.Critical:
+		return "critical: below the minimum"
+	case p.Short:
+		return "short"
+	}
+	return ""
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
