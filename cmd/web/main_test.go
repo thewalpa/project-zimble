@@ -213,7 +213,8 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Play to full time",
 		`data-from="0" data-to="45" data-played="1" data-autoplay`, "Skip to half time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
 		"<title>Pieter Haugen</title>", "var frames = [[0,", "<h2>Match statistics</h2>", `<th class="stat">Possession</th>`,
-		"Your changes", "3 substitutions left", `data-minute="45">`, "Half time</li>")
+		"Your changes", "3 substitutions left", `data-minute="45">`, "Half time</li>",
+		`<div class="shell fit">`, `<div class="live-view">`, `<ul class="plain" data-timeline>`) // fits the window; only the timeline scrolls
 	if l, _ := c.s.w.LiveMatch(); l.Position.Minute != 1 {
 		t.Fatalf("kick off recorded the play to minute %d", l.Position.Minute)
 	} else if strings.Contains(page, c.s.liveLine()) {
@@ -223,6 +224,9 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 		t.Fatalf("%d players on the pitch view", n)
 	}
 	contains(t, c.get("/lineup"), "Live: Round 1") // changes are substitutions now
+	if strings.Contains(c.get("/squad"), "shell fit") {
+		t.Fatal("a page other than the live match is fitted to the window")
+	}
 	contains(t, c.get("/"), "Go to the match")
 
 	sub := url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"58"}, "minute": {"30"}, "to": {"45"}}
@@ -266,7 +270,8 @@ func TestLiveMatchWithoutFramesOrStatistics(t *testing.T) {
 	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}, "minute": {"0"}}), "kick off first")
 	page := c.post("/watch", nil)
 	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Your changes",
-		`data-from="0" data-to="45" data-played="1" data-autoplay`, "Skip to half time", `<option value="60" selected>`)
+		`data-from="0" data-to="45" data-played="1" data-autoplay`, "Skip to half time", `<option value="60" selected>`,
+		`<div class="live-view no-pitch">`)
 	for _, absent := range []string{"On the pitch", "Match statistics", "var frames = ["} {
 		if strings.Contains(page, absent) {
 			t.Fatalf("a simple career shows %q", absent)

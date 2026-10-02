@@ -210,6 +210,41 @@ svg.field .dot text { fill: #fff; font-size: 19px; font-weight: 600; text-anchor
 svg.field .ball { fill: var(--ball); stroke: var(--kit-edge); stroke-width: 2; }
 .kit { display: inline-block; width: .8em; height: .8em; border-radius: 50%; border: 1px solid var(--kit-edge); vertical-align: -1px; }
 .kit.home { background: var(--kit-home); } .kit.away { background: var(--kit-away); }
+/* The live match: on a desktop it fits the window and the page never
+   scrolls. The head sits over the pitch, which scales into the height left;
+   the side column holds the changes, statistics and timeline, and only the
+   timeline scrolls, inside its panel. A phone stacks them and scrolls. */
+.live-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+.live-view .panel { margin: 0; }
+.live-head h1 { margin: 0; }
+.live-head .scoreboard { margin: var(--s2) 0; }
+.live-head .actions { margin-top: var(--s2); }
+.live-side { display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.live-side .panel { padding: var(--s3); }
+.live-side h2 { margin-bottom: var(--s1); }
+.live-side p { margin: 0 0 var(--s2); }
+form.change { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px var(--s2); align-items: center; margin: 0 0 6px; }
+form.change label { display: contents; }
+form.change select { min-width: 0; }
+form.change select[name=out] { grid-column: span 2; }
+.live-side table.stats td, .live-side table.stats th { padding: 2px var(--s1); white-space: normal; }
+@media (min-width: 901px) {
+  .shell.fit { height: 100vh; height: 100dvh; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .shell.fit nav { align-self: stretch; min-height: 0; max-height: none; }
+  .shell.fit main { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding-bottom: var(--s4); }
+  .shell.fit .facts span:not(.unsaved) { display: none; } /* keeps the band on one line */
+  .live-view { flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr) clamp(300px, 28%, 400px); grid-template-rows: auto minmax(0, 1fr); grid-template-areas: "head side" "pitch side"; }
+  .live-head { grid-area: head; }
+  .live-pitch { grid-area: pitch; display: flex; flex-direction: column; min-height: 0; }
+  .live-pitch svg.field { flex: 1 1 0; min-height: 0; background: var(--pitch); }
+  .live-side { grid-area: side; min-height: 0; overflow-y: auto; }
+  .live-timeline { flex: 1 1 0; min-height: 80px; display: flex; flex-direction: column; }
+  .live-timeline ul { flex: 1; min-height: 0; overflow-y: auto; }
+  /* Without a pitch (an engine without frames) the side panels sit side by side under the head. */
+  .live-view.no-pitch { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "side"; }
+  .live-view.no-pitch .live-side { flex-direction: row; }
+  .live-view.no-pitch .live-side > * { flex: 1 1 0; min-width: 0; }
+}
 table.stats th.stat { text-align: center; }
 table.stats td, table.stats th { width: 33%; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
@@ -226,7 +261,7 @@ table.stats td, table.stats th { width: 33%; }
 </script>
 </head>
 <body>
-<div class="shell{{if not .Career}} bare{{end}}">
+<div class="shell{{if not .Career}} bare{{end}}{{if eq .Page "live"}} fit{{end}}">
 <header class="band">
   <a class="crest" href="/">{{if .Career}}<span class="club">{{.Club.ClubName}}</span><span class="code">{{.Club.ShortName}}</span>{{else}}<span class="club">Zimble</span>{{end}}</a>
   {{if .Career}}

@@ -1,8 +1,8 @@
 {{define "content"}}
 {{$d := .Data}}
-<h1>Live: {{$d.Title}}</h1>
-<div class="panel">
-  <p class="muted small"><span data-state>{{$d.State}}</span> · <span data-minute>{{$d.Minute}}</span>'</p>
+<div class="live-view{{if not $d.Pitch}} no-pitch{{end}}">
+<div class="panel live-head">
+  <div class="split"><h1>Live: {{$d.Title}}</h1><span class="muted small"><span data-state>{{$d.State}}</span> · <span data-minute>{{$d.Minute}}</span>'</span></div>
   <div class="scoreboard">
     <div class="team home"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
     <div class="score"><span data-score>{{index $d.Score 0}} - {{index $d.Score 1}}</span>{{if $d.Penalties}} <span class="muted" data-at-stop>{{$d.Penalties}}</span>{{end}}</div>
@@ -62,20 +62,19 @@
 </div>
 {{end}}
 
-<div class="grid">
+<div class="live-side">
   {{if not (or $d.Finished $d.KickOff)}}
   <div class="panel">
     <h2>Your changes</h2>
-    <p class="muted">Mentality <b>{{$d.Mentality}}</b> · {{$d.SubsLeft}} substitutions left</p>
-    <p class="muted small" data-change-hint>A change is made at {{$d.Minute}}' and counts from the next minute.</p>
-    <form method="post" action="/decide" class="actions" data-decide>
+    <p class="muted small">Mentality <b>{{$d.Mentality}}</b> · {{$d.SubsLeft}} substitutions left. <span data-change-hint>A change is made at {{$d.Minute}}' and counts from the next minute.</span></p>
+    <form method="post" action="/decide" class="change" data-decide>
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="sub">
       <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
       <label>Off <select name="out">{{range $d.OnPitch}}<option value="{{.Player}}">{{.Role}} {{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
       <label>On <select name="in">{{range $d.Bench}}<option value="{{.Player}}">{{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
       <button{{if or (not $d.Bench) (le $d.SubsLeft 0)}} disabled{{end}}>Substitute</button>
     </form>
-    <form method="post" action="/decide" class="actions" data-decide>
+    <form method="post" action="/decide" class="change" data-decide>
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="mentality">
       <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
       <label>Mentality <select name="mentality">{{range $d.Mentalities}}<option{{if eq . $d.Mentality}} selected{{end}}>{{.}}</option>{{end}}</select></label>
@@ -84,10 +83,11 @@
   </div>
   {{end}}
   {{if $d.Stats}}<div data-at-stop>{{template "statsPanel" $d}}</div>{{end}}
-  <div class="panel">
+  <div class="panel live-timeline">
     <h2>Match timeline</h2>
-    {{if $d.Events}}<ul class="plain">{{range $d.Events}}<li data-event data-minute="{{.Minute}}"{{if .Score}} data-goal="{{.Score}}"{{end}}><b>{{.Minute}}'</b> {{.Text}}</li>{{end}}</ul>{{else}}<p class="muted">Nothing has happened yet.</p>{{end}}
+    {{if $d.Events}}<ul class="plain" data-timeline>{{range $d.Events}}<li data-event data-minute="{{.Minute}}"{{if .Score}} data-goal="{{.Score}}"{{end}}><b>{{.Minute}}'</b> {{.Text}}</li>{{end}}</ul>{{else}}<p class="muted">Nothing has happened yet.</p>{{end}}
   </div>
+</div>
 </div>
 {{if lt $d.From $d.Minute}}
 <script>
@@ -102,6 +102,7 @@
   var state = document.querySelector('[data-state]'), minute = document.querySelector('[data-minute]'), score = document.querySelector('[data-score]');
   var stopState = state.textContent, stopMinute = minute.textContent, stopScore = score.textContent;
   var lines = document.querySelectorAll('[data-event]'), atStop = document.querySelectorAll('[data-at-stop]');
+  var timeline = document.querySelector('[data-timeline]'), shown = -1;
   var play = ctl.querySelector('[data-play]'), scrub = ctl.querySelector('[data-scrub]'), speed = ctl.querySelector('[data-speed]'), skip = ctl.querySelector('[data-skip]');
   var decide = document.querySelectorAll('[data-decide]'), hint = document.querySelector('[data-change-hint]');
   var played = Number(ctl.dataset.played);
@@ -127,12 +128,15 @@
   }
   function show(s) {
     t = s;
-    var done = t >= t1, goals = '0 - 0';
+    var done = t >= t1, goals = '0 - 0', n = 0;
     for (var i = 0; i < lines.length; i++) {
       var on = done || Number(lines[i].dataset.minute) * 60 <= t;
       lines[i].hidden = !on;
+      if (on) n++;
       if (on && lines[i].dataset.goal) goals = lines[i].dataset.goal;
     }
+    // The timeline scrolls inside its panel: keep the latest line in view.
+    if (timeline && n !== shown) { shown = n; timeline.scrollTop = timeline.scrollHeight; }
     score.textContent = done ? stopScore : goals;
     state.textContent = done ? stopState : 'In play';
     minute.textContent = done ? stopMinute : Math.floor(t / 60);

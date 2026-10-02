@@ -3914,3 +3914,13 @@ Asked by the owner: tactics must be changeable during the live match. Mentality 
 Checked by driving the page's script in Node against a running server (seed 42, club 3, `simple`): run the clock to 20', pause, and the form carries minute 20 (still 20 after winding back to 5'). The server records the play to 20 and the mentality change at 20', and reopens the page there, waiting.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## ui: the live match fits the window (done)
+
+Asked by the owner: the live match page must not scroll; everything belongs on one screen. At 1440×900 it was 1577 px tall, and the pitch alone was taller than the window.
+
+- **Layout.** On a desktop (wider than 900 px) the live page gets a fitted shell (`shell fit`): the shell is exactly the window's height and the page never scrolls. The head (title, score, clock, play buttons) sits over the pitch, and the SVG pitch scales into the height left. A side column holds the changes, the statistics and the timeline. Only the timeline scrolls, inside its panel, and it follows the clock to the latest line. Without a pitch (`simple`) the side panels sit side by side under the head. At phone width the page still stacks and scrolls; a pitch, statistics and timeline don't fit on a phone.
+- **Compacted for laptops.** The changes form puts Off, On with Substitute, and Mentality with Change on aligned rows, with the status and the change-minute hint on one line. The statistics rows are denser. On this page the band hides the date and balance (Unsaved stays) so it keeps to one line at 1280 px.
+- **Checked** in headless Chromium against a running server (seed 42, club 3, `tick`), at half time with changes, statistics and timeline: no page scroll at 1920×1080, 1440×900, 1366×768, 1280×720 and 1000×700; the side column fits without scrolling down to 1000×700. Also checked at full time, in dark mode and on `simple`. `TestLiveMatchInTheBrowser` asserts the fitted shell on the live page only.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
