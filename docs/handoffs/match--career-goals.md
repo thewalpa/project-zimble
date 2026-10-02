@@ -41,3 +41,5 @@ Rerun at `tick` v8, `simple` v5, `medical` 4 (commit `6de7f91`; [docs/balance.md
 
 ## Update (balance, 2026-10-02)
 Rerun at `simple` v6, `tick` v8, generation 9, `LeagueVersion` 7 ([docs/balance.md, "Career seasons"](../balance.md#rerun-at-simple-v6-generation-9-leagueversion-7)): `simple` **2.60** goals a league match, 1.48–1.12, 46.0 / 26.1 / 27.8 %: the target is met for `simple`. `tick` **2.19** (2.16 before; its parameters are unchanged), 1.23–0.95, 43.1 / 28.0 / 28.9 %: still 0.4 short. Only the `tick` half remains.
+
+Mentality on career squads (balance, 2026-10-02, closes `balance--simple-v6-rerun`): `simple` v6 has the intended trade-off — attacking +2.6 goals for and +3.3 against over a season (difference −0.8 ± 0.3), no points difference (−0.14 ± 0.27 over 128 clubs); `tick`'s points differences are inside the noise of 24 clubs. See [docs/balance.md, "Match engines"](../balance.md#rerun-at-simple-v6-synthetic-teams-and-mentality-on-career-squads).

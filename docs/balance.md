@@ -261,6 +261,28 @@ A knockout tie goes to penalties exactly when it is level after 90 minutes: 26�
 
 At 50 v 70 the home side is the weaker one and wins 39% of the shootouts in both engines. Both sides together score 8.0–8.7 penalties per shootout. Shootouts stay close to a coin toss with a modest edge for the better side, as at v6 (`match--shootout-favourite` holds). Both engines have an always-on shootout bound (`TestShootoutsStayClose`, delivered with `match--mentality-shootout-bounds`).
 
+### Rerun at `simple` v6 (synthetic teams, and mentality on career squads)
+
+Measured 2026-10-02 at `simple.ModelVersion` 6 and `tick.ModelVersion` 8 (unchanged), same seeds and commands (`TestBalanceEngineComparison` 12 min and `TestBalanceMentalityByGap` 7 min on 4 cores), plus the new `TestBalanceMentalityCareer`. The tables above are `simple` v5 and are historical for `simple`; `tick`'s rows are unchanged within noise.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceMentalityCareer -v -count=1 -timeout 3h   # about 5 min on 4 cores
+```
+
+**On the flat synthetic input `simple` now scores 3.17 goals at 60 v 60** (2.71 at v5; 1.79–1.38, 47.3 / 24.5 / 28.2 %); `tick` 2.42. This is the intended side effect of calibrating `simple` on the career profile (`match`'s note: 2.60 in careers, 3.2 on `enginetest.Input`), so the synthetic rows are no longer the goal level a player sees. Both attacking now give 4.33 goals (v5: 3.75) and 62.5% of matches with four goals or more; both defensive 2.23 (1.82).
+
+**On the flat input, mentality in `simple` is still not a trade-off**, as at v5: attacking beats balanced for the favourite (63.5 against 61.6% home wins) and for the underdog (43.4 against 41.7% away wins), and defensive loses (58.6 and 38.9%). `tick` shows the same direction (favourite attacking 65.3 against 64.3%). The 55 v 65 table is `simple` 33.7 / 24.6 / 41.7 (balanced), 34.8 / 21.9 / 43.4 (underdog attacking), 33.0 / 28.0 / 38.9 (defensive).
+
+**On career squads there is a trade-off, and no dominant mentality.** One football year of every club as the manager (rotation selection, mentality fixed; `simple` 128 clubs, `tick` 24, difference against balanced as mean ± standard error):
+
+| | simple: points | goals for | goals against | tick: points | goals for | goals against |
+| --- | --- | --- | --- | --- | --- | --- |
+| balanced | 19.19 | 18.26 | 18.25 | 18.29 | 15.25 | 16.75 |
+| attacking | −0.14 ± 0.27 | +2.57 ± 0.21 | +3.34 ± 0.21 | +0.75 ± 1.12 | +2.88 ± 1.11 | +1.00 ± 1.03 |
+| defensive | +0.08 ± 0.26 | −2.73 ± 0.17 | −2.91 ± 0.20 | +1.33 ± 1.40 | −2.67 ± 1.16 | −5.08 ± 0.95 |
+
+Both engines move goals with the mentality; neither moves points beyond noise. In `simple` attacking costs 0.8 goals of difference (−0.77 ± 0.30) and gains no points, which is the shape `match` aimed at for v6; defensive is free of cost in `simple` (+0.17 ± 0.25). `tick` at 24 pairs cannot separate any of its points differences from zero (±1.1–1.4), and its defensive rows (5 fewer goals against for 2.7 fewer for) read as a real defensive effect; a larger `tick` sample would settle it. So the `match--simple-mentality` request is answered: on career squads `simple` has no mentality worth always choosing. A mentality is not pointless: it changes how many goals the club's matches have by 5–6 a season.
+
 ### History
 
 - **2026-09-28**, `tick` v1, `simple` v3: `tick` drew 24.9% and scored 2.9 goals at 60 v 60, 4.6 at 80 v 80 and 2.1 at 40 v 40, a 10-point mismatch gave 72% wins and a 20-point one 4.3 goals. Attacking raised the win rate by 20 points with no cost at the back; a defensive side against a balanced one conceded 4.7 goals. A stronger side won 74–80% of shootouts at 65 v 55. Filed `match--tick-goals-by-level`, `match--tick-mentality` and `match--shootout-favourite`.

@@ -3971,3 +3971,21 @@ Career 60 v 60: 2.60 goals, 45.2/26.1/28.8, 1.5–1.2. A full career (`TestBalan
 **Open.** `tick` is still at 2.14 goals in careers (it loses 0.26 between synthetic and career rows); it follows in its own bump, so `match--career-goals` stays open for it. Next from the roadmap: fouls, free kicks and cards.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines`.
+
+## balance: market, career, population, money and rotation rerun at the current versions (done)
+
+Measured 2026-10-02 at `ai.TransfersVersion` 7, `worldgen.Version` 9, `content.LeagueVersion` 7, `ScheduleVersion` 4, `medical.Version` 4, `simple.ModelVersion` 6, `tick.ModelVersion` 8, storage schema 32. All numbers and commands are in [docs/balance.md](balance.md); no production code, version or golden changed.
+
+- **Market ([AI transfer market](balance.md#rerun-at-aitransfersversion-7-generation-9-leagueversion-7)).** Role fallback leaves 4 short windows in 300 AI-only (14 at v6), none with a passive manager (3), and 28 of 120 with a recruiting one (27): the sweep now prints each short window, and the remainder is filed to `squad`.
+- **Careers.** `simple` v6 scores 2.60 goals with 46.0 / 26.1 / 27.8 % (target met); `tick` v8 is at 2.19. Upsets rose to 31% in both engines (the career world, not an engine).
+- **Calendar and injuries.** The default football year leaves starters at 99.8 condition and 9.17 injuries a club a season; the weekly tables are kept as history.
+- **Rotation, now over a cup-exposed year.** `TestBalanceRotation` plays year 1 (no cup) and year 2 (cup) and reports rest buckets. The lineup decision is worth nothing without a cup and 0.7 (`simple`) to 3.3 (`tick`) points of carrying with one.
+- **Population and attributes.** Generation 9 removes the first-decade transient (bands within 2 of year 30) and the low-attribute drift in the measured output; the division gap is still absent.
+- **Money.** With cup prizes the first division earns 21% more than the second after year 1, but the mean balance still climbs 280k a club a year to 10.5M, and the median and richest-club targets are not met.
+- **Harness.** `TestBalanceAIMarket*` lists short windows, `TestBalancePopulation`'s money table has an income-loss column, `TestBalanceMentalityCareer` plays mentalities on career squads.
+- **Decision:** the branch `ccr-4e8a8cc8-digbuz` is the baseline of this session; `main` was an older divergent history and was not rebased onto.
+
+Notes: answered and deleted `balance--simple-v6-rerun` (mentality on career squads: `simple` v6 trades 2.6 goals for 3.3 against, no points change), `balance--august-may-calendar`, `--cup-prize-accounting`, `--football-year-medical-measurements`, `--generated-age-curve-delivered`, `--passive-manager-investigation`, `--recruitment-role-fallback`; filed `squad--market-v7-and-economy-measured`; updated `match--career-goals`, `ui--tired-carried-lineup`, `data--youth-floor-attributes`, `data--weaker-lower-divisions`.
+
+Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, filed to `ui` as `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.
+

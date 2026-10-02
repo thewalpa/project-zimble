@@ -23,19 +23,19 @@ Every lane: it measures what they build, and they answer its notes. After a lane
 
 ## Now
 
-The baseline is complete and now current at `tick` v8, `simple` v5, `medical` 4 and `ScheduleVersion` 4: the AI market, the matches, the career rows, injuries and the rotation policy, the population, the attributes and money by division are measured ([docs/balance.md](../balance.md)). Injuries meet `squad`'s 0.5–1.0 target (11.1 a club a season, starters at 95.3 condition) and rotating by condition beats the strongest eleven or a lineup set once, on both engines (the manager's default is the AI's rotation; filed `ui--tired-carried-lineup`).
+The baseline is current at `ai.TransfersVersion` 7, `worldgen.Version` 9, `LeagueVersion` 7, `ScheduleVersion` 4, `medical` 4, `simple` v6, `tick` v8 and schema 32 ([docs/balance.md](../balance.md), 2026-10-02): the AI market with role fallback, careers on both engines, injuries and rotation over a cup-exposed year, the population and attributes at generation 9, and money by division with cup prizes. Findings: `simple` meets the career goal target (2.60) and `tick` does not (2.19); the default calendar leaves starters rested, so the lineup decision matters only before short rests; the first division earns 21% more but money still only grows (10.5M a club at year 30); the division strength gap is still absent.
 
-Open notes to `match`: `match--simple-mentality`, `match--career-goals` (updated: `tick` v8 careers score 2.16). Open notes to `squad`: `squad--passive-manager-market`, `squad--money-only-grows`. Open notes to `data`: `data--generated-age-curve`, `data--youth-floor-attributes`, `data--weaker-lower-divisions`. Open notes to `ui`: `ui--tired-carried-lineup`, `ui--simulate-test-gofmt`. Rerun `TestBalancePopulation` (and the market sweeps for money) when any of the `squad` or `data` notes lands, and the engine tests when `match` answers.
+Open notes to `match`: `match--career-goals` (`tick` half). Open notes to `squad`: `squad--market-v7-and-economy-measured`, `squad--money-only-grows`. Open notes to `data`: `data--youth-floor-attributes`, `data--weaker-lower-divisions`. Open notes to `ui`: `ui--tired-carried-lineup`, `ui--simulate-test-gofmt`. Rerun the market and population sweeps when `squad` or `data` answer, and the career tests when `match` bumps `tick`.
 
-**Next:** what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open), then renew-early against replace-on-expiry on matched seeds (below), reusing `TestBalanceRotation`'s matched-pair harness.
+**Next:** what is left of [the free-agent pool](../handoffs/balance--free-agent-pool-delivered.md) (how long the good ones last; the pool's quality at the open; the sweep records only the best at the close), then renew-early against replace-on-expiry on matched seeds (below), reusing `TestBalanceRotation`'s matched-pair harness (it now plays several football years).
 
 ## Backlog
 
 - Add an always-on market bound if the numbers justify it: a few seeds, loose limits (stars moved per window, completions per window, no AI club below zero, AI vacancies at the close). The 30-year sweep takes 100 s, so an always-on version needs about 5 years and 2 seeds.
-- Record the manager's division in the market sweep (the AI-only by-division strength and money are in `TestBalancePopulation`).
+- Record the manager's division in the market sweep (the AI-only by-division strength and money are in `TestBalancePopulation`), and the positions of the free agents left at the close of a short window (to split no-supply from reserve-blocked without `squad`'s overlay).
 - Add an always-on attribute bound (each position's attribute means within a few points of generation over about 10 years) once `data` answers `data--youth-floor-attributes`.
 - Rerun the baseline after each release of `squad`'s release-and-upgrade work.
-- Rerun `TestBalanceEngineComparison`, `TestBalanceMentalityByGap`, `TestBalanceMatchStats` and `TestBalanceCareerEngines` when `match` delivers `match--simple-mentality` or `match--career-goals` (the four ran at `tick` v8 on 2026-10-02).
+- Rerun `TestBalanceEngineComparison`, `TestBalanceMentalityByGap`, `TestBalanceMatchStats`, `TestBalanceCareerEngines` and `TestBalanceMentalityCareer` when `match` bumps `tick` for `match--career-goals` (they ran at `simple` v6, `tick` v8 on 2026-10-02; `TestBalanceMatchStats` was not rerun).
 - A "manager's view" check: can a managed club realistically improve over 5 seasons?
 - Timing: how long `Continue` takes for a full season and for 30 years. Report regressions to the lane that caused them.
 
