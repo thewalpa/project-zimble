@@ -1576,6 +1576,8 @@ var rotationArms = []string{"carry", "rotate", "best"}
 // rotationRun is one managed club's football year under one policy.
 type rotationRun struct {
 	Points, Played int // league
+	GoalsFor       int // league
+	GoalsAgainst   int // league
 	Injuries       int
 	DaysLost       int
 	Starts         int
@@ -1612,10 +1614,16 @@ func rotationPolicy(t *testing.T, w *World, arm string, fixture ids.FixtureID, f
 			return selection.Lineup{}, false
 		}
 		fallthrough
-	case "rotate":
+	case "rotate", "balanced", "attacking", "defensive":
 		l, err := w.SuggestLineup(fixture)
 		if err != nil {
 			t.Fatalf("seed %d: SuggestLineup: %v", w.seed, err)
+		}
+		switch arm {
+		case "attacking":
+			l.Tactics.Mentality = matches.Attacking
+		case "defensive":
+			l.Tactics.Mentality = matches.Defensive
 		}
 		return l, true
 	}
@@ -1731,6 +1739,8 @@ func playManagedFootballYear(t *testing.T, w *World, arm string, club ids.ClubID
 						}
 						mine, theirs := m.Score[side], m.Score[1-side]
 						run.Played++
+						run.GoalsFor += int(mine)
+						run.GoalsAgainst += int(theirs)
 						switch {
 						case mine > theirs:
 							run.Points += 3
@@ -1913,4 +1923,82 @@ func reportRotation(engine string, samples []rotationSample) string {
 			diff(func(r rotationRun) float64 { return float64(r.DaysLost) }))
 	}
 	return b.String()
+}
+
+// mentalityArms are the mentalities a managed club submits every match with
+// the AI's rotating selection.
+var mentalityArms = []string{"balanced", "attacking", "defensive"}
+
+// TestBalanceMentalityCareer plays one football year per mentality for each
+// managed club of the same seeded career world (the manager signs and renews
+// nobody) and compares the mentalities on matched pairs: points and goals
+// for and against. Unlike the flat-input TestBalanceMentalityByGap, the
+// squads, opponents and matchdays are a career's.
+//
+//	ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceMentalityCareer -v -count=1 -timeout 3h
+func TestBalanceMentalityCareer(t *testing.T) {
+	requireBalanceSweep(t)
+	type setup struct {
+		engine string
+		seeds  []uint64
+		step   int
+	}
+	for _, su := range []setup{{"simple", []uint64{1, 2, 3, 4}, 1}, {"tick", []uint64{7, 42, 2026}, 4}} {
+		var samples []rotationSample
+		for _, seed := range su.seeds {
+			base := aiEngineWorld(t, seed, su.engine)
+			for i, c := range base.registry.Clubs() {
+				if i%su.step == 0 {
+					samples = append(samples, rotationSample{Seed: seed, Club: c.ID})
+				}
+			}
+		}
+		t.Run(su.engine, func(t *testing.T) {
+			for i := range samples {
+				for armIdx, arm := range mentalityArms {
+					t.Run(fmt.Sprintf("%d-%d-%s", samples[i].Seed, samples[i].Club, arm), func(t *testing.T) {
+						t.Parallel()
+						cfg := DefaultConfig(random.Seed(samples[i].Seed))
+						cfg.UserClub, cfg.Engine = samples[i].Club, su.engine
+						w, err := NewWorld(cfg)
+						if err != nil {
+							t.Fatal(err)
+						}
+						samples[i].Arms[armIdx] = playManagedYear(t, w, arm, 1)
+					})
+				}
+			}
+		})
+		var b strings.Builder
+		fmt.Fprintf(&b, "\n%s: %d matched (seed, club) football years per mentality\n\n| Mentality | League points | Goals for | Goals against | Goal difference |\n| --- | --- | --- | --- | --- |\n", su.engine, len(samples))
+		bal := slices.Index(mentalityArms, "balanced")
+		for ai, arm := range mentalityArms {
+			col := func(f func(r rotationRun) float64) []float64 {
+				out := make([]float64, len(samples))
+				for i, s := range samples {
+					out[i] = f(s.Arms[ai])
+				}
+				return out
+			}
+			diff := func(f func(r rotationRun) float64) string {
+				d := make([]float64, len(samples))
+				for i, s := range samples {
+					d[i] = f(s.Arms[ai]) - f(s.Arms[bal])
+				}
+				m, se := meanSE(d)
+				return fmt.Sprintf("%.2f (%+.2f ± %.2f)", mean64(col(f)), m, se)
+			}
+			fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", arm,
+				diff(func(r rotationRun) float64 { return float64(r.Points) }),
+				diff(func(r rotationRun) float64 { return float64(r.GoalsFor) }),
+				diff(func(r rotationRun) float64 { return float64(r.GoalsAgainst) }),
+				diff(func(r rotationRun) float64 { return float64(r.GoalsFor - r.GoalsAgainst) }))
+		}
+		t.Log(b.String())
+	}
+}
+
+func mean64(xs []float64) float64 {
+	m, _ := meanSE(xs)
+	return m
 }

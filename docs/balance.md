@@ -123,10 +123,40 @@ A simple recruiting policy keeps the managed club at 59–62, one point above th
 
 **Nothing in the AI market moved beyond seed noise**, and no club goes below zero. The managed club moved more: the recruiting manager ends 9.7M richer at year 30 and wins more titles (seed 99: 11 in 30 seasons), and the passive one wins fewer (0–1). Both are 4-seed means of a single club, so a few titles or a sale either way move them; I haven't isolated whether home wins, prize money or sales account for the balance. The conclusions above stand.
 
+### Rerun at `ai.TransfersVersion` 7 (generation 9, `LeagueVersion` 7)
+
+Measured 2026-10-02 on branch `ccr-4e8a8cc8-digbuz` (commit after `f1fddce`) at `ai.TransfersVersion` 7, `ai.ContractsVersion` 2, `worldgen.Version` 9, `content.LeagueVersion` 7, `competitions.ScheduleVersion` 4, `medical.Version` 4, `simple.ModelVersion` 6, storage schema 32 (cup awards posted); same seeds and commands as above. It answers `balance--recruitment-role-fallback` and the market half of `balance--passive-manager-investigation`. `TestBalanceAIMarket*` now also prints each short window (seed, year, club, position, free agents at the close).
+
+| | v6 baseline (`squad`'s investigation, same seeds) | v7 |
+| --- | --- | --- |
+| AI-only: windows closing with an AI club short | 14 of 300 (14 players) | **4 of 300 (4 players)** |
+| Passive: windows short / listed players unsold | 3 of 120 (3) / 52–59% | **0 of 120** / 56–58% |
+| Recruiting: windows short | 27 of 120 (40 players) | 28 of 120 (35 players) |
+| AI-only: completed transfers a window, 30-year mean | 48 | 48 |
+| AI-only: lowest / median / highest balance, year 30 | 0.97M / 7.06M / 22.49M | 1.03M / 9.61M / 27.74M |
+| Passive manager: balance year 30, squad average year 5 / 30 | 28.0M, 51 / 51 | 29.7M, 52 / 51 |
+| Recruiting manager: balance year 30, squad average year 30 | 22.9M, 61 | 16.2M, 63 |
+| Recruiting manager: career squad average per seed, titles in 30 seasons | 58–60, 4–11 | 59–63, 4–8 |
+| Free-agent pool at the open, year 2 / 10 / 30 | AI-only 4 / 4 / 4; passive 8 / 15 / 19; recruiting 6 / 7 / 10 | AI-only 4 / 4 / 4; passive 8 / 15 / 16; recruiting 6 / 9 / 8 |
+| Pool at the close, year 2 / 10 / 30 | AI-only 0; passive 0 / 5 / 9; recruiting 0 / 0 / 2 | AI-only 0; passive 1 / 6 / 7; recruiting 0 / 1 / 1 |
+
+**Role fallback works where it was aimed.** The AI-only market now leaves 4 vacancies in 300 windows (seeds 1 y2, 13 y4 and y6, 99 y3; one position each; no free agent in the pool at the close), and the passive manager's 3 shortages are gone. Nobody falls below zero and population stays 640–663.
+
+**The recruiting manager's world still has gaps: 28 of 120 windows, 35 players** (MF 14, DF 9, FW 8, GK 4; seeds 7: 7 windows, 42: 5, 99: 10, 2026: 6). In 14 of those windows the free-agent pool is empty at the close; in the other 14 it holds 1–4 players (the sweep does not record their positions). The shortages cluster in the first years (seed 99: years 2–4, seed 7: 2–5, seed 42: year 2) and scatter afterwards. The rate did not move against v6 (27 of 120); the fallback removed the proven seed-42 / club-18 case, but club 18 is still short in year 2 and year 7 in that run (an unfillable MF, then a DF). This sweep cannot tell reserve-blocked listings from missing supply: that split needs the investigation overlay in `squad-market-investigation.md`. The recruiting manager's own signings (3 a year) and purchases take the same free agents the AI clubs would refill from, which is the plausible mechanism and not isolated.
+
+**The passive manager's world is unchanged in kind.** 56–58% of listed players go unsold (24–28 listed, 14–16 unsold from year 10), the pool at the open grows to 16 and keeps 7 at the close, the best in it rates 43 against squad averages of 59. Reading `balance--passive-manager-investigation`: unsold fringe is a different thing from a positional shortage, and the short-window count (0 of 120) now says the shortage half is closed. Only the unsold share and the long-lived pool remain, and they cost the game nothing yet (no AI club is short).
+
+**Money: gate and prize income keep every club growing.** The AI-only median is 3.6M at year 10, 7.0M at year 20 and 9.6M at year 30 (3.0M, 4.6M and 6.5M at the first baseline; 7.1M at year 30 in the `simple` v5 rerun) and the richest club 27.7M (22.5M): the Continental Cup's 3.1M a year (first paid in year 2, see [Money by division](#money-by-division)) lands in the first division's eight cup clubs, and the effect shows as the compounding gap after year 10. No club goes below zero in 300 club-careers and the lowest balance holds near 0.9–1.1M.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceAIMarket -v -count=1   # about 110 s + 45 s + 45 s on 4 cores
+```
+
 ### History
 
 - **2026-09-28**, 16 clubs, `ai.TransfersVersion` 2: 27 transfers a window, every bid completed, the 16 best players 12 a window, strength gap 6–8, median balance 8.5M at year 30, free-agent pool empty (AI-only) or 2–4 (passive). Filed `squad--star-churn` and `squad--free-agent-pool`.
 - **2026-10-01**, 32 clubs, `ai.TransfersVersion` 6: this section, at `simple` v4 (commit `15ff2fa`), and rerun at `simple` v5 (commit `64874ae`).
+- **2026-10-02**, `ai.TransfersVersion` 7, `worldgen.Version` 9, `LeagueVersion` 7, cup prizes posted: the rerun above. The tables above it are the version-6 baseline and are historical.
 
 ## Match engines: tick against simple
 
@@ -277,11 +307,33 @@ ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=
 
 Means over 36 league tables (4 leagues × 9 seasons). The champion takes 1.86–1.92 points a match and the last 0.79–0.83. The cup and play-off rates rest on 42 cup matches and 36 ties per engine (±8–15 points), so the gaps between engines are noise. Workload (condition and injuries) is engine-independent and lives under [Injuries](#injuries).
 
+### Rerun at `simple` v6 (generation 9, `LeagueVersion` 7)
+
+Measured 2026-10-02 at `simple.ModelVersion` 6, `tick.ModelVersion` 8 (unchanged), `worldgen.Version` 9, `content.LeagueVersion` 7 (three-week league intervals), `ScheduleVersion` 4, `medical.Version` 4, schema 32, same seeds and command. Answers `balance--simple-v6-rerun` and the career half of `balance--august-may-calendar`. The `tick` column also moves, because generation 9 and the August-to-May calendar changed every career world; the engines' own parameters did not. The tables above are the `simple` v5 / `LeagueVersion` 6 run and are historical.
+
+| | simple v6 | tick v8 | Top leagues, roughly |
+| --- | --- | --- | --- |
+| Goals per match | **2.60** (2.17 at v5) | 2.19 (2.16) | 2.6–2.9 |
+| Home–away goals | 1.48–1.12 | 1.23–0.95 | 1.5–1.2 |
+| Home / draw / away % | 46.0 / 26.1 / 27.8 | 43.1 / 28.0 / 28.9 | 45 / 26 / 29 |
+| Upsets (weaker club wins) % | 31.2 | 31.1 | |
+| Stronger side win %, gap 0–1 / 2–4 / 5–8 / 9+ | 34 / 40 / 39 / 46 | 31 / 38 / 41 / 44 | |
+| matches in those buckets | 408 / 944 / 416 / 26 | 400 / 952 / 418 / 34 | |
+| Champion / last points (of 42) | 27.4 / 11.7 | 26.5 / 11.9 | |
+| Cup matches level after 90 min, % / play-off ties to pens, % | 40 / 33 | 33 / 28 | |
+
+**`simple` now sits on the real goal level** (2.60, inside the 2.5–2.9 target of `match--career-goals`) with the home edge and draw rate on their reference column (46.0 / 26.1 / 27.8 against 45 / 26 / 29), so the draw rate is not off. **`tick` is still 0.4 below** (2.19; it was 2.16): the `tick` half of `match--career-goals` stays open.
+
+**The upset rate (31.1–31.2%) is higher than at v5 (29.6 and 27.9%) in both engines**, `tick` included, whose parameters did not change, so the cause is the career world, not an engine. I did not isolate it; the likeliest candidates are generation 9 (youth ranges developed to the starting age) and the three-week calendar, which keep squads closer in strength (about 1,350 of the 1,800 matches an engine plays fall in the gap 0–4 buckets). The stronger side wins only 31–34% of matches at a gap of 0–1 and 38–46% beyond, so **a favourite is worth little in either engine**; the 9+ bucket has 26–34 matches, too few to read. I have no real-football reference by gap, so I file nothing; it is a number to keep watching.
+
+**Final tables stay near real football's** (the champion takes 1.96 points a match in `simple` and 1.89 in `tick`, the last 0.84 and 0.85). `simple`'s spread (15.7) exceeds `tick`'s (14.6): the higher goal rate separates more. Cup and play-off rates rest on 42 cup matches and 36 ties per engine (±8–15 points), so 40 against 33% penalties is noise. `simple` scoring 2.60 goals does not change workload or injuries (same 9.17 injuries a club, 19.5 days).
+
 ### History
 
 - **2026-10-01**, `tick` v6, `simple` v4 (commit `5f07b58`): 2.18 (`simple`) and 2.23 (`tick`) goals; `simple` without a home edge (35.4 / 30.3 / 34.3), `tick` 42.8 / 27.8 / 29.4; champion 26.2–26.4 points, last 11.6–11.8.
 - **2026-10-01**, `tick` v7, `simple` v5 (commit `64874ae`, `medical` 3, `ScheduleVersion` 3): 2.16 (`simple`) and 2.30 (`tick`) goals, home edge on both (43.7 and 43.0% home wins); champion 26.1 and 26.9 points, last 12.2 and 10.9.
 - **2026-10-02**, `tick` v8, `simple` v5, `medical` 4, `ScheduleVersion` 4: this section. The sweep follows the new cup calendar (season 1 has no cup edition).
+- **2026-10-02**, `simple` v6, `tick` v8, generation 9, `LeagueVersion` 7: the rerun above (2.60 and 2.19 goals; both engines see 31% upsets).
 
 ## Match statistics: tick against real football
 
@@ -363,7 +415,25 @@ ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceRotation -v -count=1 -ti
 
 **A club is still never short of fit players.** 0 short-of-fit club-batches and 0 emergency starts in about 11,000 club-batches: the emergency rule (injured players play) never fires at 11 injuries a club a season.
 
-### Rotation policy on matched worlds
+### Rerun on the default football year (`LeagueVersion` 7, generation 9)
+
+Measured 2026-10-02 at `medical.Version` 4, `simple` v6 and `tick` v8, `worldgen.Version` 9, `content.LeagueVersion` 7 (an August-to-May season with three-week league intervals, the cup played midweek in season 2 onward), `ScheduleVersion` 4, over the same 18 career seasons. Answers the career half of `balance--august-may-calendar` and `balance--football-year-medical-measurements`. The tables below this one (11.1 injuries a club, starters at 95.3) were measured on the earlier weekly calendar and are **historical**; `squad`'s weekly regression still guards that calendar.
+
+| | weekly calendar (`LeagueVersion` 5–6) | default football year (`LeagueVersion` 7) |
+| --- | --- | --- |
+| Injuries a club a season | 11.1 | **9.17** (293 a season over 32 clubs) |
+| Per player a year (20-man squads) | 0.55 | 0.46 |
+| Days a layoff | 19.7 | 19.5–19.6 |
+| Days out per injured player a season | 25.6 | 27.3 |
+| Condition before a round, every active player | 95.1 | 99.2 |
+| Starters' condition at kickoff | 95.3 (17% below 90) | **99.8** (2% below 100, 1% below 90) |
+| Short-of-fit club-batches, emergency starts | 0, 0 | 0, 0 |
+
+**The calendar, not the medical rules, ended the tired starters.** With three-week league intervals the daily recovery task restores a squad between matches: 99% of starts are at 90 or above. The injury rate is 0.46 a player a year, just under `squad`'s 0.5–1.0 target and inside the 0.429–0.487 that `squad` measured on its own seeds, so I confirm its figure. Both engines agree within noise (293.3 and 293.6 a season).
+
+**Congestion exists only where the cup puts it** (below): 3% of the starts in a cup-exposed year follow a gap under 7 days, and 24–61% of those starters are below 90 condition (the 2.2–2.4% overall `squad` measured is the same population).
+
+### Rotation policy on matched worlds (weekly calendar; historical)
 
 The `TestBalanceRotation` sweep plays one football year of the same seeded world once per lineup policy for each managed club. The manager signs and renews nobody, so the arms differ only in his lineups; results are compared on matched (seed, club) pairs. The policies are **carry** (submit the AI's selection for the first match, nothing after: the world carries it forward and refills only injured places), **rotate** (submit the AI's selection every match: `RoleScore × condition`, so a tired player gives way) and **best** (the same selection with every condition read as 100: the strongest eleven whoever is tired). A manager who never submits gets the AI's selection every match, identical to rotate: the carry-over chain starts only from a stored lineup.
 
@@ -389,10 +459,42 @@ Differences against rotate: carry −2.96 ± 1.21 points, +4.04 ± 0.51 injuries
 
 **Rotation pays, on both engines and on every measure.** Rotating the squad by condition earns 0.6–0.9 points a season more than the strongest eleven or a fixed one on `simple` (about 3–5%) and 2–3 points on `tick` (24 pairs, so ±1.1–1.2), with over a quarter fewer injuries and days lost. Best and carry differ little: both leave the starters at 86–87 condition, because a 4-4-2 starter without a break plays on tired. No policy is dominant or pointless; the AI's default is the best of the three, so a manager has nothing to gain by taking the lineup into his own hands unless he beats the AI at it. The squad's depth matters: rotate uses 17 players a year against 15.6. Not measured: a manager who rotates by choice rather than by the AI's rule, in-match substitutions, and money (injured players keep their wages).
 
+### Rotation policy on the football year, with and without a cup
+
+Measured 2026-10-02 at the versions of the [rerun above](#rerun-on-the-default-football-year-leagueversion-7-generation-9), commit after `f1fddce`. `TestBalanceRotation` now plays two football years per arm and measures the last: **year 1** (no cup edition) and **year 2** (the Continental Cup is played during the league season, midweek, four days after a matchday). The manager's lineup policy applies in every year; he signs and renews nobody, so contracts that end after year 1 take the same players from every arm. It also reports cup matches a club played and its starts by the days since its previous match (under 7, 7–20, 21 or more). `simple` 128 pairs (seeds 1–4, every club), `tick` 24 pairs (seeds 7, 42, 2026, every fourth club); an arm plays the same world as its siblings.
+
+```sh
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceRotation -v -count=1 -timeout 4h   # about 15 min on 4 cores
+```
+
+League points (of 42) and injuries, difference against rotate in parentheses (mean ± standard error):
+
+| | year 1, simple | year 2, simple | year 1, tick | year 2, tick |
+| --- | --- | --- | --- | --- |
+| carry | 18.98 (−0.21 ± 0.14), 9.62 inj. | 17.09 (**−0.69 ± 0.22**), 9.42 | 18.08 (−0.21 ± 0.75), 9.17 | 15.58 (**−3.33 ± 1.25**), 9.00 |
+| rotate | 19.19, 9.65 inj. | 17.77, 9.45 | 18.29, 8.92 | 18.92, 9.42 |
+| best | 19.19 (+0.00 ± 0.00), 9.66 | 17.70 (−0.07 ± 0.06), 9.52 | 18.29 (+0.00), 8.92 | 19.08 (+0.17 ± 0.12), 9.58 |
+
+Starters' condition at kickoff is 99.6–100.0 in every cell, days lost 159–190 a club, and a club uses 12.8–13.3 different players a league year (it was 15.6–17.1 on the weekly calendar).
+
+Cup exposure and rest, year 2 (every club, so the average club plays 0.4–0.5 cup matches; about eight of 32 clubs have any):
+
+| | simple: carry | rotate | best | tick: carry | rotate | best |
+| --- | --- | --- | --- | --- | --- | --- |
+| Starts under 7 days after the previous match, % | 3.1 | 3.2 | 3.3 | 2.6 | 3.1 | 4.0 |
+| of them below 90 condition, % | 60.7 | **42.9** | 56.7 | 52.5 | **24.0** | 50.6 |
+| Starts 7–20 days after, % (below 90, %) | 3.6 (0.9) | 3.7 (0.5) | 3.6 (0.8) | 4.0 (1.9) | 3.7 (0.7) | 4.0 (0.6) |
+| Starts 21+ days after or the first, % (below 90, %) | 93.3 (0.0) | 93.1 (0.0) | 93.1 (0.0) | 93.4 (0.0) | 93.2 (0.0) | 92.1 (0.0) |
+
+**On the default calendar the lineup decision is worth nothing in year 1 and little in year 2.** In a year without a cup every arm is within 0.2 points and 0.1 injuries of every other (the "rotate" and "best" arms are identical on `tick` and within 0.02 injuries on `simple`: nobody is tired, so the AI's condition term changes almost no choice; the largest gap, carry on `simple`, is −0.21 ± 0.14). In the cup year **carrying one eleven costs 0.7 points on `simple` (4%) and 3.3 on `tick` (18%, on 24 pairs)**, because a cup club's starters arrive tired to 61 and 53% of its short-rest matches. Rotating by condition cuts that to 43 and 24%, and the strongest-eleven policy ("best") is as good as rotating in points (+0.17 ± 0.12 on `tick`) but not in tiredness. Injuries do not follow tiredness here (−0.4 to +0.2, within one or two standard errors): injury risk in `medical` is drawn from exposure, not from condition.
+
+**Rotation is not lost because "almost every fixture is rested"; it is lost because the calendar removes the problem outside cups.** 93–98% of starts follow three or more weeks of rest (leaving out the first match), and in them nobody is below 90. Where a rest gap exists (the cup), rotating by condition still pays, so the rule keeps its purpose; it is simply used about 3% of the time. This answers the question in `balance--football-year-medical-measurements`: the weekly regression measured congestion that the default calendar no longer produces, and a manager who never touches his lineup (the AI's selection each match, identical to "rotate") loses nothing. I do not propose a medical change: slowing recovery for all calendars is not justified, and more congestion is a calendar decision with `competitions`. Not measured: a club in several cup rounds (the average is 0.4 cup matches; clubs that reach the final play more, and their year is where the effect would be largest), a manager who also renews and signs, and money.
+
 ### History
 
 - **2026-10-01**, `medical.Version` 3: 76 injuries a season (0.12 a player), 13.7 days a layoff, condition 99.8 before every round, 0 short-of-fit club-batches. Filed `squad--injury-rates`.
-- **2026-10-02**, `medical.Version` 4: this section (354 injuries, 19.7 days, starters 95.3, rotation comparison).
+- **2026-10-02**, `medical.Version` 4: this section (354 injuries, 19.7 days, starters 95.3, rotation comparison) on the weekly calendar.
+- **2026-10-02**, `LeagueVersion` 7, generation 9: the football-year rerun and the two-year rotation comparison above (9.17 injuries a club, starters 99.8; rotation matters only in the cup year).
 
 ## Population
 
@@ -422,9 +524,34 @@ Means over seeds; ages and overalls pooled. Over the 30 years each seed retires 
 
 **The second divisions are as strong as the first, for good.** The divisions are generated equally strong (60 against 59), and 30 years of promotion and relegation never separate them: the gap between the divisions' mean squad averages stays within −2..+3 in every seed and year, and on average 4–7 of a seed's 16 second-division clubs rate above the first division's median club at every checkpoint. Nothing sustains a gap: youth intake and gate receipts are the same in every division, and the first division earns only its cup gates ([Money by division](#money-by-division)). Filed to `data` as [data--weaker-lower-divisions](handoffs/data--weaker-lower-divisions.md).
 
+### Rerun at generation 9 (age-adjusted generation)
+
+Measured 2026-10-02 at `worldgen.Version` 9, `worldgen.YouthVersion` 4, `players.DevelopmentVersion` 1, `content.Version` 9, `LeagueVersion` 7, `ScheduleVersion` 4, `ai.TransfersVersion` 7, `ai.ContractsVersion` 2, `medical.Version` 4, `simple` v6; same seeds and command. Answers `balance--generated-age-curve-delivered`. The table above is generation 8 (historical).
+
+| | year 0 | year 1 | year 3 | year 10 | year 20 | year 30 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Active players (min–max over seeds) | 640 | 640 | 640 | 640 | 640 | 640 (640–642 over the career) |
+| Age mean (p10–p90) | 25 (18–33) | 26 (19–33) | 26 (18–33) | 25 (18–33) | 26 (18–33) | 25 (18–33) |
+| Overall mean (p10–p90) | 59 (45–73) | 59 (44–73) | 59 (44–73) | 58 (44–73) | 59 (45–73) | 59 (44–73) |
+| Division 1 / division 2 mean | 60 / 59 | 59 / 59 | 59 / 58 | 59 / 58 | 59 / 59 | 59 / 58 |
+
+Overall mean by age band (≤20 / 21–25 / 26–30 / ≥31) at generation against year 30, 10 seeds pooled:
+
+| | generation | year 30 |
+| --- | --- | --- |
+| GK | 49 / 58 / 60 / 52 | 47 / 58 / 59 / 52 |
+| DF | 53 / 62 / 63 / 53 | 53 / 63 / 63 / 52 |
+| MF | 56 / 66 / 66 / 55 | 56 / 66 / 66 / 55 |
+| FW | 55 / 64 / 65 / 56 | 54 / 64 / 65 / 56 |
+
+**The first-decade transient is gone.** Every age band at generation is within 2 of year 30 (largest: goalkeepers aged 20 or under, 49 against 47), the spread is 45–73 at generation and 44–73 at year 30 (it was 49–70 widening to 43–75), the overall mean holds at 58–59 and the share aged ≤20 is 20–25% throughout. That is inside `data`'s own thresholds (bands within 3, spread within 2), so no note is filed. 1,028–1,060 players retire per seed and the same number of youths arrive; the population stays 640–642. The settled world agrees with the initial one, as `data` intended.
+
+**The lasting division gap is still absent.** Mean squad average by division: 59 / 58 or 59 at every checkpoint, gap −1..+3 per seed-year, 4.1–6.3 of 16 second-division clubs above the first division's median. Generation 9 does not touch it (`data--weaker-lower-divisions` is still open, now inside `data--division-economy-design`).
+
 ### History
 
 - **2026-10-01**: this section (the population half of the baseline), first measured at `f2e6b75` (`medical.Version` 3) and restated at `37a4f99` (`medical.Version` 4): population and attributes within a point, the division gap's range −2..+4 then, and money by division within the seed noise noted there.
+- **2026-10-02**, generation 9: the rerun above.
 
 ## Attributes
 
@@ -461,9 +588,14 @@ Means by age band after 30 years (the settled world):
 
 **The lowest attributes creep up and out of their ranges.** Outfield goalkeeping rises from 6 (generated range 1–11) to 13–14 with a p90 of 23; a goalkeeper's finishing and dribbling from 9 (range 1–17) to 15 with a p90 of 25; other low attributes by 3–4 (a goalkeeper's heading 21 to 25, a defender's finishing and a forward's defending 21–22 to 25). The youth range is each position's range lowered by `Youth.RatingGap` (13) but never below 1, so a 1–11 range becomes 1–1 instead of the −12..−2 the gap intends. Development then adds the same growth to it as to every attribute (about 24 points from 16 to 24), so these attributes settle up to 8 points above their generated level. Harmless while no outfield player keeps goal and no goalkeeper shoots, but it is an unintended drift in generated facts the tick engine may read. Filed to `data` as [data--youth-floor-attributes](handoffs/data--youth-floor-attributes.md).
 
+### Rerun at generation 9
+
+Measured 2026-10-02 (same run as the [Population](#population) rerun). Outfield goalkeeping now starts at 14 (generation 8: 6), a goalkeeper's finishing and dribbling at 16 (9), and year 30 gives 14 (13–14), 15 and 15: **the drift of the lowest attributes has disappeared in the measured output, because generation now starts them at their settled level.** Other attributes hold within 2 of generation at every position and year (for example a defender's heading 64 / 64 / 64 at years 0 / 20 / 30; a forward's dribbling 60 / 61 / 61). The cause the earlier note names (a youth range clamped at 1 and development adding growth to the floor) still exists in the rules and nobody has changed it, so a changed youth or development rule can bring the drift back: `data--youth-floor-attributes` stays open for `data` and `squad` to decide, but nothing is visibly wrong now. I add the always-on attribute bound once they answer, as planned.
+
 ### History
 
 - **2026-10-01**: this section.
+- **2026-10-02**, generation 9: the rerun above.
 
 ## Money by division
 
@@ -486,6 +618,39 @@ From the [Population](#population) sweep: AI-only, 10 seeds, 30 years, each club
 
 **The divisions earn almost the same.** Gate receipts are a flat 250k a home match, so the only difference is the first division's Continental Cup home matches: 1,922k against 1,750k a year. After the first three years the division a club played in says little about its balance: the second division's mean is as often above the first's as below (8.5M against 7.0M at year 30; 4.7M against 3.7M at year 10; 5.8M against 5.9M at year 20). Clubs move between divisions, so the split by division is noisier than the whole: rows move by up to 0.8M between the `medical.Version` 3 and 4 runs while the overall mean holds at 7.7M. The cup prize table, once paid, adds 3.1M a year to the first division's eight cup clubs. Filed to `squad` as [squad--money-only-grows](handoffs/squad--money-only-grows.md).
 
+### Rerun with cup prizes posted (schema 32, `LeagueVersion` 7)
+
+Measured 2026-10-02 at schema 32 (the Continental Cup's awards are posted, 3.1M an edition, `finance.KindPrize`), `LeagueVersion` 7, `worldgen.Version` 9, `ai.TransfersVersion` 7, `medical.Version` 4, `simple` v6; same seeds and command. Answers `balance--cup-prize-accounting`. The table above (no prizes, `LeagueVersion` 6) is historical. The test's "other" column is the prize income, 194k a first-division club a year (3.1M over the 16 first-division clubs); a new "inc-loss" column counts club-seasons whose gate plus prizes do not cover wages. Thousands of whole units, 10 seeds pooled (160 club-seasons a division and year):
+
+| year | div | balance mean (min–max) | gate | prizes | wages | gate + prizes − wages | gate < wages | gate + prizes < wages |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1 | 2,216 (812–5,549) | 1,813 | 0 | 1,691 | +121 | 40 | 40 |
+| 1 | 2 | 1,984 (837–5,776) | 1,750 | 0 | 1,670 | +79 | 40 | 40 |
+| 2 | 1 | 2,509 (835–7,154) | 1,922 | 194 | 1,687 | +428 | 31 | 22 |
+| 2 | 2 | 2,224 (856–9,610) | 1,750 | 0 | 1,645 | +104 | 32 | 32 |
+| 10 | 1 | 4,724 (810–18,155) | 1,922 | 194 | 1,650 | +466 | 26 | 18 |
+| 10 | 2 | 4,743 (797–19,841) | 1,750 | 0 | 1,592 | +157 | 23 | 23 |
+| 20 | 1 | 7,674 (944–25,007) | 1,922 | 194 | 1,672 | +444 | 26 | 20 |
+| 20 | 2 | 7,783 (724–23,936) | 1,750 | 0 | 1,630 | +119 | 37 | 37 |
+| 30 | 1 | 10,478 (660–32,421) | 1,922 | 194 | 1,654 | +462 | 26 | 21 |
+| 30 | 2 | 10,722 (720–30,332) | 1,750 | 0 | 1,612 | +138 | 38 | 38 |
+
+**Year 1 has no cup income and so no first-division advantage**: the first division's gate is 1,813k (no Continental Cup home matches in season 1, since a cup edition is drawn from season N and played in season N+1), prizes are first paid in year 2 (by design), and the first division's surplus rises from +121k to +428–466k after.
+
+**Prizes widen the surplus, as `squad` expected.** The mean balance is 10.5M (division 1) and 10.7M (division 2) at year 30 against 7.0M and 8.5M without prizes; the mean over both divisions rises about 280k a club a year (180k before). A first-division club's yearly income (gate and prizes) is 2,116k against 1,750k in the second division, **21% more**, meeting the "at least 20%" in `squad--money-only-grows`; but the balance by division still says nothing about the division played in: a promoted or relegated club carries its money with it, and the second division's mean is level with the first's at years 10, 20 and 30. The prize is paid to the cup clubs, not to the division.
+
+Against the targets in `squad--money-only-grows` at year 30:
+
+| Target | Measured |
+| --- | --- |
+| Median balance within ±50% of the opening 2.0M | AI-only median 9.6M (4.8×): **not met** |
+| Richest club below about 5× the opening balance | mean richest 27.7M (13.9×), per seed 23–32M: **not met** |
+| First-division club earns at least 20% more | 21% with prizes, 4% (gate 1,813 against 1,750) in year 1: **met after year 1** |
+| 5–15% of club-seasons lose money without going broke | gate + prizes below wages in 7–14% of first-division club-seasons after year 1 (25% in year 1) and 11–25% of second-division ones; no club below zero; **one** of 320 club-years below 500k (269k, year 25, first division): **met in division 1, above in division 2** |
+
+**Budget pressure and recruitment.** Prizes do not create money pressure anywhere: the first-division surplus is +430–470k a club a year and the second's +100–160k. 11–25% of second-division club-seasons have gate below wages (7–14% of first-division ones with prizes) and none goes below zero; the AI keeps a 26-week wage reserve (`ai.ReserveWeeks`). The AI market's completions per window (48) did not move with the extra money, so prizes have no visible effect on recruitment. Whether the AI should spend more of a growing surplus is `squad`'s economy decision, not something this sweep measures.
+
 ### History
 
 - **2026-10-01**: this section (the money half of the baseline), restated at `medical.Version` 4 (commit `37a4f99`); at v3 (`f2e6b75`) the same conclusions, with the divisions at 7.7M each at year 30.
+- **2026-10-02**, schema 32, `LeagueVersion` 7: the prize rerun above.

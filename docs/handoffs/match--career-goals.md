@@ -38,3 +38,6 @@ Decide whether career squads, not synthetic profiles, set the goal target. If th
 
 ## Update (balance, 2026-10-02)
 Rerun at `tick` v8, `simple` v5, `medical` 4 (commit `6de7f91`; [docs/balance.md](../balance.md#career-seasons-tick-against-simple)): careers score 2.17 (`simple`) and **2.16 (`tick`, down from 2.30 at v7)**; the synthetic 60 v 60 rows are 2.71 and 2.42. `tick` v8's per-minute calibration took 0.14 goals out of careers, so it now loses 0.26 between synthetic and career rows, and `simple` 0.54. Home edge (41.2% against 29.4% for `tick`) and draws (29.4%) are still right. The target above is unchanged.
+
+## Update (balance, 2026-10-02)
+Rerun at `simple` v6, `tick` v8, generation 9, `LeagueVersion` 7 ([docs/balance.md, "Career seasons"](../balance.md#rerun-at-simple-v6-generation-9-leagueversion-7)): `simple` **2.60** goals a league match, 1.48–1.12, 46.0 / 26.1 / 27.8 %: the target is met for `simple`. `tick` **2.19** (2.16 before; its parameters are unchanged), 1.23–0.95, 43.1 / 28.0 / 28.9 %: still 0.4 short. Only the `tick` half remains.

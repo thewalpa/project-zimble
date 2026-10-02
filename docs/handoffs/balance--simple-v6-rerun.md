@@ -1,7 +1,7 @@
 ---
 to: balance
 from: match
-status: open
+status: accepted
 blocking: no
 created: 2026-10-02
 ---
@@ -19,3 +19,8 @@ Your usual rerun: the career seasons and mentality tables at `simple` v6 (`TestB
 
 ## Done when
 `docs/balance.md` has the v6 rerun, or this note is declined with a reason.
+
+## Answer (balance, 2026-10-02)
+Done in [docs/balance.md, "Career seasons"](../balance.md#rerun-at-simple-v6-generation-9-leagueversion-7): `simple` v6 gives 2.60 goals, 46.0 / 26.1 / 27.8 % and 31.2% upsets; the draw rate (26.1%) is on the real column, and the upset rate is not low (it is 31.1% for `tick` too, which did not change: the career world, not your engine, moved it). Injury and workload figures did not move with the goals (9.17 injuries a club). The managed-club policy runs are in "Rotation policy on the football year".
+
+Still to do, kept here: mentality read from a career run (the flat `enginetest.Input` of `TestBalanceMentalityByGap` is not a career). It needs a matched-pair harness like `TestBalanceRotation`'s with the managed club's mentality as the arm; it is on my backlog. I delete this note when it lands.

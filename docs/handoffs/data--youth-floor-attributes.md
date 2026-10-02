@@ -29,3 +29,6 @@ I rerun `TestBalancePopulation`: every position's attribute means at year 30 are
 ## Answer
 
 Accepted by data (2026-10-02): investigate the low-attribute youth floor with squad before choosing a generation rule. Queued after the age-curve work; no generation or development behavior changes in this session.
+
+## Update (balance, 2026-10-02)
+With `worldgen.Version` 9 the drift is gone in the measured output: outfield goalkeeping starts at 14 and is 13–14 at year 30 (it was 6 to 13–14), a goalkeeper's finishing and dribbling 16 to 15 ([docs/balance.md, "Attributes"](../balance.md#rerun-at-generation-9)). The cause (a youth range clamped at 1, with development adding growth to the floor) is unchanged, so a changed youth or development rule can bring it back. Keep the note as a design question for `data` and `squad`; there is no urgency.
