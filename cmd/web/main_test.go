@@ -24,6 +24,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
+	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
@@ -1850,4 +1851,31 @@ func TestMedicalEmergencySelectionInTheBrowser(t *testing.T) {
 	if healthy := career(t).get("/medical"); strings.Contains(healthy, "cannot field an eleven") || !strings.Contains(healthy, "0 injured") {
 		t.Fatal("a healthy squad shows an emergency")
 	}
+}
+
+// The cup prize is a ledger row of its own at the final's kickoff, naming the
+// entrant's last tie, apart from gate receipts; it reads the same after a
+// reload.
+func TestCupPrizeInTheBrowserLedger(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 16, savePath: filepath.Join(t.TempDir(), "career.json")}) // Foxmere Town, the winner
+	c.post("/season", nil)
+	c.continueUntil("Continental Cup 1 won by", "/inbox", 60)
+	fin, _ := c.s.w.Finances(16)
+	var prize *finance.Entry
+	for i, e := range fin.Entries {
+		if e.Kind == finance.KindPrize {
+			prize = &fin.Entries[i]
+		}
+	}
+	if prize == nil {
+		t.Fatal("the winner's ledger has no cup prize")
+	}
+	row := fmt.Sprintf("<td>%s</td><td>cup prize, fixture %d</td><td class=\"n\">%s</td>", c.s.w.Calendar().Format(prize.At), prize.Fixture, prize.Amount)
+	page := c.get("/finances")
+	contains(t, page, row, "gate receipts, fixture ")
+	if strings.Count(page, "cup prize") != 1 {
+		t.Fatal("want one cup prize row")
+	}
+	c.post("/save", nil)
+	contains(t, newClient(t, config{loadPath: c.s.savePath}).get("/finances"), row)
 }

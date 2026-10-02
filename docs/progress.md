@@ -4111,3 +4111,15 @@ The earlier request compared prime-only generation v8 against youth-derived life
 Added `TestInitialAttributeMeansMatchSettledPopulation` in worldgen with every position's measured year-30 mean and a ±3 bound. It guards weak attributes that overall and the existing age-band test can miss. No production behavior, authoritative fields, versions or golden hashes change. Filed evidence to balance and squad and updated the existing generation rerun note; the lasting division-strength experiment remains separately queued.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed. The opt-in ten-seed/30-year population sweep passed; no balance-owned test or report file was changed.
+
+## ui: season review stop, medical view, cup prizes in the ledger (done)
+
+**Season review.** Both clients advance with `ContinueWith(…, ContinueOptions{StopAtSeasonReview: true})`, so Continue and "play the rest of the season" stop once the club's league season has every result, before it ends (play-offs and cups are not reviewed; the league review lists cup editions still to play from `OpenEditions`). The web redirects to `/review`: the final table, the club's place and what it means, the top club, the renewal deadline (`NextContractYearEnd`) and how many contracts end then, and a Continue button. The page reads `World.SeasonReview()`, so it reads the same after loading a save made at the stop, and the home page links to it while the review is open. The terminal prints the same review at the stop, has a `review` command, and its status line points to it after a load. The next Continue after the review was shown sends `AcknowledgeSeasonReview` and goes on, so the season ends on the way (a Continue that reaches a review unseen stops there first); "play the rest of the season" at a shown review ends that season and plays the next. Scripted careers keep their step counts: the review replaces the old "Season finished" stop. `cmd/simulate` is headless and keeps plain `Continue`. `app.AutomaticResults` also reads a `SeasonReviewReady`'s resolved batches.
+
+**Medical view.** `/medical` in the web (a tab of the manager's club: Lineup, Medical, Finances) and `medical` in the terminal show `World.SquadMedical`: each position's squad, injured and fit counts against its roster count and minimum, marked short or critical; the injured with days out, the forecast return (`FitFrom`, worded "fit about <date>") and whether a lineup can take them ("Emergency only (injured)" when `CanField` is false, with that explained); and the tired. The wording is shared in `cmd/internal/present` (`Medical`, `Supply`, the forecast note). Tests cover an injury after a match, reload, and every goalkeeper injured. Left: a short/critical marker on the lineup editor.
+
+**Cup prizes.** Both ledger views already printed the `cup prize` label and the tie from `Kind.String()` and the fixture; tests now pin a seed-42 winner's row (separate from gate receipts, the final's fixture, reload keeps it).
+
+I also reviewed the re-pinned simple v6 scenarios (one stale comment in `cmd/simulate`).
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.

@@ -875,3 +875,22 @@ func TestMedicalInTheTerminal(t *testing.T) {
 		t.Fatal("emergency selection should admit the injured goalkeepers")
 	}
 }
+
+// A cup entrant's prize reaches the ledger as its own row, apart from gate
+// receipts, naming the entrant's last tie (the final for the winner), and a
+// reloaded career shows the same row.
+func TestCupPrizeInTheLedger(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	script := []string{"season"}
+	for range 38 { // the summer, season 2 with its cup, and the next review
+		script = append(script, "continue")
+	}
+	script = append(script, "finances 80", "save "+path, "q")
+	out := play(t, []string{"-seed", "42", "-club", "16"}, script...)
+	row := "Wed 2027-05-12 15:00 UTC   cup prize F459     1,000,000.00     4,017,220.00"
+	contains(t, out, row, "gate receipts F")
+	if strings.Count(out, "cup prize") != 1 {
+		t.Fatalf("want one cup prize row:\n%s", out)
+	}
+	contains(t, play(t, []string{"-load", path}, "finances 80", "q", "q"), row)
+}
