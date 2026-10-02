@@ -3841,3 +3841,15 @@ Step 2 of the [UI of choice](ui-choice.md#plan). Same routes, forms and stack; n
 Not verified in a browser: the headless Chromium here lacks system libraries, so the layout was checked through the rendered HTML only.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## ui: lineup editor players link to their profiles (done)
+
+Asked by the owner. Every player on the lineup editor's pitch, bench and "Not selected" shelf now links to his profile through his name, as the report and probable lineups already did (the live match lists players only in its substitution selects). No `app` change.
+
+- **Drag and tap still work.** A drag that starts on a name moves the player. A tap on a name opens the profile, unless a player is already picked, in which case the tap swaps the two as before; tapping the rating or position still picks. Ctrl-, Cmd- or Shift-click and the keyboard (Tab to the name, Enter) follow the link the browser's way.
+- **Unsaved changes ask first.** Links on the pitch make leaving the editor easy, so once the pitch, the Selection column or the mentality changes, leaving the page before saving asks for confirmation (`beforeunload`); saving clears it.
+- **Test.** `TestLineupPitch` checks that every chip links to its own player.
+
+Not verified in a browser: the headless Chromium here lacks system libraries (`libnspr4`), so the script was checked by reading it, and the links through the rendered HTML.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.

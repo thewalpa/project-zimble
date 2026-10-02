@@ -32,7 +32,7 @@
       <span class="{{if ne $d.Pitch.Starters $d.Pitch.Want}}out{{else}}muted{{end}}" data-count aria-live="polite">{{$d.Pitch.Starters}} of {{$d.Pitch.Want}} starters</span>
     </div>
     <p class="muted board-hint nojs-only">Change the lineup with the Selection column below.</p>
-    <p class="muted board-hint js-only">Drag a player onto another to swap them, or into a line, the bench or the unselected players to move him. You can also tap a player, then another player or a place. Each line's order is how its players spread across the pitch.</p>
+    <p class="muted board-hint js-only">Drag a player onto another to swap them, or into a line, the bench or the unselected players to move him. You can also tap a player, then another player or a place. Each line's order is how its players spread across the pitch. A player's name opens his profile.</p>
     <div class="board">
       <div class="pitch" aria-label="The pitch, attacking upwards">
         {{template "pitchMarks"}}
@@ -85,13 +85,14 @@
 <script>
 // Drag and drop on the lineup pitch. The pitch only edits the form: each
 // move sets the moved players' Selection fields and the "order" field, and
-// saving posts the form as it does without JavaScript.
+// saving posts the form as it does without JavaScript. A player's name
+// links to his profile; leaving with unsaved changes asks first.
 (function () {
   var board = document.querySelector('[data-board]');
   if (!board || !window.PointerEvent) return;
   var form = board.closest('form'), want = +board.dataset.want;
   var lines = ['gk', 'df', 'mf', 'fw'];
-  var picked = null, drag = null, caret = document.createElement('div');
+  var picked = null, drag = null, dirty = false, caret = document.createElement('div');
   caret.className = 'caret';
   board.classList.add('js');
 
@@ -101,6 +102,7 @@
   // sync writes the pitch back into the form and redraws the counts.
   function sync() {
     var order = [], count = {};
+    dirty = true;
     lines.concat(['bench', 'out']).forEach(function (slot) {
       count[slot] = 0;
       chipsIn(zone(slot)).forEach(function (c) {
@@ -203,8 +205,11 @@
   board.addEventListener('pointerdown', function (e) {
     var c = e.target.closest('.chip');
     if (!c || e.button !== 0 || drag) return;
+    // A name clicked with a modifier opens the profile the browser's way.
+    var link = e.target.closest('a');
+    if (link && (e.ctrlKey || e.metaKey || e.shiftKey)) return;
     e.preventDefault();
-    drag = { chip: c, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+    drag = { chip: c, link: link, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
     c.setPointerCapture(e.pointerId);
   });
   board.addEventListener('pointermove', function (e) {
@@ -228,10 +233,16 @@
     if (!drag || e.pointerId !== drag.id) return;
     var d = drag;
     end();
-    if (d.ghost) drop(d.chip, d.target, d.x, d.y); else { tap(d.chip); d.chip.focus(); }
+    // Tapping a name opens the profile, unless a player is waiting to move.
+    if (d.ghost) drop(d.chip, d.target, d.x, d.y);
+    else if (d.link && !picked) location.href = d.link.href;
+    else { tap(d.chip); d.chip.focus(); }
   });
   board.addEventListener('pointercancel', end);
   board.addEventListener('click', function (e) {
+    // The pointer handlers above decide what a click on a name does; a
+    // keyboard click (detail 0) or a modified one follows the link.
+    if (e.detail && !(e.ctrlKey || e.metaKey || e.shiftKey) && e.target.closest('.chip a')) e.preventDefault();
     var z = e.target.closest('.zone');
     if (z && picked && !e.target.closest('.chip')) tap(z);
   });
@@ -244,12 +255,17 @@
   });
   // A Selection changed in the table moves the player on the pitch too.
   form.addEventListener('change', function (e) {
+    dirty = true;
     var m = /^slot-(\d+)$/.exec(e.target.name || '');
     var c = m && board.querySelector('.chip[data-id="' + m[1] + '"]'), z = m && zone(e.target.value);
     if (c && z && c.parentNode !== z) { z.appendChild(c); sync(); }
+  });
+  form.addEventListener('submit', function () { dirty = false; });
+  window.addEventListener('beforeunload', function (e) {
+    if (dirty) { e.preventDefault(); e.returnValue = ''; }
   });
 })();
 </script>
 {{end}}
 {{end}}
-{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}" data-id="{{.Player}}" data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm">{{.Short}}</span><span class="meta">{{.Position}} · {{.Condition}}%</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}
+{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}" data-id="{{.Player}}" data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm"><a href="/player?id={{.Player}}" draggable="false">{{.Short}}</a></span><span class="meta">{{.Position}} · {{.Condition}}%</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}

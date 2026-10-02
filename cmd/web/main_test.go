@@ -355,6 +355,17 @@ func TestLineupPitch(t *testing.T) {
 	if len(zones["out"]) != len(squad)-len(order) {
 		t.Fatalf("%d unselected players on the page, want %d", len(zones["out"]), len(squad)-len(order))
 	}
+	// Every player on the pitch, the bench and the shelf links to his profile.
+	links := regexp.MustCompile(`class="chip[^"]*" data-id="(\d+)"[^>]*>(?:<span[^>]*>[^<]*</span>)*<span class="nm"><a href="/player\?id=(\d+)"`)
+	chips := links.FindAllStringSubmatch(page, -1)
+	if len(chips) != len(squad) {
+		t.Fatalf("%d pitch chips link to a profile, want all %d", len(chips), len(squad))
+	}
+	for _, m := range chips {
+		if m[1] != m[2] {
+			t.Fatalf("chip %s links to player %s", m[1], m[2])
+		}
+	}
 	delete(zones, "out")
 	if !maps.EqualFunc(zones, want, slices.Equal) {
 		t.Fatalf("pitch %v, want %v", zones, want)
