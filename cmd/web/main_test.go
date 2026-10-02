@@ -198,20 +198,26 @@ func TestPlayingAMatchday(t *testing.T) {
 	contains(t, c.get("/table"), "1 of 14 rounds played")
 }
 
-// Watch live on tick: the clock runs from kickoff and the match stops at
-// half time with a pitch replay and statistics, takes a substitution, plays
-// on to full time and is confirmed by Play match; the report keeps the
-// statistics.
+// Watch live on tick: the match waits at kick-off, kicks off (recording
+// only its first minute, which locks the lineup) and the clock runs from
+// kickoff to half time with a pitch replay and statistics. A substitution
+// made with the clock at 30' records the play to there; the page then waits
+// there, plays on by page loads to 70' and full time, and is confirmed by
+// Play match; the report keeps the statistics.
 func TestLiveMatchInTheBrowser(t *testing.T) {
 	c := newClient(t, config{seed: 42, club: 3, engine: "tick", savePath: filepath.Join(t.TempDir(), "c.json")})
 	contains(t, c.post("/continue", nil), "Watch live")
+	contains(t, c.get("/live"), "<span data-state>Kick-off</span> · <span data-minute>0</span>'", ">Kick off</button>", "Pick lineup")
+
 	page := c.post("/watch", nil)
 	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Play to full time",
-		`data-from="0" data-to="45" data-autoplay`, "Skip to half time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
+		`data-from="0" data-to="45" data-played="1" data-autoplay`, "Skip to half time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
 		"<title>Pieter Haugen</title>", "var frames = [[0,", "<h2>Match statistics</h2>", `<th class="stat">Possession</th>`,
-		"3 substitutions left", `data-minute="45">`, "Half time</li>")
-	if l, _ := c.s.w.LiveMatch(); strings.Contains(page, c.s.liveLine()) || l.View.Score != [2]uint16{0, 0} && !strings.Contains(page, "data-goal=") {
-		t.Fatal("the band shows the score the clock reveals, or the timeline's goals carry no score")
+		"Your changes", "3 substitutions left", `data-minute="45">`, "Half time</li>")
+	if l, _ := c.s.w.LiveMatch(); l.Position.Minute != 1 {
+		t.Fatalf("kick off recorded the play to minute %d", l.Position.Minute)
+	} else if strings.Contains(page, c.s.liveLine()) {
+		t.Fatal("the band shows the score the clock reveals")
 	}
 	if n := strings.Count(page, "data-dot="); n != 22 {
 		t.Fatalf("%d players on the pitch view", n)
@@ -219,21 +225,28 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 	contains(t, c.get("/lineup"), "Live: Round 1") // changes are substitutions now
 	contains(t, c.get("/"), "Go to the match")
 
-	page = c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"58"}})
-	contains(t, page, "Substitution · Rhys Aldridge on for Pieter Haugen", "2 substitutions left",
-		"<title>Pieter Haugen</title>",      // the replay up to half time still shows who played it
-		`data-from="0" data-to="45" hidden`) // and waits to be replayed
-	contains(t, c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"60"}}), "invalid match decision")
-	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}}), "Mentality changed to attacking", "Mentality <b>attacking</b>")
-	contains(t, c.post("/watch", url.Values{"minute": {"30"}}), "invalid command")
+	sub := url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"58"}, "minute": {"30"}, "to": {"45"}}
+	page = c.post("/decide", sub)
+	contains(t, page, `<li data-event data-minute="30"><b>30'</b> QUI · Substitution · Rhys Aldridge on for Pieter Haugen`,
+		"2 substitutions left", `data-from="30" data-to="45" data-played="30" hidden`) // waiting, not running
+	if l, _ := c.s.w.LiveMatch(); l.Position.Minute != 30 {
+		t.Fatalf("the change was made at minute %d", l.Position.Minute)
+	}
+	sub.Set("in", "60")
+	contains(t, c.post("/decide", sub), "invalid match decision")
+	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}, "minute": {"20"}}), "already been played to minute 30")
+	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}, "minute": {"30"}}), "Mentality changed to attacking", "Mentality <b>attacking</b>")
 
-	page = c.post("/watch", url.Values{"minute": {"70"}})
-	contains(t, page, "<span data-state>In play</span> · <span data-minute>70</span>'", `data-from="45" data-to="70" data-autoplay`,
+	page = c.get("/live?from=45&to=70&run")
+	contains(t, page, "<span data-state>In play</span> · <span data-minute>70</span>'", `data-from="45" data-to="70" data-played="30" data-autoplay`,
 		"Skip to minute 70", "play from 45:00 to 70:00", "<title>Rhys Aldridge</title>")
-	page = c.post("/watch", nil)
-	contains(t, page, "<span data-state>Full time</span> · <span data-minute>90</span>'", `data-from="70" data-to="90" data-autoplay`, "Confirm the result")
+	page = c.get("/live?from=70&to=90&run")
+	contains(t, page, "<span data-state>Full time</span> · <span data-minute>90</span>'", `data-from="70" data-to="90" data-played="30" data-autoplay`, "Confirm the result")
 	if strings.Contains(page, "Your changes") {
 		t.Fatal("changes offered after full time")
+	}
+	if l, _ := c.s.w.LiveMatch(); l.Position.Minute != 30 {
+		t.Fatal("watching recorded play")
 	}
 	fixture, _ := c.s.pendingFixture()
 	page = c.post("/continue", url.Values{"back": {"/live"}})
@@ -250,16 +263,19 @@ func TestLiveMatchWithoutFramesOrStatistics(t *testing.T) {
 	c := career(t)
 	c.post("/continue", nil)
 	fixture, _ := c.s.pendingFixture()
+	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}, "minute": {"0"}}), "kick off first")
 	page := c.post("/watch", nil)
 	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Your changes",
-		`data-from="0" data-to="45" data-autoplay`, "Skip to half time", `<option value="60" selected>`)
-	if strings.Contains(c.get("/live"), "data-live") {
-		t.Fatal("a simple match offers a clock with nothing to replay")
-	}
+		`data-from="0" data-to="45" data-played="1" data-autoplay`, "Skip to half time", `<option value="60" selected>`)
 	for _, absent := range []string{"On the pitch", "Match statistics", "var frames = ["} {
 		if strings.Contains(page, absent) {
 			t.Fatalf("a simple career shows %q", absent)
 		}
+	}
+	page = c.get("/live")
+	contains(t, page, "<span data-state>In play</span> · <span data-minute>1</span>'", "Play to half time")
+	if strings.Contains(page, "data-live") {
+		t.Fatal("a simple match offers a clock with nothing to play out")
 	}
 	c.post("/continue", nil)
 	if strings.Contains(c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "Match statistics") {

@@ -14,13 +14,17 @@ import (
 	"github.com/thewalpa/project-zimble/internal/matches"
 )
 
-// The manager's match can be watched live: played to a stop (half time,
-// full time or a chosen minute), with substitutions and mentality changes
-// in between. Play match (continue) finishes it and confirms the result,
-// as it does for a match not watched. After each play the page runs a
-// match clock from the previous stop (kickoff for the first) to the new
-// one, revealing the score, the timeline and the pitch replay as it goes;
-// the stop's state and decisions appear when the clock reaches it.
+// The manager's match can be watched live. Kick off records its first
+// minute, which locks the lineup as Play match would. From then on the page
+// runs a match clock over a preview of the play to the next stop (half time,
+// full time or a chosen minute): the score, the timeline and the pitch
+// follow the clock, and the stop's state appears when the clock gets there.
+// The preview records nothing; playing on is a page load. A change made
+// with the clock at a minute records the play up to that minute, then the
+// change, which takes effect from the next minute. Matches play the same
+// however their minutes are split, so what was watched is what was played.
+// Play match (continue) finishes it and confirms the result, as it does for
+// a match not watched.
 
 // frameEvery thins the pitch replay to one frame per second of match time.
 const frameEvery = 1000
@@ -29,17 +33,20 @@ type liveView struct {
 	Fixture      ids.FixtureID
 	Title        string // the match's name, e.g. "Round 1"
 	Home, Away   app.TeamLabel
-	Minute       uint16
-	From         uint16 // the clock's first minute: the previous stop, or Minute when there is nothing to play out
-	Autoplay     bool   // run the clock as the page opens: the play was just made
+	Minute       uint16 // the minute the page plays to: its stop
+	Played       uint16 // the latest recorded minute: 0 before kickoff
+	From         uint16 // the clock's first minute; Minute when there is nothing to play out
+	Autoplay     bool   // run the clock as the page opens
 	Speed        int    // match seconds per second of the clock by default
 	Speeds       []int
 	StopName     string // what the clock runs to, e.g. "half time"
 	Score        [2]uint16
 	Penalties    string // " (4-3 on penalties)" after a shootout
-	State        string // "Half time", "Full time" or "In play"
+	State        string // "Kick-off", "Half time", "Full time" or "In play"
+	KickOff      bool   // not kicked off yet
 	Finished     bool
 	Target       uint16 // the default next stop
+	TargetName   string
 	Mentality    string
 	Mentalities  []string
 	SubsLeft     int
@@ -81,17 +88,40 @@ type pitchDot struct {
 	Carrier bool
 }
 
-// live shows the manager's match in progress; without one, the home page.
+// live shows the manager's match: before kickoff, or played on to the
+// minute "to" (default: the latest recorded one) with the clock from "from";
+// "run" starts the clock. Without a match waiting, the home page.
 func (s *server) live(r *http.Request) (string, any, error) {
-	l, ok := s.w.LiveMatch()
+	fixture, ok := s.pendingFixture()
 	if !ok {
 		return s.home(r)
+	}
+	q := r.URL.Query()
+	frames := s.w.MatchEngine().Capabilities.PositionalFrames
+	played := uint16(0)
+	if l, live := s.w.LiveMatch(); live {
+		played = l.Position.Minute
+	}
+	to := played
+	if n, err := strconv.ParseUint(q.Get("to"), 10, 16); err == nil && n > uint64(played) && n <= matches.RegulationMinutes {
+		to = uint16(n)
+	}
+	p, err := s.w.PreviewLive(fixture, to, frames, frameEvery)
+	if err != nil {
+		return "", nil, err
+	}
+	l := p.Live
+	from := l.Position.Minute
+	if n, err := strconv.ParseUint(q.Get("from"), 10, 16); err == nil && n < uint64(from) {
+		from = uint16(n)
 	}
 	info, _ := s.fixtureInfo(l.Fixture)
 	side := l.Side.Index()
 	v := liveView{
 		Fixture: l.Fixture, Title: present.MatchName(info), Home: l.Home, Away: l.Away,
-		Minute: l.Position.Minute, Score: l.View.Score, Penalties: present.Penalties(l.View.Shootout),
+		Minute: l.Position.Minute, Played: p.Played, From: from, Autoplay: q.Has("run") && from < l.Position.Minute,
+		Speed: 60, Speeds: []int{5, 10, 30, 60, 90},
+		Score: l.View.Score, Penalties: present.Penalties(l.View.Shootout),
 		Mentality: l.View.Mentality[side].String(), SubsLeft: int(l.Rules.MaxSubstitutions) - int(l.View.SubstitutionsUsed[side]),
 		Events: s.eventViews(l.Events, l.Home, l.Away), Stats: app.StatLines(l.View.Stats), EngineID: s.w.MatchEngine().ID,
 	}
@@ -104,6 +134,8 @@ func (s *server) live(r *http.Request) (string, any, error) {
 		v.State, v.Finished = "Full time", true
 	case l.Status == matches.MatchDecisionRequired && l.Position.Minute == matches.HalfTimeMinute:
 		v.State = "Half time"
+	case p.Played == 0 && l.Position.Minute == 0:
+		v.State, v.KickOff = "Kick-off", true
 	default:
 		v.State = "In play"
 	}
@@ -111,9 +143,9 @@ func (s *server) live(r *http.Request) (string, any, error) {
 	if v.State == "In play" {
 		v.StopName = fmt.Sprintf("minute %d", l.Position.Minute)
 	}
-	v.Target = matches.HalfTimeMinute
+	v.Target, v.TargetName = matches.HalfTimeMinute, "half time"
 	if l.Position.Minute >= matches.HalfTimeMinute {
-		v.Target = matches.RegulationMinutes
+		v.Target, v.TargetName = matches.RegulationMinutes, "full time"
 	}
 	team := l.Teams[side]
 	roles := map[ids.PlayerID]matches.Role{}
@@ -143,33 +175,43 @@ func (s *server) live(r *http.Request) (string, any, error) {
 			v.Bench = append(v.Bench, player(b.Player))
 		}
 	}
-	if s.w.MatchEngine().Capabilities.PositionalFrames {
-		frames, err := s.w.LiveFrames(frameEvery)
-		if err != nil {
-			return "", nil, err
+	if frames {
+		shown := p.Frames
+		if from < p.Played {
+			// The clock starts before the latest recorded minute (the first
+			// minute, recorded at kickoff): its play leads the preview.
+			before, err := s.w.LiveFrames(frameEvery)
+			if err != nil {
+				return "", nil, err
+			}
+			shown = append(before, shown...)
 		}
-		v.Pitch = s.replayOf(l, frames)
-	}
-	v.From, v.Speed, v.Speeds = l.Position.Minute, 60, []int{5, 10, 30, 60, 90}
-	if v.Pitch != nil {
-		v.From, v.Speed = v.Pitch.FromMinute, 10
-	}
-	if n, err := strconv.ParseUint(r.URL.Query().Get("from"), 10, 16); err == nil && n < uint64(l.Position.Minute) {
-		v.From, v.Autoplay = uint16(n), true
+		v.Pitch = s.replayOf(l, sinceMinute(shown, from))
 	}
 	return "live", v, nil
 }
 
+// sinceMinute keeps the frames from minute on, or the last one if none is.
+func sinceMinute(frames []matches.Frame, minute uint16) []matches.Frame {
+	for i, f := range frames {
+		if f.Millis >= uint32(minute)*60_000 {
+			return frames[i:]
+		}
+	}
+	if len(frames) > 0 {
+		return frames[len(frames)-1:]
+	}
+	return nil
+}
+
 // replayOf draws frames on the pitch. Frames are indexed like the players on
-// the pitch when the stop was reached, before any change made at it.
+// the pitch at the page's stop: no change is made between the clock's start
+// and the stop.
 func (s *server) replayOf(l app.LiveMatch, frames []matches.Frame) *pitchReplay {
 	if len(frames) == 0 {
 		return nil
 	}
 	onPitch := l.View.OnPitch
-	if s.frameLabels.fixture == l.Fixture && s.frameLabels.minute == l.Position.Minute {
-		onPitch = s.frameLabels.onPitch
-	}
 	var slots []ids.PlayerID
 	p := &pitchReplay{From: minuteOf(frames[0].Millis), To: minuteOf(frames[len(frames)-1].Millis), FromMinute: uint16(frames[0].Millis / 60_000)}
 	for sd := range onPitch {
@@ -219,8 +261,8 @@ func roleLabel(r matches.Role) string {
 	return ""
 }
 
-// watch plays the club's waiting match live to the minute asked (by default
-// half time, then full time).
+// watch kicks the club's waiting match off live: it records the first
+// minute, which locks the lineup, and runs the clock to half time.
 func (s *server) watch(form url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
@@ -229,39 +271,36 @@ func (s *server) watch(form url.Values) (string, error) {
 	if !ok {
 		return "/", errors.New("no match is waiting; Continue goes to your next matchday")
 	}
-	target, from := uint16(matches.HalfTimeMinute), uint16(0)
-	if l, live := s.w.LiveMatch(); live {
-		from = l.Position.Minute
-		if l.Status == matches.MatchFinished {
-			return "/live", errors.New("full time: Play match confirms the result")
-		}
-		if l.Position.Minute >= matches.HalfTimeMinute {
-			target = matches.RegulationMinutes
-		}
+	if _, live := s.w.LiveMatch(); live {
+		return "/live", nil
 	}
-	if m := strings.TrimSpace(form.Get("minute")); m != "" {
-		n, err := strconv.ParseUint(m, 10, 16)
-		if err != nil {
-			return "/live", errors.New("enter the minute to play to")
-		}
-		target = uint16(n)
-	}
-	res, err := s.w.PlayMatch(app.PlayMatch{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: fixture, ToMinute: target})
-	if err != nil {
+	if _, err := s.w.PlayMatch(app.PlayMatch{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: fixture, ToMinute: 1}); err != nil {
 		return "/live", err
 	}
-	s.frameLabels = frameLabels{fixture: fixture, minute: res.Live.Position.Minute, onPitch: res.Live.View.OnPitch}
-	return fmt.Sprintf("/live?from=%d", from), nil
+	return fmt.Sprintf("/live?from=0&to=%d&run", matches.HalfTimeMinute), nil
 }
 
-// decide makes a substitution or a mentality change in the live match.
+// decide makes a substitution or a mentality change in the live match at
+// the clock's minute: it records the play up to that minute first. The page
+// then waits there, paused, on the way to the stop it was playing to.
 func (s *server) decide(form url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
+	fixture, ok := s.pendingFixture()
+	if !ok {
+		return "/", errors.New("no match is waiting; Continue goes to your next matchday")
+	}
 	l, live := s.w.LiveMatch()
 	if !live {
-		return "/", errors.New("your match has not kicked off")
+		return "/live", errors.New("kick off first; before kickoff, change the lineup instead")
+	}
+	minute, err := strconv.ParseUint(form.Get("minute"), 10, 16)
+	if err != nil || minute > matches.RegulationMinutes {
+		return "/live", errors.New("the minute of the change is missing")
+	}
+	if uint16(minute) < l.Position.Minute {
+		return "/live", fmt.Errorf("the match has already been played to minute %d", l.Position.Minute)
 	}
 	c := matches.MatchCommand{Side: l.Side}
 	switch form.Get("kind") {
@@ -281,17 +320,23 @@ func (s *server) decide(form url.Values) (string, error) {
 	default:
 		return "/live", errors.New("unknown match decision")
 	}
-	if _, err := s.w.MatchDecision(app.MatchDecision{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: l.Fixture, Command: c}); err != nil {
-		return "/live", err
+	// Play up to the minute; a play stops at half time on the way.
+	for l.Position.Minute < uint16(minute) {
+		res, err := s.w.PlayMatch(app.PlayMatch{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: fixture, ToMinute: uint16(minute)})
+		if err != nil {
+			return "/live", err
+		}
+		if res.Live.Position.Minute <= l.Position.Minute {
+			break
+		}
+		l = res.Live
 	}
-	return "/live", nil
-}
-
-// frameLabels are the players on the pitch when the live match reached its
-// latest stop: the frames up to it are indexed by them, not by changes made
-// at the stop.
-type frameLabels struct {
-	fixture ids.FixtureID
-	minute  uint16
-	onPitch [2][matches.StartersPerTeam]ids.PlayerID
+	back := fmt.Sprintf("/live?from=%d", l.Position.Minute)
+	if to, err := strconv.ParseUint(form.Get("to"), 10, 16); err == nil && to > uint64(l.Position.Minute) {
+		back += fmt.Sprintf("&to=%d", to)
+	}
+	if _, err := s.w.MatchDecision(app.MatchDecision{ID: s.w.NextCommandID(), ExpectedRevision: s.w.Revision(), Fixture: fixture, Command: c}); err != nil {
+		s.notes = append(s.notes, note{Text: strings.TrimPrefix(err.Error(), "app: "), Error: true})
+	}
+	return back, nil
 }

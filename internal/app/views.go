@@ -620,3 +620,62 @@ func CareerTotals(spells []CareerSpell) (appearances, goals int) {
 	}
 	return appearances, goals
 }
+
+// LivePreview is the manager's match played on, without recording anything,
+// from its latest stop to a minute.
+type LivePreview struct {
+	Live   LiveMatch // as the match would stand at the minute
+	Played uint16    // the minute of the latest recorded stop: 0 before kickoff
+	// Frames are the positional frames from the latest stop to the minute,
+	// when asked for and the engine draws them.
+	Frames []matches.Frame
+}
+
+// PreviewLive plays the manager's match in fixture on from its latest stop
+// (kickoff when it has none) to toMinute, past half time if need be, with no
+// further decisions, and records nothing: it changes no state, revision or
+// command log. Engines play a match the same however its minutes are split
+// into advances, so recording a stop at any minute up to toMinute later
+// (PlayMatch) shows exactly what the preview showed up to it. Frames are
+// kept as LiveFrames keeps them, one in each everyMillis, when frames is set
+// and the engine has PositionalFrames. toMinute may equal the latest stop.
+func (w *World) PreviewLive(fixture ids.FixtureID, toMinute uint16, frames bool, everyMillis uint32) (LivePreview, error) {
+	if _, _, err := w.pendingUserFixture(fixture); err != nil {
+		return LivePreview{}, err
+	}
+	var stops []LiveStop
+	if w.live != nil {
+		if w.live.fixture != fixture {
+			return LivePreview{}, fmt.Errorf("%w: fixture %d", ErrMatchInProgress, w.live.fixture)
+		}
+		stops = w.live.stops
+	}
+	p, err := w.livePlan(fixture)
+	if err != nil {
+		return LivePreview{}, err
+	}
+	r, err := w.replay(p, stops)
+	if err != nil {
+		return LivePreview{}, err
+	}
+	played := r.step.Position.Minute
+	if toMinute < played || toMinute > matches.RegulationMinutes {
+		return LivePreview{}, fmt.Errorf("%w: preview to minute %d from %d", ErrInvalidCommand, toMinute, played)
+	}
+	frames = frames && w.engine.Capabilities().PositionalFrames
+	var all []matches.Frame
+	for first := true; first || (r.step.Position.Minute < toMinute && r.step.Status != matches.MatchFinished); first = false {
+		if err := r.session.Advance(matches.AdvanceRequest{ToMinute: toMinute, Frames: frames}, &r.step); err != nil {
+			return LivePreview{}, fmt.Errorf("app: preview fixture %d: %w", fixture, err)
+		}
+		r.events = append(r.events, r.step.Events...)
+		all = append(all, r.step.Frames...)
+	}
+	out := LivePreview{Live: w.view(r), Played: played}
+	for _, f := range all {
+		if everyMillis <= 1 || len(out.Frames) == 0 || f.Millis/everyMillis != out.Frames[len(out.Frames)-1].Millis/everyMillis {
+			out.Frames = append(out.Frames, f)
+		}
+	}
+	return out, nil
+}

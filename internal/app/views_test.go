@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -290,5 +291,66 @@ func TestObservedPlayerViews(t *testing.T) {
 	}
 	if !reflect.DeepEqual(w.Snapshot(), before) {
 		t.Fatal("reading or editing observed views changed the saved world")
+	}
+}
+
+// A preview shows exactly what recording the stops later shows, past half
+// time and after a decision, with the frames LiveFrames gives, and records
+// nothing.
+func TestPreviewLive(t *testing.T) {
+	w := engineWorld(t, 42, "tick")
+	playBatches(t, w, 1)
+	fixture := readyBatch(t, w).UserFixtures[0]
+	preview := func(to uint16) LivePreview {
+		t.Helper()
+		before := w.Snapshot()
+		p, err := w.PreviewLive(fixture, to, true, 1000)
+		if err != nil {
+			t.Fatalf("preview to %d: %v", to, err)
+		}
+		if !reflect.DeepEqual(w.Snapshot(), before) {
+			t.Fatal("a preview changed the world")
+		}
+		return p
+	}
+	if p := preview(0); p.Played != 0 || p.Live.Position.Minute != 0 || len(p.Live.Events) != 0 || p.Live.View.OnPitch[0][0] == 0 || len(p.Frames) != 0 {
+		t.Fatalf("kickoff preview %+v", p.Live.Position)
+	}
+	full := preview(90)
+	if full.Live.Status != matches.MatchFinished || full.Frames[len(full.Frames)-1].Millis != 90*60_000 {
+		t.Fatalf("a preview to full time stopped at %d", full.Live.Position.Minute)
+	}
+
+	ht := preview(45)
+	if got := playTo(t, w, fixture, 30); got.Position.Minute != 30 {
+		t.Fatal("did not stop at 30")
+	}
+	frames, err := w.LiveFrames(1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ht.Frames[:len(frames)], frames) {
+		t.Fatal("the preview's frames differ from the recorded play's")
+	}
+	if got := playTo(t, w, fixture, 45); !reflect.DeepEqual(got, ht.Live) {
+		t.Fatal("playing to half time in two steps differs from its preview")
+	}
+	sub := forwardSub(ht.Live)
+	decide(t, w, fixture, sub)
+	later := preview(70)
+	if later.Played != 45 || later.Frames[0].Millis <= 45*60_000 {
+		t.Fatalf("preview from %d starts at %d ms", later.Played, later.Frames[0].Millis)
+	}
+	if got := playTo(t, w, fixture, 70); !reflect.DeepEqual(got, later.Live) {
+		t.Fatal("playing on after a decision differs from its preview")
+	}
+
+	for _, to := range []uint16{60, 91} {
+		if _, err := w.PreviewLive(fixture, to, false, 0); !errors.Is(err, ErrInvalidCommand) {
+			t.Fatalf("preview to %d from 70: %v", to, err)
+		}
+	}
+	if _, err := w.PreviewLive(fixture+1, 80, false, 0); err == nil {
+		t.Fatal("previewed another fixture")
 	}
 }

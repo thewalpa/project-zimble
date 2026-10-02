@@ -9,7 +9,7 @@
     <div class="team"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
   </div>
   {{if lt $d.From $d.Minute}}
-  <div class="actions center live-clock" data-live data-from="{{$d.From}}" data-to="{{$d.Minute}}"{{if $d.Autoplay}} data-autoplay{{end}} hidden>
+  <div class="actions center live-clock" data-live data-from="{{$d.From}}" data-to="{{$d.Minute}}" data-played="{{$d.Played}}"{{if $d.Autoplay}} data-autoplay{{end}} hidden>
     <button type="button" data-play>Replay</button>
     <input type="range" data-scrub min="{{$d.From}}" max="{{$d.Minute}}" value="{{$d.Minute}}" aria-label="Match clock" class="scrub">
     <label>speed <select data-speed>{{range $s := $d.Speeds}}<option value="{{$s}}"{{if eq $s $d.Speed}} selected{{end}}>×{{$s}}</option>{{end}}</select></label>
@@ -19,10 +19,13 @@
   <div class="actions center" data-at-stop>
     {{if $d.Finished}}
       <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button class="primary">Confirm the result</button></form>
+    {{else if $d.KickOff}}
+      <a class="button" href="/lineup">Pick lineup</a>
+      <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Kick off</button></form>
     {{else}}
-      <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Play to {{if eq $d.Target 45}}half time{{else}}full time{{end}}</button></form>
-      <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}">
-        <label>to minute <input type="number" name="minute" min="{{$d.Minute}}" max="90" value="{{$d.Target}}" class="minute"></label><button>Play</button>
+      <a class="button primary" href="/live?from={{$d.Minute}}&amp;to={{$d.Target}}&amp;run">Play to {{$d.TargetName}}</a>
+      <form class="inline" method="get" action="/live"><input type="hidden" name="from" value="{{$d.Minute}}"><input type="hidden" name="run" value="">
+        <label>to minute <input type="number" name="to" min="{{$d.Minute}}" max="90" value="{{$d.Target}}" class="minute"></label><button>Play</button>
       </form>
       <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button>Finish the match</button></form>
     {{end}}
@@ -60,18 +63,21 @@
 {{end}}
 
 <div class="grid">
-  {{if not $d.Finished}}
-  <div class="panel" data-at-stop>
+  {{if not (or $d.Finished $d.KickOff)}}
+  <div class="panel">
     <h2>Your changes</h2>
     <p class="muted">Mentality <b>{{$d.Mentality}}</b> · {{$d.SubsLeft}} substitutions left</p>
-    <form method="post" action="/decide" class="actions">
+    <p class="muted small" data-change-hint>A change is made at {{$d.Minute}}' and counts from the next minute.</p>
+    <form method="post" action="/decide" class="actions" data-decide>
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="sub">
+      <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
       <label>Off <select name="out">{{range $d.OnPitch}}<option value="{{.Player}}">{{.Role}} {{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
       <label>On <select name="in">{{range $d.Bench}}<option value="{{.Player}}">{{.Name}} ({{.Position}} {{.Overall}})</option>{{end}}</select></label>
       <button{{if or (not $d.Bench) (le $d.SubsLeft 0)}} disabled{{end}}>Substitute</button>
     </form>
-    <form method="post" action="/decide" class="actions">
+    <form method="post" action="/decide" class="actions" data-decide>
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="mentality">
+      <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
       <label>Mentality <select name="mentality">{{range $d.Mentalities}}<option{{if eq . $d.Mentality}} selected{{end}}>{{.}}</option>{{end}}</select></label>
       <button>Change</button>
     </form>
@@ -87,8 +93,8 @@
 <script>
 // The match clock: runs from the previous stop to this one, showing the
 // score, the timeline and the pitch as they were at each moment. What
-// belongs to the stop itself (its state, statistics and decisions) appears
-// when the clock reaches it.
+// belongs to the stop itself (its state, statistics and play buttons)
+// appears when the clock reaches it. Changes can be made at any moment.
 (function () {
   var ctl = document.querySelector('[data-live]');
   var frames = {{if $d.Pitch}}{{$d.Pitch.Frames}}{{else}}null{{end}};
@@ -97,9 +103,11 @@
   var stopState = state.textContent, stopMinute = minute.textContent, stopScore = score.textContent;
   var lines = document.querySelectorAll('[data-event]'), atStop = document.querySelectorAll('[data-at-stop]');
   var play = ctl.querySelector('[data-play]'), scrub = ctl.querySelector('[data-scrub]'), speed = ctl.querySelector('[data-speed]'), skip = ctl.querySelector('[data-skip]');
+  var decide = document.querySelectorAll('[data-decide]'), hint = document.querySelector('[data-change-hint]');
+  var played = Number(ctl.dataset.played);
   var dots = document.querySelectorAll('[data-dot]'), ball = document.querySelector('[data-ball]'), clock = document.querySelector('[data-clock]');
   scrub.min = t0; scrub.max = t1; scrub.value = t1;
-  var t = t1, running = false, last = 0;
+  var t = t1, reached = t0, running = false, last = 0;
   function mmss(s) { s = Math.floor(s); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
   function frameAt(s) {
     var lo = 0, hi = frames.length - 1;
@@ -132,6 +140,20 @@
     skip.hidden = done;
     if (frames && frames.length) pitch(t);
     scrub.value = t;
+    // A change is made at the furthest minute the clock has completed, so
+    // winding it back to watch again never changes what was seen; nor can
+    // the match change before kickoff's recorded minute.
+    reached = Math.max(reached, t);
+    var at = reached >= t1 ? Number(ctl.dataset.to) : Math.max(Math.floor(reached / 60), played, 1);
+    for (var f = 0; f < decide.length; f++) decide[f].elements.minute.value = at;
+    if (hint) hint.textContent = 'A change is made at ' + at + "' and counts from the next minute.";
+  }
+  for (var f = 0; f < decide.length; f++) {
+    decide[f].elements.to.value = ctl.dataset.to;
+    var here = new URL(location.href);
+    here.searchParams.delete('run');
+    decide[f].elements.back.value = here.pathname + here.search;
+    decide[f].addEventListener('submit', function () { running = false; });
   }
   function tick(now) {
     if (!running) return;
@@ -149,7 +171,10 @@
   scrub.addEventListener('input', function () { show(Number(scrub.value)); });
   skip.addEventListener('click', function () { running = false; play.textContent = 'Replay'; show(t1); });
   ctl.hidden = false;
-  if (ctl.hasAttribute('data-autoplay')) { show(t0); start(); } else show(t1);
+  // Without run the page waits at the clock's start (after a change made
+  // with the clock there): Play goes on to the stop.
+  show(t0);
+  if (ctl.hasAttribute('data-autoplay')) start(); else play.textContent = 'Play';
 })();
 </script>
 {{end}}

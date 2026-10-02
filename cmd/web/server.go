@@ -62,7 +62,6 @@ type server struct {
 	offers        []recoverOffer       // recovery choices for the next page
 	report        *matchReport         // the latest matchday, shown on the home page
 	automatic     []app.AutomaticBatch // scores from the latest progression action, never saved
-	frameLabels   frameLabels          // who the live match's pitch replay shows
 	pages         map[string]*template.Template
 	mux           *http.ServeMux
 }
@@ -257,7 +256,7 @@ func (s *server) newCareer(club ids.ClubID, engine string) error {
 	if err != nil {
 		return err
 	}
-	s.w, s.saved, s.report, s.warnedYearEnd, s.frameLabels = w, false, nil, 0, frameLabels{}
+	s.w, s.saved, s.report, s.warnedYearEnd = w, false, nil, 0
 	s.automatic = nil
 	return nil
 }
@@ -361,7 +360,6 @@ func (s *server) adopt(w *app.World, path string) error {
 	s.report = nil
 	s.automatic = nil
 	s.warnedYearEnd = 0
-	s.frameLabels = frameLabels{}
 	return nil
 }
 

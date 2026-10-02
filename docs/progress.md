@@ -3900,3 +3900,17 @@ measure the default's four-day cup congestion. Cup prize postings are next.
 
 Validation: `gofmt -l .`, `go vet ./...` and `go test ./...`, including both
 medical calendar scenarios, deterministic saves and multi-season squad checks.
+
+## ui: live changes at any minute; formation requested (done)
+
+Asked by the owner: tactics must be changeable during the live match. Mentality is the only tactic the engines know, and before this a change could only be made at a stop. Now mentality changes and substitutions can be made at any minute while the clock runs. Formation changes need a new match command, so I filed [match--live-formation](handoffs/match--live-formation.md).
+
+- **Watching reads ahead, it does not record.** New read-only `World.PreviewLive(fixture, toMinute, frames, everyMillis)` in `views.go` replays the recorded stops and plays on to `toMinute` (past half time if need be) without recording anything: no state, revision or command record. The engine contract's chunking rule (`AdvanceChunkingDoesNotChangeTheMatch`) makes the preview exactly what recording stops later shows. `TestPreviewLive` checks this on `tick`, frames included, across half time and after a substitution.
+- **Why not record each step.** A `PlayMatch` command record costs about 17 KB and is saved forever. Recording 1-minute steps would add about 1.6 MB of save per watched match (75 MB a season), and 5-minute steps about 300 KB per match. With previews, a stop is recorded only where the manager makes a change.
+- **The flow.** "Watch live" (`POST /watch`) records minute 1, which locks the lineup so a preview cannot be followed by a lineup change. It then opens `/live?from=0&to=45&run`. Playing on is a page load (`/live?from=M&to=T&run`, the to-minute form is a GET). A change (`POST /decide` with `minute`) records the play up to that minute, makes the change, and reopens the page there, paused, on the way to the same stop. Before kickoff `/live` shows the match at 0' with Kick off and Pick lineup.
+- **Changes use the furthest minute reached.** The script sets the form's minute to the furthest minute the clock has completed (at least the recorded one), so winding the clock back to watch again cannot place a change earlier. The page holds the play up to its stop, as the recorded play to a stop did before. Someone reading the page source could still see ahead; fetching the clock's minutes in small pieces as it runs would close that (dynamic UI).
+- **Pitch.** The frames come from the preview, plus the recorded minute 1 when the clock starts at kickoff. Every dot is labelled with the players on the pitch at the page's stop, since nothing changes between the clock's start and the stop, so the old `frameLabels` workaround is gone.
+
+Checked by driving the page's script in Node against a running server (seed 42, club 3, `simple`): run the clock to 20', pause, and the form carries minute 20 (still 20 after winding back to 5'). The server records the play to 20 and the mentality change at 20', and reopens the page there, waiting.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
