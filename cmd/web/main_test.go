@@ -520,7 +520,8 @@ func TestStaleFormsAndCrossSiteRequests(t *testing.T) {
 // signings refused on a matchday and accepted after it.
 func TestContractsInTheBrowser(t *testing.T) {
 	c := career(t)
-	contains(t, c.post("/season", nil), "Founders League season 1 is finished", "final table")
+	contains(t, c.post("/season", nil), "Founders League season 1 is finished", "Season review", "Final table",
+		"Contracts ending on <b>Wed 2026-07-01 00:00 UTC</b> can be renewed until then.", "7 of your players' contracts end then.")
 	page := c.continueUntil("7 of your players&#39; contracts end tomorrow", "", 5) // the play-off, then the contract-year eve
 	contains(t, page, "Tue 2026-06-30 00:00 UTC")
 	page = c.get("/squad")
@@ -1568,7 +1569,10 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 	}
 	contains(t, c.get("/playoffs"), "No play-off has been drawn yet")
 
-	c.post("/season", nil)
+	c.post("/season", nil)                          // stops at the review
+	if err := c.s.endReviewedSeason(); err != nil { // as Continue does before going on
+		t.Fatal(err)
+	}
 	// The leagues are over, but the play-offs have not decided anything.
 	page = c.get("/table")
 	contains(t, page, "final table", `title="Play-off place: plays off to stay up"`, `title="Play-off place: plays off for promotion"`)
@@ -1595,7 +1599,10 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 // fixtures and the inbox, and told whether it won.
 func TestPlayingAPlayoffTie(t *testing.T) {
 	c := newClient(t, config{seed: 42, club: 3, savePath: filepath.Join(t.TempDir(), "career.json")})
-	c.post("/season", nil)
+	c.post("/season", nil)                          // stops at the review
+	if err := c.s.endReviewedSeason(); err != nil { // as Continue does before going on
+		t.Fatal(err)
+	}
 	contains(t, c.get("/playoffs"), "Your club is in it.")
 	var tie app.FixtureLine
 	for _, p := range c.s.w.Playoffs() {
@@ -1758,8 +1765,42 @@ func TestSeasonReportsAutomaticBatches(t *testing.T) {
 	c.continueUntil("Matchday: Round 1", "", 10)
 	page := c.post("/season", nil)
 	contains(t, page, "Automatically played: Wed 2027-02-17 15:00 UTC; 1 round, 2 matches.",
-		"Founders League season 2", "14 of 14 rounds played")
+		"Founders League season 2 is finished", "Season review", "Final table")
 	if strings.Count(page, "Automatically played:") != 1 {
 		t.Fatal("the season redirect omitted or repeated automatic batches")
 	}
+}
+
+// Continue stops once the club's league season has every result, with its
+// final table and the renewal deadline, and the stop is shown again after a
+// save made there is loaded. The next Continue acknowledges it and moves on.
+func TestSeasonReviewStop(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")})
+	c.post("/season", nil) // season 1 ends at the review
+	contains(t, c.get("/review"), "Founders League, season 1", "Final table")
+	c.continueUntil("Matchday: Round 1", "", 20) // the play-offs, the summer; season 2 begins
+	contains(t, c.get("/review"), "No season awaits its review")
+	if strings.Contains(c.get("/"), `href="/review"`) {
+		t.Fatal("the home page offers a review outside a stop")
+	}
+
+	// The league's last round is played; Continue stops at the review itself.
+	c = newClient(t, config{seed: 42, club: 5, savePath: filepath.Join(t.TempDir(), "career.json")})
+	var stop string
+	for range 80 {
+		if stop = c.post("/continue", nil); strings.Contains(stop, "<h1>Season review</h1>") {
+			break
+		}
+	}
+	contains(t, stop, "Season review", "Final table", "can be renewed until then")
+	contains(t, c.get("/"), `href="/review"`)
+	review := mainOf(c.get("/review"))
+	c.post("/save", nil)
+	loaded := newClient(t, config{loadPath: c.s.savePath})
+	if got := mainOf(loaded.get("/review")); got != review {
+		t.Error("the review changed after loading the save made at the stop")
+	}
+	contains(t, loaded.get("/"), `href="/review"`)
+	loaded.post("/continue", nil)
+	contains(t, loaded.get("/review"), "No season awaits its review")
 }

@@ -1,0 +1,18 @@
+{{define "content"}}
+{{$d := .Data}}
+<h1>Season review</h1>
+{{if not $d.Open}}
+<p class="muted">No season awaits its review. Continue stops here when your club's league season has every result, before the season ends.</p>
+{{else}}
+<p class="muted lead">Every result is in; Continue ends the season. Contracts ending on <b>{{$d.ContractsEnd}}</b> can be renewed until then.{{if $d.Expiring}} <b>{{$d.Expiring}} of your players' contracts end then.</b> <a href="/club/{{.ClubID}}/squad">Review them on the Squad page.</a>{{end}}</p>
+{{with $d.Season}}
+<div class="panel">
+  <h2><a href="/history?competition={{.Competition}}&amp;season={{.Season}}">{{.Name}}, season {{.Season}}</a></h2>
+  <p>{{if $d.Champion}}Top of the table: <b>{{$d.Champion}}</b>. {{end}}Your club: {{if .Place}}<b>{{.Place}}</b>{{end}}{{if .Record}} · {{.Record}}{{end}}{{if .Note}} · <b>{{.Note}}</b>{{end}}</p>
+</div>
+{{end}}
+{{with $d.Table}}<h3 class="sub">Final table</h3>{{template "finaltable" .}}{{end}}
+{{if $d.Editions}}<p>Still to play:{{range $i, $e := $d.Editions}}{{if $i}},{{end}} <a href="{{$e.Link}}">{{$e.Name}}</a>{{end}}.</p>{{end}}
+<div class="actions"><form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Continue</button></form></div>
+{{end}}
+{{end}}

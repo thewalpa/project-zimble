@@ -78,6 +78,7 @@ type homeView struct {
 	WeeklyWage  money.Money
 	Expiring    int
 	ContractEnd string
+	Review      bool   // the league season has every result: its review is open
 	Window      string // while a transfer window is open
 	Bids        int    // bids for the club's players awaiting an answer
 	FreeAgents  int    // players without a club, while a transfer window is open
@@ -142,6 +143,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 	}
 	cal := s.w.Calendar()
 	v := homeView{Report: s.report, Agenda: s.agenda(), ContractEnd: cal.Format(s.w.ContractYearEnd()), Expiring: len(s.expiring())}
+	_, v.Review, _ = s.w.SeasonReview()
 	if s.w.TransferWindow().Open {
 		v.Window, v.Bids, v.FreeAgents = s.windowText(), s.openBidsForUs(), len(s.observedFreeAgents())
 	}

@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/random"
@@ -30,7 +31,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "club", "clubs", "lineup", "table", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs"}
+var pageNames = []string{"choose", "home", "club", "clubs", "lineup", "table", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs", "review"}
 
 type config struct {
 	seed     random.Seed
@@ -59,9 +60,11 @@ type server struct {
 	savedRevision app.Revision // ...at this revision
 	warnedYearEnd sim.GameInstant
 	notes         []note
-	offers        []recoverOffer       // recovery choices for the next page
-	report        *matchReport         // the latest matchday, shown on the home page
-	automatic     []app.AutomaticBatch // scores from the latest progression action, never saved
+	offers        []recoverOffer         // recovery choices for the next page
+	report        *matchReport           // the latest matchday, shown on the home page
+	automatic     []app.AutomaticBatch   // scores from the latest progression action, never saved
+	reviewStop    bool                   // the latest progression action stopped at a season review
+	reviewShown   competitions.SeasonRef // the season whose review page was shown, acknowledged by the next Continue
 	pages         map[string]*template.Template
 	mux           *http.ServeMux
 }
@@ -121,7 +124,7 @@ func newServer(cfg config) (*server, error) {
 		path string
 		view func(*http.Request) (string, any, error)
 	}{
-		{"/club/{id}", s.clubPage}, {"/club/{id}/{tab}", s.clubPage}, {"/clubs", s.clubs}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/cup", s.cup}, {"/playoffs", s.playoffs}, {"/history", s.history},
+		{"/club/{id}", s.clubPage}, {"/club/{id}/{tab}", s.clubPage}, {"/clubs", s.clubs}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/cup", s.cup}, {"/playoffs", s.playoffs}, {"/review", s.review}, {"/history", s.history},
 		{"/report", s.reportPage}, {"/live", s.live}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
@@ -377,11 +380,18 @@ func (s *server) next(url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
-	s.automatic = nil
+	s.automatic, s.reviewStop = nil, false
 	if _, ok := s.w.Pending(); ok {
 		return "/", s.play()
 	}
-	return "/", s.advance()
+	if _, err := s.acknowledgeShownReview(); err != nil {
+		return "", err
+	}
+	err := s.advance()
+	if s.reviewStop {
+		return "/review", err
+	}
+	return "/", err
 }
 
 // advance continues to the club's next matchday, resolving other clubs'
@@ -410,6 +420,9 @@ func (s *server) advance() error {
 		}
 		ready, ok := res.(app.FixtureRoundReady)
 		switch {
+		case s.reviewStop:
+			s.say("Your league season has every result. Review it here; Continue ends it.")
+			return nil
 		case !ok && opening:
 			s.say("The transfer window has opened: buy players on the Transfers page. Continue goes on to the next transfer news.")
 			return nil
@@ -464,11 +477,15 @@ func (s *server) playSeason(url.Values) (string, error) {
 	if s.w == nil {
 		return "", errors.New("choose a club first")
 	}
+	s.automatic, s.reviewStop = nil, false
+	// Moving on from the review ends that season first.
+	if err := s.endReviewedSeason(); err != nil {
+		return "", err
+	}
 	sc, ok := s.userSchedule()
 	if !ok {
 		return "", errors.New("your club has no season")
 	}
-	s.automatic = nil
 	for {
 		if _, ok := s.w.Pending(); ok {
 			if err := s.play(); err != nil {
@@ -477,8 +494,7 @@ func (s *server) playSeason(url.Values) (string, error) {
 			continue
 		}
 		if s.seasonDone(sc) {
-			// Run the season end due now, which schedules the next
-			// season and draws any cup it qualifies teams for.
+			// Stop at the review of the season end due now.
 			if _, err := s.continueTo(s.w.Now()); err != nil {
 				return "", err
 			}
@@ -488,11 +504,14 @@ func (s *server) playSeason(url.Values) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if _, ok := res.(app.FixtureRoundReady); !ok {
+		if _, ok := res.(app.FixtureRoundReady); !ok && !s.reviewStop {
 			return "", errors.New("no more matches are scheduled")
 		}
 	}
 	s.say("%s season %d is finished. Continue takes you into the next one.", sc.CompetitionName, sc.Season)
+	if s.reviewStop {
+		return "/review", nil
+	}
 	return "/table", nil
 }
 
@@ -695,10 +714,11 @@ func (s *server) readInbox(form url.Values) (string, error) {
 // continueTo keeps score summaries for the latest progression action. Detailed
 // auto-resolved reports remain on the Continue result, never in the save.
 func (s *server) continueTo(target sim.GameInstant) (app.ContinueResult, error) {
-	result, err := s.w.Continue(target)
+	result, err := s.w.ContinueWith(target, app.ContinueOptions{StopAtSeasonReview: true})
 	if err != nil {
 		return nil, err
 	}
+	_, s.reviewStop = result.(app.SeasonReviewReady)
 	s.automatic = append(s.automatic, s.w.AutomaticResults(result)...)
 	return result, nil
 }

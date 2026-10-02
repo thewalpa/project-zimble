@@ -589,6 +589,8 @@ func (w *World) AutomaticResults(result ContinueResult) []AutomaticBatch {
 		batches = r.Resolved
 	case FixtureRoundReady:
 		batches = r.Resolved
+	case SeasonReviewReady:
+		batches = r.Resolved
 	}
 	count := func(n int, noun, plural string) string {
 		if n != 1 {

@@ -6,14 +6,7 @@
 {{with $d.Table}}
 <h1>{{$d.Title}}</h1>
 <p class="muted">{{.RoundsCompleted}} of {{.Rounds}} rounds played{{if .Complete}} · final table{{end}}{{if .Legend}} · {{.Legend}} (<a href="/playoffs">play-offs</a>){{end}}</p>
-<div class="panel scroll">
-<table>
-  <tr><th class="n">#</th><th>Club</th><th class="n">P</th><th class="n">W</th><th class="n">D</th><th class="n">L</th><th class="n">GF</th><th class="n">GA</th><th class="n">GD</th><th class="n">Pts</th></tr>
-  {{range .Marked}}
-  {{template "leagueRow" .}}
-  {{end}}
-</table>
-</div>
+{{template "finaltable" .}}
 {{end}}
 {{else if $d.Cup}}
 {{template "cupedition" $d.Cup}}

@@ -131,7 +131,9 @@ type session struct {
 	planMode      bool
 	liveShown     int // live match events already printed
 	quitWarned    bool
-	warnedYearEnd sim.GameInstant // contract-year end already warned about
+	warnedYearEnd sim.GameInstant        // contract-year end already warned about
+	reviewStop    bool                   // the latest progression action stopped at a season review
+	reviewShown   competitions.SeasonRef // the season whose review was printed, acknowledged by the next continue
 }
 
 // draft is the lineup being prepared for a pending user fixture. It becomes
@@ -257,6 +259,8 @@ func (s *session) loop() {
 			err = s.tables(args)
 		case "history":
 			err = s.history(args)
+		case "review":
+			err = s.review()
 		case "playoffs", "playoff":
 			s.playoffs()
 		case "cup":
@@ -365,6 +369,7 @@ func (s *session) help() {
   cup                   the Continental Cup: this edition's bracket and results
   playoffs              the promotion play-offs: this season's ties and results
   history [COMP SEASON] every season's champion; one season's final table or bracket
+  review                your league season once it has every result, where continue stops before ending it
   fixtures (f)          your club's fixtures and results this season
   inbox (i) [N]         the latest N inbox messages (default 10); * marks unread
   read                  mark every inbox message read
@@ -505,6 +510,9 @@ func (s *session) status() {
 	s.printf(" | %s season %d, %d of %d rounds played\n", sc.CompetitionName, sc.Season, played, len(sc.Rounds))
 	if fin, ok := s.w.Finances(s.club()); ok {
 		s.printf("Balance %s | weekly wages %s\n", fin.Balance, fin.WeeklyWage)
+	}
+	if _, ok, _ := s.w.SeasonReview(); ok {
+		s.printf("Your league season has every result: type review, then continue to end it.\n")
 	}
 	if n := len(s.expiring()); n > 0 {
 		s.printf("Contracts: %d end on %s unless renewed (type contracts).\n", n, cal.Format(s.w.ContractYearEnd()))
@@ -1471,6 +1479,9 @@ func (s *session) next() error {
 // of a transfer window, and while a window is open it goes one transfer run
 // at a time and stops at transfer news for the club.
 func (s *session) advance() error {
+	if _, err := s.acknowledgeShownReview(); err != nil {
+		return err
+	}
 	for {
 		target, warn := s.warnBeforeContractYear(s.w.Now() + 400*sim.GameInstant(sim.Day))
 		win, opening, stepping := s.w.TransferWindow(), false, false
@@ -1485,6 +1496,11 @@ func (s *session) advance() error {
 			return err
 		}
 		ready, ok := res.(app.FixtureRoundReady)
+		if review, stop := res.(app.SeasonReviewReady); stop {
+			s.newMessages()
+			s.printReview(review)
+			return nil
+		}
 		if !ok && opening {
 			s.newMessages()
 			s.printf("\n%s: %s\nType transfers, market POS and bid ID to buy players; continue goes on to the next transfer news.\n",
@@ -1630,6 +1646,10 @@ func (s *session) submitDraft(ready app.FixtureRoundReady) error {
 // season plays the rest of the current season. An edited draft for the
 // waiting match is used for that match; later matches use the AI's picks.
 func (s *session) season() error {
+	// Moving on from the review ends that season first.
+	if err := s.endReviewedSeason(); err != nil {
+		return err
+	}
 	sc, ok := s.userSchedule()
 	if !ok {
 		return errors.New("your club has no season")
@@ -1651,8 +1671,7 @@ func (s *session) season() error {
 			continue
 		}
 		if t, _ := s.w.Table(ref); t.Complete {
-			// Run the season end due now, which schedules the next
-			// season and draws any cup it qualifies teams for.
+			// Stop at the review of the season end due now.
 			if _, err := s.continueTo(s.w.Now()); err != nil {
 				return err
 			}
@@ -1661,6 +1680,12 @@ func (s *session) season() error {
 		if err := s.advanceForSeason(); err != nil {
 			return err
 		}
+	}
+	if review, ok, err := s.w.SeasonReview(); err != nil {
+		return err
+	} else if ok {
+		s.printReview(review)
+		return nil
 	}
 	s.table(nil)
 	s.printf("\nSeason finished. Type continue for the next season.\n")
@@ -1674,7 +1699,7 @@ func (s *session) advanceForSeason() error {
 	if err != nil {
 		return err
 	}
-	if _, ok := res.(app.FixtureRoundReady); !ok {
+	if _, ok := res.(app.FixtureRoundReady); !ok && !s.reviewStop {
 		return errors.New("no more matches are scheduled")
 	}
 	return nil
@@ -2300,10 +2325,11 @@ func (s *session) recover(args []string) error {
 
 // continueTo reports other clubs' matchdays for both target and fixture stops.
 func (s *session) continueTo(target sim.GameInstant) (app.ContinueResult, error) {
-	result, err := s.w.Continue(target)
+	result, err := s.w.ContinueWith(target, app.ContinueOptions{StopAtSeasonReview: true})
 	if err != nil {
 		return nil, err
 	}
+	_, s.reviewStop = result.(app.SeasonReviewReady)
 	for _, batch := range s.w.AutomaticResults(result) {
 		s.printf("\n%s\n", batch.Summary)
 		for _, score := range batch.Scores {

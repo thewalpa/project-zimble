@@ -184,7 +184,7 @@ func TestSeasonAndNextSeason(t *testing.T) {
 		script = append(script, "continue")
 	}
 	out := play(t, []string{"-seed", "42", "-club", "4"}, append(script, "status", "q", "q")...)
-	contains(t, out, "Founders League season 1 (14/14 rounds)", "Season finished. Type continue for the next season.",
+	contains(t, out, "Founders League season 1 (14/14 rounds)", "SEASON REVIEW, Sat 2026-05-09 15:00 UTC", "You: Founders League season 1, 6th of 8.", "Contracts ending on Wed 2026-07-01 00:00 UTC can be renewed until then: 5 of your players' contracts end",
 		"Tue 2026-06-30 00:00 UTC: ", " of your players' contracts end tomorrow.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC; clubs answer bids made before Tue 2026-07-28 00:00 UTC.",
 		"Founders League season 1 ended: champion ", "; you finished ",
@@ -311,7 +311,7 @@ func TestMoneyViews(t *testing.T) {
 // are locked).
 func TestContracts(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", // the play-off, then the contract-year eve
+		"season", "continue", "continue", // past the review to the play-off, then play it
 		"contracts", "renew 56", "renew 45 9", "renew 48 2 1", "renew 44", "renew 999", "sign 45",
 		"continue", "continue", "free", "sign 44", "sign 274 1", "squad", "inbox 30", "continue", "bid 300", "q", "q")
 	contains(t, out,
@@ -419,7 +419,7 @@ func TestRefusedOfferInboxWording(t *testing.T) {
 func TestTransfers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "career.json")
 	out := play(t, []string{"-seed", "42", "-club", "3"},
-		"season", "continue", "continue", "continue", "continue", // the play-off, the contract-year eve, then the transfer window
+		"season", "continue", "continue", "continue", "continue", // the review, the play-off, the contract-year eve, then the transfer window
 		"market fw", "market", "bid 344", "bid 547", "bid 497", "bid 238 1", "bid 238",
 		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "agenda", "free", "save "+path, "accept 99", "q", "q")
 	contains(t, out, "9 free agents wait for a club (type free).",
@@ -805,4 +805,23 @@ func TestSeasonReportsAutomaticBatches(t *testing.T) {
 	if strings.Count(out, "Automatically played:") != 2 { // season 1's play-offs and season 2's semi-final
 		t.Fatal("the season path omitted or repeated automatic batches")
 	}
+}
+
+// continue stops where the club's league season ends, review shows it again,
+// and a save made at the stop offers it on loading; the next continue moves on.
+func TestSeasonReviewStop(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "career.json")
+	script := []string{"review"}
+	for range 29 { // a matchday and its play for each of 14 rounds, then the season end
+		script = append(script, "continue")
+	}
+	script = append(script, "review", "save "+path, "q")
+	out := play(t, []string{"-seed", "42", "-club", "4"}, script...)
+	contains(t, out, "! no season awaits its review", "SEASON REVIEW, Sat 2026-05-09 15:00 UTC", "You: Founders League season 1, 6th of 8.",
+		"Contracts ending on Wed 2026-07-01 00:00 UTC can be renewed until then: 5 of your players' contracts end")
+	if n := strings.Count(out, "SEASON REVIEW"); n != 2 {
+		t.Fatalf("%d reviews printed, want the stop and the review command", n)
+	}
+	loaded := play(t, []string{"-load", path}, "status", "review", "continue", "review", "q", "q")
+	contains(t, loaded, "Your league season has every result: type review, then continue to end it.", "SEASON REVIEW, Sat 2026-05-09 15:00 UTC", "! no season awaits its review")
 }
