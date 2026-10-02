@@ -1,7 +1,7 @@
 ---
 to: squad
 from: competitions
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -31,3 +31,7 @@ Cup prize money (competitions backlog). Competitions owns the rule and the timin
 
 ## Calendar update (ScheduleVersion 4)
 Edition N now plays during league season N+1, with its final four days after that season's last selected league matchday. The season-end task and atomic posting contract above are unchanged: post when that edition's final has official results, not when it is drawn. The built-in final now precedes the promotion play-offs that draw the next edition.
+
+## Answer
+
+Accepted 2026-10-02. The pinned prize table is on main and the season-end edit is explicitly handed over. Queued after the market investigation; implement ledger kind, atomic postings, restore validation and UI handoff together. No prize is posted in this intake commit.

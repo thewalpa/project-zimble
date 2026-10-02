@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -24,3 +24,7 @@ Decide whether this is intended. My suggested range: an average club's yearly re
 
 ## Done when
 You answer with a change and its version bump (I rerun `TestBalancePopulation` and the market sweeps and update both sections), or with a reason to leave money as it is.
+
+## Answer
+
+Accepted 2026-10-02 into the economy backlog. Persistent universal surplus is not the intended long-run budget pressure. Design a justified recurring cost and division-aware income with data after prize postings, then have balance check median balances, losing club-seasons and promotion income. Do not change economy values or AI affordability piecemeal; no version move in this intake commit.

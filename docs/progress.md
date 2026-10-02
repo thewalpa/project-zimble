@@ -3809,3 +3809,13 @@ Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; new `present` tests (
 Closes `ui--generated-age-curve`. data's client fixture updates for `worldgen.Version` 9 keep every story: lineup edits, signings, purchases and refusals, listing and answering a bid after save/load, multi-spell career totals, managed penalties, cup wins and exits, and promotion. The terminal's managed penalty case (Saltmere away to Eldhaven) now also covers the shoot-out read from the away side. The browser had lost its check of the manager's own shoot-out result in the inbox (it kept only the bracket), so `TestCupInTheBrowser` now checks Saltmere's "2-2 (2-1 on penalties) v Eldhaven United (away)" semi-final. No client production code changed.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## squad: calendar and generation reviews; handoff intake (done)
+
+Reviewed competitions' midweek-calendar tests and data's August-to-May and generated-age-curve fixtures. The two-vacancy AI bound matches the existing lifecycle tolerance; hoarding now accounts for the manager's actual positional surplus. Injury recovery follows each injury's deadline through future fixtures, wages count exact weekly paydays, and the medical v4 calibration explicitly retains weekly rounds and its rested floor of 40. The congested floor of 25 covers generation v9's observed 29 without changing incidence, crisis-size or tired-share bounds. Seed 3 preserves the earlier-completion consent and edited-save rejection scenarios after seed 42's target began moving. No squad production behavior or version changes. Closes handoffs `squad--midweek-calendar-tests.md`, `squad--august-may-calendar.md` and `squad--generated-age-curve.md`.
+
+Accepted cup prize postings (data's table is delivered; competitions explicitly hands over its season-end call site) and balance's long-run money surplus into the backlog. Prize accounting precedes joint economy/content design with data. Generation now consumes development, so future development changes require coordination with data's generator version and goldens.
+
+The interrupted historical squad rebase was preserved on `recovery/squad-interrupted-rebase-20261002`, aborted, and the lane rebased onto current main before work.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` passed, and `go test ./...` passed (including both clients and long squad tests). Browser integration tests used local socket access.
