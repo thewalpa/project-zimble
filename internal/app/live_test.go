@@ -275,6 +275,87 @@ func TestLiveCommandRetries(t *testing.T) {
 }
 
 // A save at half time, after a substitution, continues identically.
+// shifted is the manager's current roles with the first midfielder moved
+// to the attack: a 4-3-3 from a 4-4-2.
+func shifted(l LiveMatch) matches.MatchCommand {
+	roles := l.View.Roles[l.Side.Index()]
+	i := slices.Index(roles[:], matches.Midfielder)
+	roles[i] = matches.Forward
+	return matches.MatchCommand{Kind: matches.CommandSetRoles, Side: l.Side, Roles: roles}
+}
+
+// A formation change is a decision like the others: it shows in the view and
+// the events, survives a save and a load, replays to the same match, and
+// the match resolves with it in its report.
+func TestFormationChangeInTheSecondHalf(t *testing.T) {
+	w, fixture := liveReady(t)
+	playTo(t, w, fixture, 45)
+	l := playTo(t, w, fixture, 60)
+	side := l.Side.Index()
+	start := l.View.Roles[side]
+	cmd := shifted(l)
+	l = decide(t, w, fixture, cmd)
+	if l.View.Roles[side] != cmd.Roles || l.View.Roles[side] == start || l.View.Roles[1-side] == cmd.Roles {
+		t.Fatalf("roles %v after the change, started %v", l.View.Roles, start)
+	}
+	last := l.Events[len(l.Events)-1]
+	if last.Kind != matches.EventFormationChange || last.Minute != 60 || last.Side != l.Side || last.Roles != cmd.Roles {
+		t.Fatalf("event %+v", last)
+	}
+	if l.View.SubstitutionsUsed[side] != 0 {
+		t.Fatalf("a formation change used a substitution: %v", l.View.SubstitutionsUsed)
+	}
+
+	loaded := roundTrip(t, w)
+	if a, ok := loaded.LiveMatch(); !ok || !reflect.DeepEqual(a, l) {
+		t.Fatal("the live match differs after load")
+	}
+	playTo(t, w, fixture, 75)
+	playTo(t, loaded, fixture, 75)
+	x, y := resolveNow(t, w), resolveNow(t, loaded)
+	if !reflect.DeepEqual(x, y) || !reflect.DeepEqual(loaded.Snapshot(), w.Snapshot()) {
+		t.Fatal("finishing after a load differs")
+	}
+	for _, m := range x.Matches {
+		if m.Fixture == fixture && !slices.ContainsFunc(m.Events, func(e matches.MatchEvent) bool { return e.Kind == matches.EventFormationChange }) {
+			t.Fatal("the report lost the formation change")
+		}
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFormationRejections(t *testing.T) {
+	w, fixture := liveReady(t)
+	l := playTo(t, w, fixture, 30)
+	side := l.Side.Index()
+	revision := w.Revision()
+	try := func(name string, c matches.MatchCommand) {
+		t.Helper()
+		_, err := w.MatchDecision(MatchDecision{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: fixture, Command: c})
+		if !errors.Is(err, ErrMatchDecision) {
+			t.Errorf("%s: err = %v, want %v", name, err, ErrMatchDecision)
+		}
+	}
+	good := shifted(l)
+	other := good
+	other.Side = l.Side.Opponent()
+	try("the other side", other)
+	same := good
+	same.Roles = l.View.Roles[side]
+	try("unchanged roles", same)
+	noKeeper := good
+	noKeeper.Roles[slices.Index(l.View.Roles[side][:], matches.Goalkeeper)] = matches.Defender
+	try("no goalkeeper", noKeeper)
+	badRole := good
+	badRole.Roles[3] = 9
+	try("unknown role", badRole)
+	if w.Revision() != revision {
+		t.Fatal("a rejected formation changed the world")
+	}
+}
+
 func TestSaveDuringALiveMatch(t *testing.T) {
 	w, fixture := liveReady(t)
 	ht := playTo(t, w, fixture, 45)
@@ -425,6 +506,43 @@ func TestRestoreRejectsInvalidReportEvents(t *testing.T) {
 	for name, mutate := range cases {
 		snap := build()
 		mutate(&snap)
+		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
+			t.Errorf("%s: Restore = %v", name, err)
+		}
+	}
+	if _, err := Restore(build()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A report's formation change must name a possible formation.
+func TestRestoreRejectsInvalidFormationEvents(t *testing.T) {
+	w, fixture := liveReady(t)
+	playTo(t, w, fixture, 45)
+	l := playTo(t, w, fixture, 60)
+	decide(t, w, fixture, shifted(l))
+	resolveNow(t, w)
+	build := func() WorldSnapshot { return w.Snapshot() }
+	change := func(s *WorldSnapshot) *matches.MatchEvent {
+		ms := s.ResolveCommands[len(s.ResolveCommands)-1].Result.Matches
+		for i := range ms {
+			for j := range ms[i].Events {
+				if ms[i].Events[j].Kind == matches.EventFormationChange {
+					return &ms[i].Events[j]
+				}
+			}
+		}
+		t.Fatal("no formation change in the batch")
+		return nil
+	}
+	cases := map[string]func(*matches.MatchEvent){
+		"unknown role": func(e *matches.MatchEvent) { e.Roles[3] = 9 },
+		"no keeper":    func(e *matches.MatchEvent) { e.Roles[0] = matches.Defender },
+		"two keepers":  func(e *matches.MatchEvent) { e.Roles[5] = matches.Goalkeeper },
+	}
+	for name, mutate := range cases {
+		snap := build()
+		mutate(change(&snap))
 		if w, err := Restore(snap); err == nil || w != nil || !errors.Is(err, ErrInvalidSave) {
 			t.Errorf("%s: Restore = %v", name, err)
 		}

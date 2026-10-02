@@ -102,6 +102,19 @@ func SetMentality(side matches.Side, m matches.Mentality) matches.MatchCommand {
 	return matches.MatchCommand{Kind: matches.CommandSetMentality, Side: side, Mentality: m}
 }
 
+// SetRoles builds a formation change: the side's eleven roles in slot order.
+func SetRoles(side matches.Side, roles [matches.StartersPerTeam]matches.Role) matches.MatchCommand {
+	return matches.MatchCommand{Kind: matches.CommandSetRoles, Side: side, Roles: roles}
+}
+
+// Formations over Team's starters: slot 0 is the goalkeeper. The squad
+// starts 4-4-2 (StartingRoles).
+var (
+	StartingRoles = [matches.StartersPerTeam]matches.Role{1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4}
+	Roles433      = [matches.StartersPerTeam]matches.Role{1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4}
+	Roles541      = [matches.StartersPerTeam]matches.Role{1, 2, 2, 2, 2, 2, 3, 3, 3, 3, 4}
+)
+
 // TimedCommand is a command applied when the session stops at Minute
 // (and, for minute 45, at half time).
 type TimedCommand struct {
@@ -117,6 +130,16 @@ var StandardCommands = []TimedCommand{
 	{45, Sub(matches.Away, 211, 215)}, // FW for FW
 	{70, Sub(matches.Home, 101, 112)}, // GK for GK
 	{70, SetMentality(matches.Away, matches.Defensive)},
+}
+
+// FormationCommands change the shape of both sides: the home side chases a
+// goal with a 4-3-3 at 30 minutes and settles for 5-4-1 at 70; the away
+// side makes a substitution first, then changes at half time.
+var FormationCommands = []TimedCommand{
+	{30, SetRoles(matches.Home, Roles433)},
+	{45, Sub(matches.Away, 202, 213)},
+	{45, SetRoles(matches.Away, Roles541)},
+	{70, SetRoles(matches.Home, Roles541)},
 }
 
 // FullMatch stops at half time, then at full time.
@@ -320,6 +343,8 @@ func Contract(t *testing.T, e matches.Engine, cfg Config) {
 		{"SessionDoesNotRetainInput", c.inputNotRetained},
 		{"AdvanceOutputBufferOwnership", c.bufferOwnership},
 		{"CommandEventsDeliveredOnce", c.commandEventsOnce},
+		{"FormationChange", c.formation},
+		{"IllegalFormationsAreRejected", c.illegalFormations},
 		{"Checkpoints", c.checkpoints},
 		{"Knockouts", c.knockouts},
 		{"Frames", c.frames},
@@ -862,5 +887,117 @@ func (c contract) stats(t *testing.T) {
 		if dst.Outcome.Stats != dst.View.Stats {
 			t.Fatalf("outcome stats %+v, view %+v", dst.Outcome.Stats, dst.View.Stats)
 		}
+	}
+}
+
+// A formation change shows in the view and the events from the next
+// minute, leaves the players where they are, and plays the same match
+// however the minutes are chunked.
+func (c contract) formation(t *testing.T) {
+	if !c.e.Capabilities().Formations {
+		t.Skip("engine has no formations")
+	}
+	s := Start(t, c.e, Input(15, 60, 60))
+	var dst matches.MatchStepResult
+	advance(t, s, matches.AdvanceRequest{ToMinute: 30}, &dst)
+	if dst.View.Roles[0] != StartingRoles || dst.View.Roles[1] != StartingRoles {
+		t.Fatalf("roles at 30 = %v", dst.View.Roles)
+	}
+	before := dst.View.OnPitch
+	if err := s.Apply(SetRoles(matches.Home, Roles433)); err != nil {
+		t.Fatal(err)
+	}
+	advance(t, s, matches.AdvanceRequest{ToMinute: 31}, &dst)
+	if e := dst.Events[0]; e.Kind != matches.EventFormationChange || e.Minute != 30 || e.Side != matches.Home || e.Roles != Roles433 {
+		t.Fatalf("first event after the change = %+v", e)
+	}
+	if dst.View.Roles[0] != Roles433 || dst.View.Roles[1] != StartingRoles || dst.View.OnPitch != before || dst.View.SubstitutionsUsed != [2]uint8{} {
+		t.Fatalf("view after the change %+v", dst.View)
+	}
+	// A substitute brought on keeps his own role in the view; the manager
+	// can send roles again.
+	if err := s.Apply(Sub(matches.Home, 110, 114)); err != nil { // FW off, MF on
+		t.Fatal(err)
+	}
+	advance(t, s, matches.AdvanceRequest{ToMinute: 31}, &dst)
+	if dst.View.Roles[0][9] != matches.Midfielder {
+		t.Fatalf("roles after the substitution %v", dst.View.Roles[0])
+	}
+	// The same decisions however the minutes are chunked.
+	everyMinute := make([]uint16, 0, 90)
+	for m := uint16(1); m <= 90; m++ {
+		everyMinute = append(everyMinute, m)
+	}
+	var wantEvents []matches.MatchEvent
+	var want matches.MatchStepResult
+	for i, plan := range [][]uint16{{30, 45, 70, 90}, everyMinute, {30, 90, 70, 90}} {
+		in := Input(16, 65, 55)
+		events, final := Play(t, Start(t, c.e, in), plan, FormationCommands)
+		CheckOutcome(t, c.e, in, events, final)
+		formations := 0
+		for _, e := range events {
+			if e.Kind == matches.EventFormationChange {
+				formations++
+			}
+		}
+		if formations != 3 || final.View.Roles[0] != Roles541 || final.View.Roles[1] != Roles541 {
+			t.Fatalf("plan %v: %d formation events, final roles %v", plan, formations, final.View.Roles)
+		}
+		final.Events = nil
+		if i == 0 {
+			wantEvents, want = events, final
+		} else if !reflect.DeepEqual(events, wantEvents) || !reflect.DeepEqual(final, want) {
+			t.Fatalf("plan %v produced a different match", plan)
+		}
+	}
+	// Formation changes are not substitutions: they use none up, and a
+	// match without them is a different match only through the roles.
+	if want.View.SubstitutionsUsed != [2]uint8{0, 1} {
+		t.Fatalf("substitutions used %v", want.View.SubstitutionsUsed)
+	}
+}
+
+func (c contract) illegalFormations(t *testing.T) {
+	if !c.e.Capabilities().Formations {
+		t.Skip("engine has no formations")
+	}
+	clean := Start(t, c.e, Input(17, 60, 60))
+	noisy := Start(t, c.e, Input(17, 60, 60))
+	reject := func(name string, cmd matches.MatchCommand) {
+		t.Helper()
+		if err := noisy.Apply(cmd); !errors.Is(err, matches.ErrInvalidCommand) {
+			t.Errorf("%s: err = %v, want %v", name, err, matches.ErrInvalidCommand)
+		}
+	}
+	keeperOut := Roles433
+	keeperOut[0], keeperOut[1] = matches.Defender, matches.Goalkeeper
+	twoKeepers := Roles433
+	twoKeepers[5] = matches.Goalkeeper
+	noKeeper := Roles433
+	noKeeper[0] = matches.Defender
+	badRole := Roles433
+	badRole[3] = 0
+	unknownRole := Roles433
+	unknownRole[3] = 5
+	var a, b matches.MatchStepResult
+	for _, stop := range []uint16{20, 45, 60, 90} {
+		advance(t, clean, matches.AdvanceRequest{ToMinute: stop}, &a)
+		advance(t, noisy, matches.AdvanceRequest{ToMinute: stop}, &b)
+		if stop == 90 {
+			break
+		}
+		reject("invalid side", SetRoles(0, Roles433))
+		reject("unchanged roles", SetRoles(matches.Home, StartingRoles))
+		reject("goalkeeper moved out of goal", SetRoles(matches.Home, keeperOut))
+		reject("a second goalkeeper", SetRoles(matches.Home, twoKeepers))
+		reject("no goalkeeper", SetRoles(matches.Home, noKeeper))
+		reject("role zero", SetRoles(matches.Home, badRole))
+		reject("unknown role", SetRoles(matches.Home, unknownRole))
+		if !reflect.DeepEqual(Clone(a), Clone(b)) {
+			t.Fatalf("rejected formations changed the match at %d", stop)
+		}
+	}
+	if err := noisy.Apply(SetRoles(matches.Home, Roles433)); !errors.Is(err, matches.ErrMatchFinished) {
+		t.Fatalf("formation after full time: %v", err)
 	}
 }

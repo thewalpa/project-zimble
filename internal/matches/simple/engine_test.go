@@ -139,7 +139,7 @@ func TestParamsValidation(t *testing.T) {
 
 func TestCapabilitiesAreAdvertised(t *testing.T) {
 	e := engine(t)
-	want := matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true}
+	want := matches.Capabilities{Substitutions: true, Mentality: true, Formations: true, Penalties: true}
 	if e.Capabilities() != want || e.ID() != EngineID || e.Version() != ModelVersion {
 		t.Fatalf("engine %s v%d capabilities %+v", e.ID(), e.Version(), e.Capabilities())
 	}

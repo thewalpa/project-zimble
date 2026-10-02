@@ -171,6 +171,7 @@ Fixtures are never marked played and no results are invented. Nothing resolves a
   - A command's event is stamped with the stop minute and `Seq` when applied, then delivered once, at the start of the next `Advance` output.
   - A player substituted at stop minute m has played m minutes (Off = m), and the replacement plays 90 − m (On = m).
 - `CommandSetMentality` must name a valid mentality different from the current one.
+- `CommandSetRoles` must name eleven valid roles in slot order (`matches.CheckRoles`): the goalkeeper's slot is the same (no one else takes goal, and the goalkeeper does not leave it), and at least one slot changes. It needs no substitution and is accepted at minute 0 too. A substitute who comes on keeps his own role in the slot he takes.
 - `CommandSubstitute` requires all of:
   - the match has kicked off (the lineup at minute 0 belongs to squad selection);
   - the team has substitutions left;
@@ -4023,5 +4024,23 @@ Closes [match--tired-starters](handoffs/match--tired-starters.md), the app-owned
 **Why 90.** Balance measured starters of a carried lineup at 86-87 condition against 96 under the AI's rotation, and 53-61% of carried starters below 90 before a short-rest cup match, against almost none after a week's rest on the football year, so the flag appears where it matters without any rest-day logic in `app`.
 
 **Scope.** Read-only: no command, event, save field, version or golden changed, and `ResolveRounds` and `PlayMatch` field exactly the lineup they did. The flag is computed in `MatchdayLineup` only, not in `managerLineup`, so the resolution path is untouched. Test: `TestMatchdayLineupListsTiredStarters` (flags equal an independent condition check, worn starters are flagged and stay named, the plan is checked the same way, a submission and a suggestion list none, the slice is a copy).
+
+Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.
+
+## match: change the formation during a live match (done)
+
+Closes [match--live-formation](handoffs/match--live-formation.md).
+
+**Contract (additive).** `matches.CommandSetRoles` carries `MatchCommand.Roles`, the new roles of the side's eleven on the pitch in slot order, so one decision is a whole new shape (4-4-2 to 4-3-3 moves one midfielder's slot to a forward's). `matches.CheckRoles(current, next)` is the rule, shared by both engines and available to clients: valid roles, the goalkeeper keeps his slot and no one else takes it, something changes. `EventFormationChange` (durable value 5) carries the side and `MatchEvent.Roles`; `MatchView.Roles` gives both sides' current roles in slot order (it equals the starters' roles until a change, and a substitute's own role replaces the outgoing player's); `Capabilities.Formations` advertises it. Nothing about a match without the command changes: no `ModelVersion`, golden or seeded result moved.
+
+**Engines.** Role is per player and the command rewrites it for the eleven on the pitch. `simple` weighs ratings by role (`AttackShare`, `DefenseShare`, `ShotShare`) and `tick` takes roles into positions (spots, runs, the back line), laying each line out again across the width. The change takes effect from the next minute and plays the same match however the minutes are chunked.
+
+**App.** No new command: `MatchDecision` takes any `MatchCommand`, the replay log stores it with the stop, and `LiveMatch.View.Roles` shows the shape. The report keeps the event; `checkMatchEvents` (resolve and restore) accepts it and rejects roles that are not a formation. **Save schema 33** (`MatchCommand.Roles`, `MatchEvent.Roles`, `MatchView.Roles` are snapshot fields; about 1% on a short career's save), fixture written; schema 32 is frozen.
+
+**Tests.** `enginetest.Contract` gained `FormationChange` (view and event after the change, chunking-independent play of `FormationCommands` for both sides with a substitution between, substitutions unused) and `IllegalFormationsAreRejected` (side, unchanged roles, goalkeeper moved or duplicated or missing, role 0 and 5, nothing changes the match, finished session), run by both engines. `TestOutOfPositionRolesCostGoals` (`simple`, 2,000 career matches: everyone forward or everyone defender is 0.26 goals a match worse than 4-4-2) and `TestRolesChangePlay` (`tick`, 30 career matches: all defenders score 1 against 49, all forwards concede 295 against 37). `app`: `TestFormationChangeInTheSecondHalf` (view, event, no substitution used, save and load mid-match, resolved report), `TestFormationRejections`, `TestRestoreRejectsInvalidFormationEvents`.
+
+**Finding for `balance` (not changed here).** In `tick` a formation is free: 600 career matches a row at 60 v 60, 4-3-3 scores 3.01 and concedes 1.16 against 1.55 and 1.18 for 4-4-2 (3-4-3: 2.91 and 2.06; 5-4-1: 0.97 and 1.38, no safer). Midfielders carry no price in `tick` yet, so every midfielder turned forward only adds attack. The lineup editor could already set these shapes before kickoff, so this is not new, but an in-match button makes it easy to find. In `simple` the shape matters little (4-3-3 1.51 and 1.12, as 4-4-2) because roles only weight the players' own ratings. Filed as [balance--tick-formation-free](handoffs/balance--tick-formation-free.md); the roadmap's formations item in the match lane doc owns the fix.
+
+**Not done: the AI.** Both clients' AI opponents still never decide in match; the formation change joins the existing P2 item "AI in-match decisions", through this same command.
 
 Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.

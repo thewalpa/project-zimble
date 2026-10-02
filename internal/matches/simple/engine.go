@@ -39,7 +39,7 @@ func (e *Engine) ID() string      { return EngineID }
 func (e *Engine) Version() uint32 { return e.p.Version }
 
 func (e *Engine) Capabilities() matches.Capabilities {
-	return matches.Capabilities{Substitutions: true, Mentality: true, Penalties: true}
+	return matches.Capabilities{Substitutions: true, Mentality: true, Formations: true, Penalties: true}
 }
 
 // Start validates and copies input; the session never references input's
@@ -219,6 +219,7 @@ func (s *session) fill(dst *matches.MatchStepResult) {
 		dst.View.SubstitutionsUsed[side] = t.subs
 		for slot, i := range t.pitch {
 			dst.View.OnPitch[side][slot] = t.players[i].id
+			dst.View.Roles[side][slot] = t.players[i].role
 		}
 	}
 
@@ -280,6 +281,22 @@ func (s *session) Apply(cmd matches.MatchCommand) error {
 		t.mentality = cmd.Mentality
 		s.pending = append(s.pending, matches.MatchEvent{
 			Seq: s.nextSeq(), Minute: s.minute, Kind: matches.EventMentalityChange, Side: cmd.Side, Mentality: cmd.Mentality,
+		})
+		return nil
+
+	case matches.CommandSetRoles:
+		var current [matches.StartersPerTeam]matches.Role
+		for slot, i := range t.pitch {
+			current[slot] = t.players[i].role
+		}
+		if err := matches.CheckRoles(current, cmd.Roles); err != nil {
+			return err
+		}
+		for slot, i := range t.pitch {
+			t.players[i].role = cmd.Roles[slot]
+		}
+		s.pending = append(s.pending, matches.MatchEvent{
+			Seq: s.nextSeq(), Minute: s.minute, Kind: matches.EventFormationChange, Side: cmd.Side, Roles: cmd.Roles,
 		})
 		return nil
 

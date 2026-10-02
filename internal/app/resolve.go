@@ -640,6 +640,21 @@ func (w *World) simulateBatch(plan []plannedMatch) ([]matches.MatchOutcome, [][]
 	return outcomes, played, nil
 }
 
+// validShape reports whether roles are a possible formation: valid roles
+// with exactly one goalkeeper.
+func validShape(roles [matches.StartersPerTeam]matches.Role) bool {
+	keepers := 0
+	for _, r := range roles {
+		if !r.Valid() {
+			return false
+		}
+		if r == matches.Goalkeeper {
+			keepers++
+		}
+	}
+	return keepers == 1
+}
+
 // checkMatchEvents verifies a completed match's events against its goals, as
 // the engine contract promises: Seq 1..n in minute order within regulation,
 // known kinds with a valid side where one is needed, goal events equal to
@@ -652,9 +667,12 @@ func checkMatchEvents(evs []matches.MatchEvent, goals []matches.Goal) error {
 			return fmt.Errorf("event %d (seq %d, minute %d) out of order", i, e.Seq, e.Minute)
 		}
 		switch e.Kind {
-		case matches.EventGoal, matches.EventSubstitution, matches.EventMentalityChange:
+		case matches.EventGoal, matches.EventSubstitution, matches.EventMentalityChange, matches.EventFormationChange:
 			if !e.Side.Valid() {
 				return fmt.Errorf("event %d has side %d", e.Seq, e.Side)
+			}
+			if e.Kind == matches.EventFormationChange && !validShape(e.Roles) {
+				return fmt.Errorf("event %d has roles %v", e.Seq, e.Roles)
 			}
 			if e.Kind == matches.EventGoal {
 				fromEvents = append(fromEvents, matches.Goal{Minute: e.Minute, Side: e.Side, Scorer: e.Player})

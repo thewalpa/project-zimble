@@ -29,6 +29,8 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
+**Live formation change is delivered** (`CommandSetRoles`, `EventFormationChange`, `MatchView.Roles`, `matches.CheckRoles`, save schema 33; closes `match--live-formation`): a decision at any stop, both engines, replayed and saved with the live match, no seeded result changed ([progress](../progress.md#match-change-the-formation-during-a-live-match-done), [note to `ui`](../handoffs/ui--live-formation.md)). It showed that formation is free in `tick` (4-3-3 doubles goals with no cost conceded; [note to `balance`](../handoffs/balance--tick-formation-free.md)), so the next item is the formation price in `tick`.
+
 **Tired starters are flagged** (`MatchdayLineup.Tired`, `app.TiredCondition` 90, closes `match--tired-starters`): carried-over and planned lineups list their starters below 90 condition in slot order; submissions and AI suggestions list none. Read-only, no version or schema change ([progress](../progress.md#match-tired-starters-of-a-carried-over-or-planned-lineup-done), `ui` is unblocked in [ui--tired-carried-lineup](../handoffs/ui--tired-carried-lineup.md)). Next: the live formation change, or fouls, free kicks and cards.
 
 **Tick scores a career's goals** (`tick.ModelVersion` 9, closes `match--career-goals`): `SavePPM` 800,000 → 640,000 lifts career seasons from 2.19 to 2.56 goals a league match (1.41–1.15, 43.1 / 26.0 / 30.9 %), shots and the v8 statistics unchanged, v7's mentality trade-off kept ([progress](../progress.md#match-tick-scores-a-careers-goals-done), [note to `balance`](../handoffs/balance--tick-v9-rerun.md)). Next: fouls, free kicks and cards, or the two accepted notes in the backlog.
@@ -77,9 +79,8 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 
 ## Backlog
 
-- **Change the formation during a live match** (accepted [match--live-formation](../handoffs/match--live-formation.md)): a `CommandSetRoles`, an `EventFormationChange`, current roles in the view, both engines, the AI, the replay log. A contract change: notes to `ui`, `balance`.
-
-- **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
+- **Price formations in `tick`:** a midfielder moved to the attack costs nothing today (4-3-3 scores 3.0 and concedes 1.2 a match against 1.55 and 1.18 for 4-4-2), so give the midfield a job: a screen in front of the back line, passing lanes, pressing, possession. A `tick.ModelVersion` bump with `balance`'s measurements ([note](../handoffs/balance--tick-formation-free.md), to be accepted when `balance` confirms).
+- **AI in-match decisions:** the AI opponent reacts at half time and after goals (substitutions, mentality, and now formation via `CommandSetRoles`), through the same decision types the manager uses. Deterministic, and replayable from the live-match log.
 - **Delegate lineups to the assistant again:** a way for the manager to let the AI pick every week after having submitted a lineup or saved a team plan (today a submitted lineup carries over until replaced, and a saved plan cannot be cleared). Needs a stored "delegated" choice, so a save schema bump.
 - **Auto-resolving batches** of rounds that involve no user fixture, led by `competitions`, which owns `Continue`.
 - **Statistical balance:** answer `balance`'s notes about goal rates, home advantage and upsets.

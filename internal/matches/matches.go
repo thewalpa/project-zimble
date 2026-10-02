@@ -262,15 +262,41 @@ type CommandKind uint8
 const (
 	CommandSubstitute   CommandKind = 1 // uses Side, Out, In
 	CommandSetMentality CommandKind = 2 // uses Side, Mentality
+	CommandSetRoles     CommandKind = 3 // uses Side, Roles
 )
 
 // MatchCommand is a manager decision. It takes effect from the next
-// simulated minute.
+// simulated minute. Roles, for CommandSetRoles, are the new roles of the
+// side's eleven players on the pitch in slot order (MatchView.OnPitch); see
+// CheckRoles.
 type MatchCommand struct {
 	Kind      CommandKind
 	Side      Side
 	Out, In   ids.PlayerID
 	Mentality Mentality
+	Roles     [StartersPerTeam]Role
+}
+
+// CheckRoles validates a change of formation: every new role is valid, the
+// goalkeeper's slot is the same (a goalkeeper stays in goal and no one else
+// goes there), and at least one slot changes. current and next are in slot
+// order. Engines apply it to CommandSetRoles; clients can use it to check a
+// formation before sending it.
+func CheckRoles(current, next [StartersPerTeam]Role) error {
+	changed := false
+	for slot, r := range next {
+		if !r.Valid() {
+			return fmt.Errorf("%w: slot %d has role %d", ErrInvalidCommand, slot, r)
+		}
+		if (r == Goalkeeper) != (current[slot] == Goalkeeper) {
+			return fmt.Errorf("%w: slot %d: the goalkeeper keeps his slot and no one else takes it", ErrInvalidCommand, slot)
+		}
+		changed = changed || r != current[slot]
+	}
+	if !changed {
+		return fmt.Errorf("%w: the roles are already those", ErrInvalidCommand)
+	}
+	return nil
 }
 
 type EventKind uint8
@@ -280,6 +306,7 @@ const (
 	EventSubstitution    EventKind = 2 // Player came on, Other went off
 	EventMentalityChange EventKind = 3 // Mentality is the new setting
 	EventPeriodEnd       EventKind = 4 // Period ended (FirstHalf or SecondHalf)
+	EventFormationChange EventKind = 5 // Roles are the side's new roles, in slot order
 )
 
 // MatchEvent is a match-local football fact, not a world domain event.
@@ -293,6 +320,7 @@ type MatchEvent struct {
 	Other     ids.PlayerID
 	Mentality Mentality
 	Period    Period
+	Roles     [StartersPerTeam]Role
 }
 
 // Pitch geometry of positional frames, in centimetres. X runs along the
@@ -337,6 +365,7 @@ type MatchView struct {
 	Score             [2]uint16
 	Shootout          [2]uint16 // after a shootout: penalties scored
 	Mentality         [2]Mentality
+	Roles             [2][StartersPerTeam]Role // current roles, slot order
 	SubstitutionsUsed [2]uint8
 	OnPitch           [2][StartersPerTeam]ids.PlayerID // slot order
 	Stats             MatchStats                       // so far
@@ -497,6 +526,7 @@ type MatchCheckpoint struct {
 type Capabilities struct {
 	Substitutions    bool
 	Mentality        bool
+	Formations       bool // CommandSetRoles
 	ExtraTime        bool
 	Penalties        bool
 	Injuries         bool
