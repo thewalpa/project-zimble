@@ -14,7 +14,7 @@ import (
 // the answer to a bid, the choice of a bid's target, and which players a
 // club lists and at what price. Bump it whenever the same squads, balances
 // and offers would produce different decisions.
-const TransfersVersion = 6
+const TransfersVersion = 7
 
 const (
 	// ValueAt60Units is a 60-overall player's value, in currency units, in
@@ -180,10 +180,11 @@ func TransferBudget(balance, weeklyWages money.Money) money.Money {
 	return left
 }
 
-// LargestNeed returns the role a club needs most (ties: role order), or
-// false when it needs nothing.
-func LargestNeed(needs []RoleCount) (matches.Role, bool) {
-	best, count := matches.Role(0), 0
+// PrioritizedNeeds returns vacant roles by descending need, with ties in role
+// order. Repeated roles are combined and input order does not affect the result.
+// The caller can try each role until one produces a recruitment action.
+func PrioritizedNeeds(needs []RoleCount) []matches.Role {
+	var ranked []RoleCount
 	for _, role := range []matches.Role{matches.Goalkeeper, matches.Defender, matches.Midfielder, matches.Forward} {
 		n := 0
 		for _, rc := range needs {
@@ -191,11 +192,27 @@ func LargestNeed(needs []RoleCount) (matches.Role, bool) {
 				n += rc.Count
 			}
 		}
-		if n > count {
-			best, count = role, n
+		if n > 0 {
+			ranked = append(ranked, RoleCount{Role: role, Count: n})
 		}
 	}
-	return best, count > 0
+	slices.SortFunc(ranked, func(a, b RoleCount) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Role, b.Role))
+	})
+	var out []matches.Role
+	for _, rc := range ranked {
+		out = append(out, rc.Role)
+	}
+	return out
+}
+
+// LargestNeed returns the role a club needs most (ties: role order), or
+// false when it needs nothing.
+func LargestNeed(needs []RoleCount) (matches.Role, bool) {
+	if roles := PrioritizedNeeds(needs); len(roles) > 0 {
+		return roles[0], true
+	}
+	return 0, false
 }
 
 // TransferCandidate is another club's player an AI club could bid for, with

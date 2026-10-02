@@ -3867,3 +3867,13 @@ Asked by the owner: watching a match live must start at minute 0 and stop at hal
 Checked by driving the page's script in Node against the rendered HTML of seed 42, club 3 on both engines (the headless Chromium here still lacks `libnspr4`): the clock starts at 0' with 0-0, reveals a 55th-minute goal at 55' in the second half, and shows the stop's state and decisions only at 45' and 90'.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## squad: daily recruitment tries fillable vacancies (done)
+
+`ai.TransfersVersion` 7 fixes the daily market action getting stuck on an unfillable role. The [investigation](squad-market-investigation.md) showed seed 42 / club 18 / year 2 repeatedly choosing MF while an affordable listed FW went unconsidered. `ai.PrioritizedNeeds` orders vacancies by descending count and canonical role order; `market.aiActions` tries each through `recruit` until exactly one bid or signing is staged. A club with unfillable vacancies still does not attempt an upgrade. Recruitment checks the shared squad capacity before staging an action.
+
+The existing target comparison, wage reserve, grace period, next-run response deadline, bought/listed restrictions, candidate eligibility and authoritative player consent remain in the workflow. No saved fields change, so no schema bump or fixture rewrite is needed; the existing transfer version check refuses careers using the previous policy. The seed-42 league and cup result goldens remain unchanged.
+
+Focused regressions first failed on the previous single-role policy, then passed for paid and free fallback, need ordering and ties, one action, grace and late-window timing, bought/listed targets, reserve-blocked fees, full squads and player refusal. Failed planning and its retry leave the full authoritative snapshot unchanged. Existing window save/retry, money conservation and 15-year squad-legality checks pass. The terminal/browser transfer fixtures are repaired as small blockers: the pool is now 3 instead of 5 and Juniper Vale's offer is 94 instead of 92; both clients still cover purchases, rejection, listing, sale, reload and career history. UI receives the behavior and fixture review in `ui--recruitment-role-fallback.md`; balance receives all three market reruns in `balance--recruitment-role-fallback.md`. Earlier shortage totals remain a version-6 baseline until those sweeps are delivered.
+
+Validation: `gofmt -l .` prints nothing; `go vet ./...` and `go test ./...` pass, including both clients, frozen saves, deterministic season goldens and multi-season squad/accounting checks.

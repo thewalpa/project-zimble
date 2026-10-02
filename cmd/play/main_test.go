@@ -420,7 +420,7 @@ func TestTransfers(t *testing.T) {
 		"season", "continue", "continue", // the contract-year eve, then the transfer window
 		"market fw", "market", "bid 344", "bid 547", "bid 497", "bid 238 1", "bid 238",
 		"bid 44", "list 44", "continue", "list 44", "list", "continue", "transfers", "status", "agenda", "free", "save "+path, "accept 99", "q", "q")
-	contains(t, out, "5 free agents wait for a club (type free).",
+	contains(t, out, "3 free agents wait for a club (type free).",
 		"Until Wed 2026-07-15 00:00 UTC, only you may sign free agents; AI clubs can sign them from then.",
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC",
 		"  37  IRO Eastmarch   Ben Mercer               Westmark     32    72     2027     370,000.00  (won't join a weaker club)",
@@ -433,17 +433,17 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Callum Doyle             Westmark   DF   18    51     380,000.00",
 		"transfer: Rasmus Hagen joined from Westerly Wanderers for 740,000.00, until 1 July 2030 at 2,240.00 a week",
 		"transfer: your bid of 1.00 for Leif Dekker of Ironbridge Wanderers was rejected",
-		"bid: Juniper Vale United bid 380,000.00 for Callum Doyle; answer before Sat 2026-07-18 00:00 UTC (offer 92: accept/reject)",
+		"bid: Juniper Vale United bid 380,000.00 for Callum Doyle; answer before Sat 2026-07-18 00:00 UTC (offer 94: accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Rasmus Hagen             Westerly Wanderers     -> Quillford FC",
 		"1 bids for your players await your answer. (type transfers)",
-		"NOW  Juniper Vale United bid 380,000.00 for Callum Doyle. Answer by Sat 2026-07-18 00:00 UTC. (type accept 92 or reject 92)",
+		"NOW  Juniper Vale United bid 380,000.00 for Callum Doyle. Answer by Sat 2026-07-18 00:00 UTC. (type accept 94 or reject 94)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 92", "finances 2", "list", "player 44", "player 497", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 94", "finances 2", "list", "player 44", "player 497", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Callum Doyle left for Juniper Vale United for 380,000.00", "transfer fee O92",
+		"transfer: Callum Doyle left for Juniper Vale United for 380,000.00", "transfer fee O94",
 		"  Quillford FC: before Tue 2025-07-01 00:00 UTC–Wed 2026-07-15 00:00 UTC; at career start; sold; apps 0, goals 0",
 		"  Juniper Vale United: Wed 2026-07-15 00:00 UTC–present; signed by transfer for 380,000.00; current club; apps 0, goals 0",
 		"  Total: apps 0, goals 0",
@@ -452,7 +452,7 @@ func TestTransfers(t *testing.T) {
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
-	rejected := play(t, []string{"-load", path}, "reject 92", "unlist 44", "unlist 44", "continue", "q", "q")
+	rejected := play(t, []string{"-load", path}, "reject 94", "unlist 44", "unlist 44", "continue", "q", "q")
 	contains(t, rejected, "Rejected.", "Callum Doyle is off the transfer list.", "! app: the player is not on the transfer list: player 44",
 		"transfer: the bid of 380,000.00 from Juniper Vale United for Callum Doyle was rejected")
 	if strings.Contains(rejected, "left for Dunmarrow") {

@@ -9,6 +9,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -292,5 +293,146 @@ func TestClosingRecruitmentFillsAvailableRoles(t *testing.T) {
 	}
 	if len(m.pool) != 0 || !reflect.DeepEqual(w.Snapshot(), before) {
 		t.Fatal("closing recruitment reused supply or changed the world while planning")
+	}
+}
+
+// Daily recruitment tries vacancies in need order until one can produce an
+// action. Both free agents and paid targets obey the existing clocks and rules.
+func TestDailyRecruitmentTriesFillableRoles(t *testing.T) {
+	for _, tc := range []struct {
+		name                                                         string
+		freeDefender, freeForward                                    bool
+		forwardNeed                                                  int
+		beforeGrace, lastDay, bought, unlisted, broke, full, refuses bool
+		want                                                         string
+	}{
+		{name: "listed fallback", want: "bid"},
+		{name: "free fallback", freeForward: true, unlisted: true, bought: true, want: "forward"},
+		{name: "larger fillable need", freeDefender: true, freeForward: true, forwardNeed: 2, want: "forward"},
+		{name: "equal fillable needs", freeDefender: true, freeForward: true, want: "defender"},
+		{name: "grace permits later bid", freeDefender: true, beforeGrace: true, want: "bid"},
+		{name: "grace prevents signing", freeForward: true, beforeGrace: true, bought: true, unlisted: true},
+		{name: "no response time", lastDay: true},
+		{name: "last day free fallback", lastDay: true, freeForward: true, want: "forward"},
+		{name: "bought club can bid listed", bought: true, want: "bid"},
+		{name: "bought club cannot bid unlisted", bought: true, unlisted: true},
+		{name: "reserve blocks fee", broke: true},
+		{name: "reserve still allows free fallback", broke: true, freeForward: true, want: "forward"},
+		{name: "full squad", full: true, freeForward: true},
+		{name: "player refuses", refuses: true},
+		{name: "refusal permits free fallback", refuses: true, freeForward: true, want: "forward"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := userWorld(t, 42, userClub3)
+			defender := release(t, w, 1, players.Defender)
+			forward := release(t, w, 1, players.Forward)
+			squad, _ := w.Squad(2)
+			var forwards []SquadPlayer
+			for _, p := range squad {
+				if p.Position == players.Forward {
+					forwards = append(forwards, p)
+				}
+			}
+			target := slices.MinFunc(forwards, func(a, b SquadPlayer) int { return a.Overall - b.Overall })
+			at := w.TransferWindow().Opens + freeAgentGrace(w.defs.Transfers.WindowDays)
+			if tc.beforeGrace {
+				at--
+			}
+			if tc.lastDay {
+				at = w.TransferWindow().Closes - sim.GameInstant(sim.Day)
+			}
+			m, err := w.newMarket(at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// MF has the largest unfillable vacancy. Restrict other clubs and
+			// targets so that this run tests club 1's fallback alone.
+			m.counts[1][players.Midfielder] = w.defs.Quota(players.Midfielder).Count - 3
+			if tc.forwardNeed > 0 {
+				m.counts[1][players.Forward] = w.defs.Quota(players.Forward).Count - tc.forwardNeed
+			}
+			for _, c := range w.registry.Clubs() {
+				if c.ID != 1 {
+					m.openBids[c.ID] = 1
+				}
+			}
+			for id := range m.employer {
+				m.moved[id] = id != target.Player
+			}
+			if tc.freeDefender {
+				m.pool = append(m.pool, defender)
+			}
+			if tc.freeForward {
+				m.pool = append(m.pool, forward)
+			}
+			price := money.Units(10_000)
+			if !tc.unlisted {
+				m.list(target.Player, 2, price)
+			}
+			m.bought[1] = tc.bought
+			if tc.broke {
+				m.balances[1] = price // cash-affordable, outside the reserve budget
+			}
+			if tc.full {
+				m.counts[1][players.Goalkeeper] += w.defs.SquadLimit - squadSize(m.counts[1])
+			}
+			known, err := m.observations(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := known[target.Player]
+			p.Overall = 60
+			known[target.Player] = p
+			for _, id := range []ids.PlayerID{defender, forward} {
+				p = known[id]
+				p.Overall = 58 // comparable free agents take precedence over fees
+				known[id] = p
+			}
+			if tc.refuses {
+				// Authoritative staged averages, independent of observed ratings:
+				// this star will not move to the weaker buyer.
+				m.overalls[2] = squadSize(m.counts[2])
+				m.overalls[1] = 0
+			}
+			before := w.Snapshot()
+			if err := m.aiActions(); err != nil {
+				t.Fatal(err)
+			}
+			switch tc.want {
+			case "bid":
+				if len(m.changes.Bids) != 1 || m.changes.Bids[0].Player != target.Player || m.changes.Bids[0].Fee != price || len(m.jobs.Signings) != 0 {
+					t.Fatalf("bids %+v, signings %+v", m.changes.Bids, m.jobs.Signings)
+				}
+			case "defender", "forward":
+				want := forward
+				if tc.want == "defender" {
+					want = defender
+				}
+				if len(m.jobs.Signings) != 1 || m.jobs.Signings[0].Player != want || len(m.changes.Bids) != 0 {
+					t.Fatalf("bids %+v, signings %+v", m.changes.Bids, m.jobs.Signings)
+				}
+				if slices.Contains(m.pool, want) {
+					t.Fatal("signed player remains available")
+				}
+			default:
+				if len(m.changes.Bids) != 0 || len(m.jobs.Signings) != 0 {
+					t.Fatalf("bids %+v, signings %+v", m.changes.Bids, m.jobs.Signings)
+				}
+			}
+			if len(m.actions) > 1 || !reflect.DeepEqual(w.Snapshot(), before) {
+				t.Fatal("recruitment acted twice or changed authoritative state while planning")
+			}
+			if tc.want != "" {
+				failed := errors.New("cannot schedule the next transfer run")
+				for range 2 { // a failed cohort and its retry must apply nothing
+					if _, _, err := m.commit(func() error { return failed }); !errors.Is(err, failed) {
+						t.Fatalf("failed recruitment commit: %v", err)
+					}
+					if !reflect.DeepEqual(w.Snapshot(), before) {
+						t.Fatal("failed recruitment commit changed authoritative state")
+					}
+				}
+			}
+		})
 	}
 }

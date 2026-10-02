@@ -251,3 +251,21 @@ func TestJoins(t *testing.T) {
 		t.Fatal("a star refuses a club as strong as his own")
 	}
 }
+
+func TestPrioritizedNeedsAreCanonicalAndDetached(t *testing.T) {
+	needs := []RoleCount{{matches.Forward, 1}, {matches.Defender, 2}, {matches.Midfielder, 3}, {matches.Forward, 1}, {matches.Goalkeeper, 0}}
+	before := slices.Clone(needs)
+	want := []matches.Role{matches.Midfielder, matches.Defender, matches.Forward}
+	got := PrioritizedNeeds(needs)
+	if !slices.Equal(got, want) || !slices.Equal(needs, before) {
+		t.Fatalf("priority %v, input %v", got, needs)
+	}
+	got[0] = matches.Goalkeeper
+	slices.Reverse(needs)
+	if got := PrioritizedNeeds(needs); !slices.Equal(got, want) {
+		t.Fatalf("reversed priority %v", got)
+	}
+	if len(PrioritizedNeeds(nil)) != 0 || len(PrioritizedNeeds([]RoleCount{{matches.Forward, 0}})) != 0 {
+		t.Fatal("a full squad has recruitment needs")
+	}
+}

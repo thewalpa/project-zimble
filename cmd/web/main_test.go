@@ -811,13 +811,13 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	page = c.get("/transfers")
 	contains(t, page, "Bids for your players", `action="/answer"`, "Transfers in this window")
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
-	contains(t, c.post("/answer", url.Values{"offer": {"92"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
+	contains(t, c.post("/answer", url.Values{"offer": {"94"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
 	contains(t, c.get("/inbox"), "Callum Doyle left for Juniper Vale United for 380,000.00")
 	contains(t, c.get("/player?id=44"), "Sold</td><td class=\"n\">0</td><td class=\"n\">0</td>",
 		"Current club</td><td class=\"n\">0</td><td class=\"n\">0</td>", "<th colspan=\"5\">Total</th><th class=\"n\">0</th><th class=\"n\">0</th>")
 	contains(t, c.get("/player?id=497"), "Sold</td><td class=\"n\">14</td><td class=\"n\">9</td>",
 		"Current club</td><td class=\"n\">0</td><td class=\"n\">0</td>", "<th colspan=\"5\">Total</th><th class=\"n\">14</th><th class=\"n\">9</th>")
-	contains(t, c.get("/finances"), "transfer fee, offer 92")
+	contains(t, c.get("/finances"), "transfer fee, offer 94")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
 

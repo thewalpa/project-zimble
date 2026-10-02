@@ -698,7 +698,7 @@ func (w *World) deal(o transfers.Offer) events.Deal {
 //     (ai.Signings), and the transfer list is cleared.
 //  4. Otherwise every AI club lists the players it does not need (see
 //     listSurplus), then every AI club with no open bid, in club ID order,
-//     acts once (see aiActions): for its largest need if it has a vacancy,
+//     acts once (see aiActions): for its largest fillable need if it has a vacancy,
 //     else for an upgrade.
 //
 // Then the next run is queued, the plans are applied, and the events are
@@ -870,7 +870,8 @@ func (m *market) listSurplus() error {
 
 // aiActions lets every AI club with no open bid act once, in club ID order:
 //
-//   - With a vacancy, for its largest need: it bids its price for the best
+//   - With vacancies, it tries roles by descending need (ties: role order),
+//     stopping after one bid or signing. It bids its price for the best
 //     player it can afford who is clearly better than the best free agent
 //     at the position (ai.ChooseTarget), if the answer can still come inside
 //     the window; else it signs that free agent. Once it has bought a player
@@ -894,8 +895,8 @@ func (m *market) aiActions() error {
 		if c.ID == w.userClub || m.openBids[c.ID] > 0 {
 			continue
 		}
-		role, ok := ai.LargestNeed(m.needs(c.ID))
-		if !ok {
+		roles := ai.PrioritizedNeeds(m.needs(c.ID))
+		if len(roles) == 0 {
 			if canBid && !m.bought[c.ID] && !m.hasSurplus(c.ID) {
 				if err := m.upgrade(c.ID); err != nil {
 					return err
@@ -903,51 +904,74 @@ func (m *market) aiActions() error {
 			}
 			continue
 		}
-		var pos players.Position
-		for _, q := range w.defs.Roster {
-			if roleOf(q.Position) == role {
-				pos = q.Position
-			}
-		}
-		pool, err := m.freeAgents(c.ID)
-		if err != nil {
-			return err
-		}
-		best := -1 // the best free agent at the position, index into this club's pool
-		for i, f := range pool {
-			if f.Role == role {
-				best = i
-				break
-			}
-		}
-		if canBid {
-			floor := 0
-			if best >= 0 {
-				floor = pool[best].Overall
-			}
-			listedOnly := m.bought[c.ID]
-			cands, err := m.candidates(c.ID, func(id ids.PlayerID) bool {
-				_, listed := m.listings[id]
-				return m.position[id] == pos && (listed || !listedOnly)
-			})
+		for _, role := range roles {
+			acted, err := m.recruit(c.ID, role, canBid)
 			if err != nil {
 				return err
 			}
-			budget := ai.TransferBudget(m.balances[c.ID], m.wages[c.ID])
-			if target, ok := ai.ChooseTarget(c.ID, cands, floor, budget); ok {
-				if err := m.aiBid(c.ID, target); err != nil {
-					return err
-				}
-				continue
-			}
-		}
-		if best >= 0 && m.at >= m.open+freeAgentGrace(w.defs.Transfers.WindowDays) {
-			if err := m.sign(c.ID, pool[best].Player); err != nil {
-				return err
+			if acted {
+				break
 			}
 		}
 	}
 	return nil
+}
+
+// recruit tries one vacant role, reporting whether it staged a bid or signing.
+// An unavailable role leaves the club free to try its next vacancy this run.
+func (m *market) recruit(club ids.ClubID, role matches.Role, canBid bool) (bool, error) {
+	w := m.w
+	var pos players.Position
+	for _, q := range w.defs.Roster {
+		if roleOf(q.Position) == role {
+			pos = q.Position
+		}
+	}
+	if err := w.checkAdmission(m.counts[club], pos); err != nil {
+		if errors.Is(err, ErrSquadFull) {
+			return false, nil
+		}
+		return false, err
+	}
+	pool, err := m.freeAgents(club)
+	if err != nil {
+		return false, err
+	}
+	best := -1 // the best free agent at the position, index into this club's pool
+	for i, f := range pool {
+		if f.Role == role {
+			best = i
+			break
+		}
+	}
+	if canBid {
+		floor := 0
+		if best >= 0 {
+			floor = pool[best].Overall
+		}
+		listedOnly := m.bought[club]
+		cands, err := m.candidates(club, func(id ids.PlayerID) bool {
+			_, listed := m.listings[id]
+			return m.position[id] == pos && (listed || !listedOnly)
+		})
+		if err != nil {
+			return false, err
+		}
+		budget := ai.TransferBudget(m.balances[club], m.wages[club])
+		if target, ok := ai.ChooseTarget(club, cands, floor, budget); ok {
+			if err := m.aiBid(club, target); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+	if best >= 0 && m.at >= m.open+freeAgentGrace(w.defs.Transfers.WindowDays) {
+		if err := m.sign(club, pool[best].Player); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 // upgrade lets an AI club bid for an upgrade, if it finds one.
