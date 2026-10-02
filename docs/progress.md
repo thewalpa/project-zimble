@@ -3936,3 +3936,10 @@ Regressions cover both finalists sharing a fixture, empty/short/zero prize table
 A CLI seed-42 season-1 save continued through season 2 produces eight awards totalling 3.1M; cup winner club 6 receives 1M against final fixture 459.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; schema-32 fixture generated with `go test ./internal/storage -run TestSaveFixtures -fixture`.
+
+
+## squad: division economy proposal (done)
+
+Answered the next economy-design step with [a concrete proposal](squad-economy-design.md) and `data--division-economy-design.md`. Weekly ground, staff and academy costs would give every club an explicit money sink; gate and cost rates would follow its current domestic division, with promotion and relegation taking effect through active season membership. The proposal separates historical measurements, illustrative wage assumptions and uncalibrated experimental rates, and specifies atomic postings, historical restore evidence and transition-boundary tests. Data must agree the lasting strength mechanism and pinned rate shape before production changes; balance's post-prize and transfer-v7 refreshes inform calibration. The accepted `squad--money-only-grows.md` stays open until that implementation or an agreed alternative is delivered.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`. No production, version, golden or schema change.

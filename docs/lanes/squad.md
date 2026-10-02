@@ -33,7 +33,7 @@ Refreshed [medical measurements](../squad-medical-calibration.md) for generation
 
 Delivered cup prize postings: `finance.KindPrize` 6 pays each entrant its pinned stage award once at the edition's season end, atomically with `SeasonEnded`. Restore checks the amount, club, exit fixture and final kickoff; schema 32 explicitly refuses prior saves. Final-boundary reloads, cohort overflow/retry and four-year simultaneous-cup accounting are covered. UI, competitions and data receive review handoffs; balance is asked to remeasure the economy and transfer-v7 sweeps with prize income included.
 
-Next: joint economy/content design for long-run budget pressure, using balance's updated measurements. PAR-02 and PAR-06 await shared decision timing with competitions.
+Proposed the [joint economy design](../squad-economy-design.md): division-aware gates and explicit weekly operating costs, with rates tied to the agreed strength gap and post-prize measurements. Data receives `data--division-economy-design.md` to agree the content shape and parameters before implementation. PAR-02 and PAR-06 await shared decision timing with competitions. The medical squad view is the next independent backlog unit.
 
 ## Backlog
 
