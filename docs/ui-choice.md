@@ -1,6 +1,6 @@
 # UI of choice
 
-Which technology should the player-facing game be built in, before the current web client grows too large to change course? This document records the research and the ui lane's recommendation. It closes the "What is the UI of choice" item in [lanes/ui.md](lanes/ui.md#future-decisions). Its decisions are proposals until the project owner accepts them. See [Decisions for the owner](#decisions-for-the-owner).
+Which technology should the player-facing game be built in, before the current web client grows too large to change course? This document records the research and the ui lane's recommendation. It closes the "What is the UI of choice" item in [lanes/ui.md](lanes/ui.md). The owner decided on 2026-10-02; see [Decisions](#decisions).
 
 Researched on 2026-10-02 against `main` at `4589ff6`.
 
@@ -9,10 +9,10 @@ Researched on 2026-10-02 against `main` at `4589ff6`.
 **Keep the browser as the UI. Restructure it before it grows further, and don't adopt a game engine for the management screens.** Concretely:
 
 1. **Share the presentation layer between clients now.** The clients already duplicate wording. That duplication, not HTML, is the complexity to fix first.
-2. **Redesign the web client on the same stack**: page components, a real visual system and an app shell. Server-rendered forms stay, and small scripts are added only where interaction needs them (the live match, the pitch editor).
+2. **Redesign the web client on the same stack**: page components, a real visual system and an app shell. The server renders all HTML; JavaScript makes it dynamic (partial updates, the live match, the pitch editor).
 3. **Package it as a desktop app later** with a webview shell (Wails or similar) around the same Go server, if and when the game is distributed. That needs no rewrite.
 4. **Revisit an engine (Godot) only for the match viewer**, as a separate presentation fed by the existing `matches.Frame` stream. Do this when the match engine produces more than a browser canvas can draw well. The management screens stay in HTML.
-5. **Reduce `cmd/play` to a developer console**, so that new visual features (pitch editor, replay, charts) no longer need a terminal equivalent. The owner decides this, because it changes the lane rule "every feature in both clients".
+5. **Reduce `cmd/play` to a developer console**, so that new visual features (pitch editor, replay, charts) no longer need a terminal equivalent.
 
 The reasoning follows.
 
@@ -78,7 +78,7 @@ Notes on each:
 
 Each step can be stopped after and leaves a working game.
 
-1. **Shared presentation (ui).** Move what both clients compose into one place: message text, match names, result letters, career spells, table marks. Each client then lays the result out its own way. Small read-only combinations can live in `internal/app/views.go` today. Wording does not fit `app` well. It belongs in a presentation package under `cmd/`, e.g. `cmd/internal/present`, imported by `cmd/play`, `cmd/web` and `cmd/simulate`. A new package needs the owner's approval and data's entry in `boundaries_test.go`. Acceptance: each phrase that both clients print is defined once, and both clients' tests pass unchanged.
+1. **Shared presentation (ui).** Move what both clients compose into one place: message text, match names, result letters, career spells, table marks. Each client then lays the result out its own way. Small read-only combinations can live in `internal/app/views.go` today. Wording does not fit `app` well. It belongs in a presentation package under `cmd/`, e.g. `cmd/internal/present`, imported by `cmd/play`, `cmd/web` and `cmd/simulate`. The package has its own entry in `boundaries_test.go`. Acceptance: each phrase that both clients print is defined once, and both clients' tests pass unchanged.
 2. **Web redesign (ui).**
    - Split `views.go` by page.
    - Turn repeated markup (player rows, fixture rows, team badges, pitch) into named templates.
@@ -87,27 +87,29 @@ Each step can be stopped after and leaves a working game.
    - Polish tables: sticky headers, compact density, column choice on wide screens.
 
    Acceptance: same routes and forms, existing HTTP tests pass, phone width still works.
-3. **Interactive islands (ui, with match).**
-   - Animate the live match on a canvas, interpolating the 5 Hz frames instead of sampling once a second, with the SVG kept as the fallback without JavaScript.
-   - Add keyboard shortcuts for Continue and the main pages.
+3. **Dynamic UI (ui, with match).** The owner named the static feel of the current UI as its worst problem.
+   - Replace full page reloads with partial updates: a form posts as today and the server answers with the HTML fragment that changed (the squad table, the lineup, the inbox), rendered by the same templates.
+   - Animate the live match on a canvas, interpolating the 5 Hz frames instead of sampling once a second. The template renders the frames into the page; nothing fetches them from an API.
+   - Add keyboard shortcuts for Continue and the main pages, and instant client-side sorting and filtering of tables the page already holds.
 
-   Scripts are embedded in the binary, with no build step. A small library such as htmx for partial page updates is worth adopting only if full reloads become the main complaint. That would also be a change to the lane's "standard library only" rule and needs the owner's agreement.
+   Scripts are embedded in the binary, with no build step. The server answers with HTML, never JSON.
 4. **Desktop packaging (ui), when distribution is on the roadmap.** Wrap `cmd/web` in a webview shell. Saves stay files beside the binary. Nothing in `app` changes.
-5. **Match viewer in an engine (match + ui), only if a trigger below fires.** Stream `matches.Frame` and match events over a local WebSocket from the same server to a separate Godot viewer. Management stays in HTML. Frames are already a presentation-only contract, and the match engine never changes the world, so the viewer can't break any rules.
+5. **Match viewer in an engine (match + ui), only if a trigger below fires.** A separate Godot viewer would need `matches.Frame` and match events as data, over a local WebSocket from the same server. That is the one place this plan would need a non-HTML interface, and the owner ruled those out for the UI, so it needs their agreement when a trigger fires. Management stays in HTML. Frames are already a presentation-only contract, and the match engine never changes the world, so the viewer can't break any rules.
 
 ## What would change this recommendation
 
 - **The match presentation becomes the product's centre:** animated players, camera, 3D. A browser canvas then stops being enough, so take step 5 and keep the rest.
 - **Mobile or console stores become a target**, needing native packaging beyond a webview: re-evaluate Godot for the whole client, budgeting a JSON API and a full rewrite of the screens.
 - **A dedicated front-end developer joins:** option B becomes affordable. It is still worth it only if the API serves more than one client.
-- **Full-page reloads make the game feel slow in playtests** (balance notes): adopt partial updates (step 3) before considering a rewrite.
 
-## Decisions for the owner
+## Decisions
 
-1. **Accept "web stays the UI; an engine only for the match viewer, later"?** Recommended.
-2. **Reduce `cmd/play` to a developer console?** It would keep its commands for scripted tests and debugging, but new visual features would no longer need a terminal version, and the "both clients" rule in [lanes/ui.md](lanes/ui.md) would be relaxed. Recommended, because it halves the cost of every visual feature. Until then the rule stands.
-3. **Allow a presentation package under `cmd/`** (step 1)? Recommended.
-4. **Allow small embedded scripts as progressive enhancement**, with every action still working without JavaScript? Recommended, and close to today's practice. Adding a third-party library such as htmx would need its own approval.
+The owner decided on 2026-10-02:
+
+1. **The web stays the UI; an engine only for the match viewer, later.** Accepted.
+2. **`cmd/play` becomes a developer console.** Accepted. It keeps its commands for scripted tests and debugging, and keeps every decision the player must make, so that a scripted career can still make them. New visual features no longer need a terminal version. [lanes/ui.md](lanes/ui.md) carries the new rule.
+3. **A shared presentation package under `cmd/`** (step 1). Accepted.
+4. **JavaScript.** Allowed for a dynamic UI, more broadly than proposed: pages no longer have to work without it. The application stays server-rendered at its core. The server renders every page and fragment as HTML with `html/template`, every change is a form post to the server, and there is no JSON API.
 
 ## Sources
 
