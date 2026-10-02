@@ -433,6 +433,49 @@ func TestInitialPopulationAgeCurve(t *testing.T) {
 	}
 }
 
+// All attributes, including low ones that overall does not read, should
+// start near their settled means. The baselines are the pooled year-30
+// means from TestBalancePopulation on generation v9, development v1 and
+// youth v4 (2026-10-02). They deliberately accept the existing higher
+// settled level of low attributes; they are not the old prime-only ranges.
+func TestInitialAttributeMeansMatchSettledPopulation(t *testing.T) {
+	settled := map[players.Position]players.Attributes{
+		players.Goalkeeper: {68, 25, 40, 15, 30, 46, 15, 25, 48, 29, 41},
+		players.Defender:   {14, 66, 43, 25, 49, 59, 31, 64, 61, 49, 67},
+		players.Midfielder: {13, 43, 66, 42, 51, 65, 50, 36, 46, 51, 53},
+		players.Forward:    {14, 26, 49, 67, 65, 52, 61, 51, 51, 65, 61},
+	}
+	type population struct {
+		count int
+		sums  [players.NumAttributes]int
+	}
+	byPosition := map[players.Position]*population{}
+	for _, pos := range players.Positions() {
+		byPosition[pos] = new(population)
+	}
+	for _, seed := range []uint64{1, 2, 3, 5, 7, 11, 13, 42, 99, 2026} {
+		for _, p := range generate(t, seed).Profiles {
+			pop := byPosition[p.Position]
+			pop.count++
+			for a, v := range p.Attributes {
+				pop.sums[a] += int(v)
+			}
+		}
+	}
+	for _, pos := range players.Positions() {
+		pop := byPosition[pos]
+		if pop.count == 0 {
+			t.Fatalf("no generated players at %s", pos)
+		}
+		for a, want := range settled[pos] {
+			got := (pop.sums[a] + pop.count/2) / pop.count
+			if got < int(want)-3 || got > int(want)+3 {
+				t.Errorf("%s %s initial mean %d, want within 3 of settled %d", pos, players.Attribute(a), got, want)
+			}
+		}
+	}
+}
+
 func TestInitialPopulationWithNarrowAgesAndRanges(t *testing.T) {
 	defs := content.Default()
 	for _, age := range []int{15, 17, 27, 36} {

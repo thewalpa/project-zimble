@@ -4101,3 +4101,13 @@ Proposed one pinned `content.Division.Rules` value shared by generation and acti
 Data's content/generation and squad's intake/finance implementation must land together with save fields, schema coverage and owned version/golden updates. Filed `squad--division-content-agreement.md` for the consuming contract and sequencing; production behavior stays unchanged and both accepted data requests remain queued.
 
 Validation: project formatting, vet and full tests passed; the existing ten-seed `TestBalancePopulation` sweep passed. No balance-owned tests or goldens were changed.
+
+## Data: youth-floor stability verified (done)
+
+Closes `data--youth-floor-attributes.md` with evidence from the existing ten-seed, 30-year `TestBalancePopulation` on current main: generation v9, content v9/league v7, youth v4, development v1, transfer v7, simple v6 and prize accounting/schema 32. All 44 position/attribute means at year 30 differ from generation by at most 2, inside balance's requested bound of 3. Outfield goalkeeping starts at 14 and finishes at 13–14; goalkeeper finishing/dribbling starts at 16 and finishes at 15; GK heading and DF finishing 26→25, FW defending 26→26. The overall mean is 59 at generation and year 30, with p10–p90 45–73 and 44–73 respectively. The first-decade spread is stable rather than widening from the old age-independent generation.
+
+The earlier request compared prime-only generation v8 against youth-derived lifetime profiles. Generation v9 now creates the latter at the starting age, so the requested stability needs no youth/development change. This deliberately accepts the higher settled low-attribute levels; it does not bring them back to the earlier authored prime-only ranges. Subtracting less from a floor-clamped youth range would only raise those levels further under the existing growth rule. Any future requirement to reduce them needs a separate coordinated development/content design with squad.
+
+Added `TestInitialAttributeMeansMatchSettledPopulation` in worldgen with every position's measured year-30 mean and a ±3 bound. It guards weak attributes that overall and the existing age-band test can miss. No production behavior, authoritative fields, versions or golden hashes change. Filed evidence to balance and squad and updated the existing generation rerun note; the lasting division-strength experiment remains separately queued.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed. The opt-in ten-seed/30-year population sweep passed; no balance-owned test or report file was changed.
