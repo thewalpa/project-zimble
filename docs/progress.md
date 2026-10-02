@@ -4044,3 +4044,11 @@ Closes [match--live-formation](handoffs/match--live-formation.md).
 **Not done: the AI.** Both clients' AI opponents still never decide in match; the formation change joins the existing P2 item "AI in-match decisions", through this same command.
 
 Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.
+
+## squad: the market's closing shortages split, and a medical view of the squad (done)
+
+**Balance's v7 questions answered** in [squad--market-v7-and-economy-measured](handoffs/squad--market-v7-and-economy-measured.md). A temporary observer after `fillSquads` at the close (not committed) over the recruiting sweep found 35 missing players, as balance's sweep: none has a same-position free agent (the pools of 1-4 hold other positions), 32 have no same-position listing anywhere, and only 3 have a listing but a zero reserve budget with cash to cover it (seed 2026 y6 club 8, seed 7 y16 club 14, seed 99 y21 club 6). The shortages are thin position supply, which the next youth intake refills, plus the known reserve case; no rule or version change, and the reserve stays an item of the PAR-05 design. The injury rate (0.46 a player a year on the football year) stays: `medical.Version` 4.
+
+**`App.SquadMedical(club)`** (`internal/app/medical.go`), read-only, any club: the injured (longest layoff first, with `FitFrom`, the instant the daily recovery that takes off his last day runs, a forecast that a later match or sale can change), the fit but tired (condition below `TiredCondition`, most tired first), supply per position against its roster count and minimum (`Short`: fit below the count, `Critical`: below the minimum), the fit total and whether the fit alone can field a legal team (`CanField`; when false selection fields the injured too). It reads the stores selection reads (`availableSquad`, `canField`), so the view cannot disagree with who is picked. No new state, event, task or version. `TestSquadMedicalReportsInjuriesAndForecastsReturns` checks the positions sum to the squad, that the forecast is exact (injured the instant before, fit at it), and the all-goalkeepers-hurt case. UI note: [ui--squad-medical-view](handoffs/ui--squad-medical-view.md).
+
+Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.

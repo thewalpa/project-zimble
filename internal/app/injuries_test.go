@@ -404,3 +404,73 @@ func TestMedicalLevelsOnTheFootballYear(t *testing.T) {
 		})
 	}
 }
+
+// The medical view agrees with the stores it reads: every injured player is
+// listed with a return that the daily recovery then honours, positions add
+// up to the squad, and a squad too hurt to field a team says so.
+func TestSquadMedicalReportsInjuriesAndForecastsReturns(t *testing.T) {
+	w := userWorld(t, 42, userClub)
+	team := mustUserTeam(t, w)
+	if _, ok := w.SquadMedical(0); ok {
+		t.Fatal("an unknown club has a medical view")
+	}
+	m, _ := w.SquadMedical(userClub)
+	if len(m.Injured) != 0 || m.Fit != len(w.employment.Squad(team)) || !m.CanField {
+		t.Fatalf("fresh squad: %d injured, %d fit", len(m.Injured), m.Fit)
+	}
+
+	squad := w.employment.Squad(team)
+	injure(t, w, squad[0], 2)
+	injure(t, w, squad[1], 5)
+	m, _ = w.SquadMedical(userClub)
+	if len(m.Injured) != 2 || m.Injured[0].Player != squad[1] || m.Injured[0].DaysOut != 5 {
+		t.Fatalf("injured %+v, want the five-day layoff first", m.Injured)
+	}
+	total, injured := 0, 0
+	for _, p := range m.Positions {
+		total += p.Squad
+		injured += p.Injured
+		if p.Fit != p.Squad-p.Injured || p.Short != (p.Fit < p.Count) || p.Critical != (p.Fit < p.Min) {
+			t.Fatalf("position %+v is inconsistent", p)
+		}
+	}
+	if total != len(squad) || injured != 2 || m.Fit != len(squad)-2 {
+		t.Fatalf("positions hold %d players, %d injured, %d fit of %d", total, injured, m.Fit, len(squad))
+	}
+
+	// The forecast is exact when nothing else happens: fit the instant it
+	// names, not the recovery before.
+	for _, inj := range m.Injured {
+		if d, hurt := w.Injury(inj.Player); !hurt || d != inj.DaysOut {
+			t.Fatalf("player %d: view says %d days, store %d (%t)", inj.Player, inj.DaysOut, d, hurt)
+		}
+	}
+	fitFrom := m.Injured[1].FitFrom // the two-day layoff
+	mustContinue(t, w, fitFrom-1)
+	if _, hurt := w.Injury(squad[0]); !hurt {
+		t.Fatal("fit before the forecast")
+	}
+	mustContinue(t, w, fitFrom)
+	if _, hurt := w.Injury(squad[0]); hurt {
+		t.Fatalf("still injured at the forecast %d", fitFrom)
+	}
+
+	// Every goalkeeper hurt: the squad cannot field a team without them.
+	for _, id := range squad {
+		if _, hurt := w.Injury(id); hurt {
+			continue
+		}
+		if p, _ := w.players.Profile(id); p.Position == players.Goalkeeper {
+			injure(t, w, id, 10)
+		}
+	}
+	m, _ = w.SquadMedical(userClub)
+	if m.CanField {
+		t.Fatal("a squad with every goalkeeper hurt can field a team")
+	}
+	for _, p := range m.Positions {
+		if p.Position == players.Goalkeeper && (p.Fit != 0 || !p.Critical) {
+			t.Fatalf("goalkeepers %+v, want none fit and critical", p)
+		}
+	}
+}

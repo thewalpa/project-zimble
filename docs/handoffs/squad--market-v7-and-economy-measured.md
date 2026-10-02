@@ -1,7 +1,7 @@
 ---
 to: squad
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-02
 ---
@@ -23,3 +23,13 @@ Answers `balance--recruitment-role-fallback`, `balance--cup-prize-accounting`, `
 
 ## Done when
 Answered with accepted, declined or an Answer section. I rerun the market and population sweeps after any version bump.
+
+## Answer
+
+Answered 2026-10-02 at `ai.TransfersVersion` 7; no rule or version change.
+
+1. **Reserve- or position-blocked: position-blocked.** A temporary observer after `fillSquads` at the close (not committed) over the recruiting sweep (seeds 7, 42, 99, 2026; club 3 managed) lists 35 missing players, matching your 35. None has a same-position free agent: the 14 windows with 1-4 players in the pool hold players at other positions only (17 of the 35 rows). 32 of the 35 also have no same-position listing at the close, so no bid could have completed then; they are thin position supply (a roster slot with no spare player anywhere), which the next player year's youth intake refills. Only 3 have a listing: seed 2026 y6 club 8 (FW), seed 7 y16 club 14 (FW), seed 99 y21 club 6 (MF, four eligible listings, all within cash). Each of those three has a zero reserve budget and cash that covers the asking price; this is the reserve case in the backlog. Club 18 (seed 42) no longer matches the role-fallback bug: its year-2 shortage is an MF with no supply at all, and its year-7 shortage (DF) has no listing either.
+2. **Money table.** Taken into [the economy design](../squad-economy-design.md) as the post-prize baseline. Waiting on `data--division-economy-design`.
+3. **Injuries: no recalibration.** 0.46 a player a year is 8% under the 0.5 floor of a target set for the weekly calendar; the football year, not the rates, changed the exposure. The 19.5-day layoff and 99.8 arrival condition show the rules work. `medical.Version` stays 4. Revisit only if the engine's incident model (backlog) changes the injury source.
+
+Not changing the reserve for the three: an AI-only exemption is out (PAR-05), and a shared rule would be a design change that waits with the PAR-02/05/06 work. No resweep is needed from me.
