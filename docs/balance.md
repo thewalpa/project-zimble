@@ -239,49 +239,48 @@ At 50 v 70 the home side is the weaker one and wins 39% of the shootouts in both
 
 ## Career seasons: tick against simple
 
-Measured 2026-10-01 at `tick.ModelVersion` 7 and `simple.ModelVersion` 5 (both `DefaultParams`), `medical.Version` 3, `worldgen.Version` 8, `content.Version` 9, `competitions.ScheduleVersion` 3, `ai.SelectionVersion` 3, at commit `64874ae`. The previous run (`tick` v6, `simple` v4) is in the [history](#history-2).
+Measured 2026-10-02 at `tick.ModelVersion` 8 and `simple.ModelVersion` 5 (both `DefaultParams`), `medical.Version` 4, `worldgen.Version` 8, `content.Version` 9, `competitions.ScheduleVersion` 4, `ai.SelectionVersion` 3, at commit `6de7f91`. The previous run (`tick` v7, `simple` v5, `medical` 3, `ScheduleVersion` 3) is in the [history](#history-2).
 
 ```sh
-ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=1   # about 25 s on 32 cores
+ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=1   # about 80 s on 4 cores
 ```
 
-`TestBalanceCareerEngines` in `internal/app/balance_test.go` plays the same three seeded AI-only careers (seeds 7, 42 and 2026, three seasons each) on both engines: one world per (seed, engine), so the market, promotions and cups carry over, and each engine plays every fixture of the career. The engines face the same fixtures (asserted). Since `Continue` resolves batches without a user fixture by itself (competitions, `f3652ff`), the sweep stops the clock a minute before each kickoff to sample the squads and then continues to it; it fails if a season measures no matches. "Upsets" are league matches won by the club with the lower squad average before the season; the gap rows bucket that average gap. Each row is 9 seasons × 224 league matches = 2,016 matches.
+`TestBalanceCareerEngines` in `internal/app/balance_test.go` plays the same three seeded AI-only careers (seeds 7, 42 and 2026, three seasons each) on both engines: one world per (seed, engine), so the market, promotions and cups carry over, and each engine plays every fixture of the career. The engines face the same fixtures (asserted). Since `Continue` resolves batches without a user fixture by itself, the sweep stops the clock a minute before each kickoff to sample the squads and then continues to it; it fails if a season measures no matches. A season is a football year as in `playSeason`: the league, the promotion play-offs, then the cup matches still to come. Since `ScheduleVersion` 4 a cup edition is drawn from league season N and played during season N+1, so **season 1 has no cup** and the cup rows count the 6 seasons per engine that have one; the sweep classifies each match by its competition's format, not by the stage of the sweep. "Upsets" are league matches won by the club with the lower squad average before the season; the gap rows bucket that average gap. Each row is 9 seasons × 224 league matches = 2,016 matches.
 
 ### League matches
 
 | | simple | tick | Synthetic 60 v 60, simple / tick | Top leagues, roughly |
 | --- | --- | --- | --- | --- |
-| Goals per match | 2.16 | 2.30 | 2.71 / 2.40 | 2.6–2.9 |
-| Home–away goals | 1.25–0.92 | 1.29–1.00 | 1.54–1.17 / 1.31–1.09 | 1.5–1.2 |
-| Home / draw / away % | 43.7 / 28.6 / 27.7 | 43.0 / 27.2 / 29.8 | 44.9 / 26.1 / 29.1 · 41.0 / 29.1 / 29.9 | 45 / 26 / 29 |
-| Upsets (weaker club wins) % | 29.1 | 28.7 | | |
-| Stronger side win %, gap 0–1 / 2–4 / 5–8 / 9+ | 41 / 34 / 33 / — | 39 / 37 / 40 / 50 | | |
-| matches in those buckets | 642 / 884 / 146 / 2 | 650 / 890 / 126 / 10 | | |
+| Goals per match | 2.17 | 2.16 | 2.71 / 2.40 (v7) | 2.6–2.9 |
+| Home–away goals | 1.25–0.93 | 1.20–0.96 | 1.54–1.17 / 1.31–1.09 (v7) | 1.5–1.2 |
+| Home / draw / away % | 44.2 / 28.4 / 27.3 | 41.2 / 29.4 / 29.4 | 44.9 / 26.1 / 29.1 · 41.0 / 29.1 / 29.9 (v7) | 45 / 26 / 29 |
+| Upsets (weaker club wins) % | 29.6 | 27.9 | | |
+| Stronger side win %, gap 0–1 / 2–4 / 5–8 / 9+ | 36 / 35 / 46 / 29 | 39 / 35 / 42 / 60 | | |
+| matches in those buckets | 618 / 920 / 130 / 14 | 644 / 900 / 130 / 10 | | |
 
-**Both engines now have a home edge on career squads**, and about the same one: 43–44% home wins against 28–30% away. `simple` v4 had none (35.4 against 34.3).
+**Career matches still score 0.4–0.5 goals less than real football.** `simple` 2.17 (unchanged), `tick` 2.16, down from 2.30 at v7: `tick` v8's per-minute calibration took 0.14 goals from careers. This is the `match--career-goals` note, now with a worse `tick` figure. The synthetic 60 v 60 columns are the v7 rows; they are refreshed in [Match engines](#match-engines-tick-against-simple) when `TestBalanceEngineComparison` is rerun at v8.
 
-**Career matches score 0.4–0.6 goals less than real football in both engines.** 2.16 (`simple`) and 2.30 (`tick`) goals a match, where both engines' own synthetic 60 v 60 rows give 2.71 and 2.40 and the real range is 2.6–2.9; `simple` loses 0.55 goals between its synthetic and career rows. This is what the player sees in every league table. The mechanism is the squads (attributes spread across roles, best XIs) rather than one engine, but both engines calibrate on the synthetic profiles, so the career level drifts unwatched. Filed as `match--career-goals`.
-
-**Results separate less by squad average than the synthetic gap table suggests**, as at v6: at gaps up to 8 points the stronger side by pre-season average wins 33–41% of all matches, where the synthetic rows give it 42–46% at gap 4 and 50–57% at gap 10 (home and away pooled). Both clubs field their strongest eleven, so the engine sees a smaller gap than the 20-man averages. The 9+ bucket has 2 and 10 matches, too few to read. Not a note: the mechanism is selection, not the engine.
+**Home edge and upsets hold** (41–44% home wins, 27–29% away; about 28–30% of matches won by the weaker club). Results separate by squad average no more than at v7: the stronger side wins 35–46% of matches up to a gap of 8; the 9+ bucket has 14 and 10 matches, too few to read.
 
 **Final tables and shootouts agree across engines.**
 
 | | simple | tick |
 | --- | --- | --- |
 | Champion points (of 42) | 26.1 | 26.9 |
-| Last points | 12.2 | 10.9 |
-| Spread | 13.9 | 15.9 |
-| Continental Cup matches a season | 7.0 | 7.0 |
-| Cup matches level after 90 minutes, % | 33 | 22 |
+| Last points | 11.6 | 11.1 |
+| Spread | 14.6 | 15.8 |
+| Continental Cup matches a season with a cup | 7.0 | 7.0 |
+| Cup matches level after 90 minutes, % | 24 | 31 |
 | Promotion play-off ties a season | 4.0 | 4.0 |
-| Ties to penalties, % | 19 | 28 |
+| Ties to penalties, % | 22 | 33 |
 
-Means over 36 league tables (4 leagues × 9 seasons). The champion takes 1.86–1.92 points a match and the last 0.78–0.87; `tick` spreads the table 2 points wider, as its steeper gap table predicts. The cup and play-off rates rest on 63 cup matches and 36 ties per engine (±11 points), so the swap between engines since v6 (30/27 and 25/19) is noise. Workload (condition and injuries) is engine-independent and lives under [Injuries](#injuries).
+Means over 36 league tables (4 leagues × 9 seasons). The champion takes 1.86–1.92 points a match and the last 0.79–0.83. The cup and play-off rates rest on 42 cup matches and 36 ties per engine (±8–15 points), so the gaps between engines are noise. Workload (condition and injuries) is engine-independent and lives under [Injuries](#injuries).
 
 ### History
 
 - **2026-10-01**, `tick` v6, `simple` v4 (commit `5f07b58`): 2.18 (`simple`) and 2.23 (`tick`) goals; `simple` without a home edge (35.4 / 30.3 / 34.3), `tick` 42.8 / 27.8 / 29.4; champion 26.2–26.4 points, last 11.6–11.8.
-- **2026-10-01**, `tick` v7, `simple` v5: this section.
+- **2026-10-01**, `tick` v7, `simple` v5 (commit `64874ae`, `medical` 3, `ScheduleVersion` 3): 2.16 (`simple`) and 2.30 (`tick`) goals, home edge on both (43.7 and 43.0% home wins); champion 26.1 and 26.9 points, last 12.2 and 10.9.
+- **2026-10-02**, `tick` v8, `simple` v5, `medical` 4, `ScheduleVersion` 4: this section. The sweep follows the new cup calendar (season 1 has no cup edition).
 
 ## Match statistics: tick against real football
 

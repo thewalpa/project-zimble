@@ -1733,7 +1733,7 @@ func TestBalanceRotation(t *testing.T) {
 	}
 	setups := []setup{
 		{"simple", []uint64{1, 2, 3, 4}, 1},
-		{"tick", []uint64{7, 42, 2026}, 2},
+		{"tick", []uint64{7, 42, 2026}, 4},
 	}
 	for _, su := range setups {
 		var samples []rotationSample
