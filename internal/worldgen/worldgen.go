@@ -28,8 +28,9 @@ import (
 // nation by nation; version 5 adds each nation's lower divisions; version 6
 // adds the five match attributes (see matchAttributes); version 7 adds
 // nations and nationalities (see drawNationality); version 8 draws names from
-// the nationality's pools (see drawNames).
-const Version = 8
+// the nationality's pools (see drawNames); version 9 generates attributes
+// from youth ranges developed to the player's starting age.
+const Version = 9
 
 // streamVersion keys the club and player streams: the generator version
 // that last changed their existing draws. Version 3 only appended a draw to
@@ -39,6 +40,8 @@ const Version = 8
 // after every top division. Version 6 appended the match attributes to each
 // player's stream. Version 7 appended the nationality. Version 8 appended
 // the names and skips the two draws that held them before (see drawNames).
+// Version 9 retains these draws for identities and contract lengths, and
+// generates age-adjusted attributes on a separate stream.
 // Set it to Version when a change alters an existing draw.
 const streamVersion = 2
 
@@ -207,9 +210,6 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 						econ := defs.Economy
 						years := rng.IntRange(econ.ContractYears[0], econ.ContractYears[1])
 						variation := rng.IntRange(-econ.WageVariationPct, econ.WageVariationPct)
-						s.Contracts = append(s.Contracts, ContractTerms{
-							Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
-						})
 						// Version 3: drawn after the contract, so the draws above are unchanged.
 						player.Born = -sim.GameInstant(rng.IntRange(birthDays(defs.Ages))) * sim.GameInstant(sim.Day)
 						// Version 6: drawn after the birth date, for the same reason.
@@ -218,6 +218,14 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 						player.Nationality = drawNationality(rng, NationID(ni), len(defs.Nations), defs.ForeignPct)
 						// Version 8: drawn last of all, from the nationality's pools.
 						drawNames(rng, &player, defs)
+						// The generator has no civil epoch. A Gregorian mean year
+						// estimates completed years from the relative birth date;
+						// a birthday within a few days may differ by one year.
+						age := int(-player.Born/sim.GameInstant(sim.Day)) * 4 / 1461
+						profile.Attributes = initialAttributes(defs, seed, nextPlayer, q.Position, age)
+						s.Contracts = append(s.Contracts, ContractTerms{
+							Player: nextPlayer, Years: years, WeeklyWage: econ.Wage(profile.Overall(), variation),
+						})
 						s.Players = append(s.Players, player)
 						s.Profiles = append(s.Profiles, profile)
 					}
@@ -226,6 +234,28 @@ func Generate(defs content.Definitions, seed random.Seed) (Snapshot, error) {
 		}
 	}
 	return s, nil
+}
+
+// initialAttributes samples a detached youth profile and its development
+// history, rather than making starting ability independent of age. Form and
+// attribute variation accumulate just as they do later in the career. The
+// history uses a separate seed so its final step cannot repeat a career's
+// first player-year draws. Nothing is allocated or committed by these steps.
+func initialAttributes(defs content.Definitions, seed random.Seed, id ids.PlayerID, pos players.Position, age int) players.Attributes {
+	rng := random.Derive(seed, "worldgen/initial-development", Version, uint64(id))
+	joined := min(age, rng.IntRange(defs.Youth.Ages[0], defs.Youth.Ages[1]))
+	base, _ := defs.Profile(pos)
+	ranges := base.Ranges
+	for a, r := range ranges {
+		ranges[a] = defs.Youth.Range(r)
+	}
+	p := players.Profile{Player: id, Position: pos}
+	drawAttributes(rng, &p.Attributes, ranges, 0, players.NumAttributes)
+	historySeed := random.Seed(rng.Uint64())
+	for at := joined + 1; at <= age; at++ {
+		p.Attributes = players.Develop(historySeed, p, at, at-joined)
+	}
+	return p.Attributes
 }
 
 // Fingerprint returns a SHA-256 over a canonical text encoding of the

@@ -568,7 +568,9 @@ func TestConsentAtCompletion(t *testing.T) {
 // club has completed a purchase earlier in the same run that makes him one
 // of the stars of a stronger club.
 func TestConsentFollowsEarlierCompletions(t *testing.T) {
-	w, bid := bidScenario(t)(t)
+	// Generation v9: seed 3 supplies a star whose club overtakes the
+	// manager after an earlier purchase; seed 42's target now moves away.
+	w, bid := bidScenarioWithSeed(t, 3)(t)
 	if _, err := w.RespondToOffer(RespondToOffer{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Offer: bid.ID}); err != nil {
 		t.Fatal(err)
 	}
@@ -731,12 +733,16 @@ func listFor(t *testing.T, w *World, player ids.PlayerID, asking money.Money) Pl
 // the world after that run and the bid. Every fresh world is the same, so the
 // search is deterministic.
 func bidScenario(t *testing.T) func(*testing.T) (*World, transfers.Offer) {
+	return bidScenarioWithSeed(t, 42)
+}
+
+func bidScenarioWithSeed(t *testing.T, seed uint64) func(*testing.T) (*World, transfers.Offer) {
 	t.Helper()
-	squad, _ := userWorld(t, 42, userClub3).Squad(userClub3)
+	squad, _ := userWorld(t, seed, userClub3).Squad(userClub3)
 	slices.SortStableFunc(squad, func(a, b SquadPlayer) int { return b.Overall - a.Overall })
 	for _, p := range squad {
 		build := func(t *testing.T) (*World, transfers.Offer) {
-			w := userWorld(t, 42, userClub3)
+			w := userWorld(t, seed, userClub3)
 			listFor(t, w, p.Player, p.Value/2)
 			mustContinue(t, w, day)
 			for _, o := range w.transfers.Open() {
@@ -1131,7 +1137,7 @@ func mustAIOffer(t *testing.T, w *World, player ids.PlayerID, year int) Contract
 }
 
 func TestRestoreRejectsInvalidTransfers(t *testing.T) {
-	scenario := bidScenario(t)
+	scenario := bidScenarioWithSeed(t, 3)
 	build := func() WorldSnapshot {
 		w, bid := scenario(t)
 		// The manager declines one bid and bids for a forward, who refuses

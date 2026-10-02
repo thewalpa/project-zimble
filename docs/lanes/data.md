@@ -26,9 +26,11 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**Generated age curve delivered:** closes balance's `data--generated-age-curve`. `worldgen.Version` 9 samples youth ranges and develops detached profiles to the starting age on separate seeded streams. Initial overall mean 59 and p10–p90 45–73 over balance's ten seeds; all measured age bands are within 3 of the previous year-30 values. Identity and contract-length draws remain unchanged; wages follow the adjusted overall. Existing saves retain their profiles and provenance, with no schema or future-simulation version changes. Generation-dependent world/season goldens are refreshed; reviews go to ui, match, squad and competitions, and balance is asked for the full rerun ([progress](../progress.md#data-generated-age-curve-done)). Next free `worldgen.Version`: 10. Youth-floor agreement with squad is next.
+
 **August-to-May defaults delivered:** closes competitions' `data--football-year-content-calendar`. Built-in league rounds are three weeks apart (`content.LeagueVersion` 7), while ScheduleVersion 4 keeps midweek cups in the following league season. Saved weekly careers keep pinned definitions and provenance. Legacy cup timing metadata stays unchanged; no save shape/schema move. Calendar-sensitive test fixtures and season goldens are updated, with reviews filed to ui, match, squad and competitions; balance is asked to rerun career measurements ([progress](../progress.md#data-august-to-may-built-in-calendar-done)). Next free `content.LeagueVersion`: 8.
 
-**Population feedback accepted (2026-10-02):** balance's age-curve, youth-floor and lower-division requests are queued below. The football-year content handoff is first; no population behavior changes in this session.
+**Population feedback accepted (2026-10-02):** balance's age-curve, youth-floor and lower-division requests were accepted. The calendar and generated age curve are delivered; youth-floor and lasting division-strength work remain queued.
 
 **Journal retention answered:** squad's `data--journal-retention-under-a-year`. The bound of 1,000 events stays as a save-size cap (an event is about 520 bytes of save JSON; a year now emits about 1,400); only the comment in `journal.go` changed ([progress](../progress.md#data-journal-retention-stays-a-save-size-bound-done)).
 
@@ -54,14 +56,13 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 **Reviewed squad's academy intake rule (PAR-01):** no generation, content or event version moves; the `content.Quota` comment names the academy target.
 
-**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 9, `content.Version` 10, `worldgen.YouthVersion` 5 (for `content.LeagueVersion` and `storage.SchemaVersion`, see the top entry).
+**Save recovery foundation delivered:** `storage.Save` preserves one validated prior save at `storage.PreviousPath(path)` and refuses to overwrite a damaged or incompatible current file. `storage.RecoverPrevious(path)` is the explicit restore action; the UI handoff `ui--save-recovery` asks both clients to require player choice before calling it. No schema bump was needed. The next free version numbers are `worldgen.Version` 10, `content.Version` 10, `worldgen.YouthVersion` 5 (for `content.LeagueVersion` and `storage.SchemaVersion`, see the top entry).
 
 **Reviewed match's engine choice and statistics (PAR-09):** the engine ID and version are pinned in `Versions`, an unknown engine is `ErrIncompatibleSave`, and `restoreResolve`/`restoreStep` require statistics exactly when the engine has `DetailedStats`. Nothing was missed; no data change needed.
 
 ## Backlog
 
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
-- **Generated age curve:** accepted `data--generated-age-curve`; generate initial attributes that fit age and the settled population, preserve the intended mean, bump `worldgen.Version`, and ask balance to verify age bands and p10–p90 at generation against year 30.
 - **Youth floor attributes:** accepted `data--youth-floor-attributes`; agree with squad how low attributes grow before choosing a youth range adjustment. A starting-range change alone cannot undo a fixed lifetime increment near the floor. Version any generation change and ask balance to rerun attribute means.
 - **Weaker lower divisions:** accepted `data--weaker-lower-divisions`; agree with squad which current-division youth or financial rule sustains the requested 5–8 point initial gap and at least 4 points after 10–30 years. Add a versioned generation gap only with that continuing mechanism, then ask balance to rerun.
 - **Divisions of other sizes** (only when content adds them): check at load that `Division.Clubs` sums to the leagues' `Entrants` in block order (load checks only the total), and ask competitions for the football-year check it offered in `data--even-league-sizes` (seasons plus cup inside the contract year; today only `TestSeasonsStayInsideTheContractYear` covers the built-in content).

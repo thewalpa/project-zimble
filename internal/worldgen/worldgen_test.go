@@ -1,12 +1,8 @@
 package worldgen
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/content"
@@ -20,20 +16,9 @@ import (
 // goldenSeed42 pins the output of Generate(content.Default(), 42). If this
 // test fails, either fix the regression or, when the change is intended, bump
 // worldgen.Version (or content.Version / random.Version) and update the value.
-// Last changed by worldgen v8 and content v9 (names from each nation's pools,
-// drawn after every earlier draw; see TestEarlierDrawsUnchanged).
-const goldenSeed42 = "f40190cef9c75f6e14e5ca383abe44e3fe17c8cf0b386369e5f12931c9a1d0d8"
-
-// The worlds of earlier generator versions for seed 42, hashed without the
-// names by canonicalAs (version 8 changed every name): goldenV7Seed42 is the
-// v7 world (content v8), goldenV6Seed42 the v6 world (content v7, no
-// nations) and goldenV5Seed42 the v5 world (content v6, six attributes per
-// player).
-const (
-	goldenV7Seed42 = "d4ef7c38773a27876fe6c82b95c6a71c9c645a8488336ec356f5d386168258c9"
-	goldenV6Seed42 = "2e7192faf9e672dd9705252705a255bece1e00f1b3ac9980c7430414b302ebdb"
-	goldenV5Seed42 = "52e5590e0fd73f704a242fb828669f903bfaae00ee578e0a91d90dd4b91eee3c"
-)
+// Last changed by worldgen v9: youth attributes developed to starting age.
+// Identity draws remain unchanged; see TestIdentityDrawsUnchanged.
+const goldenSeed42 = "f5b5441d59a34327522f77952e83aa363a16ebbe59c7dd070e0a69f3a9e3054f"
 
 func generate(t *testing.T, seed uint64) Snapshot {
 	t.Helper()
@@ -61,54 +46,18 @@ func TestGenerateMatchesGoldenFingerprint(t *testing.T) {
 	}
 }
 
-// canonicalAs hashes the snapshot's canonical text as generator version
-// gen (5..7) encoded it, without the names: from version 7 down, it drops
-// the names (v8); from 6 down also the nations and nationalities (v7), and
-// at 5 also the match attributes (v6).
-func canonicalAs(s Snapshot, gen int) string {
-	s.GeneratorVersion, s.ContentVersion = gen, gen+1
-	var body bytes.Buffer
-	s.writeCanonical(&body)
-	h := sha256.New()
-	for line := range strings.Lines(body.String()) {
-		if strings.HasPrefix(line, "player ") {
-			// `player 1 "First" "Last" born=...`: drop the two quoted names.
-			id, rest, _ := strings.Cut(strings.TrimPrefix(line, "player "), " ")
-			_, rest, _ = strings.Cut(rest, " born=")
-			line = "player " + id + " born=" + rest
-		}
-		switch {
-		case gen >= 7:
-		case strings.HasPrefix(line, "nation "):
-			continue
-		case strings.HasPrefix(line, "club ") || strings.HasPrefix(line, "player "):
-			head, _, _ := strings.Cut(line, " nation=")
-			line = head + "\n"
-		case strings.HasPrefix(line, "profile ") && gen <= 5:
-			// "profile 1 pos=1 attrs=[a b c d e f g h i j k]": keep six.
-			head, attrs, _ := strings.Cut(line, "attrs=[")
-			fields := strings.Fields(strings.TrimSuffix(strings.TrimSpace(attrs), "]"))
-			line = head + "attrs=[" + strings.Join(fields[:matchAttributes], " ") + "]\n"
-		}
-		h.Write([]byte(line))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// Names, nationalities and the match attributes are drawn last in each
-// player's stream, so every earlier draw is unchanged: the snapshot without
-// the names, encoded as worldgen v7 did, is exactly the v7 world, without
-// the nationalities too the v6 world, and without the match attributes too
-// the v5 world.
-func TestEarlierDrawsUnchanged(t *testing.T) {
+// Generation v9 changes attributes and their wages, but preserves v8's
+// identities, assignments and contract lengths (including all birth dates).
+func TestIdentityDrawsUnchanged(t *testing.T) {
 	s := generate(t, 42)
-	for _, g := range []struct {
-		gen  int
-		want string
-	}{{7, goldenV7Seed42}, {6, goldenV6Seed42}, {5, goldenV5Seed42}} {
-		if got := canonicalAs(s, g.gen); got != g.want {
-			t.Errorf("seed 42 as worldgen v%d = %s, want %s", g.gen, got, g.want)
-		}
+	s.GeneratorVersion = 8
+	s.Profiles = nil
+	for i := range s.Contracts {
+		s.Contracts[i].WeeklyWage = 0
+	}
+	const want = "ed2bba640752dbdbb3c0d1e5b553ff45eceafded67161c915e5ec752b9362566"
+	if got := s.Fingerprint(); got != want {
+		t.Fatalf("seed 42 identities and contract lengths = %s, want %s", got, want)
 	}
 }
 
@@ -119,7 +68,6 @@ func TestDifferentSeedsProduceDifferentWorlds(t *testing.T) {
 }
 
 func TestGenerateShapeAndRanges(t *testing.T) {
-	defs := content.Default()
 	for _, seed := range []uint64{0, 1, 42, 1 << 63} {
 		s := generate(t, seed)
 		if len(s.Clubs) != 32 || len(s.Teams) != 32 || len(s.Players) != 640 {
@@ -137,11 +85,9 @@ func TestGenerateShapeAndRanges(t *testing.T) {
 			if s.Players[i].ID != p.Player || s.Assignments[i].Player != p.Player || p.Player != ids.PlayerID(i+1) {
 				t.Fatalf("seed %d: player row %d IDs disagree", seed, i)
 			}
-			base, _ := defs.Profile(p.Position)
 			for a, r := range p.Attributes {
-				if rg := base.Ranges[a]; r < rg.Min || r > rg.Max {
-					t.Fatalf("seed %d: player %d %s=%d outside %d..%d",
-						seed, p.Player, players.Attribute(a), r, rg.Min, rg.Max)
+				if r < players.MinRating || r > players.MaxRating {
+					t.Fatalf("seed %d: player %d %s=%d outside the rating scale", seed, p.Player, players.Attribute(a), r)
 				}
 			}
 		}
@@ -411,6 +357,105 @@ func TestNationalities(t *testing.T) {
 	for i, p := range full.Players {
 		if p.Nationality == s.Players[i].Nationality && p != s.Players[i] {
 			t.Fatalf("player %d changed with the foreign share though not foreign", p.ID)
+		}
+	}
+}
+
+// The initial population should resemble the measured settled population,
+// rather than growing equally strong teenagers into an unusually wide first
+// decade. See docs/balance.md's Population and Attributes measurements.
+func TestInitialPopulationAgeCurve(t *testing.T) {
+	cal, err := sim.NewCalendar(sim.CivilTime{Year: 2025, Month: 7, Day: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type band struct{ sum, count int }
+	bands := map[players.Position]*[4]band{}
+	var ratings []int
+	for _, pos := range players.Positions() {
+		bands[pos] = new([4]band)
+	}
+	for _, seed := range []uint64{1, 2, 3, 5, 7, 11, 13, 42, 99, 2026} {
+		s := generate(t, seed)
+		for i, p := range s.Profiles {
+			age, err := cal.WholeYears(s.Players[i].Born, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b := 0
+			switch {
+			case age >= 31:
+				b = 3
+			case age >= 26:
+				b = 2
+			case age >= 21:
+				b = 1
+			}
+			bands[p.Position][b].sum += int(p.Overall())
+			bands[p.Position][b].count++
+			ratings = append(ratings, int(p.Overall()))
+		}
+	}
+	settled := map[players.Position][4]int{
+		players.Goalkeeper: {48, 59, 59, 50},
+		players.Defender:   {52, 63, 63, 52},
+		players.Midfielder: {55, 66, 66, 55},
+		players.Forward:    {54, 64, 64, 55},
+	}
+	for _, pos := range players.Positions() {
+		b := bands[pos]
+		mean := func(i int) int { return (b[i].sum + b[i].count/2) / b[i].count }
+		t.Logf("%s age bands: %d %d %d %d", pos, mean(0), mean(1), mean(2), mean(3))
+		for i, want := range settled[pos] {
+			if got := mean(i); got < want-3 || got > want+3 {
+				t.Errorf("%s age band %d mean %d, want within 3 of settled %d", pos, i, got, want)
+			}
+		}
+		if gap := mean(1) - mean(0); gap < 8 || gap > 14 {
+			t.Errorf("%s young-to-prime gap %d, want 8..14", pos, gap)
+		}
+		if gap := mean(2) - mean(3); gap < 6 || gap > 14 {
+			t.Errorf("%s prime-to-veteran gap %d, want 6..14", pos, gap)
+		}
+		if gap := mean(1) - mean(2); gap < -3 || gap > 3 {
+			t.Errorf("%s prime bands differ by %d, want within 3", pos, gap)
+		}
+	}
+	slices.Sort(ratings)
+	sum := 0
+	for _, r := range ratings {
+		sum += r
+	}
+	mean, p10, p90 := (sum+len(ratings)/2)/len(ratings), ratings[len(ratings)/10], ratings[len(ratings)*9/10]
+	t.Logf("overall mean %d, p10 %d, p90 %d", mean, p10, p90)
+	if mean < 57 || mean > 61 || p10 < 42 || p10 > 46 || p90 < 72 || p90 > 76 {
+		t.Fatalf("overall mean %d, p10 %d, p90 %d differ from settled 59 (44..74)", mean, p10, p90)
+	}
+}
+
+func TestInitialPopulationWithNarrowAgesAndRanges(t *testing.T) {
+	defs := content.Default()
+	for _, age := range []int{15, 17, 27, 36} {
+		defs.Ages = [2]int{age, age}
+		for i := range defs.Profiles {
+			for a := range defs.Profiles[i].Ranges {
+				rating := players.MinRating
+				if a%2 == 0 {
+					rating = players.MaxRating
+				}
+				defs.Profiles[i].Ranges[a] = content.Range{Min: rating, Max: rating}
+			}
+		}
+		s, err := Generate(defs, 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range s.Profiles {
+			for a, r := range p.Attributes {
+				if r < players.MinRating || r > players.MaxRating {
+					t.Fatalf("age %d player %d %s=%d outside rating scale", age, p.Player, players.Attribute(a), r)
+				}
+			}
 		}
 	}
 }

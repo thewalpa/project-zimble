@@ -24,17 +24,17 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by content.LeagueVersion 7: three-week league
-// intervals change recovery, lineups and outcomes in all three goldens.
+// this value. Last changed by worldgen.Version 9: age-adjusted initial
+// attributes and wages change lineups, transfers and all three goldens.
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens. The cup edition drawn from season 1 is played
 // midweek during season 2 under competitions.ScheduleVersion 4.
 const (
-	goldenSeasonSeed42       = "7889c08ca5896cb72f011677b3035c781786f0788605057bbf936abe735696c6"
-	goldenSecondLeagueSeed42 = "fb4c91c5869b08b598906e0433d04bd69e4e605ed5b6445d799add2230b535af"
-	goldenCupSeed42          = "1f7f185163a79a0b8ad0b003f88a22dbb11a497fb4d9f9d7dbb774720911802e"
+	goldenSeasonSeed42       = "1aa62ceb5742ff64504a1d34e73dd526564ab903cce944dab6a609cfb2bd007c"
+	goldenSecondLeagueSeed42 = "bc8381b6bb9da3f5e1861b6b6ab15b6796f3305cc1ba9dfbe81b9331f97f511e"
+	goldenCupSeed42          = "17307a7addd48ff13c42ff85ba7488e27ee8c8490cb842830c3c18256603b39e"
 )
 
 // seasonEnd is one day after the last kickoff of every league.
@@ -393,7 +393,7 @@ func TestFullSeasonIsReproducible(t *testing.T) {
 	}
 	// Playing the season changed neither the generated world nor the
 	// schedule.
-	if a.Summary().Fingerprint != "f40190cef9c75f6e14e5ca383abe44e3fe17c8cf0b386369e5f12931c9a1d0d8" {
+	if a.Summary().Fingerprint != "f5b5441d59a34327522f77952e83aa363a16ebbe59c7dd070e0a69f3a9e3054f" {
 		t.Fatal("world fingerprint changed")
 	}
 	if !reflect.DeepEqual(a.competitions.Fixtures(competitions.SeasonRef{Competition: 1, Season: 1}), fixturesBefore) {

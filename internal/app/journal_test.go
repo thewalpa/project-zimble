@@ -310,7 +310,11 @@ func TestRestoreRejectsInvalidJournal(t *testing.T) {
 		"score edited":          func(s *WorldSnapshot) { find(s, events.KindMatchCompleted).MatchCompleted.HomeGoals += 1 },
 		"appearance dropped": func(s *WorldSnapshot) {
 			p := find(s, events.KindMatchCompleted).MatchCompleted
-			p.Appeared = slices.DeleteFunc(p.Appeared, func(id ids.PlayerID) bool { return id == p.Appeared[0] && !slices.Contains(p.Scorers, id) })
+			at := slices.IndexFunc(p.Appeared, func(id ids.PlayerID) bool { return !slices.Contains(p.Scorers, id) })
+			if at < 0 {
+				t.Fatal("no non-scoring appearance to drop")
+			}
+			p.Appeared = slices.Delete(p.Appeared, at, at+1)
 		},
 		"scorers reordered": func(s *WorldSnapshot) {
 			for i := range s.Events {
