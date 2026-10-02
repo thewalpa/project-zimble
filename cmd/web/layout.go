@@ -52,7 +52,9 @@ type layout struct {
 	Data      any
 	SaveName  string
 	SavesDir  string
-	Unread    int // unread inbox messages
+	ClubID    ids.ClubID // the manager's club, for the navigation
+	ClubHead  *clubHead  // the heading and submenu of a club's page
+	Unread    int        // unread inbox messages
 	// The club's fixtures, for the header.
 	Live     string       // the manager's match in progress
 	Matchday *fixtureView // waiting to be played
@@ -63,9 +65,13 @@ type layout struct {
 var navOf = map[string]string{"player": "squad", "compare": "squad", "live": "lineup", "report": "fixtures"}
 
 func (s *server) layout(page string, data any) layout {
+	nav := cmp.Or(navOf[page], page)
+	if v, ok := data.(clubView); ok {
+		nav = v.navEntry()
+	}
 	l := layout{
 		Page:      page,
-		Nav:       cmp.Or(navOf[page], page),
+		Nav:       nav,
 		Notes:     s.notes,
 		Automatic: s.automatic,
 		Offers:    s.offers,
@@ -79,6 +85,17 @@ func (s *server) layout(page string, data any) layout {
 	l.Career, l.Club, l.Date, l.Rev = true, s.clubLabel(), s.w.Calendar().Format(s.w.Now()), s.w.Revision()
 	l.Unsaved = !s.saved || s.w.Revision() != s.savedRevision
 	_, l.Pending = s.pendingFixture()
+	l.ClubID = s.club()
+	switch v := data.(type) {
+	case clubView:
+		l.ClubHead = &v.Head
+	default:
+		if page == "lineup" || page == "finances" {
+			if h, ok := s.clubHeadOf(s.club(), page); ok {
+				l.ClubHead = &h
+			}
+		}
+	}
 	l.Unread = s.w.UnreadInboxCount()
 	l.Matchday, l.Next = s.upcoming()
 	l.Live = s.liveLine()

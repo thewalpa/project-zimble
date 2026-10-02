@@ -15,15 +15,6 @@ import (
 
 // --- squad and contracts --------------------------------------------------------
 
-type clubOption struct {
-	ID        ids.ClubID
-	Name      string
-	ShortName string
-	Nation    string
-	Selected  bool
-	IsUser    bool
-}
-
 type squadRow struct {
 	app.SquadPlayer
 	Ends      int
@@ -32,9 +23,9 @@ type squadRow struct {
 }
 
 type squadView struct {
+	Rev         app.Revision
 	Club        app.TeamLabel
 	IsUserClub  bool
-	Clubs       []clubOption
 	Rows        []squadRow
 	ContractEnd string
 	SquadText   string
@@ -43,15 +34,9 @@ type squadView struct {
 	Probable    *reportPitch // another club's lineup if it played today
 }
 
-func (s *server) squad(r *http.Request) (string, any, error) {
-	viewClub := s.club()
-	if cStr := r.URL.Query().Get("club"); cStr != "" {
-		if n, err := strconv.ParseUint(cStr, 10, 64); err == nil && n != 0 {
-			if _, ok := s.w.ObservedSquad(s.club(), ids.ClubID(n)); ok {
-				viewClub = ids.ClubID(n)
-			}
-		}
-	}
+// squadViewOf is a club's squad as the manager sees it: the Squad tab of its
+// club page.
+func (s *server) squadViewOf(r *http.Request, viewClub ids.ClubID) squadView {
 	squad, _ := s.w.ObservedSquad(s.club(), viewClub)
 	clubLabel, _ := s.w.ClubLabel(viewClub)
 	isUserClub := (viewClub == s.club())
@@ -65,6 +50,7 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	e := defs.Economy
 	sortState := newSortState(r, "pos", "asc")
 	v := squadView{
+		Rev:         s.w.Revision(),
 		Club:        clubLabel,
 		IsUserClub:  isUserClub,
 		ContractEnd: present.Date(s.w.Calendar(), end),
@@ -74,21 +60,11 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	for y := e.ContractYears[0]; y <= e.ContractYears[1]; y++ {
 		v.YearOptions = append(v.YearOptions, y)
 	}
-	for _, c := range s.w.Summary().ClubRows {
-		v.Clubs = append(v.Clubs, clubOption{
-			ID:        c.ID,
-			Name:      c.Name,
-			ShortName: c.ShortName,
-			Nation:    c.Nation,
-			Selected:  c.ID == viewClub,
-			IsUser:    c.ID == s.club(),
-		})
-		if c.ID == viewClub && !isUserClub {
-			if l, err := s.w.ProbableLineup(c.SeniorTeam); err == nil {
-				v.Probable = s.pitchOf(c.Name, l)
-				v.Probable.Title = "Probable lineup"
-				v.Probable.Note = "What the club would field if it played today; the squad changes by kickoff."
-			}
+	if c, ok := s.clubRow(viewClub); ok && !isUserClub {
+		if l, err := s.w.ProbableLineup(c.SeniorTeam); err == nil {
+			v.Probable = s.pitchOf(c.Name, l)
+			v.Probable.Title = "Probable lineup"
+			v.Probable.Note = "What the club would field if it played today; the squad changes by kickoff."
 		}
 	}
 	for _, p := range squad {
@@ -100,7 +76,17 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 		v.Rows = append(v.Rows, row)
 	}
 	sortSquadRows(v.Rows, sortState.Col, sortState.Dir)
-	return "squad", v, nil
+	return v
+}
+
+// clubRow is a club's row of the summary.
+func (s *server) clubRow(club ids.ClubID) (app.ClubSummary, bool) {
+	for _, c := range s.w.Summary().ClubRows {
+		if c.ID == club {
+			return c, true
+		}
+	}
+	return app.ClubSummary{}, false
 }
 
 type freeRow struct {

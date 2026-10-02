@@ -7,6 +7,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
@@ -678,4 +679,129 @@ func (w *World) PreviewLive(fixture ids.FixtureID, toMinute uint16, frames bool,
 		}
 	}
 	return out, nil
+}
+
+// ClubSeason is how a club fared in one league season or cup edition it
+// entered: a league's final place and record, or the stage a cup run ended
+// at. Season with a league is in progress until Complete.
+type ClubSeason struct {
+	Season   competitions.SeasonRef
+	Name     string
+	League   bool // false: a cup edition
+	Complete bool
+	// League: the club's row of the table (Standing.Rank is the place) and
+	// where it went next season.
+	Standing  competitions.Standing
+	Promoted  bool
+	Relegated bool
+	// Cup: the name of the last round the club played in ("quarter-final")
+	// and whether it won the edition.
+	Stage    string
+	Champion bool
+}
+
+// ClubSeasons lists the league seasons and cup editions a club has entered,
+// oldest first, from the retained seasons and their results. Promotion
+// play-offs are not listed. Read-only; nothing is stored.
+func (w *World) ClubSeasons(club ids.ClubID) []ClubSeason {
+	var out []ClubSeason
+	for _, h := range w.History() {
+		if _, ok := w.Playoff(h.Season); ok {
+			continue
+		}
+		rec := ClubSeason{Season: h.Season, Name: h.CompetitionName, Complete: h.Complete}
+		if h.Format == competitions.FormatKnockout {
+			c, ok := w.Cup(h.Season)
+			if !ok {
+				continue
+			}
+			for _, r := range c.Rounds {
+				for _, t := range r.Ties {
+					if t.Home.Club == club || t.Away.Club == club {
+						rec.Stage = r.Name
+					}
+				}
+			}
+			if rec.Stage == "" {
+				continue
+			}
+			rec.Champion = c.Champion != nil && c.Champion.Club == club
+			out = append(out, rec)
+			continue
+		}
+		t, ok := w.Table(h.Season)
+		if !ok {
+			continue
+		}
+		for _, row := range t.Rows {
+			if row.Label.Club == club {
+				rec.League, rec.Standing = true, row.Standing
+				rec.Champion = h.Complete && row.Rank == 1
+				rec.Promoted, rec.Relegated = w.SeasonMove(h.Season, row.Rank)
+				out = append(out, rec)
+			}
+		}
+	}
+	return out
+}
+
+// ClubMoveKind says how a player came to or left a club.
+type ClubMoveKind uint8
+
+const (
+	MoveBought   ClubMoveKind = 1 // transferred in for a fee
+	MoveSold     ClubMoveKind = 2 // transferred out for a fee
+	MoveSigned   ClubMoveKind = 3 // free agent signed
+	MoveYouth    ClubMoveKind = 4 // joined from the youth ranks
+	MoveReleased ClubMoveKind = 5 // released from his contract
+	MoveExpired  ClubMoveKind = 6 // contract ran out
+	MoveRetired  ClubMoveKind = 7 // retired while at the club
+)
+
+// ClubMove is one change of a club's players. Other is the other club of a
+// transfer; Fee the transfer fee, or what a release cost the club.
+type ClubMove struct {
+	At         sim.GameInstant
+	Kind       ClubMoveKind
+	Player     ids.PlayerID
+	PlayerName string
+	Other      ids.ClubID
+	OtherName  string
+	Fee        money.Money
+}
+
+// ClubMoves lists every player who joined or left a club since the career
+// began, oldest first, read from the retained event journal: transfers, free
+// signings, youth intake, releases, expiries and retirements. Renewals are
+// not moves. Read-only.
+func (w *World) ClubMoves(club ids.ClubID) []ClubMove {
+	var out []ClubMove
+	add := func(at sim.GameInstant, kind ClubMoveKind, player ids.PlayerID, other ids.ClubID, fee money.Money) {
+		m := ClubMove{At: at, Kind: kind, Player: player, Other: other, Fee: fee}
+		m.PlayerName, _ = w.PlayerName(player)
+		if other != 0 {
+			l, _ := w.ClubLabel(other)
+			m.OtherName = l.ClubName
+		}
+		out = append(out, m)
+	}
+	for _, e := range w.journal {
+		switch {
+		case e.TransferCompleted != nil && e.TransferCompleted.Buyer == club:
+			add(e.OccurredAt, MoveBought, e.TransferCompleted.Player, e.TransferCompleted.Seller, e.TransferCompleted.Fee)
+		case e.TransferCompleted != nil && e.TransferCompleted.Seller == club:
+			add(e.OccurredAt, MoveSold, e.TransferCompleted.Player, e.TransferCompleted.Buyer, e.TransferCompleted.Fee)
+		case e.PlayerSigned != nil && e.PlayerSigned.Club == club:
+			add(e.OccurredAt, MoveSigned, e.PlayerSigned.Player, 0, 0)
+		case e.YouthJoined != nil && e.YouthJoined.Club == club:
+			add(e.OccurredAt, MoveYouth, e.YouthJoined.Player, 0, 0)
+		case e.PlayerReleased != nil && e.PlayerReleased.Club == club:
+			add(e.OccurredAt, MoveReleased, e.PlayerReleased.Player, 0, e.PlayerReleased.Compensation)
+		case e.ContractExpired != nil && e.ContractExpired.Club == club:
+			add(e.OccurredAt, MoveExpired, e.ContractExpired.Player, 0, 0)
+		case e.PlayerRetired != nil && e.PlayerRetired.Club == club:
+			add(e.OccurredAt, MoveRetired, e.PlayerRetired.Player, 0, 0)
+		}
+	}
+	return out
 }

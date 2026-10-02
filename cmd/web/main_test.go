@@ -697,22 +697,79 @@ func TestFlags(t *testing.T) {
 
 func TestOtherTeamSquads(t *testing.T) {
 	c := career(t)
-	squadPage := c.get("/squad")
-	contains(t, squadPage, "Squad", "QUI (You)")
+	squadPage := c.get("/squad") // the old address leads to the club's page
+	contains(t, squadPage, "Quillford FC", "(You)", `<a href="/club/3/squad" aria-current="page">Squad</a>`)
 
 	tablePage := c.get("/table")
-	contains(t, tablePage, `<a href="/squad?club=1">`, `<a href="/squad?club=2">`, `<a href="/squad?club=3">`)
+	contains(t, tablePage, `<a href="/club/1">`, `<a href="/club/2">`, `<a href="/club/3">`)
 
-	club1Page := c.get("/squad?club=1")
+	club1Page := c.get("/club/1/squad")
 	contains(t, club1Page, "Probable lineup</h2>", "the squad changes by kickoff")
-	if strings.Contains(c.get("/squad"), "Probable lineup") {
+	if strings.Contains(c.get("/club/3/squad"), "Probable lineup") {
 		t.Fatal("the user club's squad page shows a forecast of its own lineup")
 	}
-	contains(t, club1Page, "Hollowick Town squad", "GK", "DEF", "PAS", "FIN", "PAC", "STA")
+	contains(t, club1Page, "<h1>Hollowick Town</h1>", "GK", "DEF", "PAS", "FIN", "PAC", "STA")
 	if strings.Contains(club1Page, `action="/renew"`) {
 		t.Fatal("other club's squad has renewal form")
 	}
-	contains(t, club1Page, `href="/squad?club=3"`)
+	if got := c.get("/squad?club=1&sort=ovr"); !strings.Contains(got, `href="/club/1/squad?dir=asc&amp;sort=ovr"`) && !strings.Contains(got, `/club/1/squad?`) {
+		t.Fatalf("the old per-club address did not lead to the club's squad:\n%s", mainOf(got))
+	}
+}
+
+// A club has a page with a submenu: overview, squad, fixtures, transfers and
+// history. The manager's own club adds its lineup and finances to the menu
+// and keeps the menu on those pages.
+func TestClubPages(t *testing.T) {
+	c := career(t)
+	for _, club := range []string{"1", "3"} {
+		for _, tab := range []string{"", "/squad", "/fixtures", "/transfers", "/history"} {
+			page := c.get("/club/" + club + tab)
+			contains(t, page, `<div class="tabs"`, `href="/club/`+club+`/history"`)
+			if strings.Contains(page, "template:") {
+				t.Fatalf("club %s%s did not render", club, tab)
+			}
+		}
+	}
+	other := c.get("/club/1")
+	contains(t, other, "<h1>Hollowick Town</h1>", "No league match has been played yet", "Squad", "average overall")
+	menu := other[strings.Index(other, `<div class="tabs"`):]
+	menu = menu[:strings.Index(menu, "</div>")]
+	for _, own := range []string{`href="/lineup"`, `href="/finances"`} {
+		if strings.Contains(menu, own) {
+			t.Fatalf("another club's page links to the manager's %s", own)
+		}
+	}
+	mine := c.get("/club/3")
+	contains(t, mine, "(You)", `href="/lineup"`, `href="/finances"`, "Weekly wage bill")
+	for _, p := range []string{"/lineup", "/finances"} {
+		contains(t, c.get(p), `<div class="tabs"`, `href="/club/3/transfers"`)
+	}
+	contains(t, c.get("/clubs"), `<a href="/club/1">`, `<a href="/club/3">`, "(You)")
+	for _, missing := range []string{"/club/0", "/club/9999", "/club/x", "/club/3/nonsense"} {
+		res, err := c.srv.Client().Get(c.srv.URL + missing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.body(res, http.StatusNotFound)
+	}
+
+	// After a matchday the overview has a result, a place and form; a
+	// season later the history lists it with a place.
+	c.post("/continue", nil)
+	c.post("/continue", nil)
+	contains(t, c.get("/club/3"), "Latest", `<span class="pill`, "Form")
+	for range 3 {
+		c.post("/season", nil)
+		c.post("/continue", nil)
+		c.post("/continue", nil)
+	}
+	history := c.get("/club/3/history")
+	contains(t, history, "<h2>Seasons</h2>", "/history?competition=", "Seasons played")
+	contains(t, c.get("/club/3/transfers"), "Arrivals and departures")
+	if strings.Contains(c.get("/club/3/transfers"), "Nobody has joined or left") {
+		t.Fatal("after three seasons the club's transfers list nobody")
+	}
 }
 
 func TestGameReportsWhenClickingOnScores(t *testing.T) {
@@ -1182,7 +1239,7 @@ func TestFullWidthLayout(t *testing.T) {
 		`<span class="tag">Next</span> <span>Round 1 v Brackenmoor Town (home)</span>`, `<button class="go">Continue</button>`,
 		"<span>Club</span>", "<span>Competitions</span>", "<span>Market</span>", `<a href="/" aria-current="page">Home</a>`)
 	// A page without an entry of its own marks the one it belongs to.
-	contains(t, c.get("/player?id=56"), `<a href="/squad" aria-current="page">Squad</a>`)
+	contains(t, c.get("/player?id=56"), `<a href="/club/3/squad" aria-current="page">Squad</a>`)
 	page = c.post("/continue", nil)
 	contains(t, page, `<span class="tag now">Matchday</span> <a href="/lineup">Round 1 v Brackenmoor Town (home)</a>`, `<button class="go">Play match</button>`)
 }

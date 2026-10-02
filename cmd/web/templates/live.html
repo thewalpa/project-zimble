@@ -4,9 +4,9 @@
 <div class="panel live-head">
   <div class="split"><h1>Live: {{$d.Title}}</h1><span class="muted small"><span data-state>{{$d.State}}</span> · <span data-minute>{{$d.Minute}}</span>'</span></div>
   <div class="scoreboard">
-    <div class="team home"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
+    <div class="team home"><a href="/club/{{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
     <div class="score"><span data-score>{{index $d.Score 0}} - {{index $d.Score 1}}</span>{{if $d.Penalties}} <span class="muted" data-at-stop>{{$d.Penalties}}</span>{{end}}</div>
-    <div class="team"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
+    <div class="team"><a href="/club/{{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
   </div>
   {{if lt $d.From $d.Minute}}
   <div class="actions center live-clock" data-live data-from="{{$d.From}}" data-to="{{$d.Minute}}" data-played="{{$d.Played}}"{{if $d.Autoplay}} data-autoplay{{end}} hidden>

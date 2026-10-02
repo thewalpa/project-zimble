@@ -30,7 +30,7 @@ import (
 var templateFS embed.FS
 
 // pageNames are the pages, each rendered inside layout.html.
-var pageNames = []string{"choose", "home", "squad", "lineup", "table", "fixtures", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs"}
+var pageNames = []string{"choose", "home", "club", "clubs", "lineup", "table", "free", "inbox", "finances", "report", "cup", "history", "transfers", "player", "compare", "live", "playoffs"}
 
 type config struct {
 	seed     random.Seed
@@ -86,7 +86,7 @@ func newServer(cfg config) (*server, error) {
 	}
 	s := &server{seed: cfg.seed, engine: cfg.engine, savePath: savePath, savesDir: savesDir, pages: map[string]*template.Template{}}
 	for _, name := range pageNames {
-		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/cupedition.html", "templates/"+name+".html")
+		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/cupedition.html", "templates/clubparts.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
 		}
@@ -121,11 +121,14 @@ func newServer(cfg config) (*server, error) {
 		path string
 		view func(*http.Request) (string, any, error)
 	}{
-		{"/squad", s.squad}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/fixtures", s.fixtures}, {"/cup", s.cup}, {"/playoffs", s.playoffs}, {"/history", s.history},
+		{"/club/{id}", s.clubPage}, {"/club/{id}/{tab}", s.clubPage}, {"/clubs", s.clubs}, {"/player", s.player}, {"/compare", s.compare}, {"/lineup", s.lineup}, {"/table", s.table}, {"/cup", s.cup}, {"/playoffs", s.playoffs}, {"/history", s.history},
 		{"/report", s.reportPage}, {"/live", s.live}, {"/free", s.free}, {"/inbox", s.inbox}, {"/finances", s.finances}, {"/transfers", s.transfers},
 	} {
 		s.mux.HandleFunc("GET "+p.path, s.page(s.needCareer(p.view)))
 	}
+	// The old per-club addresses lead to the club's page.
+	s.mux.HandleFunc("GET /squad", s.redirectToClub("squad"))
+	s.mux.HandleFunc("GET /fixtures", s.redirectToClub("fixtures"))
 	for _, a := range []struct {
 		path string
 		act  func(url.Values) (string, error)
@@ -147,7 +150,11 @@ func (s *server) page(view func(*http.Request) (string, any, error)) http.Handle
 		defer s.mu.Unlock()
 		name, data, err := view(r)
 		if err != nil {
-			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			status := http.StatusInternalServerError
+			if errors.Is(err, errNotFound) {
+				status = http.StatusNotFound
+			}
+			http.Error(rw, err.Error(), status)
 			return
 		}
 		layout := s.layout(name, data)

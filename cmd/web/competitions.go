@@ -126,24 +126,16 @@ type fixtureRow struct {
 
 type fixturesView struct {
 	Club   app.TeamLabel
-	Clubs  []clubOption
 	Season string
 	Rows   []fixtureRow
 	Sort   SortState
 }
 
-func (s *server) fixtures(r *http.Request) (string, any, error) {
-	viewClub := s.club()
-	if cStr := r.URL.Query().Get("club"); cStr != "" {
-		if n, err := strconv.ParseUint(cStr, 10, 64); err == nil && n != 0 {
-			if _, ok := s.w.ClubLabel(ids.ClubID(n)); ok {
-				viewClub = ids.ClubID(n)
-			}
-		}
-	}
+// fixturesOf lists a club's league fixtures, cup ties and play-off ties.
+func (s *server) fixturesOf(r *http.Request, viewClub ids.ClubID) (fixturesView, error) {
 	sc, ok := s.scheduleOf(viewClub)
 	if !ok {
-		return "", nil, errors.New("the club has no season")
+		return fixturesView{}, errors.New("the club has no season")
 	}
 	clubLabel, _ := s.w.ClubLabel(viewClub)
 	sortState := newSortState(r, "round", "asc")
@@ -151,15 +143,6 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 		Club:   clubLabel,
 		Season: fmt.Sprintf("%s season %d", sc.CompetitionName, sc.Season),
 		Sort:   sortState,
-	}
-	for _, c := range s.w.Summary().ClubRows {
-		v.Clubs = append(v.Clubs, clubOption{
-			ID:        c.ID,
-			Name:      c.Name,
-			ShortName: c.ShortName,
-			Selected:  c.ID == viewClub,
-			IsUser:    c.ID == s.club(),
-		})
 	}
 	for _, rd := range sc.Rounds {
 		for _, f := range rd.Fixtures {
@@ -223,7 +206,7 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 		}
 	}
 	sortFixtureRows(v.Rows, sortState.Col, sortState.Dir)
-	return "fixtures", v, nil
+	return v, nil
 }
 
 // --- cup -----------------------------------------------------------------

@@ -354,3 +354,43 @@ func TestPreviewLive(t *testing.T) {
 		t.Fatal("previewed another fixture")
 	}
 }
+
+// A club's seasons list the league and the cups it entered; its moves list
+// who joined and left. Both agree with the other views and change nothing.
+func TestClubSeasonsAndMoves(t *testing.T) {
+	w := newWorld(t, 42)
+	club := w.Summary().ClubRows[0].ID
+	if got := w.ClubSeasons(club); len(got) != 1 || !got[0].League || got[0].Complete || got[0].Standing.Played != 0 {
+		t.Fatalf("seasons before play = %+v, want the league season in progress", got)
+	}
+	if got := w.ClubMoves(club); len(got) != 0 {
+		t.Fatalf("moves before play = %+v", got)
+	}
+	playSeason(t, w)
+	rev := w.Revision()
+	seasons := w.ClubSeasons(club)
+	var league *ClubSeason
+	for i, s := range seasons {
+		if s.League && s.Season.Season == 1 {
+			league = &seasons[i]
+		}
+		if s.Name == "" || (!s.League && s.Stage == "") {
+			t.Fatalf("season without a name or stage: %+v", s)
+		}
+	}
+	if league == nil || !league.Complete || league.Standing.Rank < 1 || league.Standing.Played == 0 {
+		t.Fatalf("league season 1 = %+v", league)
+	}
+	table, _ := w.Table(league.Season)
+	if got := table.Rows[league.Standing.Rank-1].Label.Club; got != club {
+		t.Fatalf("the club's place %d is held by club %d", league.Standing.Rank, got)
+	}
+	for _, m := range w.ClubMoves(club) {
+		if m.PlayerName == "" || (m.Kind == MoveBought || m.Kind == MoveSold) && (m.OtherName == "" || m.Fee <= 0) {
+			t.Fatalf("incomplete move %+v", m)
+		}
+	}
+	if w.Revision() != rev {
+		t.Fatal("the views changed the world")
+	}
+}

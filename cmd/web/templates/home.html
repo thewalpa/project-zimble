@@ -3,7 +3,7 @@
 <h1>{{$d.Season}}</h1>
 <p class="muted lead">{{$d.Played}} of {{$d.Rounds}} rounds played{{if $d.Position}} · you are {{$d.Position}}{{if eq $d.Position 1}}st{{else if eq $d.Position 2}}nd{{else if eq $d.Position 3}}rd{{else}}th{{end}}{{end}} · weekly wages {{$d.WeeklyWage}}</p>
 {{if $d.Window}}<div class="note">{{$d.Window}}{{if $d.Bids}} <b>{{$d.Bids}} bids for your players await your answer.</b>{{end}} <a href="/transfers">Go to the Transfers page.</a>{{if $d.FreeAgents}} <a href="/free">{{$d.FreeAgents}} free agents</a> wait for a club.{{end}}</div>{{end}}
-{{if $d.Expiring}}<div class="note">{{$d.Expiring}} contracts end on {{$d.ContractEnd}} unless renewed. <a href="/squad">Review them on the Squad page.</a></div>{{end}}
+{{if $d.Expiring}}<div class="note">{{$d.Expiring}} contracts end on {{$d.ContractEnd}} unless renewed. <a href="/club/{{.ClubID}}/squad">Review them on the Squad page.</a></div>{{end}}
 <div class="grid">
   <div class="panel">
     {{if $d.Live}}

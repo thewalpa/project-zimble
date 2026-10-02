@@ -151,6 +151,15 @@ th.n .sort-link { justify-content: flex-end; }
 .up { color: var(--good); font-weight: 600; font-size: var(--fs-xs); }
 .refused { color: var(--even); font-size: var(--fs-xs); }
 
+/* A club's page: its name over a submenu of tabs. */
+.club-head h1 { margin-bottom: var(--s1); }
+.club-head .lead { margin-bottom: var(--s2); }
+.tabs { display: flex; gap: var(--s1); flex-wrap: wrap; margin-bottom: var(--s4); border-bottom: 1px solid var(--line); }
+.tabs a { padding: var(--s2) var(--s3); margin-bottom: -1px; border: 1px solid transparent; border-radius: var(--r-md) var(--r-md) 0 0; color: var(--muted); text-decoration: none; font-weight: 600; }
+.tabs a:hover { color: var(--ink); }
+.tabs a[aria-current] { color: var(--accent); background: var(--panel); border-color: var(--line); border-bottom-color: var(--panel); }
+@media (max-width: 900px) { .tabs { flex-wrap: nowrap; overflow-x: auto; } .tabs a { white-space: nowrap; } }
+
 /* Lineups and the pitch */
 .board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); }
 .board-head h2 { margin: 0; }
@@ -298,8 +307,8 @@ table.stats td, table.stats th { width: 33%; }
 {{if .Career}}
 <nav aria-label="Pages">
   <div class="group">{{template "navLink" (navLink .Nav "home" "/" "Home")}}</div>
-  <div class="group"><span>Club</span>{{template "navLink" (navLink .Nav "squad" "/squad" "Squad")}}{{template "navLink" (navLink .Nav "lineup" "/lineup" "Lineup")}}{{template "navLink" (navLink .Nav "finances" "/finances" "Finances")}}</div>
-  <div class="group"><span>Competitions</span>{{template "navLink" (navLink .Nav "table" "/table" "Tables")}}{{template "navLink" (navLink .Nav "fixtures" "/fixtures" "Fixtures")}}{{template "navLink" (navLink .Nav "cup" "/cup" "Cup")}}{{template "navLink" (navLink .Nav "playoffs" "/playoffs" "Play-offs")}}{{template "navLink" (navLink .Nav "history" "/history" "History")}}</div>
+  <div class="group"><span>Club</span>{{template "navLink" (navLink .Nav "club" (printf "/club/%d" .ClubID) "Overview")}}{{template "navLink" (navLink .Nav "squad" (printf "/club/%d/squad" .ClubID) "Squad")}}{{template "navLink" (navLink .Nav "lineup" "/lineup" "Lineup")}}{{template "navLink" (navLink .Nav "fixtures" (printf "/club/%d/fixtures" .ClubID) "Fixtures")}}{{template "navLink" (navLink .Nav "finances" "/finances" "Finances")}}</div>
+  <div class="group"><span>Competitions</span>{{template "navLink" (navLink .Nav "table" "/table" "Tables")}}{{template "navLink" (navLink .Nav "clubs" "/clubs" "Clubs")}}{{template "navLink" (navLink .Nav "cup" "/cup" "Cup")}}{{template "navLink" (navLink .Nav "playoffs" "/playoffs" "Play-offs")}}{{template "navLink" (navLink .Nav "history" "/history" "History")}}</div>
   <div class="group"><span>Market</span>{{template "navLink" (navLink .Nav "transfers" "/transfers" "Transfers")}}{{template "navLink" (navLink .Nav "free" "/free" "Free agents")}}</div>
   <div class="group"><a href="/inbox"{{if eq .Nav "inbox"}} aria-current="page"{{end}}>Inbox{{if .Unread}}<span class="count" title="{{.Unread}} unread">{{.Unread}}</span>{{end}}</a></div>
 </nav>
@@ -320,6 +329,7 @@ table.stats td, table.stats th { width: 33%; }
     {{end}}
   </div>
   {{end}}
+  {{with .ClubHead}}{{template "clubHead" .}}{{end}}
   {{template "content" .}}
 </main>
 </div>
@@ -416,7 +426,7 @@ document.querySelectorAll('table').forEach(function(table) {
 </html>
 {{define "navLink"}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
 {{define "matchLine"}}{{.Name}} v {{.Opponent}}{{end}}
-{{define "club"}}<span class="badge">{{.ShortName}}</span><a href="/squad?club={{.Club}}">{{.ClubName}}</a>{{end}}
+{{define "club"}}<span class="badge">{{.ShortName}}</span><a href="/club/{{.Club}}">{{.ClubName}}</a>{{end}}
 {{define "cond"}}{{.Condition}}%{{if .DaysOut}} <span class="out" title="Injured: misses matches until he recovers">out {{.DaysOut}} d</span>{{end}}{{end}}
 {{define "playerHeads"}}<th>{{sortHeader . "pos" "Pos" "asc"}}</th><th>{{sortHeader . "name" "Name" "asc"}}</th><th>{{sortHeader . "nat" "Nat" "asc"}}</th><th class="n">{{sortHeader . "age" "Age" "asc"}}</th><th class="n">{{sortHeader . "ovr" "OVR" "desc"}}</th><th class="n">{{sortHeader . "cond" "Cond" "desc"}}</th>{{end}}
 {{define "playerCells"}}<td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>{{end}}

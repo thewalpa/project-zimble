@@ -4068,3 +4068,12 @@ Closes the season-review item of the competitions backlog and reviews three deli
 Handoff: [ui--season-review-stop](handoffs/ui--season-review-stop.md). The wider decision-stop contract (renewals, window opening, offers) stays in the backlog with squad and ui and now has `ContinueWith` as its home.
 
 Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`; schema-34 fixture generated with `go test ./internal/storage -run TestSaveFixtures -fixture`.
+
+## ui: club pages (done)
+
+A club now has a page in the web client, `/club/{id}`, with a submenu: Overview (league place and record, form, next and latest match, squad facts and top players, honours, players for sale, and the manager's balance), Squad (the squad table, with the contract controls for the manager's club and the probable lineup for another), Fixtures (league, cup and play-off ties), Transfers (the transfer list and every arrival and departure) and History (each league season and cup edition the club entered, with its place or stage, titles, promotions and relegations). The manager's own club adds Lineup and Finances, which stay pages of their own but carry the same heading and submenu, and the Club group of the navigation follows them. `/clubs` lists every club by league in table order. Every club name in the clients links to its page; `/squad`, `/fixtures` and their `?club=` forms redirect to it, keeping the sort. A missing club or tab answers 404.
+
+Two read-only views in `internal/app/views.go` combine existing queries and add no state: `ClubSeasons` (from `History`, `Table`, `Cup` and `SeasonMove`) and `ClubMoves` (from the retained event journal: transfers, free signings, youth intake, releases, expiries and retirements). Both are tested for consistency with the tables and for not changing the world. Another club's finances are not shown: no query scopes them to an observer.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+

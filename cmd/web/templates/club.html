@@ -1,0 +1,100 @@
+{{define "content"}}
+{{$d := .Data}}
+{{if eq $d.Tab "overview"}}{{template "clubOverview" $d.Overview}}
+{{else if eq $d.Tab "squad"}}{{template "squadTable" $d.Squad}}
+{{else if eq $d.Tab "fixtures"}}{{template "fixtureTable" $d.Fixtures}}
+{{else if eq $d.Tab "transfers"}}{{template "clubTransfers" $d.Transfers}}
+{{else if eq $d.Tab "history"}}{{template "clubHistory" $d.History}}
+{{end}}
+{{end}}
+
+{{define "clubOverview"}}
+<div class="grid">
+  <div class="panel">
+    <h2>{{if .Standing}}{{.Standing.League}}{{else}}League{{end}}</h2>
+    {{with .Standing}}
+    <p class="big">{{.Place}} <span class="muted small">season {{.Season}}{{if .Complete}} · final{{end}}</span></p>
+    <table>
+      <tr><th class="n">P</th><th class="n">W</th><th class="n">D</th><th class="n">L</th><th class="n">GF</th><th class="n">GA</th><th class="n">GD</th><th class="n">Pts</th></tr>
+      <tr><td class="n">{{.P}}</td><td class="n">{{.W}}</td><td class="n">{{.D}}</td><td class="n">{{.L}}</td><td class="n">{{.GF}}</td><td class="n">{{.GA}}</td><td class="n">{{.GD}}</td><td class="n"><b>{{.Pts}}</b></td></tr>
+    </table>
+    {{else}}<p class="muted">No league match has been played yet.</p>{{end}}
+    {{if .Form}}<p>Form {{range .Form}}<span class="pill {{.}}">{{.}}</span> {{end}}</p>{{end}}
+  </div>
+  <div class="panel">
+    <h2>Matches</h2>
+    {{with .Next}}<h3 class="sub">Next</h3><p><b>{{.Name}}</b> v <a href="/club/{{.OpponentClub}}">{{.Opponent}}</a><br><span class="muted">{{.When}}</span></p>{{end}}
+    {{with .Last}}<h3 class="sub">Latest</h3><p><span class="pill {{.Outcome}}">{{.Outcome}}</span> <a href="/report?fixture={{.Fixture}}"><b>{{.Result}}</b></a> v <a href="/club/{{.OpponentClub}}">{{.Opponent}}</a><br><span class="muted">{{.Name}} · {{.When}}</span></p>{{end}}
+    {{if not .Next}}{{if not .Last}}<p class="muted">No matches yet.</p>{{end}}{{end}}
+  </div>
+  <div class="panel">
+    <h2>Squad</h2>
+    <p class="big">{{.Squad.Players}} players <span class="muted small">average overall {{.Squad.Average}}</span></p>
+    <p class="muted small">{{.Squad.Positions}}</p>
+    <table>
+      {{range .Top}}<tr><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n"><b>{{.Overall}}</b></td></tr>{{end}}
+    </table>
+  </div>
+  {{if .Mine}}
+  <div class="panel">
+    <h2>Money</h2>
+    <p class="big">{{.Balance}}</p>
+    <p class="muted">Weekly wage bill {{.Wages}} · <a href="/finances">ledger</a></p>
+  </div>
+  {{end}}
+  <div class="panel">
+    <h2>Honours</h2>
+    {{if .Honours}}<ul class="plain">{{range .Honours}}<li>{{.}}</li>{{end}}</ul>{{else}}<p class="muted">No titles yet.</p>{{end}}
+  </div>
+  {{if .Listed}}
+  <div class="panel">
+    <h2>For sale</h2>
+    <table>{{range .Listed}}<tr><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td></tr>{{end}}</table>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{define "clubTransfers"}}
+{{if .Listed}}
+<div class="panel">
+  <h2>On the transfer list</h2>
+  <table>
+    <tr><th>Pos</th><th>Name</th><th class="n">Age</th><th class="n">OVR</th><th class="n">Asking price</th></tr>
+    {{range .Listed}}<tr><td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{.Value}}</td></tr>{{end}}
+  </table>
+  {{if not .Mine}}<p class="muted small">Make a bid on the <a href="/transfers">Transfers</a> page.</p>{{end}}
+</div>
+{{end}}
+<div class="panel scroll">
+  <h2>Arrivals and departures</h2>
+  {{if .Moves}}
+  <table>
+    <tr><th>Date</th><th>What</th><th>Player</th><th>Club</th><th class="n">Fee</th></tr>
+    {{range .Moves}}<tr><td>{{.When}}</td><td>{{.What}}</td><td><a href="/player?id={{.Player}}">{{.PlayerName}}</a></td><td>{{if .Other}}<a href="/club/{{.Other}}">{{.OtherName}}</a>{{end}}</td><td class="n">{{.Fee}}</td></tr>{{end}}
+  </table>
+  {{else}}<p class="muted">Nobody has joined or left the club yet.</p>{{end}}
+  {{if .Mine}}<p class="muted small">Bids, offers and the market are on the <a href="/transfers">Transfers</a> page.</p>{{end}}
+</div>
+{{end}}
+
+{{define "clubHistory"}}
+<div class="grid stack">
+  <div class="panel"><span class="muted">League titles</span><p class="big">{{.Titles}}</p></div>
+  <div class="panel"><span class="muted">Cups won</span><p class="big">{{.Cups}}</p></div>
+  <div class="panel"><span class="muted">Seasons played</span><p class="big">{{.Seasons}}</p></div>
+</div>
+<div class="panel scroll">
+  <h2>Seasons</h2>
+  <table>
+    <tr><th class="n">Season</th><th>Competition</th><th>Place</th><th>Record</th><th></th></tr>
+    {{range .Rows}}<tr>
+      <td class="n">{{.Season}}</td>
+      <td><a href="/history?competition={{.Competition}}&amp;season={{.Season}}">{{.Name}}</a></td>
+      <td>{{.Place}}</td>
+      <td class="muted">{{if .InProgress}}in progress{{if .Record}} · {{end}}{{end}}{{.Record}}</td>
+      <td>{{if .Note}}<b>{{.Note}}</b>{{end}}</td>
+    </tr>{{end}}
+  </table>
+</div>
+{{end}}

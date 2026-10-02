@@ -3,7 +3,7 @@
 {{if $d.Missing}}<h1>Player</h1><p class="muted">{{$d.Missing}}</p>{{else}}
 <h1>{{$d.Name}}</h1>
 <p><a class="button" href="/compare?a={{$d.Player}}">Compare players</a></p>
-<p class="muted lead">{{$d.Position}} · age {{$d.Age}}{{if $d.Nationality}} · {{$d.Nationality}}{{end}}{{if $d.Retired}} · retired{{else if not $d.Club}} · free agent{{else}} · <a href="/squad?club={{$d.Club}}">{{$d.ClubName}}</a>{{if $d.IsMine}} (You){{end}}{{end}}</p>
+<p class="muted lead">{{$d.Position}} · age {{$d.Age}}{{if $d.Nationality}} · {{$d.Nationality}}{{end}}{{if $d.Retired}} · retired{{else if not $d.Club}} · free agent{{else}} · <a href="/club/{{$d.Club}}">{{$d.ClubName}}</a>{{if $d.IsMine}} (You){{end}}{{end}}</p>
 <div class="panel scroll">
 <table>
   <tr><th class="n">OVR</th><th class="n">GK</th><th class="n">DEF</th><th class="n">PAS</th><th class="n">FIN</th><th class="n">PAC</th><th class="n">STA</th><th class="n">DRI</th><th class="n">HEA</th><th class="n">STR</th><th class="n">ACC</th><th class="n">PSN</th>{{if not $d.Retired}}<th class="n">Cond</th>{{end}}</tr>
@@ -15,7 +15,7 @@
 <div class="panel scroll">
 <table>
   <tr><th>Club</th><th>From</th><th>Until</th><th>Joined</th><th>Left</th><th class="n" title="Appearances">Apps</th><th class="n">Goals</th></tr>
-  {{range $d.Career}}<tr><td><a href="/squad?club={{.ClubID}}">{{.Club}}</a></td><td>{{.From}}</td><td>{{.Until}}</td><td>{{.Joined}}</td><td>{{.Left}}</td><td class="n">{{.Appearances}}</td><td class="n">{{.Goals}}</td></tr>{{end}}
+  {{range $d.Career}}<tr><td><a href="/club/{{.ClubID}}">{{.Club}}</a></td><td>{{.From}}</td><td>{{.Until}}</td><td>{{.Joined}}</td><td>{{.Left}}</td><td class="n">{{.Appearances}}</td><td class="n">{{.Goals}}</td></tr>{{end}}
   {{with $d.Total}}<tr><th colspan="5">Total</th><th class="n">{{.Appearances}}</th><th class="n">{{.Goals}}</th></tr>{{end}}
 </table>
 </div>

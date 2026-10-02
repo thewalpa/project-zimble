@@ -1,7 +1,7 @@
 ---
 to: ui
 from: squad
-status: open
+status: accepted
 blocking: no
 created: 2026-10-02
 ---
@@ -22,3 +22,6 @@ Review both ledger views and cover the cup prize label and fixture reference in 
 
 ## Done when
 A seed-42 career played through season 2 shows `cup prize` for a cup entrant with the correct amount and last tie in both clients; reload keeps the same row. Schema 32 refuses prior saves explicitly.
+
+## Answer
+Accepted into the ui backlog (2026-10-02), after the club pages.

@@ -1,0 +1,16 @@
+{{define "content"}}
+<h1>Clubs</h1>
+<p class="muted lead">Every club by league, in table order. Open one for its squad, fixtures, transfers and history.</p>
+{{range .Data}}
+<div class="panel scroll">
+  <h2>{{.League}}</h2>
+  <table>
+    <tr><th class="n">#</th><th>Club</th><th>Nation</th><th class="n">P</th><th class="n">Pts</th><th class="n">Players</th><th class="n">Avg OVR</th></tr>
+    {{range .Rows}}<tr{{if .Mine}} class="me"{{end}}>
+      <td class="n">{{.Place}}</td><td><span class="badge">{{.Short}}</span><a href="/club/{{.ID}}">{{.Name}}</a>{{if .Mine}} (You){{end}}</td><td>{{.Nation}}</td>
+      <td class="n">{{.Played}}</td><td class="n">{{.Points}}</td><td class="n">{{.Players}}</td><td class="n">{{.Average}}</td>
+    </tr>{{end}}
+  </table>
+</div>
+{{end}}
+{{end}}

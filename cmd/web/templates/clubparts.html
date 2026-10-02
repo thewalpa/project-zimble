@@ -1,15 +1,13 @@
-{{define "content"}}
-{{$d := .Data}}{{$rev := .Rev}}
-<h1>{{if $d.IsUserClub}}Squad{{else}}{{$d.Club.ClubName}} squad{{end}}</h1>
-<p class="muted lead">{{if $d.IsUserClub}}{{template "attrLegend"}} Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire. {{$d.SquadText}}{{else}}{{template "attrLegend"}}{{end}}</p>
-{{if $d.Clubs}}
-<div class="picker">
-  <span class="muted small">Club:</span>
-  {{range $d.Clubs}}
-    <a class="button{{if .Selected}} primary{{end}}" href="/squad?club={{.ID}}" title="{{.Name}}, {{.Nation}}">{{.ShortName}}{{if .IsUser}} (You){{end}}</a>
-  {{end}}
+{{define "clubHead"}}
+<div class="club-head">
+  <h1>{{.Name}}{{if .Mine}} <span class="muted small">(You)</span>{{end}}</h1>
+  <p class="muted lead">{{.Nation}}</p>
 </div>
+<div class="tabs" role="tablist" aria-label="{{.Name}}">{{range .Tabs}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}</div>
 {{end}}
+{{define "squadTable"}}
+{{$d := .}}{{$rev := .Rev}}
+<p class="muted lead">{{if $d.IsUserClub}}{{template "attrLegend"}} Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire. {{$d.SquadText}}{{else}}{{template "attrLegend"}}{{end}}</p>
 {{with $d.Probable}}{{template "pitchPanel" .}}{{end}}
 <div class="toolbar">{{template "ratingsToggle"}}</div>
 <div class="panel scroll">
@@ -52,6 +50,30 @@
       </form>
     </td>
     {{end}}
+  </tr>
+  {{end}}
+</table>
+</div>
+{{end}}
+{{define "fixtureTable"}}
+{{$d := .}}
+<p class="muted">{{$d.Season}}</p>
+<div class="panel scroll">
+<table>
+  <tr>
+    <th>{{sortHeader $d.Sort "round" "Round" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "when" "Kickoff" "asc"}}</th>
+    <th>{{sortHeader $d.Sort "opp" "Opponent" "asc"}}</th>
+    <th class="n">{{sortHeader $d.Sort "score" "Score" "desc"}}</th>
+    <th>{{sortHeader $d.Sort "outcome" "Outcome" "asc"}}</th>
+  </tr>
+  {{range $d.Rows}}
+  <tr>
+    <td>{{.Name}}</td>
+    <td>{{.When}}</td>
+    <td><a href="/club/{{.OpponentClub}}">{{.Opponent}}</a></td>
+    <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}"><b>{{.Result}}</b></a>{{else}}<span class="muted">-</span>{{end}}</td>
+    <td>{{if .Outcome}}<a href="/report?fixture={{.Fixture}}"><span class="pill {{.Outcome}}">{{.Outcome}}</span></a>{{end}}</td>
   </tr>
   {{end}}
 </table>
