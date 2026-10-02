@@ -1,7 +1,8 @@
 // Command web serves the career game as a small local web app: one managed
 // club, played in the browser. Pages are rendered on the server from the
 // same queries as any other client, and every change is one of the same
-// commands (see server.go); the browser needs no JavaScript.
+// commands (see server.go). JavaScript makes the pages dynamic (drag and
+// drop, the live replay, sorting); the server answers only with HTML.
 //
 //	go run ./cmd/web                  # new career: random seed, choose a club in the browser
 //	go run ./cmd/web -seed 42 -club 3

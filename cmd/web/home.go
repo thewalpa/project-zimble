@@ -154,18 +154,6 @@ func (s *server) home(r *http.Request) (string, any, error) {
 			if r.Status == competitions.RoundCompleted {
 				v.Played++
 			}
-			for _, f := range r.Fixtures {
-				if f.Home.Club != s.club() && f.Away.Club != s.club() {
-					continue
-				}
-				fv := &fixtureView{Name: fmt.Sprintf("Round %d", r.Round), Round: int(r.Round), Opponent: s.opponent(f), When: cal.Format(r.Kickoff), kickoff: r.Kickoff}
-				switch {
-				case r.Status == competitions.RoundAwaitingResults && v.Matchday == nil:
-					v.Matchday = fv
-				case r.Status == competitions.RoundScheduled && v.Next == nil:
-					v.Next = fv
-				}
-			}
 		}
 		if t, ok := s.w.Table(competitions.SeasonRef{Competition: sc.Competition, Season: sc.Season}); ok && t.RoundsCompleted > 0 {
 			for _, row := range t.Rows {
@@ -175,39 +163,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 			}
 		}
 	}
-	// A cup tie may be the matchday, or come before the next league match.
-	for _, c := range s.w.Cups() {
-		for _, r := range c.Rounds {
-			for _, f := range r.Ties {
-				if f.Home.Club != s.club() && f.Away.Club != s.club() {
-					continue
-				}
-				fv := &fixtureView{Name: c.Name + " " + r.Name, Round: int(r.Round), Opponent: s.opponent(f), When: cal.Format(r.Kickoff), kickoff: r.Kickoff}
-				switch {
-				case r.Status == competitions.RoundAwaitingResults && v.Matchday == nil:
-					v.Matchday = fv
-				case r.Status == competitions.RoundScheduled && (v.Next == nil || r.Kickoff < v.Next.kickoff):
-					v.Next = fv
-				}
-			}
-		}
-	}
-	for _, p := range s.w.Playoffs() {
-		for _, r := range p.Rounds {
-			for _, f := range r.Ties {
-				if f.Home.Club != s.club() && f.Away.Club != s.club() {
-					continue
-				}
-				fv := &fixtureView{Name: p.Name, Round: int(r.Round), Opponent: s.opponent(f), When: cal.Format(r.Kickoff), kickoff: r.Kickoff}
-				switch {
-				case r.Status == competitions.RoundAwaitingResults && v.Matchday == nil:
-					v.Matchday = fv
-				case r.Status == competitions.RoundScheduled && (v.Next == nil || r.Kickoff < v.Next.kickoff):
-					v.Next = fv
-				}
-			}
-		}
-	}
+	v.Matchday, v.Next = s.upcoming()
 	if v.Matchday != nil {
 		if fix, ok := s.pendingFixture(); ok {
 			if ml, err := s.w.MatchdayLineup(fix); err == nil {
@@ -216,9 +172,7 @@ func (s *server) home(r *http.Request) (string, any, error) {
 			}
 		}
 	}
-	if l, live := s.w.LiveMatch(); live {
-		v.Live = fmt.Sprintf("%d'  %s %d-%d %s", l.Position.Minute, l.Home.ClubName, l.View.Score[0], l.View.Score[1], l.Away.ClubName)
-	}
+	v.Live = s.liveLine()
 	msgs := s.messages()
 	v.Inbox = msgs[max(len(msgs)-8, 0):]
 	slices.Reverse(v.Inbox)
@@ -234,6 +188,57 @@ func (s *server) home(r *http.Request) (string, any, error) {
 		}
 	}
 	return "home", v, nil
+}
+
+// upcoming finds the club's matchday waiting for its result and its next
+// scheduled match, in its league, a cup or a play-off. A cup tie or a
+// play-off may come before the next league match.
+func (s *server) upcoming() (matchday, next *fixtureView) {
+	cal := s.w.Calendar()
+	consider := func(name string, round int, status competitions.RoundStatus, kickoff sim.GameInstant, f app.FixtureLine) {
+		if f.Home.Club != s.club() && f.Away.Club != s.club() {
+			return
+		}
+		fv := &fixtureView{Name: name, Round: round, Opponent: s.opponent(f), When: cal.Format(kickoff), kickoff: kickoff}
+		switch {
+		case status == competitions.RoundAwaitingResults && matchday == nil:
+			matchday = fv
+		case status == competitions.RoundScheduled && (next == nil || kickoff < next.kickoff):
+			next = fv
+		}
+	}
+	if sc, ok := s.userSchedule(); ok {
+		for _, r := range sc.Rounds {
+			for _, f := range r.Fixtures {
+				consider(fmt.Sprintf("Round %d", r.Round), int(r.Round), r.Status, r.Kickoff, f)
+			}
+		}
+	}
+	for _, c := range s.w.Cups() {
+		for _, r := range c.Rounds {
+			for _, f := range r.Ties {
+				consider(c.Name+" "+r.Name, int(r.Round), r.Status, r.Kickoff, f)
+			}
+		}
+	}
+	for _, p := range s.w.Playoffs() {
+		for _, r := range p.Rounds {
+			for _, f := range r.Ties {
+				consider(p.Name, int(r.Round), r.Status, r.Kickoff, f)
+			}
+		}
+	}
+	return matchday, next
+}
+
+// liveLine is the manager's match in progress, e.g. "34'  Quillford FC 1-0
+// Brackenmoor Town", or "" when none is.
+func (s *server) liveLine() string {
+	l, live := s.w.LiveMatch()
+	if !live {
+		return ""
+	}
+	return fmt.Sprintf("%d'  %s %d-%d %s", l.Position.Minute, l.Home.ClubName, l.View.Score[0], l.View.Score[1], l.Away.ClubName)
 }
 
 // reportOf summarizes a resolved matchday: the club's match with its

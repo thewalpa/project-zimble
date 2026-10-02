@@ -15,20 +15,20 @@
   </div>
 {{else}}
   <div class="panel">
-    <p class="muted" style="margin-top:0;">{{$d.Context}} · {{$d.Kickoff}}</p>
-    <div style="display:flex; align-items:center; justify-content:center; gap:20px; margin: 16px 0; text-align:center;">
-      <div style="flex:1; text-align:right;">
-        <div style="font-size:20px; font-weight:700;"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
-        {{if $d.HomeSelected}}<div class="muted" style="font-size:13px;">{{$d.HomeSelected}}</div>{{end}}
+    <p class="muted small">{{$d.Context}} · {{$d.Kickoff}}</p>
+    <div class="scoreboard">
+      <div class="team home">
+        <a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a>
+        {{if $d.HomeSelected}}<div class="selected">{{$d.HomeSelected}}</div>{{end}}
       </div>
-      <div style="display:inline-flex; align-items:center; gap:10px;">
+      <div class="result">
         {{if $d.Outcome}}<span class="pill {{$d.Outcome}}">{{$d.Outcome}}</span>{{end}}
-        <span style="font-size:32px; font-weight:800; letter-spacing:2px; font-variant-numeric:tabular-nums;">{{index $d.Score 0}} - {{index $d.Score 1}}</span>
+        <span class="score">{{index $d.Score 0}} - {{index $d.Score 1}}</span>
         {{if $d.Penalties}}<span class="muted">{{$d.Penalties}}</span>{{end}}
       </div>
-      <div style="flex:1; text-align:left;">
-        <div style="font-size:20px; font-weight:700;"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
-        {{if $d.AwaySelected}}<div class="muted" style="font-size:13px;">{{$d.AwaySelected}}</div>{{end}}
+      <div class="team">
+        <a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a>
+        {{if $d.AwaySelected}}<div class="selected">{{$d.AwaySelected}}</div>{{end}}
       </div>
     </div>
   </div>

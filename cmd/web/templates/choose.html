@@ -2,7 +2,7 @@
 {{$d := .Data}}
 {{if $d.Saves}}
 <h1>Saved careers</h1>
-<p class="muted">Resume a previously saved career, or choose a club below to start a new one.</p>
+<p class="muted lead">Resume a previously saved career, or choose a club below to start a new one.</p>
 <div class="panel scroll">
 <table>
   <tr>
@@ -42,8 +42,8 @@
 {{end}}
 
 <h1>New career</h1>
-<p class="muted">World seed {{$d.Seed}}. Choose the club you will manage; OVR is the squad's average rating (1–100).</p>
-<form class="inline" method="get" action="/">
+<p class="muted lead">World seed {{$d.Seed}}. Choose the club you will manage; OVR is the squad's average rating (1–100).</p>
+<form class="toolbar" method="get" action="/">
   <label>Match engine
     <select name="engine">{{range $d.Engines}}<option value="{{.}}"{{if eq . $d.Engine}} selected{{end}}>{{.}}</option>{{end}}</select>
   </label>

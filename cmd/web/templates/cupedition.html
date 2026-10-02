@@ -1,13 +1,13 @@
 {{define "cupedition"}}
 {{$cup := .}}
 <h1>{{.Name}} {{.Edition}}</h1>
-<p class="muted">The top four of each league; the champions can meet only in the final. The better-placed team hosts the quarter-final.{{if .Mine}} Your club is in it.{{end}}</p>
+<p class="muted lead">The top four of each league; the champions can meet only in the final. The better-placed team hosts the quarter-final.{{if .Mine}} Your club is in it.{{end}}</p>
 {{if .Champion}}<div class="note">Won by <b>{{.Champion.ClubName}}</b>.</div>{{end}}
 <div class="grid">
   {{range .Rounds}}
   <div class="panel">
     <h2>{{.Title}}</h2>
-    <p class="muted" style="margin-top:0">{{.When}}</p>
+    <p class="muted small">{{.When}}</p>
     {{if .Ties}}
     <table>
       <tr>
@@ -16,11 +16,7 @@
         <th>{{sortHeader $cup.Sort "away" "Away" "asc"}}</th>
       </tr>
       {{range .Ties}}
-      <tr {{if .Mine}}class="me"{{end}}>
-        <td>{{if .HomeWins}}<b>{{.Home.ClubName}}</b>{{else}}{{.Home.ClubName}}{{end}}</td>
-        <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
-        <td>{{if .AwayWins}}<b>{{.Away.ClubName}}</b>{{else}}{{.Away.ClubName}}{{end}}</td>
-      </tr>
+      {{template "tieRow" .}}
       {{end}}
     </table>
     {{else}}<p class="muted">To be decided.</p>{{end}}
@@ -30,18 +26,14 @@
 {{end}}
 {{define "playoffedition"}}
 <h1>{{.Title}} season {{.Edition}}</h1>
-<p class="muted">The boundary places of {{.Upper}} and {{.Lower}} meet in single matches, the lower-placed {{.Upper}} team at home; a level match goes to penalties. Each tie's winner plays in {{.Upper}} next season, its loser in {{.Lower}}.{{if .Mine}} Your club is in it.{{end}}</p>
+<p class="muted lead">The boundary places of {{.Upper}} and {{.Lower}} meet in single matches, the lower-placed {{.Upper}} team at home; a level match goes to penalties. Each tie's winner plays in {{.Upper}} next season, its loser in {{.Lower}}.{{if .Mine}} Your club is in it.{{end}}</p>
 <div class="panel">
-  <p class="muted" style="margin-top:0">{{.Ties.When}}{{if .Complete}} · decided{{end}}</p>
+  <p class="muted small">{{.Ties.When}}{{if .Complete}} · decided{{end}}</p>
   {{if .Ties.Ties}}
   <table>
     <tr><th>Home</th><th class="n">Result</th><th>Away</th></tr>
     {{range .Ties.Ties}}
-    <tr {{if .Mine}}class="me"{{end}}>
-      <td>{{if .HomeWins}}<b>{{.Home.ClubName}}</b>{{else}}{{.Home.ClubName}}{{end}}</td>
-      <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
-      <td>{{if .AwayWins}}<b>{{.Away.ClubName}}</b>{{else}}{{.Away.ClubName}}{{end}}</td>
-    </tr>
+    {{template "tieRow" .}}
     {{end}}
   </table>
   {{else}}<p class="muted">To be decided.</p>{{end}}

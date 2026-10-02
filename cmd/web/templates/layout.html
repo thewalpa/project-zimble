@@ -6,94 +6,174 @@
 <title>{{if .Career}}{{.Club.ClubName}} · {{end}}Zimble</title>
 <style>
 :root {
-  --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #e3e6ec;
-  --accent: #1f6feb; --accent-ink: #ffffff; --good: #1a7f37; --bad: #cf222e; --even: #9a6700;
-  --note: #eaf2ff; --error: #ffebe9;
-  --pitch: #2f7d3a; --pitch-stripe: #2b7336; --pitch-line: rgba(255, 255, 255, .6); --chip: #ffffff; --chip-ink: #1d2330;
-  --kit-home: #d93036; --kit-away: #f5f7fa; --kit-edge: #1d2330; --ball: #ffd33d;
+  /* colour */
+  --bg: #f3f5f4; --panel: #ffffff; --ink: #18211c; --muted: #5f6b66; --line: #dfe5e2; --row-hover: #f3f7f5;
+  --accent: #1f5fbf; --accent-ink: #ffffff; --good: #1a7f37; --bad: #cf222e; --even: #9a6700;
+  --note: #e9f1fc; --error: #ffebe9;
+  --band: #14321f; --band-ink: #f2f6f1; --band-muted: #a7bdab; --band-line: rgba(255, 255, 255, .16); --go: #ffd33d; --go-ink: #18211c;
+  --pitch: #2f7d3a; --pitch-stripe: #2b7336; --pitch-line: rgba(255, 255, 255, .6); --chip: #ffffff; --chip-ink: #18211c;
+  --kit-home: #d93036; --kit-away: #f5f7fa; --kit-edge: #18211c; --ball: #ffd33d;
+  /* type: a condensed signage face for names and scores, the system face for reading */
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: Bahnschrift, "DIN Alternate", "DIN Condensed", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --fs-xs: 12px; --fs-sm: 13px; --fs-table: 14px; --fs-md: 15px; --fs-lg: 17px; --fs-xl: 22px; --fs-2xl: 30px;
+  /* space */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px; --s8: 32px; --s12: 48px;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 10px;
+  --nav-w: 188px;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1218; --panel: #171b23; --ink: #e6e9ef; --muted: #98a2b3; --line: #2a303b;
-    --accent: #4c8dff; --accent-ink: #0b0d12; --good: #3fb950; --bad: #f85149; --even: #d29922;
-    --note: #16233a; --error: #3a1a1c;
-    --pitch: #1c4524; --pitch-stripe: #193e20; --pitch-line: rgba(255, 255, 255, .32); --chip: #232a35; --chip-ink: #e6e9ef;
+    --bg: #0f1311; --panel: #171c19; --ink: #e5eae6; --muted: #98a59e; --line: #29312d; --row-hover: #1d2420;
+    --accent: #5b9bff; --accent-ink: #0b0d12; --good: #3fb950; --bad: #f85149; --even: #d29922;
+    --note: #162338; --error: #3a1a1c;
+    --band: #0c1f13; --band-ink: #e9efe8; --band-muted: #8fa797; --band-line: rgba(255, 255, 255, .12);
+    --pitch: #1c4524; --pitch-stripe: #193e20; --pitch-line: rgba(255, 255, 255, .32); --chip: #222a26; --chip-ink: #e5eae6;
     --kit-home: #e5534b; --kit-away: #d8dde6; --kit-edge: #0b0d12; --ball: #ffd33d;
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-header { background: var(--panel); border-bottom: 1px solid var(--line); }
-.bar { padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
-.brand { font-weight: 700; font-size: 18px; }
-.brand small { font-weight: 400; color: var(--muted); margin-left: 6px; }
-.facts { color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
-.spacer { flex: 1; }
-nav { padding: 0 16px; display: flex; gap: 4px; flex-wrap: wrap; }
-nav a { padding: 8px 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
-nav a.on { color: var(--ink); border-bottom-color: var(--accent); }
-main { padding: 20px 16px 48px; }
-h1 { font-size: 22px; margin: 0 0 12px; }
-h2 { font-size: 17px; margin: 0 0 10px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: var(--fs-md)/1.45 var(--font); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The shell: the club band on top, grouped navigation beside the page. */
+.shell { display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); grid-template-areas: "band band" "nav main"; min-height: 100vh; }
+.shell.bare { grid-template-columns: minmax(0, 1fr); grid-template-areas: "band" "main"; }
+.band { grid-area: band; background: var(--band); color: var(--band-ink); padding: var(--s3) var(--s4); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s5); }
+.band a { color: inherit; }
+.crest { display: flex; align-items: baseline; gap: var(--s2); text-decoration: none; font-family: var(--font-display); }
+.crest .club { font-size: var(--fs-xl); font-weight: 700; letter-spacing: .01em; }
+.crest .code { font-size: var(--fs-sm); font-weight: 700; padding: 1px var(--s1); border: 1px solid var(--band-line); border-radius: var(--r-sm); color: var(--band-muted); }
+.fixture { font-family: var(--font-display); font-size: var(--fs-lg); display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s2); }
+.fixture .tag { font-size: var(--fs-sm); font-weight: 700; color: var(--band-muted); }
+.fixture .tag.now { color: var(--go); }
+.fixture .kick { font-family: var(--font); font-size: var(--fs-sm); color: var(--band-muted); }
+.facts { color: var(--band-muted); font-size: var(--fs-sm); display: flex; gap: var(--s3); flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.facts .unsaved { color: var(--go); }
+.controls { margin-left: auto; display: flex; gap: var(--s2); align-items: center; }
+.band button, .band .button { background: transparent; color: var(--band-ink); border-color: var(--band-line); }
+.band button.go { background: var(--go); border-color: var(--go); color: var(--go-ink); font-weight: 700; padding: var(--s2) var(--s5); }
+.save-as { position: relative; }
+.save-as > summary { list-style: none; cursor: pointer; }
+.save-as > summary::-webkit-details-marker { display: none; }
+.save-as .panel { position: absolute; right: 0; top: 100%; margin-top: var(--s2); z-index: 100; min-width: 240px; color: var(--ink); box-shadow: 0 6px 18px rgba(0, 0, 0, .22); }
+.save-as input[type=text] { width: 100%; margin: var(--s2) 0; }
+.save-as button { width: 100%; }
+
+nav { grid-area: nav; position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: var(--s4) var(--s2); border-right: 1px solid var(--line); background: var(--panel); }
+@media (min-width: 901px) { nav { min-height: calc(100vh - 64px); } }
+nav .group { margin-bottom: var(--s3); }
+nav .group > span { display: block; padding: var(--s1) var(--s3); font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+nav a { display: block; padding: 5px var(--s3); border-radius: var(--r-sm); color: var(--ink); text-decoration: none; }
+nav a:hover { background: var(--row-hover); }
+nav a[aria-current] { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 600; }
+nav .count { float: right; min-width: 1.6em; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: var(--fs-xs); font-weight: 700; text-align: center; }
+main { grid-area: main; min-width: 0; padding: var(--s5) var(--s4) var(--s12); }
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "band" "nav" "main"; }
+  nav { position: static; max-height: none; min-height: 0; display: flex; gap: var(--s1); overflow-x: auto; padding: var(--s1) var(--s2); border-right: 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  nav .group { display: flex; align-items: center; gap: 2px; margin: 0; padding-left: var(--s2); border-left: 1px solid var(--line); }
+  nav .group:first-child { border-left: 0; padding-left: 0; }
+  nav .group > span { padding: 0 var(--s1); }
+  nav a { padding: var(--s2) var(--s2); }
+  nav .count { float: none; margin-left: var(--s1); }
+  .controls { margin-left: 0; }
+}
+
+/* Page content */
+h1 { font: 700 var(--fs-xl)/1.2 var(--font-display); margin: 0 0 var(--s3); }
+h2 { font: 700 var(--fs-lg)/1.25 var(--font-display); margin: 0 0 var(--s2); }
 .muted { color: var(--muted); }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s4); margin-bottom: var(--s4); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s4); }
 .grid .panel { margin-bottom: 0; }
-.note { padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; background: var(--note); }
+.grid.stack { margin-bottom: var(--s4); }
+.section { margin-top: var(--s4); }
+h3.sub { font-size: var(--fs-sm); font-weight: 600; color: var(--muted); margin: var(--s3) 0 var(--s1); }
+.split { display: flex; justify-content: space-between; align-items: center; gap: var(--s2); }
+.note { padding: var(--s2) var(--s3); border-radius: var(--r-md); margin-bottom: var(--s3); background: var(--note); }
 .note.error { background: var(--error); }
+.lead { margin: 0 0 var(--s3); max-width: 80ch; }
+.small { font-size: var(--fs-sm); }
+
+/* Tables: compact rows; long ones scroll inside their panel under a sticky header. */
 .scroll { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; }
-th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 600; font-size: 13px; }
+@media (min-width: 901px) {
+  .scroll { overflow: auto; max-height: calc(100vh - 150px); }
+  .scroll tr:first-child > th { position: sticky; top: 0; z-index: 1; background: var(--panel); box-shadow: inset 0 -1px 0 var(--line); }
+}
+table { border-collapse: collapse; width: 100%; font-size: var(--fs-table); }
+th, td { padding: 4px var(--s2); text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: var(--fs-sm); }
+tr:hover > td { background: var(--row-hover); }
 td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+td a { text-decoration: none; }
+td a:hover { text-decoration: underline; }
 tr.me td { font-weight: 700; }
 tr.final td { background: color-mix(in srgb, var(--even) 10%, transparent); }
-button, .button { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+td.win { font-weight: 700; }
+.badge { display: inline-block; min-width: 3.2em; margin-right: var(--s1); padding: 0 var(--s1); border: 1px solid var(--line); border-radius: var(--r-sm); font: 700 var(--fs-xs)/1.5 var(--font-display); color: var(--muted); text-align: center; }
+:root.hide-ratings .attr { display: none; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+[data-ratings-toggle] { display: none; }
+:root.js [data-ratings-toggle] { display: inline-block; }
+
+button, .button { font: inherit; padding: 6px var(--s3); border-radius: var(--r-md); border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
 button.primary, .button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 button:disabled { opacity: .5; cursor: not-allowed; }
-input, select { font: inherit; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+table button { padding: 2px var(--s2); font-size: var(--fs-sm); }
+input, select { font: inherit; padding: 4px var(--s2); border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+table input, table select { padding: 2px 6px; font-size: var(--fs-sm); }
 input.wage { width: 7em; }
 form.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
-.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.pill { display: inline-block; min-width: 1.8em; text-align: center; padding: 1px 6px; border-radius: 999px; font-weight: 700; font-size: 12px; color: #fff; }
+.actions { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: var(--s3); }
+.actions.center { justify-content: center; }
+input.minute { width: 5em; }
+input.scrub { flex: 1; min-width: 120px; }
+.picker { display: flex; gap: var(--s1); flex-wrap: wrap; align-items: center; margin-bottom: var(--s3); }
+.picker .button { padding: 3px var(--s2); font: 700 var(--fs-sm) var(--font-display); }
+.pill { display: inline-block; min-width: 1.8em; text-align: center; padding: 1px 6px; border-radius: 999px; font-weight: 700; font-size: var(--fs-xs); color: #fff; }
 .W { background: var(--good); } .D { background: var(--even); } .L { background: var(--bad); }
-.big { font-size: 20px; font-weight: 700; }
+.big { font: 700 var(--fs-xl)/1.25 var(--font-display); margin: var(--s1) 0; }
 ul.plain { list-style: none; margin: 0; padding: 0; }
 ul.plain li { padding: 5px 0; border-bottom: 1px solid var(--line); }
 ul.plain li:last-child { border-bottom: 0; }
-.unread { font-weight: 600; border-left: 3px solid var(--accent); padding-left: 8px; }
-.when { color: var(--muted); font-size: 13px; display: block; }
-.sort-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+.unread { font-weight: 600; border-left: 3px solid var(--accent); padding-left: var(--s2); }
+.when { color: var(--muted); font-size: var(--fs-sm); display: block; }
+.sort-link { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: var(--s1); user-select: none; }
 .sort-link:hover { color: var(--ink); text-decoration: underline; }
 th.n .sort-link { justify-content: flex-end; }
-.sort-icon { font-size: 11px; line-height: 1; }
+.sort-icon { font-size: 10px; line-height: 1; }
 .sort-icon.asc, .sort-icon.desc { color: var(--accent); font-weight: 700; }
 .sort-link.active { color: var(--ink); font-weight: 700; }
-.out { color: var(--bad); font-weight: 600; font-size: 12px; }
-.up { color: var(--good); font-weight: 600; font-size: 12px; }
-.refused { color: var(--even); font-size: 12px; }
-.board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.out { color: var(--bad); font-weight: 600; font-size: var(--fs-xs); }
+.up { color: var(--good); font-weight: 600; font-size: var(--fs-xs); }
+.refused { color: var(--even); font-size: var(--fs-xs); }
+
+/* Lineups and the pitch */
+.board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); }
 .board-head h2 { margin: 0; }
-.board-hint { margin: 6px 0 12px; font-size: 13px; }
+.board-hint { margin: 6px 0 var(--s3); font-size: var(--fs-sm); }
 .lineup-board:not(.js) .js-only, .lineup-board.js .nojs-only { display: none; }
-.board { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+.board { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--s4); }
 @media (max-width: 760px) { .board { grid-template-columns: minmax(0, 1fr); } }
-.board h3 { font-size: 14px; margin: 0 0 6px; color: var(--muted); }
-.pitch { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 8px 4px; border-radius: 8px;
+.board h3 { font-size: var(--fs-sm); margin: 0 0 6px; color: var(--muted); }
+.pitch { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: var(--s1); padding: var(--s2) var(--s1); border-radius: var(--r-md);
   border: 2px solid var(--pitch-line); background: repeating-linear-gradient(180deg, var(--pitch) 0 10%, var(--pitch-stripe) 10% 20%); }
 .pitch .mark { position: absolute; pointer-events: none; border: 2px solid var(--pitch-line); }
 .pitch .half { left: 0; right: 0; top: 50%; border-width: 2px 0 0; }
 .pitch .circle { left: 50%; top: 50%; width: 80px; height: 80px; margin: -40px 0 0 -40px; border-radius: 50%; }
 .pitch .box { left: 22%; right: 22%; bottom: -2px; height: 15%; }
 .pitch .box.top { top: -2px; bottom: auto; }
-.zone.line { position: relative; z-index: 1; min-height: 84px; display: flex; justify-content: space-evenly; align-items: center; gap: 6px; padding: 18px 2px 6px; border-radius: 6px; }
+.zone.line { position: relative; z-index: 1; min-height: 84px; display: flex; justify-content: space-evenly; align-items: center; gap: 6px; padding: 18px 2px 6px; border-radius: var(--r-sm); }
 .line-label { position: absolute; top: 2px; left: 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--pitch-line); }
-.zone.shelf { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; min-height: 72px; padding: 6px; margin-bottom: 12px; border: 1px dashed var(--line); border-radius: 8px; background: var(--bg); }
-.chip { flex: 0 1 84px; min-width: 54px; padding: 4px 5px; border: 2px solid transparent; border-radius: 8px; background: var(--chip); color: var(--chip-ink);
-  text-align: center; font-size: 12px; line-height: 1.25; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); user-select: none; -webkit-user-select: none; }
+.zone.shelf { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; min-height: 72px; padding: 6px; margin-bottom: var(--s3); border: 1px dashed var(--line); border-radius: var(--r-md); background: var(--bg); }
+.chip { flex: 0 1 84px; min-width: 54px; padding: 4px 5px; border: 2px solid transparent; border-radius: var(--r-md); background: var(--chip); color: var(--chip-ink);
+  text-align: center; font-size: var(--fs-xs); line-height: 1.25; box-shadow: 0 1px 3px rgba(0, 0, 0, .25); user-select: none; -webkit-user-select: none; }
 .lineup-board.js .chip { cursor: grab; touch-action: none; }
 .chip > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip .ovr { font-size: 14px; font-weight: 700; }
+.chip .ovr { font: 700 15px/1.2 var(--font-display); }
 .chip .nm { font-weight: 600; }
 .chip .meta { color: var(--muted); font-size: 11px; }
 .zone.line .chip { min-width: 0; }
@@ -108,12 +188,17 @@ th.n .sort-link { justify-content: flex-end; }
 .zone.over { outline: 2px dashed var(--accent); outline-offset: -2px; }
 .caret { flex: 0 0 4px; align-self: stretch; min-height: 48px; border-radius: 2px; background: var(--accent); pointer-events: none; }
 [hidden] { display: none !important; }
-.scoreboard { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 12px 0; text-align: center; }
-.scoreboard .team { flex: 1; font-size: 20px; font-weight: 700; text-align: left; }
+
+/* Matches */
+.scoreboard { display: flex; align-items: center; justify-content: center; gap: var(--s5); margin: var(--s3) 0; text-align: center; }
+.scoreboard .team { flex: 1; font: 700 var(--fs-xl)/1.2 var(--font-display); text-align: left; }
 .scoreboard .team.home { text-align: right; }
-.scoreboard .score { font-size: 32px; font-weight: 800; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
-@media (max-width: 520px) { .scoreboard .team { font-size: 16px; } .scoreboard .score { font-size: 24px; } }
-svg.field { display: block; width: 100%; height: auto; border-radius: 8px; }
+.scoreboard .team .selected { font: var(--fs-sm) var(--font); color: var(--muted); }
+.scoreboard .result { display: inline-flex; align-items: center; gap: var(--s2); }
+.scoreboard .score { font: 800 var(--fs-2xl)/1 var(--font-display); letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+.scoreboard .score .muted { font: var(--fs-sm) var(--font); letter-spacing: 0; }
+@media (max-width: 520px) { .scoreboard { gap: var(--s3); } .scoreboard .team { font-size: var(--fs-lg); } .scoreboard .score { font-size: var(--fs-xl); } }
+svg.field { display: block; width: 100%; height: auto; border-radius: var(--r-md); }
 svg.field .grass { fill: var(--pitch); }
 svg.field .lines * { fill: none; stroke: var(--pitch-line); stroke-width: 3; }
 svg.field .dot .body { stroke: var(--kit-edge); stroke-width: 2.5; }
@@ -127,60 +212,68 @@ svg.field .ball { fill: var(--ball); stroke: var(--kit-edge); stroke-width: 2; }
 .kit.home { background: var(--kit-home); } .kit.away { background: var(--kit-away); }
 table.stats th.stat { text-align: center; }
 table.stats td, table.stats th { width: 33%; }
-details.save-details > summary::-webkit-details-marker { display: none; }
-details.save-details > summary { list-style: none; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
+<script>
+// Ratings columns: shown on wide screens, hidden on narrow ones, until the
+// player chooses; the choice is remembered in this browser.
+(function () {
+  var root = document.documentElement, pref = null;
+  root.classList.add('js');
+  try { pref = localStorage.getItem('zimble.ratings'); } catch (e) {}
+  if (pref === 'hide' || (pref === null && !matchMedia('(min-width: 1400px)').matches)) root.classList.add('hide-ratings');
+})();
+</script>
 </head>
 <body>
-<header>
-  <div class="bar">
-    <div class="brand">{{if .Career}}{{.Club.ClubName}}<small>{{.Club.ShortName}}</small>{{else}}Zimble{{end}}</div>
-    {{if .Career}}
-    <div class="facts"><span>{{.Date}}</span><span>Balance {{.Balance}}</span>{{if .Unsaved}}<span>Unsaved</span>{{end}}</div>
-    <div class="spacer"></div>
+<div class="shell{{if not .Career}} bare{{end}}">
+<header class="band">
+  <a class="crest" href="/">{{if .Career}}<span class="club">{{.Club.ClubName}}</span><span class="code">{{.Club.ShortName}}</span>{{else}}<span class="club">Zimble</span>{{end}}</a>
+  {{if .Career}}
+  <div class="fixture">
+    {{if .Live}}<span class="tag now">Live</span> <a href="/live">{{.Live}}</a>
+    {{else if .Matchday}}<span class="tag now">Matchday</span> <a href="/lineup">{{template "matchLine" .Matchday}}</a>
+    {{else if .Next}}<span class="tag">Next</span> <span>{{template "matchLine" .Next}}</span> <span class="kick">{{.Next.When}}</span>
+    {{else}}<span class="tag">Off-season</span>{{end}}
+  </div>
+  <div class="facts"><span>{{.Date}}</span><span>Balance {{.Balance}}</span>{{if .Unsaved}}<span class="unsaved">Unsaved</span>{{end}}</div>
+  <div class="controls">
     <form class="inline" method="post" action="/continue">
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
-      <button class="primary">{{if .Pending}}Play match{{else}}Continue{{end}}</button>
+      <button class="go">{{if .Pending}}Play match{{else}}Continue{{end}}</button>
     </form>
     <form class="inline" method="post" action="/save">
       <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
       <button title="Save to {{.SaveName}}">Save</button>
     </form>
-    <details class="save-details" style="display:inline-block; position:relative;">
-      <summary class="button" style="padding: 7px 10px; cursor:pointer;" title="Save a copy under a new name">Save as…</summary>
-      <div class="panel" style="position:absolute; right:0; top:100%; margin-top:6px; z-index:100; min-width:240px; box-shadow: 0 4px 14px rgba(0,0,0,0.18);">
+    <details class="save-as">
+      <summary class="button" title="Save a copy under a new name">Save as…</summary>
+      <div class="panel">
         <form method="post" action="/save">
-          <input type="hidden" name="rev" value="{{.Rev}}">
-          <input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
-          <div style="font-size:12px; margin-bottom:6px;" class="muted">Save copy to <b>{{.SavesDir}}/</b>:</div>
-          <input type="text" name="name" placeholder="e.g. season-2" style="width:100%; margin-bottom:8px;" required>
-          <button class="primary" style="width:100%;">Save as</button>
+          <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/{{if ne .Page "home"}}{{.Page}}{{end}}">
+          <span class="muted small">Save a copy to <b>{{.SavesDir}}/</b>:</span>
+          <input type="text" name="name" placeholder="e.g. season-2" required>
+          <button class="primary">Save as</button>
         </form>
       </div>
     </details>
-    {{end}}
   </div>
-  {{if .Career}}
-  <nav>
-    <a href="/" {{if eq .Page "home"}}class="on"{{end}}>Home</a>
-    <a href="/squad" {{if eq .Page "squad"}}class="on"{{end}}>Squad</a>
-    <a href="/lineup" {{if eq .Page "lineup"}}class="on"{{end}}>Lineup</a>
-    <a href="/table" {{if eq .Page "table"}}class="on"{{end}}>Tables</a>
-    <a href="/cup" {{if eq .Page "cup"}}class="on"{{end}}>Cup</a>
-    <a href="/history" {{if eq .Page "history"}}class="on"{{end}}>History</a>
-    <a href="/fixtures" {{if eq .Page "fixtures"}}class="on"{{end}}>Fixtures</a>
-    <a href="/transfers" {{if eq .Page "transfers"}}class="on"{{end}}>Transfers</a>
-    <a href="/free" {{if eq .Page "free"}}class="on"{{end}}>Free agents</a>
-    <a href="/inbox" {{if eq .Page "inbox"}}class="on"{{end}}>Inbox{{if .Unread}} ({{.Unread}}){{end}}</a>
-    <a href="/finances" {{if eq .Page "finances"}}class="on"{{end}}>Finances</a>
-  </nav>
   {{end}}
 </header>
+{{if .Career}}
+<nav aria-label="Pages">
+  <div class="group">{{template "navLink" (navLink .Nav "home" "/" "Home")}}</div>
+  <div class="group"><span>Club</span>{{template "navLink" (navLink .Nav "squad" "/squad" "Squad")}}{{template "navLink" (navLink .Nav "lineup" "/lineup" "Lineup")}}{{template "navLink" (navLink .Nav "finances" "/finances" "Finances")}}</div>
+  <div class="group"><span>Competitions</span>{{template "navLink" (navLink .Nav "table" "/table" "Tables")}}{{template "navLink" (navLink .Nav "fixtures" "/fixtures" "Fixtures")}}{{template "navLink" (navLink .Nav "cup" "/cup" "Cup")}}{{template "navLink" (navLink .Nav "playoffs" "/playoffs" "Play-offs")}}{{template "navLink" (navLink .Nav "history" "/history" "History")}}</div>
+  <div class="group"><span>Market</span>{{template "navLink" (navLink .Nav "transfers" "/transfers" "Transfers")}}{{template "navLink" (navLink .Nav "free" "/free" "Free agents")}}</div>
+  <div class="group"><a href="/inbox"{{if eq .Nav "inbox"}} aria-current="page"{{end}}>Inbox{{if .Unread}}<span class="count" title="{{.Unread}} unread">{{.Unread}}</span>{{end}}</a></div>
+</nav>
+{{end}}
 <main>
   {{range .Notes}}<div class="note{{if .Error}} error{{end}}">{{.Text}}</div>{{end}}
   {{range .Offers}}<div class="note">{{template "recover" .}}</div>{{end}}
   {{if .Automatic}}
-  <div class="panel" style="margin-bottom:20px">
+  <div class="panel">
     <h2>Other matchdays</h2>
     {{range .Automatic}}
     <details>
@@ -194,98 +287,118 @@ details.save-details > summary { list-style: none; }
   {{end}}
   {{template "content" .}}
 </main>
+</div>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('table').forEach(function(table) {
-    var headers = table.querySelectorAll('th');
-    headers.forEach(function(th, colIdx) {
-      var link = th.querySelector('a.sort-link');
-      if (!link) return;
-      link.addEventListener('click', function(e) {
-        var tbody = table.querySelector('tbody') || table;
-        var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(r) {
-          return !r.querySelector('th');
-        });
-        if (rows.length <= 1) return;
-        e.preventDefault();
+// Ratings columns toggle.
+document.querySelectorAll('[data-ratings-toggle]').forEach(function (b) {
+  var root = document.documentElement;
+  function label() { b.textContent = root.classList.contains('hide-ratings') ? 'Show ratings' : 'Hide ratings'; }
+  label();
+  b.addEventListener('click', function () {
+    var hide = root.classList.toggle('hide-ratings');
+    try { localStorage.setItem('zimble.ratings', hide ? 'hide' : 'show'); } catch (e) {}
+    document.querySelectorAll('[data-ratings-toggle]').forEach(function (o) { o.textContent = hide ? 'Show ratings' : 'Hide ratings'; });
+  });
+});
+// Sorting a table the page holds happens in place; the links still work
+// for a fresh page.
+document.querySelectorAll('table').forEach(function(table) {
+  var headers = table.querySelectorAll('th');
+  headers.forEach(function(th, colIdx) {
+    var link = th.querySelector('a.sort-link');
+    if (!link) return;
+    link.addEventListener('click', function(e) {
+      var tbody = table.querySelector('tbody') || table;
+      var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(r) {
+        return !r.querySelector('th');
+      });
+      if (rows.length <= 1) return;
+      e.preventDefault();
 
-        var currentDir = link.getAttribute('data-dir');
-        var nextDir = currentDir === 'asc' ? 'desc' : 'asc';
-        if (!link.classList.contains('active')) {
-          var href = link.getAttribute('href') || '';
-          if (href.indexOf('dir=desc') !== -1) {
-            nextDir = 'desc';
-          } else {
-            nextDir = 'asc';
-          }
-        }
+      var currentDir = link.getAttribute('data-dir');
+      var nextDir = currentDir === 'asc' ? 'desc' : 'asc';
+      if (!link.classList.contains('active')) {
+        var href = link.getAttribute('href') || '';
+        nextDir = href.indexOf('dir=desc') !== -1 ? 'desc' : 'asc';
+      }
 
-        table.querySelectorAll('th a.sort-link').forEach(function(l) {
-          l.classList.remove('active', 'asc', 'desc');
-          var icon = l.querySelector('.sort-icon');
-          if (icon) {
-            icon.className = 'sort-icon muted';
-            icon.textContent = '↕';
-          }
-        });
-
-        link.classList.add('active', nextDir);
-        link.setAttribute('data-dir', nextDir);
-        var icon = link.querySelector('.sort-icon');
+      table.querySelectorAll('th a.sort-link').forEach(function(l) {
+        l.classList.remove('active', 'asc', 'desc');
+        var icon = l.querySelector('.sort-icon');
         if (icon) {
-          icon.className = 'sort-icon ' + nextDir;
-          icon.textContent = nextDir === 'asc' ? '▲' : '▼';
-        }
-
-        rows.sort(function(rowA, rowB) {
-          var cellA = rowA.children[colIdx];
-          var cellB = rowB.children[colIdx];
-          if (!cellA || !cellB) return 0;
-          var valA = (cellA.textContent || '').trim();
-          var valB = (cellB.textContent || '').trim();
-
-          var selA = cellA.querySelector('select');
-          if (selA) valA = selA.value;
-          var selB = cellB.querySelector('select');
-          if (selB) valB = selB.value;
-
-          var cleanA = valA.replace(/[,%£$€]/g, '').trim();
-          var cleanB = valB.replace(/[,%£$€]/g, '').trim();
-          var numA = parseFloat(cleanA);
-          var numB = parseFloat(cleanB);
-          var isNum = !isNaN(numA) && !isNaN(numB) && cleanA !== '' && cleanB !== '';
-
-          var cmp = 0;
-          if (isNum) {
-            cmp = numA - numB;
-          } else {
-            cmp = valA.localeCompare(valB, undefined, {numeric: true, sensitivity: 'base'});
-          }
-          return nextDir === 'desc' ? -cmp : cmp;
-        });
-
-        rows.forEach(function(row) { tbody.appendChild(row); });
-
-        if (window.history && window.history.replaceState) {
-          try {
-            var currentUrl = new URL(window.location.href);
-            var hrefUrl = new URL(link.href, window.location.origin);
-            hrefUrl.searchParams.forEach(function(v, k) {
-              currentUrl.searchParams.set(k, v);
-            });
-            window.history.replaceState(null, '', currentUrl.toString());
-          } catch(err) {}
+          icon.className = 'sort-icon muted';
+          icon.textContent = '↕';
         }
       });
+
+      link.classList.add('active', nextDir);
+      link.setAttribute('data-dir', nextDir);
+      var icon = link.querySelector('.sort-icon');
+      if (icon) {
+        icon.className = 'sort-icon ' + nextDir;
+        icon.textContent = nextDir === 'asc' ? '▲' : '▼';
+      }
+
+      rows.sort(function(rowA, rowB) {
+        var cellA = rowA.children[colIdx];
+        var cellB = rowB.children[colIdx];
+        if (!cellA || !cellB) return 0;
+        var valA = (cellA.textContent || '').trim();
+        var valB = (cellB.textContent || '').trim();
+
+        var selA = cellA.querySelector('select');
+        if (selA) valA = selA.value;
+        var selB = cellB.querySelector('select');
+        if (selB) valB = selB.value;
+
+        var cleanA = valA.replace(/[,%£$€]/g, '').trim();
+        var cleanB = valB.replace(/[,%£$€]/g, '').trim();
+        var numA = parseFloat(cleanA);
+        var numB = parseFloat(cleanB);
+        var isNum = !isNaN(numA) && !isNaN(numB) && cleanA !== '' && cleanB !== '';
+
+        var cmp = isNum ? numA - numB : valA.localeCompare(valB, undefined, {numeric: true, sensitivity: 'base'});
+        return nextDir === 'desc' ? -cmp : cmp;
+      });
+
+      rows.forEach(function(row) { tbody.appendChild(row); });
+
+      if (window.history && window.history.replaceState) {
+        try {
+          var currentUrl = new URL(window.location.href);
+          var hrefUrl = new URL(link.href, window.location.origin);
+          hrefUrl.searchParams.forEach(function(v, k) {
+            currentUrl.searchParams.set(k, v);
+          });
+          window.history.replaceState(null, '', currentUrl.toString());
+        } catch(err) {}
+      }
     });
   });
 });
 </script>
 </body>
 </html>
+{{define "navLink"}}<a href="{{.Href}}"{{if .On}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}
+{{define "matchLine"}}{{.Name}} v {{.Opponent}}{{end}}
+{{define "club"}}<span class="badge">{{.ShortName}}</span><a href="/squad?club={{.Club}}">{{.ClubName}}</a>{{end}}
 {{define "cond"}}{{.Condition}}%{{if .DaysOut}} <span class="out" title="Injured: misses matches until he recovers">out {{.DaysOut}} d</span>{{end}}{{end}}
-{{define "attrHeads"}}<th class="n">{{sortHeader . "gk" "GK" "desc"}}</th><th class="n">{{sortHeader . "def" "DEF" "desc"}}</th><th class="n">{{sortHeader . "pas" "PAS" "desc"}}</th><th class="n">{{sortHeader . "fin" "FIN" "desc"}}</th><th class="n">{{sortHeader . "pac" "PAC" "desc"}}</th><th class="n">{{sortHeader . "sta" "STA" "desc"}}</th><th class="n">{{sortHeader . "dri" "DRI" "desc"}}</th><th class="n">{{sortHeader . "hea" "HEA" "desc"}}</th><th class="n">{{sortHeader . "str" "STR" "desc"}}</th><th class="n">{{sortHeader . "acc" "ACC" "desc"}}</th><th class="n">{{sortHeader . "psn" "PSN" "desc"}}</th>{{end}}
+{{define "playerHeads"}}<th>{{sortHeader . "pos" "Pos" "asc"}}</th><th>{{sortHeader . "name" "Name" "asc"}}</th><th>{{sortHeader . "nat" "Nat" "asc"}}</th><th class="n">{{sortHeader . "age" "Age" "asc"}}</th><th class="n">{{sortHeader . "ovr" "OVR" "desc"}}</th><th class="n">{{sortHeader . "cond" "Cond" "desc"}}</th>{{end}}
+{{define "playerCells"}}<td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>{{end}}
+{{define "attrHeads"}}<th class="n attr">{{sortHeader . "gk" "GK" "desc"}}</th><th class="n attr">{{sortHeader . "def" "DEF" "desc"}}</th><th class="n attr">{{sortHeader . "pas" "PAS" "desc"}}</th><th class="n attr">{{sortHeader . "fin" "FIN" "desc"}}</th><th class="n attr">{{sortHeader . "pac" "PAC" "desc"}}</th><th class="n attr">{{sortHeader . "sta" "STA" "desc"}}</th><th class="n attr">{{sortHeader . "dri" "DRI" "desc"}}</th><th class="n attr">{{sortHeader . "hea" "HEA" "desc"}}</th><th class="n attr">{{sortHeader . "str" "STR" "desc"}}</th><th class="n attr">{{sortHeader . "acc" "ACC" "desc"}}</th><th class="n attr">{{sortHeader . "psn" "PSN" "desc"}}</th>{{end}}
+{{define "attrCells"}}{{range ratings .}}<td class="n attr">{{.}}</td>{{end}}{{end}}
+{{define "ratingsToggle"}}<button type="button" data-ratings-toggle>Hide ratings</button>{{end}}
 {{define "attrLegend"}}Ratings are 1–100: GK goalkeeping, DEF defending, PAS passing, FIN finishing, PAC pace, STA stamina, DRI dribbling, HEA heading, STR strength, ACC acceleration, PSN positioning. COND is fitness; "out 12 d" is an injury with 12 recovery days to go.{{end}}
+{{define "leagueRow"}}<tr{{if .Mine}} class="me"{{end}}>
+    <td class="n">{{.Rank}}</td><td>{{template "club" .Label}}{{template "tableMark" .Mark}}</td><td class="n">{{.Played}}</td><td class="n">{{.Won}}</td><td class="n">{{.Drawn}}</td><td class="n">{{.Lost}}</td>
+    <td class="n">{{.GoalsFor}}</td><td class="n">{{.GoalsAgainst}}</td><td class="n">{{.GoalDifference}}</td><td class="n"><b>{{.Points}}</b></td>
+  </tr>{{end}}
+{{define "tieRow"}}<tr{{if .Mine}} class="me"{{end}}>
+        <td{{if .HomeWins}} class="win"{{end}}>{{template "club" .Home}}</td>
+        <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
+        <td{{if .AwayWins}} class="win"{{end}}>{{template "club" .Away}}</td>
+      </tr>{{end}}
+{{define "pitchMarks"}}<div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>{{end}}
 {{define "pitchPanel"}}
 <div class="panel">
   <div class="board-head">
@@ -295,7 +408,7 @@ document.addEventListener('DOMContentLoaded', function() {
   {{if .Note}}<p class="muted board-hint">{{.Note}}</p>{{end}}
   <div class="board">
     <div class="pitch" aria-label="The lineup, attacking upwards">
-      <div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>
+      {{template "pitchMarks"}}
       {{range .Lines}}
       <div class="zone line" aria-label="{{.Label}}"><span class="line-label">{{.Label}}</span>{{range .Players}}{{template "reportChip" .}}{{end}}</div>
       {{end}}

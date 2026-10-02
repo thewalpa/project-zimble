@@ -3,8 +3,8 @@
 <h1>Fixtures{{if $d.Club.ClubName}} · {{$d.Club.ClubName}}{{end}}</h1>
 <p class="muted">{{$d.Season}}</p>
 {{if $d.Clubs}}
-<div class="actions" style="margin-bottom: 14px;">
-  <span class="muted" style="align-self:center; font-size:13px; font-weight:600;">Club:</span>
+<div class="picker">
+  <span class="muted small">Club:</span>
   {{range $d.Clubs}}
     <a class="button{{if .Selected}} primary{{end}}" href="/fixtures?club={{.ID}}">{{.ShortName}}{{if .IsUser}} (You){{end}}</a>
   {{end}}
@@ -25,7 +25,7 @@
     <td>{{.When}}</td>
     <td><a href="/squad?club={{.OpponentClub}}">{{.Opponent}}</a></td>
     <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}"><b>{{.Result}}</b></a>{{else}}<span class="muted">-</span>{{end}}</td>
-    <td>{{if .Outcome}}<a href="/report?fixture={{.Fixture}}" style="text-decoration:none;"><span class="pill {{.Outcome}}">{{.Outcome}}</span></a>{{end}}</td>
+    <td>{{if .Outcome}}<a href="/report?fixture={{.Fixture}}"><span class="pill {{.Outcome}}">{{.Outcome}}</span></a>{{end}}</td>
   </tr>
   {{end}}
 </table>

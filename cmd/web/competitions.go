@@ -30,11 +30,21 @@ type leagueTable struct {
 type markedRow struct {
 	app.TableRow
 	Mark string // "up", "down" or ""
+	Mine bool   // the user club's row
+}
+
+// leagueTableOf marks a table's rows for display.
+func (s *server) leagueTableOf(t app.Table) leagueTable {
+	mark, legend := s.promotionMarks(t)
+	lt := leagueTable{Table: t, Legend: legend, CupPlaces: s.w.CupQualifiers(t.Competition)}
+	for _, row := range t.Rows {
+		lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank), Mine: row.Label.Club == s.club()})
+	}
+	return lt
 }
 
 type tableView struct {
 	Tables []leagueTable // the club's league first
-	Club   ids.ClubID
 	Sort   SortState
 }
 
@@ -83,7 +93,7 @@ func (s *server) table(r *http.Request) (string, any, error) {
 		return "", nil, errors.New("your club has no season")
 	}
 	sortState := newSortState(r, "rank", "asc")
-	v := tableView{Club: s.club(), Sort: sortState}
+	v := tableView{Sort: sortState}
 	for _, t := range s.w.Tables() {
 		if t.RoundsCompleted == 0 && t.Season > 1 {
 			// The off-season: last season's final table.
@@ -91,11 +101,7 @@ func (s *server) table(r *http.Request) (string, any, error) {
 		}
 		t.Rows = append([]app.TableRow(nil), t.Rows...)
 		sortTableRows(t.Rows, sortState.Col, sortState.Dir)
-		mark, legend := s.promotionMarks(t)
-		lt := leagueTable{Table: t, Legend: legend, CupPlaces: s.w.CupQualifiers(t.Competition)}
-		for _, row := range t.Rows {
-			lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
-		}
+		lt := s.leagueTableOf(t)
 		if t.Competition == sc.Competition {
 			v.Tables = append([]leagueTable{lt}, v.Tables...)
 		} else {
@@ -344,13 +350,12 @@ type historyView struct {
 	Table   *leagueTable
 	Cup     *cupView
 	Playoff *playoffView
-	Club    ids.ClubID
 }
 
 // history lists every league season and cup edition with its champion, and
 // shows one season's final table or bracket on request.
 func (s *server) history(r *http.Request) (string, any, error) {
-	v := historyView{Club: s.club()}
+	var v historyView
 	for _, h := range s.w.History() {
 		row := historyRow{Competition: h.Season.Competition, Season: int(h.Season.Season), Name: h.CompetitionName, Complete: h.Complete, Champion: h.Champion}
 		if title := s.w.PlayoffTitle(h.Season.Competition); title != "" {
@@ -382,11 +387,7 @@ func (s *server) history(r *http.Request) (string, any, error) {
 				v.Cup = &cv
 			}
 		} else if t, ok := s.w.Table(ref); ok {
-			mark, legend := s.promotionMarks(t)
-			lt := leagueTable{Table: t, Legend: legend, CupPlaces: s.w.CupQualifiers(t.Competition)}
-			for _, row := range t.Rows {
-				lt.Marked = append(lt.Marked, markedRow{TableRow: row, Mark: mark(row.Rank)})
-			}
+			lt := s.leagueTableOf(t)
 			v.Table = &lt
 		}
 		return "history", v, nil

@@ -1,11 +1,11 @@
 {{define "content"}}
 {{$d := .Data}}
 <h1>Finances</h1>
-<div class="grid">
+<div class="grid stack">
   <div class="panel"><span class="muted">Balance</span><p class="big">{{$d.Balance}}</p></div>
   <div class="panel"><span class="muted">Weekly wage bill</span><p class="big">{{$d.WeeklyWage}}</p></div>
 </div>
-<div class="panel scroll" style="margin-top:16px">
+<div class="panel scroll">
 <h2>Ledger <span class="muted">(latest {{len $d.Rows}} of {{$d.Entries}})</span></h2>
 <table>
   <tr>

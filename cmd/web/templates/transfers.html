@@ -2,7 +2,7 @@
 {{$d := .Data}}{{$rev := .Rev}}
 <h1>Transfers</h1>
 {{if $d.NeededNote}}<div class="note">{{$d.NeededNote}}</div>{{end}}
-<p class="muted">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. You receive bids only for players you put on the transfer list. Continue takes you to the next transfer news while the window is open.</p>
+<p class="muted lead">{{$d.Window}} Clubs sell at their asking price and answer a bid the day after it; a transfer completes at once when a bid is accepted. You receive bids only for players you put on the transfer list. Continue takes you to the next transfer news while the window is open.</p>
 {{if $d.Received}}
 <div class="panel scroll">
 <h2>Bids for your players</h2>
@@ -65,7 +65,7 @@
 </div>
 <div class="panel scroll">
 <h2>Market</h2>
-<div class="actions" style="margin: 0 0 12px;">
+<div class="picker">
   {{range $d.Positions}}<a class="button{{if eq . $d.Position}} primary{{end}}" href="/transfers?pos={{.}}">{{.}}</a>{{end}}
 </div>
 {{if not $d.Room}}<p class="muted">Your squad is full: a squad holds at most {{$d.SquadLimit}} players.</p>{{end}}

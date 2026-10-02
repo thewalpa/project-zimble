@@ -1,25 +1,21 @@
 {{define "content"}}
 {{$d := .Data}}{{$rev := .Rev}}
 <h1>{{if $d.IsUserClub}}Squad{{else}}{{$d.Club.ClubName}} squad{{end}}</h1>
-<p class="muted">{{if $d.IsUserClub}}{{template "attrLegend"}} Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire. {{$d.SquadText}}{{else}}{{template "attrLegend"}}{{end}}</p>
+<p class="muted lead">{{if $d.IsUserClub}}{{template "attrLegend"}} Highlighted players are in the final year of their contract, which ends on {{$d.ContractEnd}}: renew the ones you want to keep. Every year on the eve of that date, young players improve, older ones decline, and some retire. {{$d.SquadText}}{{else}}{{template "attrLegend"}}{{end}}</p>
 {{if $d.Clubs}}
-<div class="actions" style="margin-bottom: 14px;">
-  <span class="muted" style="align-self:center; font-size:13px; font-weight:600;">Club:</span>
+<div class="picker">
+  <span class="muted small">Club:</span>
   {{range $d.Clubs}}
     <a class="button{{if .Selected}} primary{{end}}" href="/squad?club={{.ID}}" title="{{.Name}}, {{.Nation}}">{{.ShortName}}{{if .IsUser}} (You){{end}}</a>
   {{end}}
 </div>
 {{end}}
 {{with $d.Probable}}{{template "pitchPanel" .}}{{end}}
+<div class="toolbar">{{template "ratingsToggle"}}</div>
 <div class="panel scroll">
 <table>
   <tr>
-    <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
-    <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
-    <th>{{sortHeader $d.Sort "nat" "Nat" "asc"}}</th>
-    <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
-    <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
-    <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+    {{template "playerHeads" $d.Sort}}
     {{template "attrHeads" $d.Sort}}
     <th class="n">{{sortHeader $d.Sort "wage" "Wage/week" "desc"}}</th>
     <th class="n">{{sortHeader $d.Sort "until" "Until" "asc"}}</th>
@@ -28,8 +24,8 @@
   </tr>
   {{range $d.Rows}}
   <tr {{if .FinalYear}}class="final"{{end}}>
-    <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>
-    {{range ratings .Attributes}}<td class="n">{{.}}</td>{{end}}
+    {{template "playerCells" .}}
+    {{template "attrCells" .Attributes}}
     <td class="n">{{.Contract.WeeklyWage}}</td><td class="n">{{.Ends}}</td>
     <td>{{if .FinalYear}}
       <form class="inline" method="post" action="/renew">

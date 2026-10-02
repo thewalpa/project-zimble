@@ -35,7 +35,7 @@
     <p class="muted board-hint js-only">Drag a player onto another to swap them, or into a line, the bench or the unselected players to move him. You can also tap a player, then another player or a place. Each line's order is how its players spread across the pitch.</p>
     <div class="board">
       <div class="pitch" aria-label="The pitch, attacking upwards">
-        <div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>
+        {{template "pitchMarks"}}
         {{range $d.Pitch.Lines}}
         <div class="zone line" data-slot="{{.Slot}}" aria-label="{{.Label}}"><span class="line-label">{{.Label}}</span>{{range .Players}}{{template "pitchChip" .}}{{end}}</div>
         {{end}}
@@ -49,24 +49,20 @@
     </div>
     <div class="actions"><button class="primary">{{if $d.Plan}}Save team plan{{else}}Save lineup{{end}}</button></div>
   </div>
+  <div class="toolbar">{{template "ratingsToggle"}}</div>
   <div class="panel scroll">
   <table>
     <tr>
       <th>{{sortHeader $d.Sort "selection" "Selection" "asc"}}</th>
-      <th>{{sortHeader $d.Sort "pos" "Pos" "asc"}}</th>
-      <th>{{sortHeader $d.Sort "name" "Name" "asc"}}</th>
-      <th>{{sortHeader $d.Sort "nat" "Nat" "asc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "age" "Age" "asc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "ovr" "OVR" "desc"}}</th>
-      <th class="n">{{sortHeader $d.Sort "cond" "Cond" "desc"}}</th>
+      {{template "playerHeads" $d.Sort}}
       <th>Availability</th>
       {{template "attrHeads" $d.Sort}}
     </tr>
     {{range $d.Rows}}{{$slot := .Slot}}
     <tr>
       <td><select name="slot-{{.Player}}" aria-label="Selection for {{.Name}}">{{range $d.Slots}}<option value="{{.Value}}" {{if eq .Value $slot}}selected{{end}}>{{.Label}}</option>{{end}}</select></td>
-      <td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td><td>{{.Availability}}</td>
-      {{range ratings .Attributes}}<td class="n">{{.}}</td>{{end}}
+      {{template "playerCells" .}}<td>{{.Availability}}</td>
+      {{template "attrCells" .Attributes}}
     </tr>
     {{end}}
   </table>

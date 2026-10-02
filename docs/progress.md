@@ -3827,3 +3827,17 @@ Closes `squad--passive-manager-market.md`. [The investigation](squad-market-inve
 Added focused tests of observed-pool preference versus listed improvements and reserve budgets, unchanged snapshots during recruitment planning, and the closing allocator filling an available smaller need. No production behavior, save schema or version changed. Filed `balance--passive-manager-investigation.md` with the current baseline and decision.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and the full `go test ./...` suite passed. The three baseline market sweeps, both managed policy comparisons, closing diagnostics and the two-year daily trace all passed; focused recruitment tests passed independently.
+## ui: web redesign on the same stack (done)
+
+Step 2 of the [UI of choice](ui-choice.md#plan). Same routes, forms and stack; no `app` change.
+
+- **`views.go` split by page.** `cmd/web` has a file per area (layout and shared queries, home and saves, squad and player, lineup, competitions, report, inbox, finances). The move was mechanical and is its own commit.
+- **App shell.** A club band runs across every career page: club name and code, the date, the balance, "Unsaved", the matchday waiting (linked to the lineup), the live match, or the next match with its kickoff, then Continue/Play match, Save and Save as. Navigation is grouped as Club (Squad, Lineup, Finances), Competitions (Tables, Fixtures, Cup, Play-offs, History), Market (Transfers, Free agents) and Inbox with an unread badge. It is a sticky sidebar on wide screens and a scrolling strip under the band at phone width. Pages without their own entry mark the one they belong to (a player profile marks Squad, a report Fixtures, the live match Lineup). Play-offs now have a navigation entry. The band reads the same `upcoming()` that the home page uses, which replaces home's three copies of the fixture search.
+- **Tokens.** Type (a condensed signage face for names, scores and headings; the system face for text; a 12–30px scale) and spacing (4–48px) sit beside the colour tokens on `:root`, in light and dark. The band is touchline green with Continue in the ball's yellow. Inline styles are gone from the templates, except one that the replay script toggles.
+- **Tables.** Rows are compact. Long tables scroll inside their panel under a sticky header on wide screens. The rating columns (GK…PSN) on the squad and lineup tables can be shown or hidden. They are shown by default from 1400px, and the choice is kept in the browser.
+- **Named templates** for repeated markup: `playerHeads`/`playerCells` (squad, free agents, lineup), `attrCells`, `club` (code badge and linked name), `leagueRow` (tables and history, with `markedRow.Mine` computed once in `leagueTableOf`), `tieRow` (cup and play-off brackets), `matchLine`, `pitchMarks`. The report's scoreboard uses the live match's classes.
+- **Test changes.** `TestFullWidthLayout` asserted the old literal CSS rules; it now checks the 16px gutter token, the band's next match and matchday, Continue/Play match, the groups and the marked entry. `TestInboxReadState` checks the unread badge instead of "Inbox (3)". Every other HTTP test passes unchanged.
+
+Not verified in a browser: the headless Chromium here lacks system libraries, so the layout was checked through the rendered HTML only.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.

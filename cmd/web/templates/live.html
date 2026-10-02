@@ -2,19 +2,19 @@
 {{$d := .Data}}
 <h1>Live: {{$d.Title}}</h1>
 <div class="panel">
-  <p class="muted" style="margin-top:0;">{{$d.State}} · {{$d.Minute}}'</p>
+  <p class="muted small">{{$d.State}} · {{$d.Minute}}'</p>
   <div class="scoreboard">
     <div class="team home"><a href="/squad?club={{$d.Home.Club}}">{{$d.Home.ClubName}}</a></div>
-    <div class="score">{{index $d.Score 0}} - {{index $d.Score 1}}{{if $d.Penalties}} <span class="muted" style="font-size:14px; letter-spacing:0;">{{$d.Penalties}}</span>{{end}}</div>
+    <div class="score">{{index $d.Score 0}} - {{index $d.Score 1}}{{if $d.Penalties}} <span class="muted">{{$d.Penalties}}</span>{{end}}</div>
     <div class="team"><a href="/squad?club={{$d.Away.Club}}">{{$d.Away.ClubName}}</a></div>
   </div>
-  <div class="actions" style="justify-content:center;">
+  <div class="actions center">
     {{if $d.Finished}}
       <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button class="primary">Confirm the result</button></form>
     {{else}}
       <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}"><button class="primary">Play to {{if eq $d.Target 45}}half time{{else}}full time{{end}}</button></form>
       <form class="inline" method="post" action="/watch"><input type="hidden" name="rev" value="{{.Rev}}">
-        <label>to minute <input type="number" name="minute" min="{{$d.Minute}}" max="90" value="{{$d.Target}}" style="width:5em;"></label><button>Play</button>
+        <label>to minute <input type="number" name="minute" min="{{$d.Minute}}" max="90" value="{{$d.Target}}" class="minute"></label><button>Play</button>
       </form>
       <form class="inline" method="post" action="/continue"><input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="back" value="/live"><button>Finish the match</button></form>
     {{end}}
@@ -50,7 +50,7 @@
   </svg>
   <div class="actions replay-controls" hidden>
     <button type="button" data-play>Replay</button>
-    <input type="range" data-scrub min="0" max="{{len .Frames}}" value="{{len .Frames}}" aria-label="Replay position" style="flex:1; min-width:120px;">
+    <input type="range" data-scrub min="0" max="{{len .Frames}}" value="{{len .Frames}}" aria-label="Replay position" class="scrub">
     <label>speed <select data-speed><option value="5">×5</option><option value="10" selected>×10</option><option value="30">×30</option><option value="90">×90</option></select></label>
   </div>
   <script>

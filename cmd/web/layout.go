@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"html/template"
 	"path/filepath"
@@ -22,12 +23,22 @@ var funcs = template.FuncMap{
 	},
 	// ratings returns every attribute, in the order of the tables' columns.
 	"ratings": func(a players.Attributes) []players.Rating { return a[:] },
+	// navLink is an entry of the navigation, marked when it is the page's.
+	"navLink": func(current, nav, href, label string) navLink {
+		return navLink{Href: href, Label: label, On: current == nav}
+	},
+}
+
+type navLink struct {
+	Href, Label string
+	On          bool
 }
 
 // layout is what every page gets: the career header, notes and the page's
 // own data.
 type layout struct {
 	Page      string
+	Nav       string // the navigation entry the page belongs to
 	Career    bool
 	Club      app.TeamLabel
 	Date      string
@@ -42,11 +53,19 @@ type layout struct {
 	SaveName  string
 	SavesDir  string
 	Unread    int // unread inbox messages
+	// The club's fixtures, for the header.
+	Live     string       // the manager's match in progress
+	Matchday *fixtureView // waiting to be played
+	Next     *fixtureView
 }
+
+// navOf is the navigation entry of pages that have none of their own.
+var navOf = map[string]string{"player": "squad", "compare": "squad", "live": "lineup", "report": "fixtures"}
 
 func (s *server) layout(page string, data any) layout {
 	l := layout{
 		Page:      page,
+		Nav:       cmp.Or(navOf[page], page),
 		Notes:     s.notes,
 		Automatic: s.automatic,
 		Offers:    s.offers,
@@ -61,6 +80,8 @@ func (s *server) layout(page string, data any) layout {
 	l.Unsaved = !s.saved || s.w.Revision() != s.savedRevision
 	_, l.Pending = s.pendingFixture()
 	l.Unread = s.w.UnreadInboxCount()
+	l.Matchday, l.Next = s.upcoming()
+	l.Live = s.liveLine()
 	if fin, ok := s.w.Finances(s.club()); ok {
 		l.Balance = fin.Balance
 	}

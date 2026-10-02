@@ -1,7 +1,7 @@
 {{define "content"}}
 {{$d := .Data}}
 <h1>Compare players</h1>
-<p class="muted">Compare attributes, condition, contract wage and asking price using the current career data. Choose a player from your squad by name, or enter any player ID.</p>
+<p class="muted lead">Compare attributes, condition, contract wage and asking price using the current career data. Choose a player from your squad by name, or enter any player ID.</p>
 {{if $d.Missing}}<div class="note error">{{$d.Missing}}</div>{{end}}
 <form method="get" action="/compare" class="panel actions">
   <label>First player <input name="a" list="my-squad" value="{{$d.AID}}" required></label>

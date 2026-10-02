@@ -1124,13 +1124,22 @@ func TestReleaseAndSquadLimitInTheBrowser(t *testing.T) {
 	contains(t, squadPayoff, "data-col=\"payoff\"")
 }
 
+// Pages use the full width with a 16px gutter, inside the app shell: the
+// club band with the next match and Continue, and the grouped navigation
+// marking the page's entry.
 func TestFullWidthLayout(t *testing.T) {
 	c := career(t)
 	page := c.get("/")
 	if strings.Contains(page, "max-width: 1100px") || strings.Contains(page, "margin: 0 auto") {
 		t.Fatal("layout still contains centered max-width constraint")
 	}
-	contains(t, page, ".bar { padding: 12px 16px;", "nav { padding: 0 16px;", "main { padding: 20px 16px 48px;")
+	contains(t, page, "--s4: 16px;", "main { grid-area: main; min-width: 0; padding: var(--s5) var(--s4) var(--s12); }",
+		`<span class="tag">Next</span> <span>Round 1 v Brackenmoor Town (home)</span>`, `<button class="go">Continue</button>`,
+		"<span>Club</span>", "<span>Competitions</span>", "<span>Market</span>", `<a href="/" aria-current="page">Home</a>`)
+	// A page without an entry of its own marks the one it belongs to.
+	contains(t, c.get("/player?id=56"), `<a href="/squad" aria-current="page">Squad</a>`)
+	page = c.post("/continue", nil)
+	contains(t, page, `<span class="tag now">Matchday</span> <a href="/lineup">Round 1 v Brackenmoor Town (home)</a>`, `<button class="go">Play match</button>`)
 }
 
 func TestLineupCarriesOverInTheBrowser(t *testing.T) {
@@ -1265,7 +1274,7 @@ func TestInboxReadState(t *testing.T) {
 		t.Fatalf("%d unread messages after a match", n)
 	}
 	page := c.get("/inbox")
-	contains(t, page, fmt.Sprintf("%d unread.", n), "Mark all read", "Inbox ("+strconv.Itoa(n)+")", `class="unread"`)
+	contains(t, page, fmt.Sprintf("%d unread.", n), "Mark all read", fmt.Sprintf(`Inbox<span class="count" title="%d unread">%d</span>`, n, n), `class="unread"`)
 
 	var first uint64
 	for _, m := range c.s.w.Inbox() {
