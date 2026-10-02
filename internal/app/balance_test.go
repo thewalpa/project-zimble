@@ -2,11 +2,13 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
@@ -16,6 +18,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/finance"
 	"github.com/thewalpa/project-zimble/internal/matches"
 	"github.com/thewalpa/project-zimble/internal/players"
+	"github.com/thewalpa/project-zimble/internal/selection"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
 
@@ -641,25 +644,28 @@ func (s *sideStatsSum) add(t matches.TeamStats) {
 // matches, final tables, cup shootouts and workload. Clubs are ranked by
 // their squad average before the season for the upset and gap columns.
 type careerSeason struct {
-	Matches, Home, Draw, Away int
-	Goals                     [2]int
-	Upsets                    int    // league matches won by the club with the lower pre-season average
-	GapMatches, GapStrongWins [4]int // by |average gap|: 0-1, 2-4, 5-8, 9+
-	ChampPts, LastPts         []int  // per league, from its final table
-	CupMatches, CupShootouts  int
-	TieMatches, TieShootouts  int // promotion play-off matches and those level after 90 minutes
-	Injuries, Recovered       int
-	DaysLost                  int
-	PlayerDays                map[ids.PlayerID]int
-	ClubInjuries              map[ids.ClubID]int
-	ClubDays                  map[ids.ClubID]int
-	ShortOfFit                int // club-batches whose fit players cannot field a legal lineup
-	Emergencies               int // starter appearances of players recorded injured before the batch
-	CondSum, CondSamples      int // mean condition of active players before each batch
-	Stats                     [2]sideStatsSum
-	StatsN                    int // league matches whose statistics are available
+	Matches, Home, Draw, Away     int
+	Goals                         [2]int
+	Upsets                        int    // league matches won by the club with the lower pre-season average
+	GapMatches, GapStrongWins     [4]int // by |average gap|: 0-1, 2-4, 5-8, 9+
+	ChampPts, LastPts             []int  // per league, from its final table
+	CupMatches, CupShootouts      int
+	TieMatches, TieShootouts      int // promotion play-off matches and those level after 90 minutes
+	Injuries, Recovered           int
+	DaysLost                      int
+	PlayerDays                    map[ids.PlayerID]int
+	ClubInjuries                  map[ids.ClubID]int
+	ClubDays                      map[ids.ClubID]int
+	ShortOfFit                    int // club-batches whose fit players cannot field a legal lineup
+	Emergencies                   int // starter appearances of players recorded injured before the batch
+	CondSum, CondSamples          int // mean condition of active players before each batch
+	StartSum, Starts              int // condition of each starter before his match, and the starts
+	StartsBelow90, StartsBelow100 int
+	Stats                         [2]sideStatsSum
+	StatsN                        int // league matches whose statistics are available
 
 	injuredBefore map[ids.PlayerID]bool
+	condBefore    map[ids.PlayerID]int
 	leagueRefs    []competitions.SeasonRef // in first-seen order
 }
 
@@ -697,15 +703,31 @@ func gapBucket(gap int) int {
 	return 3
 }
 
-// playCareerPhase plays the rounds that come due before target and measures
-// each batch; phase is "league", "playoff" or "cup". Continue resolves a
+// matchPhase names a round's competition by its format: "league", "playoff"
+// (promotion ties) or "cup". Since ScheduleVersion 4 a cup edition is played
+// between the league matchdays of the next season, so a batch's phase is its
+// competition's, not the sweep's stage.
+func matchPhase(w *World, ref competitions.SeasonRef) string {
+	f, _ := w.competitions.Format(ref)
+	switch f {
+	case competitions.FormatKnockout:
+		return "cup"
+	case competitions.FormatTies:
+		return "playoff"
+	}
+	return "league"
+}
+
+// playCareerPhase plays the rounds that come due before target (a target
+// already passed plays nothing) and measures each batch; stage names the
+// sweep's stage for failures. Continue resolves a
 // batch without a user fixture on the way, so the sweep stops the clock one
 // minute before each kickoff to sample the squads, then continues to the
 // kickoff and folds the batch in, whether Continue resolved it or stopped.
 func playCareerPhase(t *testing.T, w *World, y *careerSeason, seen *events.ID, target func(*World) sim.GameInstant, phase string, avg map[ids.ClubID]int) {
 	t.Helper()
 	for {
-		end := target(w)
+		end := max(target(w), w.Now())
 		kickoff, ok := nextKickoff(w)
 		if !ok || kickoff > end {
 			if res := mustContinue(t, w, end); len(asRounds(res)) > 0 {
@@ -734,7 +756,7 @@ func playCareerPhase(t *testing.T, w *World, y *careerSeason, seen *events.ID, t
 		if len(w.journal) > 0 && w.journal[0].ID > *seen+1 {
 			t.Fatalf("seed %d %s: the journal dropped events %d..%d before they were read", w.seed, phase, *seen+1, w.journal[0].ID-1)
 		}
-		y.addBatch(w, batches[0], phase, avg, seen)
+		y.addBatch(w, batches[0], avg, seen)
 	}
 }
 
@@ -744,11 +766,13 @@ func playCareerPhase(t *testing.T, w *World, y *careerSeason, seen *events.ID, t
 // to field a legal lineup without their injured.
 func (y *careerSeason) sampleBefore(w *World) {
 	y.injuredBefore = map[ids.PlayerID]bool{}
+	y.condBefore = map[ids.PlayerID]int{}
 	cond, n := 0, 0
 	for _, id := range w.activePlayers() {
 		if c, ok := w.medical.Condition(id); ok {
 			cond += int(c)
 			n++
+			y.condBefore[id] = int(c)
 		}
 		if d, ok := w.medical.DaysOut(id); ok && d > 0 {
 			y.injuredBefore[id] = true
@@ -778,10 +802,10 @@ func (y *careerSeason) sampleBefore(w *World) {
 // addBatch folds one resolved batch into the season: league results and
 // statistics, cup shootouts, emergency appearances and the injury events
 // since the last batch.
-func (y *careerSeason) addBatch(w *World, resolved RoundsResolved, phase string, avg map[ids.ClubID]int, seen *events.ID) {
+func (y *careerSeason) addBatch(w *World, resolved RoundsResolved, avg map[ids.ClubID]int, seen *events.ID) {
 	for _, m := range resolved.Matches {
 		level := m.Score[0] == m.Score[1]
-		switch phase {
+		switch matchPhase(w, m.Round.Season) {
 		case "league":
 			y.Matches++
 			y.Goals[0] += int(m.Score[0])
@@ -829,6 +853,16 @@ func (y *careerSeason) addBatch(w *World, resolved RoundsResolved, phase string,
 				if y.injuredBefore[slot.Player] {
 					y.Emergencies++
 				}
+				if c, ok := y.condBefore[slot.Player]; ok {
+					y.StartSum += c
+					y.Starts++
+					if c < 90 {
+						y.StartsBelow90++
+					}
+					if c < 100 {
+						y.StartsBelow100++
+					}
+				}
 			}
 		}
 	}
@@ -849,8 +883,8 @@ func (y *careerSeason) addBatch(w *World, resolved RoundsResolved, phase string,
 		}
 	}
 	*seen = w.lastEvent
-	if phase == "league" {
-		for _, r := range resolved.Rounds {
+	for _, r := range resolved.Rounds {
+		if matchPhase(w, r.Season) == "league" {
 			if !slices.Contains(y.leagueRefs, r.Season) {
 				y.leagueRefs = append(y.leagueRefs, r.Season)
 			}
@@ -886,10 +920,12 @@ func sweepCareer(t *testing.T, seed uint64, engine string, seasons int) careerRu
 			y.LastPts = append(y.LastPts, table.Rows[len(table.Rows)-1].Points)
 		}
 		playCareerPhase(t, w, &y, &seen, playoffEnd, "playoff", avg)
-		playCareerPhase(t, w, &y, &seen, cupEnd, "cup", avg)
+		playCareerPhase(t, w, &y, &seen, cupsUnderwayEnd, "cup", avg)
 		// An empty sample means the sweep stopped seeing batches, not a quiet
 		// season.
-		if y.Matches == 0 || y.CupMatches == 0 || y.CondSamples == 0 {
+		// Season 1 has no cup: edition N is drawn from league season N and played
+		// in season N+1.
+		if y.Matches == 0 || (s > 1 && y.CupMatches == 0) || y.CondSamples == 0 {
 			t.Fatalf("seed %d %s season %d: measured %d league and %d cup matches, %d samples", seed, engine, s, y.Matches, y.CupMatches, y.CondSamples)
 		}
 		run.Seasons = append(run.Seasons, y)
@@ -985,12 +1021,15 @@ func reportCareers(engines []string, runs [][]careerRun, seasons int) string {
 		c, l := float64(champ)/float64(leagues), float64(last)/float64(leagues)
 		fmt.Fprintf(&b, "| %s | %.1f | %.1f | %.1f |\n", engine, c, l, c-l)
 	}
-	b.WriteString("\nShootouts (level after 90 minutes) and workload (mean per season):\n\n| Engine | Cup matches | Cup shootouts % | Play-off ties | Ties to pens % | Injuries | per club | Days lost | per injury | Short-of-fit club-batches | Emergency starts | Condition before rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("\nShootouts (level after 90 minutes) and workload (mean per season):\n\n| Engine | Cup matches (per season with a cup) | Cup shootouts % | Play-off ties | Ties to pens % | Injuries | per club | Days lost | per injury | Short-of-fit club-batches | Emergency starts | Condition before rounds |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
 	for ei, engine := range engines {
-		var cup, cupPens, tie, tiePens, inj, days, short, emerg, cond, samples int
+		var cup, cupPens, tie, tiePens, inj, days, short, emerg, cond, samples, cupSeasons int
 		for _, r := range runs[ei] {
 			for _, y := range r.Seasons {
 				cup += y.CupMatches
+				if y.CupMatches > 0 {
+					cupSeasons++ // season 1 has no cup edition
+				}
 				cupPens += y.CupShootouts
 				tie += y.TieMatches
 				tiePens += y.TieShootouts
@@ -1004,9 +1043,24 @@ func reportCareers(engines []string, runs [][]careerRun, seasons int) string {
 		}
 		f := float64(n)
 		fmt.Fprintf(&b, "| %s | %.1f | %.0f | %.1f | %.0f | %.1f | %.2f | %.0f | %.1f | %.1f | %.1f | %.1f |\n",
-			engine, float64(cup)/f, pctMean(cupPens, cup), float64(tie)/f, pctMean(tiePens, tie),
+			engine, float64(cup)/float64(max(cupSeasons, 1)), pctMean(cupPens, cup), float64(tie)/f, pctMean(tiePens, tie),
 			float64(inj)/f, float64(inj)/f/32, float64(days)/f, float64(days)/float64(max(inj, 1)),
 			float64(short)/f, float64(emerg)/f, float64(cond)/float64(max(samples, 1)))
+	}
+	// The starters' condition before their matches (the all-player mean above
+	// includes the bench and free agents, who sit at full condition).
+	for ei, engine := range engines {
+		var sum, starts, b90, b100 int
+		for _, r := range runs[ei] {
+			for _, y := range r.Seasons {
+				sum += y.StartSum
+				starts += y.Starts
+				b90 += y.StartsBelow90
+				b100 += y.StartsBelow100
+			}
+		}
+		fmt.Fprintf(&b, "\n%s starters' condition at kickoff: mean %.1f over %d starts, %.0f%% below 100, %.0f%% below 90\n",
+			engine, float64(sum)/float64(max(starts, 1)), starts, pctMean(b100, starts), pctMean(b90, starts))
 	}
 	// Days lost per injured player and per club, from the per-season maps.
 	for ei, engine := range engines {
@@ -1485,6 +1539,290 @@ func reportMoney(runs []popRun, years int) string {
 		last := r.Years[len(r.Years)-1]
 		fmt.Fprintf(&b, "%4d  falling %d  poorest %s / %s  richest %s\n", r.Seed, falling,
 			thousands(lowest(r.Years[min(10, len(r.Years)-1)])), thousands(lowest(last)), thousands(highest(last)))
+	}
+	return b.String()
+}
+
+// ---- Rotation policy on matched worlds ----
+
+// rotationArms are the manager's lineup policies, each played by the same
+// club in the same seeded world:
+//
+//   - carry: submits the AI's selection for the first match and nothing after,
+//     so the world carries that lineup into every later match and only refills
+//     injured places (the manager who sets his eleven once). A manager who
+//     never submits gets the AI's selection every match, the same as rotate:
+//     the carry-over chain starts only from a stored lineup;
+//   - rotate: submits the AI's selection each match (ai.SelectTeam ranks by
+//     RoleScore × condition, so a tired player gives way);
+//   - best: submits the selection with every condition read as 100 (the
+//     strongest eleven by rating, whoever is tired).
+var rotationArms = []string{"carry", "rotate", "best"}
+
+// rotationRun is one managed club's football year under one policy.
+type rotationRun struct {
+	Points, Played int // league
+	Injuries       int
+	DaysLost       int
+	Starts         int
+	CondSum        int // the starters' condition before their matches
+	Below90        int
+	Appearances    map[ids.PlayerID]int
+}
+
+// rotationPolicy is the lineup the manager submits for a pending fixture, or
+// false to submit nothing.
+func rotationPolicy(t *testing.T, w *World, arm string, fixture ids.FixtureID, first bool) (selection.Lineup, bool) {
+	t.Helper()
+	switch arm {
+	case "carry":
+		if !first {
+			return selection.Lineup{}, false
+		}
+		fallthrough
+	case "rotate":
+		l, err := w.SuggestLineup(fixture)
+		if err != nil {
+			t.Fatalf("seed %d: SuggestLineup: %v", w.seed, err)
+		}
+		return l, true
+	}
+	team, rules, err := w.pendingUserFixture(fixture)
+	if err != nil {
+		t.Fatalf("seed %d: %v", w.seed, err)
+	}
+	cands, err := w.knownCandidates(team, w.availableSquad(team))
+	if err != nil {
+		t.Fatalf("seed %d: %v", w.seed, err)
+	}
+	for i := range cands {
+		cands[i].Condition = matches.MaxCondition
+	}
+	sel, err := ai.SelectTeam(team, cands, rules)
+	if err != nil {
+		t.Fatalf("seed %d: %v", w.seed, err)
+	}
+	return aiLineup(sel), true
+}
+
+// playManagedYear plays the football year (as playSeason does) with the
+// manager's club following arm, and measures that club.
+func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
+	t.Helper()
+	club, _ := w.UserClub()
+	team, _ := w.userTeam()
+	run := rotationRun{Appearances: map[ids.PlayerID]int{}}
+	seen := w.lastEvent
+	for _, target := range []func(*World) sim.GameInstant{seasonEnd, playoffEnd, cupsUnderwayEnd} {
+		for {
+			res := mustContinue(t, w, max(target(w), w.Now()))
+			fold := asRounds(res)
+			ready, ok := res.(FixtureRoundReady)
+			if ok {
+				for _, f := range ready.UserFixtures {
+					first := run.Starts == 0
+					if l, submit := rotationPolicy(t, w, arm, f, first); submit {
+						if _, err := w.SubmitLineup(SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}); err != nil {
+							t.Fatalf("seed %d %s: submit: %v", w.seed, arm, err)
+						}
+					}
+				}
+				cond := map[ids.PlayerID]int{}
+				for _, id := range w.employment.Squad(team) {
+					if c, ok := w.medical.Condition(id); ok {
+						cond[id] = int(c)
+					}
+				}
+				cmd := commandFor(ready, w.NextCommandID())
+				cmd.ExpectedRevision = w.Revision() // submitted lineups advanced it
+				resolved, err := w.ResolveRounds(cmd)
+				if err != nil {
+					t.Fatalf("seed %d %s: resolve: %v", w.seed, arm, err)
+				}
+				for _, m := range resolved.Matches {
+					for side, label := range []TeamLabel{m.Home, m.Away} {
+						if label.Club != club {
+							continue
+						}
+						for _, slot := range m.Lineups[side].Starters {
+							run.Starts++
+							run.CondSum += cond[slot.Player]
+							if cond[slot.Player] < 90 {
+								run.Below90++
+							}
+							run.Appearances[slot.Player]++
+						}
+					}
+				}
+				fold = append(fold, resolved)
+			}
+			for _, e := range w.Events() {
+				if e.ID > seen && e.Kind == events.KindPlayerInjured && e.PlayerInjured != nil && e.PlayerInjured.Club == club {
+					run.Injuries++
+					run.DaysLost += int(e.PlayerInjured.Days)
+				}
+			}
+			seen = w.lastEvent
+			for _, r := range fold {
+				for _, m := range r.Matches {
+					if matchPhase(w, m.Round.Season) != "league" {
+						continue
+					}
+					for side, label := range []TeamLabel{m.Home, m.Away} {
+						if label.Club != club {
+							continue
+						}
+						mine, theirs := m.Score[side], m.Score[1-side]
+						run.Played++
+						switch {
+						case mine > theirs:
+							run.Points += 3
+						case mine == theirs:
+							run.Points++
+						}
+					}
+				}
+			}
+			if !ok {
+				break
+			}
+		}
+	}
+	return run
+}
+
+// rotationSample is every arm's football year for one (seed, club).
+type rotationSample struct {
+	Seed uint64
+	Club ids.ClubID
+	Arms [3]rotationRun // by rotationArms
+}
+
+// meanSE is the mean and standard error of xs.
+func meanSE(xs []float64) (mean, se float64) {
+	if len(xs) == 0 {
+		return 0, 0
+	}
+	for _, x := range xs {
+		mean += x
+	}
+	mean /= float64(len(xs))
+	if len(xs) < 2 {
+		return mean, 0
+	}
+	var ss float64
+	for _, x := range xs {
+		ss += (x - mean) * (x - mean)
+	}
+	return mean, math.Sqrt(ss/float64(len(xs)-1)) / math.Sqrt(float64(len(xs)))
+}
+
+// TestBalanceRotation plays one football year of the same seeded world once per
+// lineup policy for each managed club, and compares the policies on matched
+// pairs: points, injuries, days lost and the starters' condition. The manager
+// signs and renews nobody (one year stays inside the contract year), so the
+// arms differ only in his lineups.
+//
+//	ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceRotation -v -count=1 -timeout 2h
+func TestBalanceRotation(t *testing.T) {
+	requireBalanceSweep(t)
+	type setup struct {
+		engine string
+		seeds  []uint64
+		step   int // every step-th club by ID
+	}
+	setups := []setup{
+		{"simple", []uint64{1, 2, 3, 4}, 1},
+		{"tick", []uint64{7, 42, 2026}, 2},
+	}
+	for _, su := range setups {
+		var samples []rotationSample
+		for _, seed := range su.seeds {
+			base := aiEngineWorld(t, seed, su.engine)
+			var clubs []ids.ClubID
+			for i, c := range base.registry.Clubs() {
+				if i%su.step == 0 {
+					clubs = append(clubs, c.ID)
+				}
+			}
+			for _, club := range clubs {
+				samples = append(samples, rotationSample{Seed: seed, Club: club})
+			}
+		}
+		t.Run(su.engine, func(t *testing.T) {
+			for i := range samples {
+				for armIdx, arm := range rotationArms {
+					t.Run(fmt.Sprintf("%d-%d-%s", samples[i].Seed, samples[i].Club, arm), func(t *testing.T) {
+						t.Parallel()
+						cfg := DefaultConfig(random.Seed(samples[i].Seed))
+						cfg.UserClub, cfg.Engine = samples[i].Club, su.engine
+						w, err := NewWorld(cfg)
+						if err != nil {
+							t.Fatal(err)
+						}
+						samples[i].Arms[armIdx] = playManagedYear(t, w, arm)
+					})
+				}
+			}
+		})
+		t.Log(reportRotation(su.engine, samples))
+	}
+}
+
+// reportRotation formats the arms' means and the paired differences against
+// "rotate" as markdown rows for docs/balance.md.
+func reportRotation(engine string, samples []rotationSample) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%s: %d matched (seed, club) football years per policy\n", engine, len(samples))
+	b.WriteString("\n| Policy | League points | Injuries | Days lost | Starters' condition at kickoff | Starts below 90 % | Players used in the league year | Starts by the 14 most-used % |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	col := func(ai int, f func(r rotationRun) float64) []float64 {
+		out := make([]float64, len(samples))
+		for i, s := range samples {
+			out[i] = f(s.Arms[ai])
+		}
+		return out
+	}
+	for ai, arm := range rotationArms {
+		pts, _ := meanSE(col(ai, func(r rotationRun) float64 { return float64(r.Points) }))
+		inj, _ := meanSE(col(ai, func(r rotationRun) float64 { return float64(r.Injuries) }))
+		days, _ := meanSE(col(ai, func(r rotationRun) float64 { return float64(r.DaysLost) }))
+		cond, _ := meanSE(col(ai, func(r rotationRun) float64 { return float64(r.CondSum) / float64(max(r.Starts, 1)) }))
+		b90, _ := meanSE(col(ai, func(r rotationRun) float64 { return 100 * float64(r.Below90) / float64(max(r.Starts, 1)) }))
+		used, _ := meanSE(col(ai, func(r rotationRun) float64 { return float64(len(r.Appearances)) }))
+		top, _ := meanSE(col(ai, func(r rotationRun) float64 {
+			var apps []int
+			for _, n := range r.Appearances {
+				apps = append(apps, n)
+			}
+			slices.SortFunc(apps, func(a, b int) int { return b - a })
+			sum := 0
+			for i, n := range apps {
+				if i < 14 {
+					sum += n
+				}
+			}
+			return 100 * float64(sum) / float64(max(r.Starts, 1))
+		}))
+		fmt.Fprintf(&b, "| %s | %.2f | %.2f | %.0f | %.1f | %.0f | %.1f | %.0f |\n", arm, pts, inj, days, cond, b90, used, top)
+	}
+	b.WriteString("\nPaired differences against rotate (mean ± standard error over the matched pairs):\n\n| Policy | League points | Injuries | Days lost |\n| --- | --- | --- | --- |\n")
+	rot := slices.Index(rotationArms, "rotate")
+	for ai, arm := range rotationArms {
+		if ai == rot {
+			continue
+		}
+		diff := func(f func(r rotationRun) float64) string {
+			d := make([]float64, len(samples))
+			for i, s := range samples {
+				d[i] = f(s.Arms[ai]) - f(s.Arms[rot])
+			}
+			m, se := meanSE(d)
+			return fmt.Sprintf("%+.2f ± %.2f", m, se)
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", arm,
+			diff(func(r rotationRun) float64 { return float64(r.Points) }),
+			diff(func(r rotationRun) float64 { return float64(r.Injuries) }),
+			diff(func(r rotationRun) float64 { return float64(r.DaysLost) }))
 	}
 	return b.String()
 }
