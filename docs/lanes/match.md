@@ -29,6 +29,8 @@ The match engine and everything on matchday: the match contract, the engine that
 
 ## Now
 
+**Tick scores a career's goals** (`tick.ModelVersion` 9, closes `match--career-goals`): `SavePPM` 800,000 → 640,000 lifts career seasons from 2.19 to 2.56 goals a league match (1.41–1.15, 43.1 / 26.0 / 30.9 %), shots and the v8 statistics unchanged, v7's mentality trade-off kept ([progress](../progress.md#match-tick-scores-a-careers-goals-done), [note to `balance`](../handoffs/balance--tick-v9-rerun.md)). Next: fouls, free kicks and cards, or the two accepted notes in the backlog.
+
 **Tick engine: offside is delivered (phase 4, first rule).** Forwards make runs in behind, back lines hold, passers play through balls, and a receiver beyond the second-last opponent when the ball is played is caught offside, giving a free kick. Equal sides are caught about 1.8 times a side at the old goal level (2.54). `TeamStats.Offsides`, schema 28, `tick.ModelVersion` 6 ([progress](../progress.md#match-offside-in-tick-done)). The mentality effect is smaller than at v5 (both attacking 3.27 goals, both defensive 1.21). `tick` stays opt-in (a season costs about 12.5 s against 0.26 s on `simple`).
 
 **Tick's mentality is a trade-off** (`tick.ModelVersion` 7: `MentalityConcedePermille` prices the room behind a line into the opponents' runs, counter passes and shots — the counter cost `balance` asked for in `match--attacking-is-free`, a fatigue cost left open for `squad`). Attacking is within 0.05 points a match of balanced at equal teams; defensive is the underdog's tool (+0.04–0.07) and draws more ([progress](../progress.md#match-the-mentality-trade-off-in-tick-done)).
@@ -72,8 +74,6 @@ Each phase ends with all three checks green, `tick.ModelVersion` bumped when out
 - **`competitions`:** play-off match rules are reviewed and accepted (a tie is knockout to penalties; the link's lower division supplies the squad rules). Extra time before penalties would need the reserved `Resolution` value.
 
 ## Backlog
-
-- **Career goal level for `tick`** (accepted [match--career-goals](../handoffs/match--career-goals.md); `simple` is delivered at v6): `tick` scores 2.14 goals in careers against 2.6–2.9 real, 0.26 below its synthetic level. Calibrate against `enginetest.CareerInput` (the specialist profile), then check `TestBalanceCareerEngines`, keeping the home/draw/away split and v7's mentality trade-off; one `tick.ModelVersion` bump, notes to `ui` for the seeded stories if `tick` is the engine they pin (it is opt-in, so they are not).
 
 - **Change the formation during a live match** (accepted [match--live-formation](../handoffs/match--live-formation.md)): a `CommandSetRoles`, an `EventFormationChange`, current roles in the view, both engines, the AI, the replay log. A contract change: notes to `ui`, `balance`.
 - **Tired starters of a carried-over or planned lineup** (accepted [match--tired-starters](../handoffs/match--tired-starters.md)): a condition threshold owned here and `MatchdayLineup.Tired`; small, and independent of the calibration above.

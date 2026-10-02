@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match, frames included.
-const ModelVersion uint32 = 8
+const ModelVersion uint32 = 9
 
 // The clock: a tick is one simulated instant.
 const (
@@ -262,7 +262,7 @@ func DefaultParams() Params {
 		EasySpeed:              180,
 		ControlSpeedPenaltyPPM: 1500,
 		InterceptPermille:      500,
-		SavePPM:                800_000,
+		SavePPM:                640_000,
 		SaveSkillPPM:           250_000,
 		SaveSpeedPenaltyPPM:    500,
 		MinControlPPM:          50_000,

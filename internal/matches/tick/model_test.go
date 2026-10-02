@@ -31,7 +31,12 @@ func (r tally) homePoints() float64 {
 // simulate plays fixtures 1..n in parallel and folds them in fixture order.
 func simulate(t *testing.T, n int, build func(ids.FixtureID) *matches.MatchInput) tally {
 	t.Helper()
-	e := engine(t)
+	return simulateWith(t, engine(t), n, build)
+}
+
+// simulateWith is simulate on a given engine.
+func simulateWith(t *testing.T, e *Engine, n int, build func(ids.FixtureID) *matches.MatchInput) tally {
+	t.Helper()
 	type result struct {
 		score    [2]uint16
 		shootout [2]uint16
@@ -201,9 +206,9 @@ func TestGoalsFollowTheGapNotTheLevel(t *testing.T) {
 // errors wide.
 func TestMentalityTradeOff(t *testing.T) {
 	if testing.Short() {
-		t.Skip("plays 1,800 matches")
+		t.Skip("plays 4,500 matches")
 	}
-	const n = 600
+	const n = 1500
 	homeWith := func(m matches.Mentality) func(ids.FixtureID) *matches.MatchInput {
 		return func(f ids.FixtureID) *matches.MatchInput {
 			in := input(f, 60, 60)
@@ -266,9 +271,9 @@ func TestDefensiveServesTheUnderdog(t *testing.T) {
 // shows, but a shootout remains near a coin toss (v7: 56% at 65 v 55).
 func TestShootoutsStayClose(t *testing.T) {
 	if testing.Short() {
-		t.Skip("plays 1,000 matches")
+		t.Skip("plays 1,500 matches")
 	}
-	r := simulate(t, 1000, func(f ids.FixtureID) *matches.MatchInput {
+	r := simulate(t, 1500, func(f ids.FixtureID) *matches.MatchInput {
 		in := input(f, 65, 55)
 		in.Rules.Knockout = true
 		return in
@@ -364,7 +369,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "a3c844127275aa2d"
+const goldenHash = "7f3bfa8122d23c2a"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

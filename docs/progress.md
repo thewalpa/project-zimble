@@ -3989,3 +3989,27 @@ Notes: answered and deleted `balance--simple-v6-rerun` (mentality on career squa
 
 Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, filed to `ui` as `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`.
 
+## match: tick scores a career's goals (done)
+
+`tick.ModelVersion` 9, the second half of [match--career-goals](handoffs/match--career-goals.md) (`simple` was delivered at v6).
+
+**Why careers were low.** The same cause as in `simple`: a career keeper outrates his shooters (`enginetest.CareerRatings`: Goalkeeping +25, forwards' Finishing +18), and a save is the keeper's Goalkeeping against the shooter's Finishing. The shot count was already on the real column (12 and 10.5 shots a side, 5.3 / 4.4 on target) so the lever is the save, not the chances: raising shots or accuracy would have undone `v8`'s statistics calibration.
+
+**Change.** `SavePPM` 800,000 → 640,000, nothing else. A sweep on the career profile (1,200 to 3,000 matches a row) gave 2.21 goals at 800k, 2.50 at 700k, 2.63 at 670k, 2.77 at 620k, and `SaveSkillPPM` alone moved little (2.28 at 150k). Saves a side fall from 3.9 to 3.6; shots, possession, passes, tackles and offsides are unchanged.
+
+**Results.**
+
+| | v8 | v9 |
+| --- | --- | --- |
+| Career profile 60 v 60, goals (1,500 matches) | 2.21 | 2.70 (home 619, draw 401, away 480) |
+| Flat profile 60 v 60, goals | 2.42 | 2.79 |
+| Career seasons, goals a league match (`TestBalanceCareerEngines`, 3 seeds x 3 seasons) | 2.19 | **2.56**, 1.41-1.15 |
+| Career seasons, home / draw / away % | 43.1 / 28.0 / 28.9 | 43.1 / 26.0 / 30.9 |
+
+Mentality keeps the v7 trade-off on career squads (3,000 matches a row at 670k, points a match for the home side against balanced: attacking +0.00, defensive +0.02 at equal teams; measured at 670k, one step before the final value). The flat profile now scores more in every row (balanced 2.79, attacking 3.42, defensive 2.36), still inside the 2.0-3.5 bound of `TestModelTrends`.
+
+**Tests.** `internal/matches/tick/career_test.go` (`TestCareerGoalLevel`, 2.4-2.9 goals with a home edge and a plausible draw rate on the career profile, skipped under `-short`). More goals mean fewer level knockouts and draws, so two flat-profile tests that were close to their sampling limits use more matches: `TestMentalityTradeOff` 1,500 a row (was 600; defensive drew 165 against balanced's 173 at 600, but 398 against 382 at 1,500) and `TestShootoutsStayClose` 1,500 knockouts (was 1,000, which gave 166 shootouts, under its floor of 200; now 272, the stronger side winning 151). `simulate` gained `simulateWith` for a given engine. Golden `7f3bfa8122d23c2a`.
+
+**Not affected.** `tick` is opt-in, so no seeded `simple` career, golden or client story moved. A saved `tick` career at v8 no longer loads (the engine version check, as for every bump). [Note to `balance`](handoffs/balance--tick-v9-rerun.md) for the refresh. Closes `match--career-goals`.
+
+Validation: `gofmt -l .` (only `cmd/simulate/main_test.go`, already filed to `ui` as `ui--simulate-test-gofmt`), `go vet ./...`, `go test ./...`; `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines`.
