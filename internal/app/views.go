@@ -610,3 +610,13 @@ func (w *World) AutomaticResults(result ContinueResult) []AutomaticBatch {
 	}
 	return out
 }
+
+// CareerTotals returns the appearances and goals summed over spells, for a
+// total under a career of more than one spell. Read-only.
+func CareerTotals(spells []CareerSpell) (appearances, goals int) {
+	for _, s := range spells {
+		appearances += int(s.Appearances)
+		goals += int(s.Goals)
+	}
+	return appearances, goals
+}

@@ -1757,13 +1757,18 @@ func (s *server) listSaves() []saveInfo {
 
 type playerCareerView struct {
 	ClubID, Club, From, Until, Joined, Left string
+	Appearances, Goals                      uint16
 }
+
+type careerTotalView struct{ Appearances, Goals int }
 
 type playerView struct {
 	app.PlayerProfile
-	Ends    int
-	IsMine  bool
-	Career  []playerCareerView
+	Ends   int
+	IsMine bool
+	Career []playerCareerView
+	// Total is set when the career has more than one spell.
+	Total   *careerTotalView
 	Missing string // set when the ID names no player
 }
 
@@ -1825,9 +1830,15 @@ func (s *server) player(r *http.Request) (string, any, error) {
 		if spell.Joined == careers.JoinedTransfer {
 			joined += " for " + spell.Fee.String()
 		}
-		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: playerLeft(spell.Left)})
+		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: playerLeft(spell.Left),
+			Appearances: spell.Appearances, Goals: spell.Goals})
 	}
-	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club(), Career: history}, nil
+	var total *careerTotalView
+	if len(spells) > 1 {
+		apps, goals := app.CareerTotals(spells)
+		total = &careerTotalView{Appearances: apps, Goals: goals}
+	}
+	return "player", playerView{PlayerProfile: p, Ends: c.Year, IsMine: p.Club != 0 && p.Club == s.club(), Career: history, Total: total}, nil
 }
 
 // Player pages run only after a managed club has been chosen. Use that club

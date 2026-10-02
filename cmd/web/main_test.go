@@ -786,6 +786,8 @@ func TestTransfersInTheBrowser(t *testing.T) {
 	contains(t, c.post("/answer", url.Values{"offer": {"99"}, "accept": {"yes"}, "back": {"/transfers"}}), "no open offer for one of your players")
 	contains(t, c.post("/answer", url.Values{"offer": {"85"}, "accept": {"yes"}, "back": {"/transfers"}}), "Accepted: the transfer is complete.")
 	contains(t, c.get("/inbox"), "Callum Doyle left for Eldhaven United for 1,200,000.00")
+	contains(t, c.get("/player?id=44"), "Sold</td><td class=\"n\">14</td><td class=\"n\">0</td>",
+		"Current club</td><td class=\"n\">0</td><td class=\"n\">0</td>", "<th colspan=\"5\">Total</th><th class=\"n\">14</th><th class=\"n\">0</th>")
 	contains(t, c.get("/finances"), "transfer fee, offer 85")
 	contains(t, c.get("/squad?club=1"), "asking price")
 }
@@ -1158,6 +1160,20 @@ func TestLineupCarriesOverInTheBrowser(t *testing.T) {
 	// Report shows "Your lineup":
 	reportPage := c.get(fmt.Sprintf("/report?fixture=%d", r2Fixture))
 	contains(t, reportPage, "Your lineup")
+}
+
+// A player's club history counts his appearances and goals at each club.
+func TestPlayerCareerCountsAppearancesAndGoals(t *testing.T) {
+	c := career(t)
+	for range 6 {
+		c.post("/continue", nil)
+	}
+	page := c.get("/player?id=57")
+	contains(t, page, "Pieter Haugen", "<th class=\"n\" title=\"Appearances\">Apps</th><th class=\"n\">Goals</th>",
+		"Current club</td><td class=\"n\">3</td><td class=\"n\">2</td>")
+	if strings.Contains(page, ">Total</th>") {
+		t.Fatal("a career of one spell has no total")
+	}
 }
 
 func TestPlayerProfilePage(t *testing.T) {

@@ -2193,7 +2193,7 @@ func (s *session) cup(args []string) error {
 	}
 	cups := s.w.Cups()
 	if len(cups) == 0 {
-		s.printf("No cup has been drawn yet: the Continental Cup starts when the league seasons end, with the top four of each league.\n")
+		s.printf("No cup has been drawn yet: when the league seasons end, the top four of each league are drawn into the Continental Cup, played midweek during the following season.\n")
 		return nil
 	}
 	for _, c := range cups {
@@ -2389,7 +2389,11 @@ func (s *session) player(args []string) error {
 			if spell.Joined == careers.JoinedTransfer {
 				s.printf(" for %s", spell.Fee)
 			}
-			s.printf("; %s\n", careerLeft(spell.Left))
+			s.printf("; %s; apps %d, goals %d\n", careerLeft(spell.Left), spell.Appearances, spell.Goals)
+		}
+		if len(spells) > 1 {
+			apps, goals := app.CareerTotals(spells)
+			s.printf("  Total: apps %d, goals %d\n", apps, goals)
 		}
 	}
 	s.printf("Overall:   %d\n", p.Overall)

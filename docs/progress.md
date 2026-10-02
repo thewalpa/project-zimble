@@ -3756,3 +3756,15 @@ Client fixtures still cover managed penalties, champions, cup exits, promotion, 
 Reviewed competitions' additive save/load calendar validation: no state or event omission found. Accepted balance's generated age curve, youth-floor attribute drift and lasting lower-division gap requests into data's backlog, after this calendar unit; none of those population changes is implemented here.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` passed, and the full `go test ./...` suite passed, including save fixtures, two-year calendar/stepping checks, century calendar bounds, both clients and the long squad/accounting tests.
+
+## ui: career appearances and goals; calendar reviews (done)
+
+Closes `ui--career-appearances-goals`, `ui--august-may-calendar`, `ui--midweek-cup-calendar` and `ui--simulate-test-gofmt`.
+
+- **Appearances and goals per spell.** The terminal `player ID` career lines end with `apps N, goals N`; the browser's club history has Apps and Goals columns. Both read `CareerSpell.Appearances` and `Goals` from `World.PlayerCareer`.
+- **A total for more than one spell.** `app.CareerTotals` (views.go) sums a career's spells into ints, so both clients show the same total and neither adds up statistics itself. A one-spell career has no total row, since it would repeat the line above.
+- **Cup wording.** The "no cup drawn yet" text in both clients said the cup starts when the leagues end, and the browser's said its rounds are a week apart. Both now say the top four of each league are drawn when the league seasons end, into a cup played midweek during the following season.
+- **Fixture reviews.** competitions' and data's calendar-driven client test updates keep the penalty, champion, cup exit, promotion, automatic-result and save/load stories. The clients read schedules from `World.Schedules`, so a restored weekly career shows its pinned calendar (data's save test covers the restore). `gofmt -l .` was already clean on `main`.
+- **Accepted** `ui--tired-carried-lineup`, waiting for an app-owned tiredness cue: filed `match--tired-starters`, since a condition threshold is a rule the clients may not own.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; new client tests for a scorer's one-spell career (seed 42, club 3, player 57: 3 apps, 2 goals) and a sold player's two spells with a total (player 44).

@@ -14,8 +14,9 @@
 <h2>Club history</h2>
 <div class="panel scroll">
 <table>
-  <tr><th>Club</th><th>From</th><th>Until</th><th>Joined</th><th>Left</th></tr>
-  {{range $d.Career}}<tr><td><a href="/squad?club={{.ClubID}}">{{.Club}}</a></td><td>{{.From}}</td><td>{{.Until}}</td><td>{{.Joined}}</td><td>{{.Left}}</td></tr>{{end}}
+  <tr><th>Club</th><th>From</th><th>Until</th><th>Joined</th><th>Left</th><th class="n" title="Appearances">Apps</th><th class="n">Goals</th></tr>
+  {{range $d.Career}}<tr><td><a href="/squad?club={{.ClubID}}">{{.Club}}</a></td><td>{{.From}}</td><td>{{.Until}}</td><td>{{.Joined}}</td><td>{{.Left}}</td><td class="n">{{.Appearances}}</td><td class="n">{{.Goals}}</td></tr>{{end}}
+  {{with $d.Total}}<tr><th colspan="5">Total</th><th class="n">{{.Appearances}}</th><th class="n">{{.Goals}}</th></tr>{{end}}
 </table>
 </div>
 {{end}}

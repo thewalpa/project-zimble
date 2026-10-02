@@ -1,7 +1,7 @@
 ---
 to: ui
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-02
 ---
@@ -19,3 +19,7 @@ On the lineup screen of both clients, mark starters below about 90 condition whe
 
 ## Done when
 A managed season that submits one lineup and never opens the screen again shows the warning in the matches where it applies.
+
+## Answer
+
+Accepted on 2026-10-02 into the ui backlog, waiting for an app-owned cue. "Below about 90" is a condition rule, which the ui lane may not compute in `cmd/`. Filed [match--tired-starters](match--tired-starters.md) for a per-starter flag on `MatchdayLineup` (or a query beside it). Both lineup screens will mark the flagged starters and offer `SuggestLineup` once it lands.

@@ -440,9 +440,12 @@ func TestTransfers(t *testing.T) {
 		"NOW  Eldhaven United bid 1,200,000.00 for Callum Doyle. Answer by Mon 2026-07-06 00:00 UTC. (type accept 85 or reject 85)",
 		"! app: no open offer for one of your players has that ID: offer 99")
 
-	accepted := play(t, []string{"-load", path}, "accept 85", "finances 2", "list", "q", "q")
+	accepted := play(t, []string{"-load", path}, "accept 85", "finances 2", "list", "player 44", "q", "q")
 	contains(t, accepted, "Accepted: the transfer is complete.",
-		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O85")
+		"transfer: Callum Doyle left for Eldhaven United for 1,200,000.00", "transfer fee O85",
+		"  Quillford FC: before Tue 2025-07-01 00:00 UTC–Fri 2026-07-03 00:00 UTC; at career start; sold; apps 14, goals 0",
+		"  Eldhaven United: Fri 2026-07-03 00:00 UTC–present; signed by transfer for 1,200,000.00; current club; apps 0, goals 0",
+		"  Total: apps 14, goals 0")
 	if strings.Contains(accepted, "  44  Quillford FC") {
 		t.Fatal("a sold player is still listed")
 	}
@@ -539,6 +542,16 @@ func TestPlayerProfileCommand(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "player 56", "player 1", "player 99999", "player", "quit", "quit")
 	contains(t, out, "Kieran Walsh (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:", "Career:", "before ", "current club",
 		"no player 99999", "usage: player ID")
+}
+
+// A player's career counts his appearances and goals at each club.
+func TestPlayerCareerCountsAppearancesAndGoals(t *testing.T) {
+	out := play(t, []string{"-seed", "42", "-club", "3"},
+		"continue", "continue", "continue", "continue", "continue", "continue", "player 57", "quit", "quit")
+	contains(t, out, "Pieter Haugen (player 57)", "  Quillford FC: before Tue 2025-07-01 00:00 UTC–present; at career start; current club; apps 3, goals 2")
+	if strings.Contains(out, "Total:") {
+		t.Fatalf("a career of one spell has no total:\n%s", out)
+	}
 }
 
 func TestComparePlayersCommand(t *testing.T) {
