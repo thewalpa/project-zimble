@@ -198,16 +198,21 @@ func TestPlayingAMatchday(t *testing.T) {
 	contains(t, c.get("/table"), "1 of 14 rounds played")
 }
 
-// Watch live on tick: the match stops at half time with a pitch replay and
-// statistics, takes a substitution, plays on to full time and is confirmed
-// by Play match; the report keeps the statistics.
+// Watch live on tick: the clock runs from kickoff and the match stops at
+// half time with a pitch replay and statistics, takes a substitution, plays
+// on to full time and is confirmed by Play match; the report keeps the
+// statistics.
 func TestLiveMatchInTheBrowser(t *testing.T) {
 	c := newClient(t, config{seed: 42, club: 3, engine: "tick", savePath: filepath.Join(t.TempDir(), "c.json")})
 	contains(t, c.post("/continue", nil), "Watch live")
 	page := c.post("/watch", nil)
-	contains(t, page, "Live: Round 1", "Half time · 45'", "Play to full time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
+	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Play to full time",
+		`data-from="0" data-to="45" data-autoplay`, "Skip to half time", "<h2>On the pitch</h2>", "play from 0:00 to 45:00",
 		"<title>Pieter Haugen</title>", "var frames = [[0,", "<h2>Match statistics</h2>", `<th class="stat">Possession</th>`,
-		"3 substitutions left", "Half time</li>")
+		"3 substitutions left", `data-minute="45">`, "Half time</li>")
+	if l, _ := c.s.w.LiveMatch(); strings.Contains(page, c.s.liveLine()) || l.View.Score != [2]uint16{0, 0} && !strings.Contains(page, "data-goal=") {
+		t.Fatal("the band shows the score the clock reveals, or the timeline's goals carry no score")
+	}
 	if n := strings.Count(page, "data-dot="); n != 22 {
 		t.Fatalf("%d players on the pitch view", n)
 	}
@@ -216,15 +221,17 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 
 	page = c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"58"}})
 	contains(t, page, "Substitution · Rhys Aldridge on for Pieter Haugen", "2 substitutions left",
-		"<title>Pieter Haugen</title>") // the replay up to half time still shows who played it
+		"<title>Pieter Haugen</title>",      // the replay up to half time still shows who played it
+		`data-from="0" data-to="45" hidden`) // and waits to be replayed
 	contains(t, c.post("/decide", url.Values{"kind": {"sub"}, "out": {"57"}, "in": {"60"}}), "invalid match decision")
 	contains(t, c.post("/decide", url.Values{"kind": {"mentality"}, "mentality": {"attacking"}}), "Mentality changed to attacking", "Mentality <b>attacking</b>")
 	contains(t, c.post("/watch", url.Values{"minute": {"30"}}), "invalid command")
 
 	page = c.post("/watch", url.Values{"minute": {"70"}})
-	contains(t, page, "In play · 70'", "play from 45:00 to 70:00", "<title>Rhys Aldridge</title>")
+	contains(t, page, "<span data-state>In play</span> · <span data-minute>70</span>'", `data-from="45" data-to="70" data-autoplay`,
+		"Skip to minute 70", "play from 45:00 to 70:00", "<title>Rhys Aldridge</title>")
 	page = c.post("/watch", nil)
-	contains(t, page, "Full time · 90'", "Confirm the result")
+	contains(t, page, "<span data-state>Full time</span> · <span data-minute>90</span>'", `data-from="70" data-to="90" data-autoplay`, "Confirm the result")
 	if strings.Contains(page, "Your changes") {
 		t.Fatal("changes offered after full time")
 	}
@@ -237,14 +244,19 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "<h2>Match statistics</h2>", `<th class="stat">Offsides</th>`)
 }
 
-// On simple a live match has no pitch and no statistics, never zeros.
+// On simple a live match has no pitch and no statistics, never zeros; its
+// clock still runs from kickoff to half time.
 func TestLiveMatchWithoutFramesOrStatistics(t *testing.T) {
 	c := career(t)
 	c.post("/continue", nil)
 	fixture, _ := c.s.pendingFixture()
 	page := c.post("/watch", nil)
-	contains(t, page, "Live: Round 1", "Half time · 45'", "Your changes")
-	for _, absent := range []string{"On the pitch", "Match statistics", "var frames"} {
+	contains(t, page, "Live: Round 1", "<span data-state>Half time</span> · <span data-minute>45</span>'", "Your changes",
+		`data-from="0" data-to="45" data-autoplay`, "Skip to half time", `<option value="60" selected>`)
+	if strings.Contains(c.get("/live"), "data-live") {
+		t.Fatal("a simple match offers a clock with nothing to replay")
+	}
+	for _, absent := range []string{"On the pitch", "Match statistics", "var frames = ["} {
 		if strings.Contains(page, absent) {
 			t.Fatalf("a simple career shows %q", absent)
 		}

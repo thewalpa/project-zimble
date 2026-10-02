@@ -17,7 +17,10 @@ import (
 // The manager's match can be watched live: played to a stop (half time,
 // full time or a chosen minute), with substitutions and mentality changes
 // in between. Play match (continue) finishes it and confirms the result,
-// as it does for a match not watched.
+// as it does for a match not watched. After each play the page runs a
+// match clock from the previous stop (kickoff for the first) to the new
+// one, revealing the score, the timeline and the pitch replay as it goes;
+// the stop's state and decisions appear when the clock reaches it.
 
 // frameEvery thins the pitch replay to one frame per second of match time.
 const frameEvery = 1000
@@ -27,6 +30,11 @@ type liveView struct {
 	Title        string // the match's name, e.g. "Round 1"
 	Home, Away   app.TeamLabel
 	Minute       uint16
+	From         uint16 // the clock's first minute: the previous stop, or Minute when there is nothing to play out
+	Autoplay     bool   // run the clock as the page opens: the play was just made
+	Speed        int    // match seconds per second of the clock by default
+	Speeds       []int
+	StopName     string // what the clock runs to, e.g. "half time"
 	Score        [2]uint16
 	Penalties    string // " (4-3 on penalties)" after a shootout
 	State        string // "Half time", "Full time" or "In play"
@@ -56,11 +64,12 @@ type livePlayer struct {
 // decimetres: the last frame as SVG (without JavaScript), and every frame
 // for the script to replay.
 type pitchReplay struct {
-	Dots   []pitchDot
-	Ball   [2]int32
-	From   string // the replay's first and last match minute
-	To     string
-	Frames [][]int32 // per frame: seconds, ball x, y, carrier index (-1 none), then x, y per dot
+	Dots       []pitchDot
+	Ball       [2]int32
+	From       string // the replay's first and last match minute
+	To         string
+	FromMinute uint16    // the minute the replay starts at
+	Frames     [][]int32 // per frame: seconds, ball x, y, carrier index (-1 none), then x, y per dot
 }
 
 type pitchDot struct {
@@ -97,6 +106,10 @@ func (s *server) live(r *http.Request) (string, any, error) {
 		v.State = "Half time"
 	default:
 		v.State = "In play"
+	}
+	v.StopName = strings.ToLower(v.State)
+	if v.State == "In play" {
+		v.StopName = fmt.Sprintf("minute %d", l.Position.Minute)
 	}
 	v.Target = matches.HalfTimeMinute
 	if l.Position.Minute >= matches.HalfTimeMinute {
@@ -137,6 +150,13 @@ func (s *server) live(r *http.Request) (string, any, error) {
 		}
 		v.Pitch = s.replayOf(l, frames)
 	}
+	v.From, v.Speed, v.Speeds = l.Position.Minute, 60, []int{5, 10, 30, 60, 90}
+	if v.Pitch != nil {
+		v.From, v.Speed = v.Pitch.FromMinute, 10
+	}
+	if n, err := strconv.ParseUint(r.URL.Query().Get("from"), 10, 16); err == nil && n < uint64(l.Position.Minute) {
+		v.From, v.Autoplay = uint16(n), true
+	}
 	return "live", v, nil
 }
 
@@ -151,7 +171,7 @@ func (s *server) replayOf(l app.LiveMatch, frames []matches.Frame) *pitchReplay 
 		onPitch = s.frameLabels.onPitch
 	}
 	var slots []ids.PlayerID
-	p := &pitchReplay{From: minuteOf(frames[0].Millis), To: minuteOf(frames[len(frames)-1].Millis)}
+	p := &pitchReplay{From: minuteOf(frames[0].Millis), To: minuteOf(frames[len(frames)-1].Millis), FromMinute: uint16(frames[0].Millis / 60_000)}
 	for sd := range onPitch {
 		for _, id := range onPitch[sd] {
 			slots = append(slots, id)
@@ -209,8 +229,9 @@ func (s *server) watch(form url.Values) (string, error) {
 	if !ok {
 		return "/", errors.New("no match is waiting; Continue goes to your next matchday")
 	}
-	target := uint16(matches.HalfTimeMinute)
+	target, from := uint16(matches.HalfTimeMinute), uint16(0)
 	if l, live := s.w.LiveMatch(); live {
+		from = l.Position.Minute
 		if l.Status == matches.MatchFinished {
 			return "/live", errors.New("full time: Play match confirms the result")
 		}
@@ -230,7 +251,7 @@ func (s *server) watch(form url.Values) (string, error) {
 		return "/live", err
 	}
 	s.frameLabels = frameLabels{fixture: fixture, minute: res.Live.Position.Minute, onPitch: res.Live.View.OnPitch}
-	return "/live", nil
+	return fmt.Sprintf("/live?from=%d", from), nil
 }
 
 // decide makes a substitution or a mentality change in the live match.

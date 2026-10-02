@@ -241,6 +241,15 @@ func (s *server) liveLine() string {
 	return fmt.Sprintf("%d'  %s %d-%d %s", l.Position.Minute, l.Home.ClubName, l.View.Score[0], l.View.Score[1], l.Away.ClubName)
 }
 
+// liveTeams names the manager's match in progress without its score.
+func (s *server) liveTeams() string {
+	l, live := s.w.LiveMatch()
+	if !live {
+		return ""
+	}
+	return fmt.Sprintf("%s v %s", l.Home.ClubName, l.Away.ClubName)
+}
+
 // reportOf summarizes a resolved matchday: the club's match with its
 // scorers, then the other results.
 func (s *server) reportOf(res app.RoundsResolved) *matchReport {

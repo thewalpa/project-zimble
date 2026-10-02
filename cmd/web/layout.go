@@ -82,6 +82,9 @@ func (s *server) layout(page string, data any) layout {
 	l.Unread = s.w.UnreadInboxCount()
 	l.Matchday, l.Next = s.upcoming()
 	l.Live = s.liveLine()
+	if page == "live" {
+		l.Live = s.liveTeams() // the page's clock reveals the score
+	}
 	if fin, ok := s.w.Finances(s.club()); ok {
 		l.Balance = fin.Balance
 	}

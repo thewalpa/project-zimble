@@ -26,6 +26,7 @@ type goalView struct {
 type eventView struct {
 	Minute uint16
 	Text   string
+	Score  string // after a goal, e.g. "2 - 1", for the live match clock
 }
 
 type reportView struct {
@@ -192,15 +193,18 @@ func (s *server) eventViews(events []matches.MatchEvent, home, away app.TeamLabe
 		return name
 	}
 	var out []eventView
+	var score [2]uint16
 	for _, e := range events {
 		team := home.ShortName
 		if e.Side == matches.Away {
 			team = away.ShortName
 		}
-		var text string
+		var text, after string
 		switch e.Kind {
 		case matches.EventGoal:
 			text = fmt.Sprintf("%s · Goal · %s", team, playerName(e.Player))
+			score[e.Side.Index()]++
+			after = fmt.Sprintf("%d - %d", score[0], score[1])
 		case matches.EventSubstitution:
 			text = fmt.Sprintf("%s · Substitution · %s on for %s", team, playerName(e.Player), playerName(e.Other))
 		case matches.EventMentalityChange:
@@ -213,7 +217,7 @@ func (s *server) eventViews(events []matches.MatchEvent, home, away app.TeamLabe
 			}
 		}
 		if text != "" {
-			out = append(out, eventView{Minute: e.Minute, Text: text})
+			out = append(out, eventView{Minute: e.Minute, Text: text, Score: after})
 		}
 	}
 	return out

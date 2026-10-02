@@ -3853,3 +3853,17 @@ Asked by the owner. Every player on the lineup editor's pitch, bench and "Not se
 Not verified in a browser: the headless Chromium here lacks system libraries (`libnspr4`), so the script was checked by reading it, and the links through the rendered HTML.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## ui: the live match plays out from kickoff (done)
+
+Asked by the owner: watching a match live must start at minute 0 and stop at half time. Before, "Watch live" played to half time and the page opened on the half-time state, with the score, the goals and (on `simple`, which has no pitch) nothing to see of the first 45 minutes. No `app` change.
+
+- **A match clock in the browser.** After each play (`POST /watch` now redirects to `/live?from=M`, M the previous stop, 0 at kickoff), the live page runs a clock from M to the new stop: the state line reads "In play" with the running minute, timeline lines appear when the clock passes their minute, and the score follows the goals revealed. At the stop the page shows its state (half time, full time or the minute asked), and only then the statistics, "Your changes" and the play buttons, since decisions apply at the stop, not where the clock is. Pause/Replay, a scrubber, a speed choice (×60 by default on `simple`, ×10 on `tick`) and "Skip to half time" control it.
+- **One clock for both engines.** On `tick` the pitch replay is drawn from the same clock instead of its own controls. After a decision (`/live` without `from`) the page opens at the stop; on `tick` the play since the previous stop can still be replayed, on `simple` there is no clock.
+- **No spoilers.** On the live page the band names the match without its score. Without JavaScript the page shows the stop as before.
+- **Running score.** The timeline's goal lines carry the score after them (`eventView.Score`), counted from the goal events in order; the stop shows the engine's own score.
+- **Tests.** `TestLiveMatchInTheBrowser` and `TestLiveMatchWithoutFramesOrStatistics` check the clock's span (0 to 45, 45 to 70, 70 to 90), the skip label, the speed default, that the band hides the score, and that a decision opens at the stop.
+
+Checked by driving the page's script in Node against the rendered HTML of seed 42, club 3 on both engines (the headless Chromium here still lacks `libnspr4`): the clock starts at 0' with 0-0, reveals a 55th-minute goal at 55' in the second half, and shows the stop's state and decisions only at 45' and 90'.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
