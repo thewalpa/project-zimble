@@ -26,13 +26,17 @@ The data the world starts from and how it is kept: content definitions, world ge
 
 ## Now
 
+**August-to-May defaults delivered:** closes competitions' `data--football-year-content-calendar`. Built-in league rounds are three weeks apart (`content.LeagueVersion` 7), while ScheduleVersion 4 keeps midweek cups in the following league season. Saved weekly careers keep pinned definitions and provenance. Legacy cup timing metadata stays unchanged; no save shape/schema move. Calendar-sensitive test fixtures and season goldens are updated, with reviews filed to ui, match, squad and competitions; balance is asked to rerun career measurements ([progress](../progress.md#data-august-to-may-built-in-calendar-done)). Next free `content.LeagueVersion`: 8.
+
+**Population feedback accepted (2026-10-02):** balance's age-curve, youth-floor and lower-division requests are queued below. The football-year content handoff is first; no population behavior changes in this session.
+
 **Journal retention answered:** squad's `data--journal-retention-under-a-year`. The bound of 1,000 events stays as a save-size cap (an event is about 520 bytes of save JSON; a year now emits about 1,400); only the comment in `journal.go` changed ([progress](../progress.md#data-journal-retention-stays-a-save-size-bound-done)).
 
 **Club aggregates from club knowledge (PAR-10):** `World.ObservedClubs(observer)` aggregates squad positions and average overall from the observer's `ObservePlayers`; `Agenda()` reads its contract items the same way; `Summary()` is the administrative view. Match's adoption (`ca727e9`) reviewed and accepted. The terminal club heading is asked of `ui` in `ui--observed-clubs` ([progress](../progress.md#data-club-aggregates-from-club-knowledge-done)). No version moves. ui delivered save recovery in both clients (`b58f3e4`), so that backlog item is closed.
 
 **Even league sizes enforced in content:** `League.Validate` rejects odd sizes and sizes above `content.MaxLeagueEntrants` (kept equal to competitions' bound by an app test). Closes `data--even-league-sizes` ([progress](../progress.md#data-content-accepts-only-even-league-sizes-done)).
 
-**Cup prize tables delivered:** `content.Cup.Prizes` by exit stage, validated, with the Continental Cup's 1,000,000 / 600,000 / 350,000 / 200,000; `content.LeagueVersion` 6, save schema 31 with its fixture. Squad's posting note was updated. Closes `data--cup-prize-table` ([progress](../progress.md#data-cup-prize-tables-done)). Also accepted ui's observation composition (`data--ui-observations-adopted`). The next free numbers are `storage.SchemaVersion` 32 and `content.LeagueVersion` 7.
+**Cup prize tables delivered:** `content.Cup.Prizes` by exit stage, validated, with the Continental Cup's 1,000,000 / 600,000 / 350,000 / 200,000; `content.LeagueVersion` 6, save schema 31 with its fixture. Squad's posting note was updated. Closes `data--cup-prize-table` ([progress](../progress.md#data-cup-prize-tables-done)). Also accepted ui's observation composition (`data--ui-observations-adopted`). The next free `storage.SchemaVersion` is 32; for `content.LeagueVersion`, see the calendar entry above.
 
 **Appearances and goals in careers delivered:** `events.MatchCompleted` carries `Appeared` and `Scorers` (`events.SchemaVersion` 2), filled from the checked outcome in `resolveBatch` and checked against the command's `MatchReport` on restore. Each `careers.Spell` counts `Appearances` and `Goals`. Save schema 30 with its fixture; schema 29 saves are refused. Match was told about the emission in `match--match-completed-facts`; the career columns are asked of `ui` in `ui--career-appearances-goals` ([progress](../progress.md#data-appearances-and-goals-in-careers-done)).
 
@@ -57,7 +61,9 @@ The data the world starts from and how it is kept: content definitions, world ge
 ## Backlog
 
 - **Richer identities:** what else the registry should hold (a preferred foot, a birthplace, stadium identities), only when a milestone needs it.
-- **Weaker lower divisions** (only if `balance` asks): a rating gap or smaller youth intake per division in `content.Division`.
+- **Generated age curve:** accepted `data--generated-age-curve`; generate initial attributes that fit age and the settled population, preserve the intended mean, bump `worldgen.Version`, and ask balance to verify age bands and p10–p90 at generation against year 30.
+- **Youth floor attributes:** accepted `data--youth-floor-attributes`; agree with squad how low attributes grow before choosing a youth range adjustment. A starting-range change alone cannot undo a fixed lifetime increment near the floor. Version any generation change and ask balance to rerun attribute means.
+- **Weaker lower divisions:** accepted `data--weaker-lower-divisions`; agree with squad which current-division youth or financial rule sustains the requested 5–8 point initial gap and at least 4 points after 10–30 years. Add a versioned generation gap only with that continuing mechanism, then ask balance to rerun.
 - **Divisions of other sizes** (only when content adds them): check at load that `Division.Clubs` sums to the leagues' `Entrants` in block order (load checks only the total), and ask competitions for the football-year check it offered in `data--even-league-sizes` (seasons plus cup inside the contract year; today only `TestSeasonsStayInsideTheContractYear` covers the built-in content).
 
 ### AI/player rule parity audit

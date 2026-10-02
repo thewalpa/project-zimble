@@ -24,21 +24,17 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by the injury calibration (medical.Version 4:
-// about five times the injuries, and a week's rest no longer makes up a
-// full match for the less fit, so lineups and every result moved; all three
-// goldens).
+// this value. Last changed by content.LeagueVersion 7: three-week league
+// intervals change recovery, lineups and outcomes in all three goldens.
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
-// edition have their own goldens. The cup golden last moved with
-// competitions.ScheduleVersion 4: the edition drawn from season 1 is played
-// midweek during season 2, after the player year and the summer window,
-// instead of straight after season 1.
+// edition have their own goldens. The cup edition drawn from season 1 is played
+// midweek during season 2 under competitions.ScheduleVersion 4.
 const (
-	goldenSeasonSeed42       = "38a2c7ce6afdf96663235e0ff3edcbb428baf31c64fcfb8267b5136add60cddc"
-	goldenSecondLeagueSeed42 = "421c21a47e7c5b7ab4eb6b99754c478c5c93cf3245fc319cee9d03de86f394ce"
-	goldenCupSeed42          = "34448ae4a98feb68c4c5cfcbe1bb47a60c81fb9b9f1176c2567cae452bc33397"
+	goldenSeasonSeed42       = "7889c08ca5896cb72f011677b3035c781786f0788605057bbf936abe735696c6"
+	goldenSecondLeagueSeed42 = "fb4c91c5869b08b598906e0433d04bd69e4e605ed5b6445d799add2230b535af"
+	goldenCupSeed42          = "1f7f185163a79a0b8ad0b003f88a22dbb11a497fb4d9f9d7dbb774720911802e"
 )
 
 // seasonEnd is one day after the last kickoff of every league.
@@ -476,7 +472,7 @@ func TestResolveDoesNotMoveTheClock(t *testing.T) {
 		t.Fatal("ResolveRounds moved the clock or ran tasks")
 	}
 	next := readyBatch(t, w)
-	if next.Rounds[0].Round.Round != 2 || next.At != ready.At+7*day {
+	if next.Rounds[0].Round.Round != 2 || next.At != ready.At+sim.GameInstant(w.leagues[0].def.RoundInterval) {
 		t.Fatalf("next batch %+v", next)
 	}
 }

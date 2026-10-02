@@ -141,8 +141,12 @@ func TestGateReceiptsAndSeasonRollover(t *testing.T) {
 			offSeason++
 		}
 	}
-	if offSeason < 35 {
-		t.Fatalf("%d off-season wage runs", offSeason)
+	firstNext := w.competitions.Rounds(w.leagues[0].season)[0].Kickoff
+	// Count the weekly paydays strictly between the played season and
+	// the next kickoff, independent of how long the off-season lasts.
+	wantWages := int((firstNext-1)/week - endOfSeason/week)
+	if offSeason != wantWages {
+		t.Fatalf("%d off-season wage runs, want %d", offSeason, wantWages)
 	}
 	assertLedgersConsistent(t, w)
 	roundTrip(t, w)

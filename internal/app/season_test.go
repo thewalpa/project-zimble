@@ -10,6 +10,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/content"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/random"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/medical"
 	"github.com/thewalpa/project-zimble/internal/worldgen"
@@ -425,8 +426,13 @@ func TestSeasonsStayInsideTheContractYear(t *testing.T) {
 // interval apart.
 func worldWithRoundInterval(t *testing.T, interval sim.Duration) *World {
 	t.Helper()
+	return worldWithSeedAndRoundInterval(t, 42, interval)
+}
+
+func worldWithSeedAndRoundInterval(t *testing.T, seed random.Seed, interval sim.Duration) *World {
+	t.Helper()
 	defs := content.Default()
-	snap, err := worldgen.Generate(defs, 42)
+	snap, err := worldgen.Generate(defs, seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,6 +609,7 @@ func TestLeaguesOfOtherSizesPlayConsecutiveSeasons(t *testing.T) {
 	leagues := content.DefaultLeagues()
 	for i := range leagues {
 		leagues[i].Entrants = sizes[leagues[i].ID]
+		leagues[i].RoundInterval = sim.Week
 	}
 	w, err := load(defs, leagues, content.DefaultCups(), content.DefaultPromotions(), DefaultEpoch(), snap)
 	if err != nil {

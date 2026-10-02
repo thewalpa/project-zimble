@@ -97,7 +97,7 @@ func TestNewWorldSchedulesOneTaskPerRound(t *testing.T) {
 		}
 	}
 	for i, r := range sched.Rounds {
-		kickoff := want + sim.GameInstant(i)*7*day
+		kickoff := want + sim.GameInstant(i)*sim.GameInstant(w.leagues[0].def.RoundInterval)
 		if r.Kickoff != kickoff || r.Status != competitions.RoundScheduled {
 			t.Fatalf("round %d kickoff %d status %s, want %d scheduled", r.Round, r.Kickoff, r.Status, kickoff)
 		}
@@ -157,13 +157,15 @@ func TestContinueBeforeAndAtKickoff(t *testing.T) {
 func TestContinueReportsEveryAutoResolvedBatch(t *testing.T) {
 	w := newWorld(t, 42)
 	k := firstKickoff(t, w)
-	res := mustContinue(t, w, k+20*day)
+	interval := sim.GameInstant(w.leagues[0].def.RoundInterval)
+	target := k + 3*interval - day
+	res := mustContinue(t, w, target)
 	r, ok := res.(ReachedTarget)
-	if !ok || r.Now != k+20*day || len(r.Resolved) != 3 {
-		t.Fatalf("Continue = %#v, want 3 batches resolved on the way to %d", res, k+20*day)
+	if !ok || r.Now != target || len(r.Resolved) != 3 {
+		t.Fatalf("Continue = %#v, want 3 batches resolved on the way to %d", res, target)
 	}
 	for i, b := range r.Resolved {
-		if b.At != k+sim.GameInstant(i)*7*day || len(b.Rounds) != 4 || len(b.Matches) != 16 {
+		if b.At != k+sim.GameInstant(i)*interval || len(b.Rounds) != 4 || len(b.Matches) != 16 {
 			t.Fatalf("batch %d = %#v", i, b)
 		}
 	}
@@ -278,11 +280,12 @@ func TestSaveBetweenAutoResolvedBatchesContinuesIdentically(t *testing.T) {
 // retries it. (The command path is TestFailuresCannotPartiallyResolveABatch.)
 func TestFailedAutoResolveLeavesTheBatchAwaiting(t *testing.T) {
 	w := newWorld(t, 42)
-	k := firstKickoff(t, w)
-	bad := w.competitions.Rounds(w.leagues[0].season)[1].Fixtures[0] // batch 2's
+	second := w.competitions.Rounds(w.leagues[0].season)[1]
+	bad := second.Fixtures[0] // batch 2's
+	target := second.Kickoff + day
 	real := w.engine
 	w.engine = &faultyEngine{Engine: real, failStart: bad}
-	if _, err := w.Continue(k + 13*day); err == nil {
+	if _, err := w.Continue(target); err == nil {
 		t.Fatal("Continue succeeded with a failing engine")
 	}
 	w.engine = real
@@ -306,9 +309,9 @@ func TestFailedAutoResolveLeavesTheBatchAwaiting(t *testing.T) {
 	if done != 16 {
 		t.Fatalf("%d match events after the failure, want batch 1's", done)
 	}
-	res := mustContinue(t, w, k+13*day)
+	res := mustContinue(t, w, target)
 	r, ok := res.(ReachedTarget)
-	if !ok || r.Now != k+13*day || len(r.Resolved) != 1 || r.Resolved[0].At != k+7*day || len(r.Resolved[0].Matches) != 16 {
+	if !ok || r.Now != target || len(r.Resolved) != 1 || r.Resolved[0].At != second.Kickoff || len(r.Resolved[0].Matches) != 16 {
 		t.Fatalf("retry = %#v", res)
 	}
 	if err := w.Validate(); err != nil {

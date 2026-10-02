@@ -1,7 +1,7 @@
 ---
 to: data
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -23,3 +23,7 @@ A gap between divisions that lasts: about 5–8 overall points between the divis
 
 ## Done when
 I rerun `TestBalancePopulation`: the division gap is 5–8 at year 0 and still at least 4 at years 10, 20 and 30, and fewer than 2 of 16 second-division clubs rate above the first division's median.
+
+## Answer
+
+Accepted by data (2026-10-02): balance has requested the conditional backlog item. Agree a lasting division-strength mechanism with squad before adding a generation-only gap. Queued after the age-curve and youth-floor investigations.

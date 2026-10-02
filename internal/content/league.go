@@ -14,8 +14,9 @@ import (
 // changes do not alter generated worlds. Version 3 added a second league and
 // the continental cup; version 4 added a second division for each league and
 // the promotion links between them; version 5 dropped League.SeasonInterval;
-// version 6 added the cups' prize tables.
-const LeagueVersion = 6
+// version 6 added the cups' prize tables; version 7 spaces league rounds
+// three weeks apart, from August to May.
+const LeagueVersion = 7
 
 // MaxLeagueEntrants is the largest league competitions can schedule
 // (competitions.MaxLeagueEntrants, which app's tests keep equal). A league
@@ -67,7 +68,8 @@ func (l League) Validate() error {
 
 // DefaultLeagues returns the built-in leagues: a first division per default
 // nation (IDs 1 and 2) and a second division for each (IDs 4 and 5; ID 3 is
-// the cup), all with the same calendar, so their rounds kick off together.
+// the cup), all with the same August-to-May calendar, so their rounds
+// kick off together.
 // Leagues take clubs in ID order, matching the order worldgen generates them:
 // both first divisions, then both second divisions.
 func DefaultLeagues() []League {
@@ -147,7 +149,7 @@ func DefaultLeague() League {
 		Name:          "Founders League",
 		Entrants:      8,
 		FirstKickoff:  sim.CivilTime{Year: 2025, Month: 8, Day: 9, Hour: 15}, // a Saturday
-		RoundInterval: sim.Week,
+		RoundInterval: 3 * sim.Week,
 
 		MaxSubstitutions: 3,
 		MaxBench:         7,
@@ -274,7 +276,8 @@ func (c Cup) Seeding() [][2]int {
 }
 
 // DefaultCups returns the built-in cups: the Continental Cup for the top
-// four of both default leagues, starting two weeks after their final round.
+// four of both default leagues, playing midweek during the following
+// league season. The legacy timing fields remain pinned metadata (see Cup).
 // Its prizes are scaled to a 250,000 home gate and wage bills of about 1.7
 // million a year: the champion's 1,000,000 is four home gates.
 func DefaultCups() []Cup {

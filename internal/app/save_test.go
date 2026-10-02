@@ -298,6 +298,7 @@ func TestRestoreRejectsIncompatibleVersions(t *testing.T) {
 	// Provenance versions may differ; they are preserved, not rewritten.
 	base.Versions.Generator += 5
 	base.Versions.Content += 5
+	base.Versions.League += 5
 	w, err := Restore(base)
 	if err != nil {
 		t.Fatalf("provenance version difference rejected: %v", err)
@@ -395,4 +396,36 @@ func TestDetailedOutcomesSurviveSave(t *testing.T) {
 	if goals == 0 {
 		t.Fatal("no goal details to compare")
 	}
+}
+
+// A content release changes new careers only: a save pins both the old
+// definitions and their provenance, and those definitions drive later seasons.
+func TestRestorePreservesWeeklyLeagueCalendar(t *testing.T) {
+	legacy := worldWithRoundInterval(t, sim.Week).Snapshot()
+	legacy.Versions.League = 6
+	w, err := Restore(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(w.Snapshot(), legacy) {
+		t.Fatal("restore replaced pinned state with current content")
+	}
+	playSeason(t, w)
+	for _, schedule := range w.Schedules() {
+		if schedule.Season != 2 {
+			t.Fatalf("league %d season = %d, want 2", schedule.Competition, schedule.Season)
+		}
+		for i := 1; i < len(schedule.Rounds); i++ {
+			if schedule.Rounds[i].Kickoff-schedule.Rounds[i-1].Kickoff != sim.GameInstant(sim.Week) {
+				t.Fatal("a pinned weekly league adopted the new round spacing")
+			}
+		}
+	}
+	if w.Snapshot().Versions.League != 6 {
+		t.Fatal("continuing a legacy career changed content provenance")
+	}
+	if err := w.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	roundTrip(t, w)
 }

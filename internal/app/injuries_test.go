@@ -204,11 +204,33 @@ func TestInjuriesOverSeasons(t *testing.T) {
 		if injured == 0 {
 			t.Fatalf("seed %d: no injuries in three seasons", seed)
 		}
-		// Every layoff is bounded, so a quiet stretch heals everyone.
-		mustContinue(t, w, w.Now()+medical.MaxInjuryDays*day)
+		// Every current injury recovers by its deadline, even when a new
+		// season starts during that time and can cause fresh injuries.
+		awaiting := map[ids.PlayerID]sim.GameInstant{}
 		for _, r := range w.medical.Records() {
 			if r.DaysOut > 0 {
-				t.Fatalf("seed %d: player %d still out after %d days", seed, r.Player, medical.MaxInjuryDays)
+				awaiting[r.Player] = w.Now() + sim.GameInstant(r.DaysOut)*day
+			}
+		}
+		seen := w.lastEvent
+		for len(awaiting) > 0 {
+			target := w.Now() + day
+			for {
+				if _, ready := mustContinue(t, w, target).(FixtureRoundReady); !ready {
+					break
+				}
+				resolveNow(t, w)
+			}
+			for _, e := range w.Events() {
+				if e.ID > seen && e.PlayerRecovered != nil {
+					delete(awaiting, e.PlayerRecovered.Player)
+				}
+			}
+			seen = w.lastEvent
+			for player, deadline := range awaiting {
+				if w.Now() > deadline {
+					t.Fatalf("seed %d: player %d did not recover by %s", seed, player, w.calendar.Format(deadline))
+				}
 			}
 		}
 	}
@@ -230,7 +252,9 @@ func TestInjuriesAreDeterministic(t *testing.T) {
 // short of full condition. Bounds are wide; docs/balance.md has the measured
 // values.
 func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
-	w := newWorld(t, 7)
+	// Keep the medical.Version 4 calibration scenario on its weekly calendar.
+	// The default three-week calendar is measured separately by balance.
+	w := worldWithSeedAndRoundInterval(t, 7, sim.Week)
 	end, nextYear := w.Now()+3*365*day, w.Now()
 	seen := w.lastEvent
 	var playerSeasons, injuries, starters, tired, kickoffs, out, mostOut int

@@ -256,3 +256,25 @@ func TestContentLeagueBoundIsCompetitions(t *testing.T) {
 		t.Fatalf("content.MaxLeagueEntrants %d, competitions.MaxLeagueEntrants %d", content.MaxLeagueEntrants, competitions.MaxLeagueEntrants)
 	}
 }
+
+// The built-in definitions fill the football year in every division, while
+// keeping generated identities, attributes and contracts unchanged.
+func TestDefaultFootballYearRunsFromAugustToMay(t *testing.T) {
+	w := newWorld(t, 42)
+	for _, schedule := range w.Schedules() {
+		first, err := w.calendar.Civil(schedule.Rounds[0].Kickoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last, err := w.calendar.Civil(schedule.Rounds[len(schedule.Rounds)-1].Kickoff)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first.Year != 2025 || first.Month != 8 || last.Year != 2026 || last.Month != 5 {
+			t.Fatalf("league %d runs from %v to %v, want August 2025 to May 2026", schedule.Competition, first, last)
+		}
+	}
+	if got := w.Snapshot().Versions.League; got != content.LeagueVersion {
+		t.Fatalf("league provenance = %d, want %d", got, content.LeagueVersion)
+	}
+}

@@ -97,7 +97,7 @@ func TestEditedLineupIsPlayedAndSaved(t *testing.T) {
 
 	loaded := play(t, []string{"-load", path}, "status", "fixtures", "quit")
 	contains(t, loaded, "You manage Quillford FC (QUI).", "1 of 14 rounds played",
-		"Next: round 2 v Hollowick Town (away), Sat 2025-08-16 15:00 UTC.", "R1  Sat 2025-08-09 15:00 UTC  F3   v Brackenmoor Town (home)", "Balance 2,")
+		"Next: round 2 v Hollowick Town (away), Sat 2025-08-30 15:00 UTC.", "R1  Sat 2025-08-09 15:00 UTC  F3   v Brackenmoor Town (home)", "Balance 2,")
 	if strings.Contains(loaded, "unsaved") {
 		t.Fatal("a loaded career with no changes is reported unsaved")
 	}
@@ -290,7 +290,7 @@ func TestLiveMistakes(t *testing.T) {
 // manager now.
 func TestAgenda(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "todo", "continue", "agenda", "q", "q")
-	contains(t, out, "     Founders League round 2 v Hollowick Town (away), Sat 2025-08-16 15:00 UTC", "(type transfers)", "(type renew ",
+	contains(t, out, "     Founders League round 2 v Hollowick Town (away), Sat 2025-08-30 15:00 UTC", "(type transfers)", "(type renew ",
 		"NOW  Matchday: Founders League round 1 v Brackenmoor Town (home). Set the lineup, then play. (type lineup, then continue)")
 }
 
@@ -357,19 +357,19 @@ func TestPlayerYearMessages(t *testing.T) {
 // played midweek during the next season, and its results reach the inbox,
 // penalties included.
 func TestCup(t *testing.T) {
-	out := play(t, []string{"-seed", "42", "-club", "3"}, "cup", "season",
+	out := play(t, []string{"-seed", "42", "-club", "12"}, "cup", "season",
 		"continue", "continue", "continue", // the contract-year eve, the window, season 2
 		"season", "continue", // season 2 with the manager's cup tie, then on past the final
 		"history 3 1", "q", "q")
 	contains(t, out,
 		"No cup has been drawn yet",
-		"Continental Cup 1 drawn: first kickoff Wed 2026-09-09 15:00 UTC (type cup)",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the semi-final",
-		"Quarter-finals, Wed 2026-09-09 15:00 UTC",
-		"* Ironbridge Wanderers     1-1 Quillford FC (3-4 on penalties)",
-		"  Saltmere Athletic        2-0 Brackenmoor Town",
-		"Final, Wed 2026-11-11 15:00 UTC",
-		"Winner: Saltmere Athletic",
+		"Continental Cup 1 drawn: first kickoff Wed 2026-11-04 15:00 UTC (type cup)",
+		"Continental Cup 1 won by Greyfen United; you went out in the semi-final",
+		"Quarter-finals, Wed 2026-11-04 15:00 UTC",
+		"* Ironbridge Wanderers     1-1 Quillford FC (4-3 on penalties)",
+		"  Greyfen United           1-0 Saltmere Athletic",
+		"Final, Wed 2027-05-12 15:00 UTC",
+		"Winner: Greyfen United",
 	)
 }
 
@@ -382,19 +382,19 @@ func TestManagedCupRun(t *testing.T) {
 		script = append(script, "continue")
 	}
 	script = append(script, "inbox 200", "history 3 1", "q", "q")
-	// Quillford win their quarter-final on penalties, then lose the semi-final.
-	out := play(t, []string{"-seed", "42", "-club", "3"}, script...)
+	// Ironbridge win their quarter-final on penalties, then lose the semi-final.
+	out := play(t, []string{"-seed", "42", "-club", "12"}, script...)
 	contains(t, out,
-		"MATCHDAY Wed 2026-09-09 15:00 UTC: Continental Cup quarter-final v Ironbridge Wanderers (away).",
-		"matchday: Continental Cup quarter-final v Ironbridge Wanderers (away)",
-		"FULL TIME  Ironbridge Wanderers 1-1 Quillford FC (3-4 on penalties)  (W)",
-		"result: 1-1 (4-3 on penalties) v Ironbridge Wanderers (away)",
-		"Continental Cup 1 won by Saltmere Athletic; you went out in the semi-final")
+		"MATCHDAY Wed 2026-11-04 15:00 UTC: Continental Cup quarter-final v Quillford FC (home).",
+		"matchday: Continental Cup quarter-final v Quillford FC (home)",
+		"FULL TIME  Ironbridge Wanderers 1-1 Quillford FC (4-3 on penalties)  (W)",
+		"result: 1-1 (4-3 on penalties) v Quillford FC (home)",
+		"Continental Cup 1 won by Greyfen United; you went out in the semi-final")
 	// Saltmere Athletic win the edition with league fixtures between their ties.
 	out = play(t, []string{"-seed", "42", "-club", "5"}, script...)
 	contains(t, out,
-		"matchday: Continental Cup final v Glenrock Town (home)",
-		"FULL TIME  Saltmere Athletic 1-0 Glenrock Town  (W)",
+		"matchday: Continental Cup final v Ironbridge Wanderers (home)",
+		"FULL TIME  Saltmere Athletic 1-0 Ironbridge Wanderers  (W)",
 		"Continental Cup 1 won by Saltmere Athletic: your club won it!")
 }
 
@@ -577,10 +577,10 @@ func TestHistory(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "history", "season", "continue", "continue", "continue", "season", "continue", "history", "history 1 1", "history 3 1", "history 99 1", "history x", "q", "q")
 	contains(t, out,
 		"Founders League", "in progress",
-		"4* QUI",                                  // the manager's club is marked in the table
-		"Continental Cup   ", "Saltmere Athletic", // the league champion
+		"4* QUI",                               // the manager's club is marked in the table
+		"Continental Cup   ", "Greyfen United", // the league champion
 		"Founders League season 1 (14/14 rounds)",
-		"Winner: Saltmere Athletic",
+		"Winner: Greyfen United",
 		"no season 1 of competition 99",
 		"usage: history [COMPETITION SEASON]",
 	)
@@ -691,7 +691,7 @@ func TestInjuriesInTheTerminal(t *testing.T) {
 // The season-end message says when the club goes up or down a division,
 // once the play-offs have decided its place.
 func TestSeasonEndSaysMovement(t *testing.T) {
-	out := play(t, []string{"-seed", "7", "-club", "18"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
+	out := play(t, []string{"-seed", "7", "-club", "21"}, "season", "continue", "continue", "continue", "inbox 40", "quit", "quit")
 	contains(t, out, "you finished 2nd: promoted to the division above", "matchday: Promotion Play-off v ",
 		"Founders Second Division) season 1 decided: each tie's winner plays in Founders League next season; you won your tie\n")
 }
@@ -743,10 +743,10 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 		script = append(script, "continue")
 	}
 	out := play(t, []string{"-seed", "42", "-club", "4"}, append(script, "save "+path, "quit")...)
-	playoff := "Automatically played: Sat 2025-11-15 15:00 UTC; 2 rounds, 4 matches."
-	semi := "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches."
-	final := "Automatically played: Wed 2026-11-11 15:00 UTC; 1 round, 1 match."
-	cupStop := "MATCHDAY Wed 2026-09-09 15:00 UTC: Continental Cup quarter-final"
+	playoff := "Automatically played: Sat 2026-05-16 15:00 UTC; 2 rounds, 4 matches."
+	semi := "Automatically played: Wed 2027-02-17 15:00 UTC; 1 round, 2 matches."
+	final := "Automatically played: Wed 2027-05-12 15:00 UTC; 1 round, 1 match."
+	cupStop := "MATCHDAY Wed 2026-11-04 15:00 UTC: Continental Cup quarter-final"
 	review := "Wed 2027-06-30 00:00 UTC:"
 	contains(t, out, playoff, semi, final, cupStop, review)
 	w, err := storage.Load(path)
@@ -767,8 +767,8 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 			t.Fatal("automatic batch omitted or repeated")
 		}
 	}
-	if strings.Contains(out, "MATCHDAY Wed 2026-10-14 15:00 UTC: Continental Cup") ||
-		strings.Contains(out, "MATCHDAY Wed 2026-11-11 15:00 UTC: Continental Cup") {
+	if strings.Contains(out, "MATCHDAY Wed 2027-02-17 15:00 UTC: Continental Cup") ||
+		strings.Contains(out, "MATCHDAY Wed 2027-05-12 15:00 UTC: Continental Cup") {
 		t.Fatal("an unmanaged cup round produced a phantom stop")
 	}
 	if strings.Index(out, playoff) > strings.Index(out, cupStop) ||
@@ -782,7 +782,7 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 // advancing from the manager's cup exit through the remaining league rounds.
 func TestSeasonReportsAutomaticBatches(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "4"}, "season", "continue", "continue", "continue", "season", "quit", "quit")
-	contains(t, out, "Automatically played: Wed 2026-10-14 15:00 UTC; 1 round, 2 matches.",
+	contains(t, out, "Automatically played: Wed 2027-02-17 15:00 UTC; 1 round, 2 matches.",
 		"Founders League season 2 (14/14 rounds)")
 	if strings.Count(out, "Automatically played:") != 2 { // season 1's play-offs and season 2's semi-final
 		t.Fatal("the season path omitted or repeated automatic batches")

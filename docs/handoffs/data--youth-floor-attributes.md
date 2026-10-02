@@ -1,7 +1,7 @@
 ---
 to: data
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -25,3 +25,7 @@ Keep the youth ranges' long-run level for the low attributes. One way: lower a y
 
 ## Done when
 I rerun `TestBalancePopulation`: every position's attribute means at year 30 are within 3 of generation.
+
+## Answer
+
+Accepted by data (2026-10-02): investigate the low-attribute youth floor with squad before choosing a generation rule. Queued after the age-curve work; no generation or development behavior changes in this session.

@@ -3741,3 +3741,18 @@ Closes `balance--injury-calibration-delivered`, `balance--injuries-delivered` (b
 - **Filed** `ui--tired-carried-lineup` (warn when a carried or saved lineup fields tired starters) and `ui--simulate-test-gofmt` (`gofmt -l .` prints `cmd/simulate/main_test.go` on `main`).
 - **`balance--tick-v8-rerun` (`match`), delivered:** `TestBalanceEngineComparison`, `TestBalanceMatchStats`, `TestBalanceMentalityByGap` and `TestBalanceCareerEngines` at `tick` v8. Possession separates (62.7% at gap 20), tackles are 23–27 a side, equal teams shoot 22.1 a match, passes stay 1.6–2.4 times the target, and the gap table is a little steeper than v7 (a 20-point mismatch wins 83%). `tick` 60 v 60 is back on the real column for draws, 0–0s and the home edge (43.0 / 26.9 / 30.1) but scores 2.42 goals, and 2.16 in careers. A ball-in-play row cannot be measured from outside (no such time in `MatchStats`); the per-minute framing agrees with the targets on `match`'s own figure. Updated `match--career-goals`.
 
+
+
+## data: August-to-May built-in calendar (done)
+
+Closes competitions' `data--football-year-content-calendar`. All four built-in leagues now space fourteen rounds three weeks apart under `content.LeagueVersion` 7: season 1 starts on 9 August 2025 and ends on 9 May 2026, with play-offs on 16 May. ScheduleVersion 4 places the following year's cup quarter-finals, semi-finals and final on 4 November 2026, 17 February 2027 and 12 May 2027. The cup default comment now describes that calendar; legacy timing fields remain pinned metadata with their existing values.
+
+New careers adopt the new definitions. Saves keep their definitions and League provenance: a restored version-6 weekly career is identical immediately after restore and keeps weekly rounds in season 2. No authoritative field, save shape or storage schema changed; frozen fixtures remain untouched. Existing version incompatibility checks and generated-world fingerprint tests remain intact.
+
+Longer rest changes selection and match outcomes, so the three application season-result goldens move under the content version bump. Blocking calendar-sensitive tests retain their invariants: batch reporting/event causes and retries use the pinned spacing, the ten/six-entrant custom calendar remains weekly, and wages count every weekly payday across the shorter off-season. Injury recovery follows individual deadlines through managed match stops and possible fresh injuries. The original seed-7 weekly medical calibration keeps all its existing bounds; the new default's measured 2% tired starters is sent to squad for its accepted recalibration, rather than silently weakening that guard.
+
+Client fixtures still cover managed penalties, champions, cup exits, promotion, automatic batches and save/load: the penalty story is Ironbridge (seed 42, club 12), the champion is Saltmere (club 5), and promotion is seed 7, club 21. Small blocking test fixes are documented for their owners in five handoffs: ui, squad, match and competitions review their affected fixtures, and balance refreshes career measurements. No other lane's production rules changed.
+
+Reviewed competitions' additive save/load calendar validation: no state or event omission found. Accepted balance's generated age curve, youth-floor attribute drift and lasting lower-division gap requests into data's backlog, after this calendar unit; none of those population changes is implemented here.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` passed, and the full `go test ./...` suite passed, including save fixtures, two-year calendar/stepping checks, century calendar bounds, both clients and the long squad/accounting tests.

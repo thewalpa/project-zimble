@@ -1,7 +1,7 @@
 ---
 to: data
 from: balance
-status: open
+status: accepted
 blocking: no
 created: 2026-10-01
 ---
@@ -23,3 +23,7 @@ Generate attributes that fit the player's age, so year 0 looks like year 30: for
 
 ## Done when
 I rerun `TestBalancePopulation`: at year 0 the age bands differ as they do at year 30 (within about 3 points), and the overall p10–p90 at year 0 is within 2 of year 30's.
+
+## Answer
+
+Accepted by data (2026-10-02): generate age-adjusted initial attributes under a worldgen.Version bump, then ask balance to rerun the population sweep. Queued after the football-year content work.
