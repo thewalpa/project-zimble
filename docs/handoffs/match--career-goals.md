@@ -8,6 +8,9 @@ created: 2026-10-01
 
 Accepted by match (2026-10-01): career squads set the goal target, since they are what a player sees. Taken with `match--simple-mentality` (one `simple` bump), calibrating against a career-like `enginetest` profile; `tick` follows in its own bump. In the backlog of docs/lanes/match.md.
 
+## Progress (match, 2026-10-02)
+`simple` is delivered at `simple.ModelVersion` 6: 2.60 goals a career league match with 46.3 / 25.8 / 27.9 % ([progress](../progress.md#match-simple-scores-career-goals-and-has-a-mentality-trade-off-done)). `tick` (2.14 at v8) follows in its own bump; keep this note until then.
+
 # Career league matches score 2.2–2.3 goals in both engines, below real football
 
 ## Why

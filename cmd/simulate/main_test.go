@@ -333,11 +333,11 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	managed, err := runCLI(t, "-seed", "42", "-club", "3", "-season")
+	managed, err := runCLI(t, "-seed", "42", "-club", "5", "-season")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(managed, "\nmanaging club 3: ") || strings.Contains(plain, "managing club") {
+	if !strings.Contains(managed, "\nmanaging club 5: ") || strings.Contains(plain, "managing club") {
 		t.Fatal("manager line missing, or printed without -club")
 	}
 	// 14 league matches (the play-off zone changed with the manager's
@@ -348,7 +348,7 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	// The AI's lineup is the suggested one. (The season differs from the
 	// unmanaged one: AI clubs trade among themselves in the first window,
 	// and bid for a manager's players only when he lists them.)
-	suggested, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "balanced", "-season")
+	suggested, err := runCLI(t, "-seed", "42", "-club", "5", "-mentality", "balanced", "-season")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,12 +367,12 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 }
 
 func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
-	plain, _ := runCLI(t, "-seed", "42", "-club", "3", "-season") // the same squads, AI lineups
-	out, err := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
+	plain, _ := runCLI(t, "-seed", "42", "-club", "5", "-season") // the same squads, AI lineups
+	out, err := runCLI(t, "-seed", "42", "-club", "5", "-mentality", "attacking", "-season")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, _ := runCLI(t, "-seed", "42", "-club", "3", "-mentality", "attacking", "-season")
+	again, _ := runCLI(t, "-seed", "42", "-club", "5", "-mentality", "attacking", "-season")
 	if out != again {
 		t.Fatal("managed season is not reproducible")
 	}
@@ -388,7 +388,7 @@ func TestMentalityChangesOnlyTheManagedClubsMatches(t *testing.T) {
 	got, want = got[:224], want[:224]
 	changed := 0
 	for i := range got {
-		if !strings.Contains(got[i], "QUI") {
+		if !strings.Contains(got[i], "SAL") {
 			if got[i] != want[i] {
 				t.Fatalf("unmanaged match changed:\n%s\n%s", got[i], want[i])
 			}

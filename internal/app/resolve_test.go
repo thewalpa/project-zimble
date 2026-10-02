@@ -24,17 +24,17 @@ import (
 // intended change must bump the responsible version (worldgen/content/
 // random, competitions.ScheduleVersion, ai.SelectionVersion,
 // ai.TransfersVersion, medical.Version, simple.ModelVersion) and update
-// this value. Last changed by worldgen.Version 9: age-adjusted initial
-// attributes and wages change lineups, transfers and all three goldens.
+// this value. Last changed by simple.ModelVersion 6: the career goal level
+// and mentality trade-off change every match, so all three goldens.
 //
 // It covers the first league's season 1, which the other leagues and the
 // cup leave unchanged; the second league's season 1 and the first cup
 // edition have their own goldens. The cup edition drawn from season 1 is played
 // midweek during season 2 under competitions.ScheduleVersion 4.
 const (
-	goldenSeasonSeed42       = "1aa62ceb5742ff64504a1d34e73dd526564ab903cce944dab6a609cfb2bd007c"
-	goldenSecondLeagueSeed42 = "bc8381b6bb9da3f5e1861b6b6ab15b6796f3305cc1ba9dfbe81b9331f97f511e"
-	goldenCupSeed42          = "17307a7addd48ff13c42ff85ba7488e27ee8c8490cb842830c3c18256603b39e"
+	goldenSeasonSeed42       = "da59f129fb38ffdb9bbe8f9644af713fd766117301c7b296993fee1c68ced815"
+	goldenSecondLeagueSeed42 = "bd1d4bbd71cc345e7a28a81ff89568ecd45a637723367ec8b5fd2b1a08df220d"
+	goldenCupSeed42          = "39c5c7c0b34ca3f54d8d96a15b0f14ebd46208534f25bc72d6ca16123a3cdb87"
 )
 
 // seasonEnd is one day after the last kickoff of every league.

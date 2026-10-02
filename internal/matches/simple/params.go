@@ -9,7 +9,7 @@ import (
 // ModelVersion identifies the behavior of DefaultParams and this package's
 // calculations. Bump it whenever the same input, random state and commands
 // would produce a different match.
-const ModelVersion uint32 = 5
+const ModelVersion uint32 = 6
 
 // Units: probabilities are parts per million (ppm), multipliers are permille
 // (1000 = x1), readiness is per 10,000 and fatigue per 100,000 of a rating.
@@ -79,8 +79,13 @@ type Params struct {
 	ShootoutSkillPPM                                      int64 // per effective rating point
 }
 
-// DefaultParams returns the constants of ModelVersion. Equal teams produce
-// about 2.7 goals per match.
+// DefaultParams returns the constants of ModelVersion. Equal teams of
+// specialists (enginetest.CareerRatings, the squads a career fields) produce
+// about 2.6 goals per match, flat ones (enginetest.Ratings) about 3.2.
+//
+// Mentality is a trade-off: attacking scores more but concedes more, for
+// about the same points at equal teams; defensive scores and concedes less,
+// level for the underdog and a little behind for the favourite.
 func DefaultParams() Params {
 	return Params{
 		Version: ModelVersion,
@@ -88,14 +93,14 @@ func DefaultParams() Params {
 		BaseChancePPM:         110_000, // ~10 chances per team per match
 		MinChancePPM:          20_000,
 		MaxChancePPM:          400_000,
-		BaseConversionPPM:     125_000,
+		BaseConversionPPM:     148_000, // career squads: keepers outrate shooters, see enginetest.CareerRatings
 		MinConversionPPM:      30_000,
 		MaxConversionPPM:      450_000,
 		ConversionOffset:      100,
 		HomeAdvantagePermille: 1150, // 60 v 60: 45–46% home wins against 29% away, 1.5–1.2 goals
 		//                        -, defensive, balanced, attacking
-		MentalityOwnPermille:     [4]int64{0, 800, 1000, 1200},
-		MentalityConcedePermille: [4]int64{0, 850, 1000, 1150},
+		MentalityOwnPermille:     [4]int64{0, 850, 1000, 1150},
+		MentalityConcedePermille: [4]int64{0, 830, 1000, 1180},
 
 		FatigueBasePer100k:        300, // stamina 1: 27% by 90'; stamina 100: 9%
 		FatigueStaminaStepPer100k: 2,

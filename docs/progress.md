@@ -3943,3 +3943,31 @@ Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; schema-32 fixture gen
 Answered the next economy-design step with [a concrete proposal](squad-economy-design.md) and `data--division-economy-design.md`. Weekly ground, staff and academy costs would give every club an explicit money sink; gate and cost rates would follow its current domestic division, with promotion and relegation taking effect through active season membership. The proposal separates historical measurements, illustrative wage assumptions and uncalibrated experimental rates, and specifies atomic postings, historical restore evidence and transition-boundary tests. Data must agree the lasting strength mechanism and pinned rate shape before production changes; balance's post-prize and transfer-v7 refreshes inform calibration. The accepted `squad--money-only-grows.md` stays open until that implementation or an agreed alternative is delivered.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`. No production, version, golden or schema change.
+
+## match: simple scores career goals and has a mentality trade-off (done)
+
+`simple.ModelVersion` 6, the first half of [match--career-goals](handoffs/match--career-goals.md) and all of `match--simple-mentality` (one bump, as accepted).
+
+**Why career matches were low.** Career squads are specialists: over a seeded career the starters average Goalkeeping 85 for keepers, Defending 75 for defenders, Passing 76 for midfielders and Finishing 78 for forwards, each weak at the other trades. In `simple` a shot's conversion is the shooter's Finishing against the keeper's Goalkeeping, and the typical shooter (weighted by role and Finishing) rates about 63, so a career keeper outrates his shooters by 20 points. The flat `enginetest.Ratings` profile has them level, which is why synthetic matches scored 2.71 and careers 2.18. The attack and defence means are level in both (60 v 59), so the chance rate was not the cause.
+
+**Calibration profile.** `enginetest.CareerRatings` and `CareerInput` give a specialist profile whose role means follow the measured career squads (offsets from the team's strength). On it `simple` v5 reproduced the career run: 2.20 goals and 43.0/28.8/28.2, against 2.18 and 43.6/27.8/28.7 in 2,016 career matches. The contract suite and the trend tests keep the flat profile; the career goal level has its own tests in `internal/matches/simple/career_test.go`.
+
+**Changes.** `BaseConversionPPM` 125,000 → 148,000. Mentality moves to the trade-off shape of `tick` v7: attacking `MentalityOwnPermille` 1150, `MentalityConcedePermille` 1180 (was 1200 / 1150); defensive 850 / 830 (was 800 / 850). Home advantage stays at 1150.
+
+**Results** (career profile, 20,000 matches a row; points a match for the side that changes mentality, against balanced):
+
+| | v5 attacking / defensive | v6 attacking / defensive |
+| --- | --- | --- |
+| Equal, 60 v 60 at home | +0.07 / −0.09 | +0.01 / −0.01 |
+| Equal, 60 v 60 away | +0.03 / −0.04 | −0.03 / +0.03 |
+| Home underdog, 55 v 65 | +0.05 / −0.05 | −0.01 / +0.01 |
+| Home favourite, 65 v 55 | +0.08 / −0.13 | +0.03 / −0.04 |
+| Away underdog, 55 v 65 | +0.02 / +0.00 | −0.05 / +0.05 |
+
+Career 60 v 60: 2.60 goals, 45.2/26.1/28.8, 1.5–1.2. A full career (`TestBalanceCareerEngines`, three seeds × three seasons): `simple` **2.60 goals a league match, 1.48–1.12, 46.3/25.8/27.9**, against 2.18 before; `tick` is unchanged (2.14). The flat 60 v 60 profile now scores 3.21 (it was 2.71): the contract profile is no longer the goal target, and `TestModelTrends`' 2.0–3.5 bound still holds. Both teams attacking score 3.5 and both defensive 1.8 in a career match.
+
+**Goldens and stories.** The engine version seeds every match's stream, so the seed-42 season, second league and cup goldens moved, and the client tests that pin seed-42 stories were re-pinned (club 3 now ends in the play-off zone, which adds a stop to its scripts; the cup is won by a different club): [note to `ui`](handoffs/ui--seed-stories-moved-career-goals.md). The August-to-May calendar gives more rest than the weekly one, so the calibration is against the new defaults.
+
+**Open.** `tick` is still at 2.14 goals in careers (it loses 0.26 between synthetic and career rows); it follows in its own bump, so `match--career-goals` stays open for it. Next from the roadmap: fouls, free kicks and cards.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines`.
