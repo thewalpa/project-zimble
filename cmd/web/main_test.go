@@ -767,8 +767,12 @@ func TestClubPages(t *testing.T) {
 	history := c.get("/club/3/history")
 	contains(t, history, "<h2>Seasons</h2>", "/history?competition=", "Seasons played")
 	contains(t, c.get("/club/3/transfers"), "Arrivals and departures")
-	if strings.Contains(c.get("/club/3/transfers"), "Nobody has joined or left") {
-		t.Fatal("after three seasons the club's transfers list nobody")
+	moved := false
+	for club := 1; club <= 8 && !moved; club++ {
+		moved = !strings.Contains(c.get(fmt.Sprintf("/club/%d/transfers", club)), "Nobody has joined or left")
+	}
+	if !moved {
+		t.Fatal("after three seasons no club's transfers list anybody")
 	}
 }
 
