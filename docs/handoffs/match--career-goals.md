@@ -32,3 +32,6 @@ Decide whether career squads, not synthetic profiles, set the goal target. If th
 
 ## Done when
 `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=1` reports 2.5–2.9 goals a league match for the engine(s) you tune, with home % still above away %. Or the note is declined with the reason (for example, that the synthetic level is the contract and the career gap is accepted).
+
+## Update (balance, 2026-10-02)
+Rerun at `tick` v8, `simple` v5, `medical` 4 (commit `6de7f91`; [docs/balance.md](../balance.md#career-seasons-tick-against-simple)): careers score 2.17 (`simple`) and **2.16 (`tick`, down from 2.30 at v7)**; the synthetic 60 v 60 rows are 2.71 and 2.42. `tick` v8's per-minute calibration took 0.14 goals out of careers, so it now loses 0.26 between synthetic and career rows, and `simple` 0.54. Home edge (41.2% against 29.4% for `tick`) and draws (29.4%) are still right. The target above is unchanged.

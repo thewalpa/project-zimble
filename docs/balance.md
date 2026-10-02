@@ -130,11 +130,11 @@ A simple recruiting policy keeps the managed club at 59–62, one point above th
 
 ## Match engines: tick against simple
 
-Measured 2026-10-01 at `tick.ModelVersion` 7 and `simple.ModelVersion` 5, both with their `DefaultParams`, at commit `64874ae`. Reruns the comparison after `match--attacking-is-free` (tick v7) and `match--simple-home-advantage` (simple v5) were delivered; the numbers agree exactly with `match`'s own tables in [progress.md](progress.md) (same seeds and streams). Earlier measurements are in the [history](#history-1).
+Measured 2026-10-02 at `tick.ModelVersion` 8 and `simple.ModelVersion` 5, both with their `DefaultParams`, at commit `6de7f91`. Reruns the comparison after `match--tick-stats-calibration` (tick v8); `simple` is unchanged since the v7 run, and its columns reproduce exactly. Earlier measurements are in the [history](#history-1).
 
 ```sh
-ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceEngineComparison' -v -count=1 -timeout 2h   # about 3 min on 32 cores, 13 on 4
-ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceMentalityByGap' -v -count=1 -timeout 2h     # about 2.5 min on 32 cores, 8 on 4
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceEngineComparison' -v -count=1 -timeout 2h   # about 3 min on 32 cores, 22 on 4
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run 'TestBalanceMentalityByGap' -v -count=1 -timeout 2h     # about 2.5 min on 32 cores, 13 on 4
 ```
 
 (`go test`'s default 10-minute timeout is too short on a small machine: pass `-timeout`.)
@@ -147,43 +147,43 @@ These are synthetic teams, not career squads; the career-season comparison is in
 
 | | simple | tick | Top leagues, roughly |
 | --- | --- | --- | --- |
-| Goals per match | 2.71 | 2.40 | 2.6–2.9 |
-| Home–away goals | 1.54–1.17 | 1.31–1.09 | 1.5–1.2 |
-| Home / draw / away % | 44.9 / 26.1 / 29.1 | 41.0 / 29.1 / 29.9 | 45 / 26 / 29 |
-| Draw % if the two scores were independent | 25.5 | 27.9 | |
-| 0–0 % | 6.9 | 9.4 | 7–8 |
-| 4 or more goals % | 28.1 | 22.4 | 25–30 |
+| Goals per match | 2.71 | 2.42 | 2.6–2.9 |
+| Home–away goals | 1.54–1.17 | 1.33–1.09 | 1.5–1.2 |
+| Home / draw / away % | 44.9 / 26.1 / 29.1 | 43.0 / 26.9 / 30.1 | 45 / 26 / 29 |
+| Draw % if the two scores were independent | 25.5 | 27.5 | |
+| 0–0 % | 6.9 | 7.6 | 7–8 |
+| 4 or more goals % | 28.1 | 21.7 | 25–30 |
 
 | Total goals (% of matches) | 0 | 1 | 2 | 3 | 4 | 5 | 6+ |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | simple | 6.9 | 17.0 | 25.1 | 22.8 | 14.3 | 8.0 | 5.8 |
-| tick | 9.4 | 21.5 | 26.2 | 20.5 | 12.6 | 6.5 | 3.3 |
+| tick | 7.6 | 21.8 | 26.6 | 22.3 | 12.5 | 6.1 | 3.1 |
 
-**Resolved: `simple` has a home edge again.** 44.9% home wins against 29.1% away and 1.54–1.17 goals, on the real-football column; v4 was 37.2 against 36.6. `match--simple-home-advantage` is delivered. **`tick` v7 drifted a little further from the real column:** 2.40 goals (v6 2.46), 29.1% draws (26.8), 9.4% 0–0s (7.6) and a home edge of 11 points (12). Each move is one to two sampling margins; together they say the mentality change took a little out of open play between equal balanced sides. Not a note on its own: goals at 60 v 60 are part of the open `match--tick-stats-calibration` (shots too few between equal teams), and the career level is filed as `match--career-goals` (see [Career seasons](#career-seasons-tick-against-simple)).
+**`tick` v8 is back on the real column on draws, 0–0s and the home edge,** and still short on goals. 43.0 / 26.9 / 30.1 against the real 45 / 26 / 29; 7.6% 0–0s (v7 9.4; real 7–8) and 26.9% draws (29.1); the home edge is 13 points (11 at v7). Goals are 2.42 (v7 2.40), below the 2.6–2.9 range, and the scoring is thin at the top: 21.7% of matches have four or more goals (real 25–30). The goal level is the open `match--career-goals`, and the career rows are lower still (2.16, see [Career seasons](#career-seasons-tick-against-simple)). `simple` has a home edge (44.9 against 29.1) and is unchanged.
 
 ### Rating gap (home strength v away strength)
 
 | Match | simple H / D / A % | simple goals | tick H / D / A % | tick goals |
 | --- | --- | --- | --- | --- |
-| 70 v 50 | 70.8 / 17.8 / 11.4 | 2.97 | 80.2 / 13.8 / 5.9 | 3.16 |
-| 65 v 55 | 58.2 / 23.3 / 18.4 | 2.81 | 62.7 / 22.0 / 15.3 | 2.69 |
-| 62 v 58 | 50.4 / 24.6 / 25.0 | 2.73 | 52.3 / 24.2 / 23.5 | 2.58 |
-| 60 v 60 | 44.9 / 26.1 / 29.1 | 2.71 | 41.0 / 29.1 / 29.9 | 2.40 |
-| 58 v 62 | 40.5 / 25.4 / 34.1 | 2.70 | 32.5 / 28.1 / 39.3 | 2.47 |
-| 55 v 65 | 33.4 / 25.1 / 41.6 | 2.69 | 24.8 / 24.3 / 50.9 | 2.54 |
-| 50 v 70 | 22.7 / 23.8 / 53.5 | 2.71 | 11.7 / 18.4 / 69.8 | 2.82 |
+| 70 v 50 | 70.8 / 17.8 / 11.4 | 2.97 | 82.8 / 11.9 / 5.3 | 3.07 |
+| 65 v 55 | 58.2 / 23.3 / 18.4 | 2.81 | 64.3 / 21.8 / 13.9 | 2.61 |
+| 62 v 58 | 50.4 / 24.6 / 25.0 | 2.73 | 50.1 / 25.5 / 24.4 | 2.52 |
+| 60 v 60 | 44.9 / 26.1 / 29.1 | 2.71 | 43.0 / 26.9 / 30.1 | 2.42 |
+| 58 v 62 | 40.5 / 25.4 / 34.1 | 2.70 | 34.8 / 26.5 / 38.7 | 2.42 |
+| 55 v 65 | 33.4 / 25.1 / 41.6 | 2.69 | 22.1 / 26.1 / 51.9 | 2.41 |
+| 50 v 70 | 22.7 / 23.8 / 53.5 | 2.71 | 10.8 / 19.4 / 69.8 | 2.73 |
 
-In a career, squad averages range from 51 to 65 (see the market section), so the gaps that matter are the 62 v 58 and 65 v 55 rows. `tick` turns the gap into wins without runaway scores (a 20-point mismatch averages 3.2 goals) and is steeper than `simple`: a home side 10 points stronger wins 63% (`simple` 58%), and a 10-point weaker home side 25% (`simple` 33%). `simple`'s home edge now shows at every gap: its 55 v 65 home side wins a third of the time.
+In a career, squad averages range from 51 to 65 (see the market section), so the gaps that matter are the 62 v 58 and 65 v 55 rows. `tick` v8 is steeper than v7 and than `simple`: a home side 10 points stronger wins 64% (v7 63%, `simple` 58%), a 10-point weaker home side 22% (v7 25%, `simple` 33%), and a 20-point mismatch 83% (v7 80%) with 3.1 goals. The steeper gap is the engine's; the career rows show a flatter one (the strongest eleven, not the squad average, plays), see [Career seasons](#career-seasons-tick-against-simple).
 
 ### Quality level
 
 | Match | simple goals | simple draw % | tick goals | tick draw % | tick 0–0 % | tick 4+ goals % |
 | --- | --- | --- | --- | --- | --- | --- |
-| 40 v 40 | 2.78 | 25.3 | 2.55 | 27.1 | 8.6 | 25.5 |
-| 60 v 60 | 2.71 | 26.1 | 2.40 | 29.1 | 9.4 | 22.4 |
-| 80 v 80 | 2.69 | 25.6 | 2.52 | 26.4 | 7.4 | 25.1 |
+| 40 v 40 | 2.78 | 25.3 | 2.49 | 27.1 | 8.8 | 23.9 |
+| 60 v 60 | 2.71 | 26.1 | 2.42 | 26.9 | 7.6 | 21.7 |
+| 80 v 80 | 2.69 | 25.6 | 2.45 | 27.1 | 8.7 | 23.9 |
 
-Goals stay flat across levels in both engines (`tick` 2.40–2.55, a 0.15 spread, against 2.1–4.6 at v1). `tick`'s 60 v 60 row is the low one of the three; 40 and 80 agree with each other.
+Goals stay flat across levels in both engines (`tick` 2.42–2.49, a 0.07 spread, against 2.1–4.6 at v1).
 
 ### Mentality
 
@@ -191,51 +191,52 @@ Points per match are 3 × wins + draws, from the named side's view; Δ is agains
 
 | Home v away (60 v 60) | simple goals | simple H / D / A % | tick goals | tick H / D / A % |
 | --- | --- | --- | --- | --- |
-| balanced v balanced | 2.71 | 44.9 / 26.1 / 29.1 | 2.40 | 41.0 / 29.1 / 29.9 |
-| attacking v attacking | 3.75 | 49.5 / 20.6 / 30.0 | 3.26 | 44.2 / 23.5 / 32.3 |
-| defensive v defensive | 1.82 | 40.8 / 32.3 / 26.9 | 1.38 | 36.3 / 37.8 / 25.9 |
-| attacking v balanced | 3.20 | 48.0 / 23.7 / 28.3 | 2.87 | 42.3 / 25.3 / 32.4 |
-| balanced v attacking | 3.18 | 44.8 / 24.8 / 30.4 | 2.90 | 42.7 / 25.0 / 32.3 |
-| defensive v balanced | 2.21 | 41.2 / 28.3 / 30.5 | 1.86 | 40.7 / 31.9 / 27.4 |
-| balanced v defensive | 2.22 | 45.0 / 27.3 / 27.7 | 1.88 | 40.1 / 30.8 / 29.1 |
-| attacking v defensive | 2.65 | 48.0 / 25.4 / 26.6 | 2.26 | 39.9 / 29.4 / 30.7 |
-| defensive v attacking | 2.60 | 40.6 / 27.3 / 32.1 | 2.25 | 44.2 / 28.0 / 27.8 |
+| balanced v balanced | 2.71 | 44.9 / 26.1 / 29.1 | 2.42 | 43.0 / 26.9 / 30.1 |
+| attacking v attacking | 3.75 | 49.5 / 20.6 / 30.0 | 3.23 | 45.0 / 22.0 / 33.0 |
+| defensive v defensive | 1.82 | 40.8 / 32.3 / 26.9 | 1.41 | 35.8 / 39.8 / 24.4 |
+| attacking v balanced | 3.20 | 48.0 / 23.7 / 28.3 | 2.76 | 45.5 / 24.7 / 29.8 |
+| balanced v attacking | 3.18 | 44.8 / 24.8 / 30.4 | 2.77 | 44.2 / 24.6 / 31.2 |
+| defensive v balanced | 2.21 | 41.2 / 28.3 / 30.5 | 1.97 | 40.6 / 30.9 / 28.5 |
+| balanced v defensive | 2.22 | 45.0 / 27.3 / 27.7 | 1.95 | 39.8 / 30.6 / 29.6 |
+| attacking v defensive | 2.65 | 48.0 / 25.4 / 26.6 | 2.34 | 41.0 / 27.0 / 32.0 |
+| defensive v attacking | 2.60 | 40.6 / 27.3 / 32.1 | 2.33 | 44.4 / 28.5 / 27.1 |
 
 By the rating gap and venue (`TestBalanceMentalityByGap` for the gap rows, `TestBalanceEngineComparison` for 60 v 60), points per match for the named side:
 
 | Side | engine | balanced | defensive (Δ) | attacking (Δ) | goals for / against: balanced → defensive → attacking |
 | --- | --- | --- | --- | --- | --- |
-| Equal, 60 v 60 at home | tick | 1.52 | 1.54 (+0.02) | 1.52 (+0.00) | 1.31 / 1.09 → 1.05 / 0.80 → 1.57 / 1.30 |
+| Equal, 60 v 60 at home | tick | 1.56 | 1.53 (−0.03) | 1.61 (+0.05) | 1.33 / 1.09 → 1.10 / 0.87 → 1.55 / 1.21 |
 | | simple | 1.61 | 1.52 (−0.09) | 1.68 (+0.07) | 1.54 / 1.17 → 1.22 / 0.98 → 1.84 / 1.36 |
-| Equal, 60 v 60 away | tick | 1.19 | 1.18 (−0.01) | 1.22 (+0.03) | 1.09 / 1.31 → 0.85 / 1.03 → 1.32 / 1.58 |
+| Equal, 60 v 60 away | tick | 1.17 | 1.19 (+0.02) | 1.18 (+0.01) | 1.09 / 1.33 → 0.88 / 1.07 → 1.25 / 1.52 |
 | | simple | 1.13 | 1.10 (−0.03) | 1.16 (+0.03) | 1.17 / 1.54 → 0.93 / 1.30 → 1.42 / 1.77 |
-| Underdog, 55 v 65 at home | tick | 0.99 | 1.05 (+0.07) | 0.99 (+0.00) | 1.00 / 1.54 → 0.76 / 1.14 → 1.18 / 1.81 |
+| Underdog, 55 v 65 at home | tick | 0.92 | 1.00 (+0.07) | 0.96 (+0.03) | 0.90 / 1.51 → 0.75 / 1.21 → 1.10 / 1.74 |
 | | simple | 1.25 | 1.21 (−0.05) | 1.31 (+0.05) | 1.27 / 1.41 → 1.02 / 1.20 → 1.53 / 1.63 |
-| Favourite, 65 v 55 at home | tick | 2.10 | 2.10 (−0.01) | 2.14 (+0.04) | 1.88 / 0.81 → 1.50 / 0.56 → 2.15 / 0.96 |
+| Favourite, 65 v 55 at home | tick | 2.15 | 2.07 (−0.07) | 2.16 (+0.01) | 1.86 / 0.75 → 1.55 / 0.59 → 2.08 / 0.89 |
 | | simple | 1.98 | 1.85 (−0.13) | 2.06 (+0.08) | 1.84 / 0.96 → 1.47 / 0.81 → 2.21 / 1.12 |
-| Underdog, 65 v 55 away | tick | 0.68 | 0.72 (+0.04) | 0.64 (−0.04) | 0.81 / 1.88 → 0.62 / 1.46 → 0.94 / 2.19 |
+| Underdog, 65 v 55 away | tick | 0.64 | 0.70 (+0.07) | 0.61 (−0.02) | 0.75 / 1.86 → 0.59 / 1.50 → 0.88 / 2.10 |
 | | simple | 0.79 | 0.79 (+0.00) | 0.81 (+0.02) | 0.96 / 1.84 → 0.76 / 1.56 → 1.17 / 2.12 |
 
-**Resolved in `tick`: mentality is a trade-off.** Attacking against a balanced side is worth −0.04 to +0.04 points a match (v6: +0.11 to +0.24), because it now concedes as much as it adds (+0.15 to +0.31 goals against, +0.13 to +0.27 for). Defensive pays a little for the underdog (+0.07 at home, +0.04 away), costs nothing for the favourite and draws more (31.3% against 24.3% at 55 v 65). Every Δ is within ±0.07, a choice of style rather than a dominant setting: over a 14-match league season the best mentality is worth about a point. `match--attacking-is-free` is delivered.
+**`tick`: mentality is still a trade-off at v8.** Attacking against a balanced side is worth −0.02 to +0.05 points a match for the named side (v6: +0.11 to +0.24; `match`'s always-on bound is +0.15), at +0.16–0.22 goals for and +0.12–0.19 against at equal strength. Defensive pays for the underdog (+0.07 at home and away at 55 v 65 and 65 v 55) and costs the favourite 0.07; it also draws more (29.9% against 26.1% for the home underdog). Every Δ is within ±0.08, a choice of style rather than a dominant setting.
 
 **`simple`, the career default, still has the v6 shape at a smaller scale.** Attacking beats balanced in every row (+0.02 to +0.08), because it adds 0.21–0.37 goals scored against 0.16–0.28 conceded (more scored than conceded in four of the five rows), and defensive never beats balanced, even for the underdog (−0.13 to +0.00). The single rows are one to two sampling margins, but all ten point the same way. A career manager on the default engine should always attack and never defend; filed as `match--simple-mentality`. Neither engine charges for attacking outside the goal model (`medical` reads minutes only), the AI always plays balanced (`ai.SelectionVersion` 3), and switching late to protect a lead is not measured.
 
 ### Shootouts
 
-A knockout tie goes to penalties exactly when it is level after 90 minutes: 26–29% of ties between equal teams in either engine (29.1% in `tick`). The sweep checks that the shootout count equals the draw count in every row. There is no extra time, which roughly doubles or triples the real-world shootout rate; a rules choice for `competitions` and `match`.
+A knockout tie goes to penalties exactly when it is level after 90 minutes: 26–27% of ties between equal teams in either engine (26.9% in `tick`). The sweep checks that the shootout count equals the draw count in every row. There is no extra time, which roughly doubles or triples the real-world shootout rate; a rules choice for `competitions` and `match`.
 
 | Home (stronger) side wins the shootout, % | 60 v 60 | 62 v 58 | 65 v 55 | 70 v 50 |
 | --- | --- | --- | --- | --- |
 | simple | 51 | 52 | 56 | 61 |
-| tick | 48 | 52 | 56 | 62 |
+| tick | 53 | 54 | 56 | 58 |
 
-At 50 v 70 the home side is the weaker one and wins 39% of the shootouts in both engines. Both sides together score 8.0–8.7 penalties per shootout. Shootouts stay close to a coin toss with a modest edge for the better side, as at v6 (`match--shootout-favourite` holds). `simple` guards this with `TestShootoutsStayClose`; `tick` has no shootout bound, proposed in `match--mentality-shootout-bounds`.
+At 50 v 70 the home side is the weaker one and wins 39% of the shootouts in both engines. Both sides together score 8.0–8.7 penalties per shootout. Shootouts stay close to a coin toss with a modest edge for the better side, as at v6 (`match--shootout-favourite` holds). Both engines have an always-on shootout bound (`TestShootoutsStayClose`, delivered with `match--mentality-shootout-bounds`).
 
 ### History
 
 - **2026-09-28**, `tick` v1, `simple` v3: `tick` drew 24.9% and scored 2.9 goals at 60 v 60, 4.6 at 80 v 80 and 2.1 at 40 v 40, a 10-point mismatch gave 72% wins and a 20-point one 4.3 goals. Attacking raised the win rate by 20 points with no cost at the back; a defensive side against a balanced one conceded 4.7 goals. A stronger side won 74–80% of shootouts at 65 v 55. Filed `match--tick-goals-by-level`, `match--tick-mentality` and `match--shootout-favourite`.
 - **2026-10-01**, `tick` v6, `simple` v4 (commit `78fc6b2`): `tick` 2.46 goals and 42.4 / 26.8 / 30.8 at 60 v 60; `simple` 2.71 goals and no home edge (37.2 / 26.3 / 36.6). Attacking against balanced was worth +0.11 to +0.24 points a match on `tick` and defensive −0.04 to −0.11; shootouts 53–60% for the stronger side. Filed `match--attacking-is-free` and `match--simple-home-advantage`.
-- **2026-10-01**, `tick` v7, `simple` v5: this section.
+- **2026-10-01**, `tick` v7, `simple` v5: `tick` 2.40 goals and 41.0 / 29.1 / 29.9 at 60 v 60, 9.4% 0–0s; attacking worth −0.04 to +0.04; home side wins 48–62% of shootouts from 60 v 60 to 70 v 50.
+- **2026-10-02**, `tick` v8, `simple` v5: this section.
 
 ## Career seasons: tick against simple
 
@@ -251,14 +252,14 @@ ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines -v -count=
 
 | | simple | tick | Synthetic 60 v 60, simple / tick | Top leagues, roughly |
 | --- | --- | --- | --- | --- |
-| Goals per match | 2.17 | 2.16 | 2.71 / 2.40 (v7) | 2.6–2.9 |
-| Home–away goals | 1.25–0.93 | 1.20–0.96 | 1.54–1.17 / 1.31–1.09 (v7) | 1.5–1.2 |
-| Home / draw / away % | 44.2 / 28.4 / 27.3 | 41.2 / 29.4 / 29.4 | 44.9 / 26.1 / 29.1 · 41.0 / 29.1 / 29.9 (v7) | 45 / 26 / 29 |
+| Goals per match | 2.17 | 2.16 | 2.71 / 2.42 | 2.6–2.9 |
+| Home–away goals | 1.25–0.93 | 1.20–0.96 | 1.54–1.17 / 1.33–1.09 | 1.5–1.2 |
+| Home / draw / away % | 44.2 / 28.4 / 27.3 | 41.2 / 29.4 / 29.4 | 44.9 / 26.1 / 29.1 · 43.0 / 26.9 / 30.1 | 45 / 26 / 29 |
 | Upsets (weaker club wins) % | 29.6 | 27.9 | | |
 | Stronger side win %, gap 0–1 / 2–4 / 5–8 / 9+ | 36 / 35 / 46 / 29 | 39 / 35 / 42 / 60 | | |
 | matches in those buckets | 618 / 920 / 130 / 14 | 644 / 900 / 130 / 10 | | |
 
-**Career matches still score 0.4–0.5 goals less than real football.** `simple` 2.17 (unchanged), `tick` 2.16, down from 2.30 at v7: `tick` v8's per-minute calibration took 0.14 goals from careers. This is the `match--career-goals` note, now with a worse `tick` figure. The synthetic 60 v 60 columns are the v7 rows; they are refreshed in [Match engines](#match-engines-tick-against-simple) when `TestBalanceEngineComparison` is rerun at v8.
+**Career matches still score 0.4–0.5 goals less than real football.** `simple` 2.17 (unchanged), `tick` 2.16, down from 2.30 at v7: `tick` v8's per-minute calibration took 0.14 goals from careers. This is the `match--career-goals` note, now with a worse `tick` figure. The synthetic 60 v 60 columns are the v8 rows from [Match engines](#match-engines-tick-against-simple): `tick` loses 0.26 goals between its synthetic and its career rows (2.42 to 2.16), `simple` 0.54 (2.71 to 2.17), so the career level drifts unwatched under both.
 
 **Home edge and upsets hold** (41–44% home wins, 27–29% away; about 28–30% of matches won by the weaker club). Results separate by squad average no more than at v7: the stronger side wins 35–46% of matches up to a gap of 8; the 9+ bucket has 14 and 10 matches, too few to read.
 
@@ -284,10 +285,10 @@ Means over 36 league tables (4 leagues × 9 seasons). The champion takes 1.86–
 
 ## Match statistics: tick against real football
 
-Measured 2026-10-01 at `tick.ModelVersion` 7, commit `64874ae` (first measured at v6, see the [history](#history-3)). Answers `balance--tick-match-stats`. The real-football figures are `match`'s calibration targets from that note. `simple` reports no statistics (no `DetailedStats` capability). Filed to `match` as `match--tick-stats-calibration`.
+Measured 2026-10-02 at `tick.ModelVersion` 8, commit `6de7f91` (first measured at v6, see the [history](#history-3)). Answers `balance--tick-match-stats` and, with the career rows, `balance--tick-v8-rerun`. The real-football figures are `match`'s calibration targets from that note. `simple` reports no statistics (no `DetailedStats` capability).
 
 ```sh
-ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMatchStats -v -count=1 -timeout 2h   # about 2 min on 32 cores
+ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMatchStats -v -count=1 -timeout 2h   # about 2 min on 32 cores, 12 on 4
 ```
 
 `TestBalanceMatchStats` in `internal/matches/tick/balance_test.go`, 3,000 synthetic matches a row (seeds 1, 42, 2026 × 1,000 fixtures, `enginetest.Input` teams). The career rows are `TestBalanceCareerEngines`'s 2,016 league matches on `tick` (above). Both sides of a match are listed (home / away where it matters).
@@ -296,46 +297,51 @@ ZIMBLE_BALANCE=1 go test ./internal/matches/tick -run TestBalanceMatchStats -v -
 
 | Stat | Real top leagues | tick 60 v 60 | tick careers | tick 70 v 50 (stronger / weaker) |
 | --- | --- | --- | --- | --- |
-| Shots | 12–13 | 10.8 / 9.5 | 11.7 / 10.1 | 16.3 / 6.2 |
-| On target | 4–5 | 4.4 / 3.6 | 4.2 / 3.5 | 7.9 / 2.1 |
-| Saves | 2–3 | 2.5 / 3.1 | 2.5 / 2.9 | 1.5 / 5.4 |
-| Passes | 400–600 | 954 / 924 | 960 / 924 | 1047 / 821 |
-| Completion % | 75–85 | 79 / 79 | 80 / 79 | 81 / 77 |
-| Tackles | 15–20 | 45.8 / 43.4 | 41.3 / 37.8 | 52.2 / 34.6 |
-| Offsides | ~2 | 1.8 / 1.7 | 1.9 / 1.8 | 2.0 / 1.3 |
-| Possession, stronger side % | 60–65 at a clear gap | 50.9 (even) | 51.0 (even) | 56.7 at gap 20 |
+| Shots | 12–13 | 11.9 / 10.2 | 12.4 / 10.6 | 19.0 / 5.7 |
+| On target | 4–5 | 5.6 / 4.6 | 5.3 / 4.4 | 10.1 / 2.3 |
+| Saves | 2–3 | 3.6 / 4.3 | 3.5 / 4.1 | 1.8 / 7.7 |
+| Passes | 400–600 | 965 / 905 | 969 / 907 | 1148 / 710 |
+| Completion % | 75–85 | 79 / 77 | 81 / 79 | 85 / 68 |
+| Tackles | 15–20 | 26.9 / 26.4 | 24.2 / 22.6 | 26.8 / 23.1 |
+| Offsides | ~2 | 1.9 / 1.7 | 2.0 / 1.7 | 2.4 / 1.1 |
+| Possession, stronger side % | 60–65 at a clear gap | 51.7 (even) | 51.8 (even) | 62.7 at gap 20 |
 
-**v7 moved none of this**: outside the mentality rows every figure is within 0.1 of v6, so `match--tick-stats-calibration` stands as filed. **Passes run 1.7–2.5 times the target** (821–1,047 a side against 400–600) and **tackles 2–3 times** (35–52 against 15–20). Completion is right. **Possession does not separate enough**: 56.7% for a 20-point stronger side and 53.8% at gap 10, against the 60–65% target; equal teams are fine at 51/49. **Shots are a little low and too lopsided**: 20–21 a match between equal teams against the real 24–26, and at gap 20 the split is 16.3–6.2 where real football at gap 10 is about 12.6–9.3. Offsides are right (about 4.2 a side when both attack, 0.1 when both defend). Shots, on target, saves and goals are internally consistent (on target = goals + the opponent's saves). The career rows match the synthetic profile almost exactly — real squads change goals and results, not these statistics.
+**v8 moved the targets `match` aimed at.** Tackles fall from 35–52 to 23–27 a side (v7: 45.8 / 43.4 at 60 v 60), **possession now separates**: 62.7% for a 20-point stronger side and 57.5% at gap 10, inside the 60–65% target (v7: 56.7 and 53.8), and **shots between equal teams rise** to 22.1 a match (v7 20.3, real 24–26). Equal teams stay at 51.7/48.3, as in real football. **Passes stay about 1.6–2.4 times the target** (710–1,148 a side against 400–600), for the reason `match` gives (tick has about 88 minutes of ball in play against about 58 real); completion is right.
+
+**Shots on target are now a little high and the saves with them**: 5.6 / 4.6 on target at 60 v 60 against 4–5 (v7 4.4 / 3.6), because on-target and saves now count shots at the goal line. On target equals goals plus the opponent's saves, as before. **The shot split is still lopsided**: at gap 20 it is 19.0–5.7 (v7 16.3–6.2), where real football at gap 10 is about 12.6–9.3, and at gap 10 15.2–7.7. Offsides are right (about 4.4 a side when both attack, 0.1 when both defend). The career rows match the synthetic profile within a few tenths, except tackles (24.2 / 22.6 against 26.9 / 26.4), a difference I did not trace.
+
+**The per-ball-in-play-minute framing is fair, but I cannot add a ball-in-play row from outside.** The engine reports no ball-in-play time in `matches.MatchStats` or the event log, so the row would be `match`'s own figure. Taking its 88 against 58 minutes at face value, tackles scale to 17–18 a side and passes to about 630 at 60 v 60, which puts tackles inside 15–20 and passes about 5% above the 600 ceiling; the framing therefore agrees with the targets. The scaling is arithmetic on a number I did not measure.
 
 ### Synthetic teams, all rows (3,000 matches each)
 
 | Scenario | Side | Shots | On target | Saves | Passes | Completion % | Tackles | Offsides | Possession % |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 60 v 60 | home | 10.8 | 4.4 | 2.5 | 954 | 79 | 45.8 | 1.8 | 50.9 |
-| 60 v 60 | away | 9.5 | 3.6 | 3.1 | 924 | 79 | 43.4 | 1.7 | 49.1 |
-| 65 v 55 | home | 13.4 | 6.0 | 2.0 | 1002 | 80 | 49.1 | 1.9 | 53.8 |
-| 65 v 55 | away | 7.8 | 2.8 | 4.2 | 873 | 78 | 39.3 | 1.5 | 46.2 |
-| 55 v 65 | home | 8.8 | 3.3 | 3.5 | 904 | 78 | 41.9 | 1.6 | 48.0 |
-| 55 v 65 | away | 11.8 | 5.0 | 2.3 | 973 | 80 | 47.0 | 1.8 | 52.0 |
-| 70 v 50 | home | 16.3 | 7.9 | 1.5 | 1047 | 81 | 52.2 | 2.0 | 56.7 |
-| 70 v 50 | away | 6.2 | 2.1 | 5.4 | 821 | 77 | 34.6 | 1.3 | 43.3 |
-| 50 v 70 | home | 7.2 | 2.5 | 4.6 | 855 | 77 | 37.4 | 1.5 | 45.2 |
-| 50 v 70 | away | 14.5 | 6.6 | 1.8 | 1017 | 80 | 50.3 | 2.0 | 54.8 |
-| 80 v 80 | home | 10.6 | 4.4 | 2.6 | 950 | 79 | 47.3 | 1.8 | 50.7 |
-| 80 v 80 | away | 9.5 | 3.7 | 3.0 | 927 | 79 | 45.6 | 1.7 | 49.3 |
-| both attacking | home | 15.1 | 6.1 | 3.7 | 972 | 79 | 42.3 | 4.3 | 50.7 |
-| both attacking | away | 13.3 | 5.1 | 4.3 | 948 | 79 | 40.1 | 4.1 | 49.3 |
-| both defensive | home | 6.3 | 2.5 | 1.4 | 933 | 81 | 43.2 | 0.1 | 51.5 |
-| both defensive | away | 5.3 | 2.0 | 1.8 | 885 | 80 | 41.4 | 0.1 | 48.5 |
-| home attacking | home | 12.7 | 5.1 | 3.2 | 956 | 79 | 43.9 | 2.3 | 51.1 |
-| home attacking | away | 11.3 | 4.4 | 3.6 | 941 | 79 | 42.5 | 3.2 | 48.9 |
+| 60 v 60 | home | 11.9 | 5.6 | 3.6 | 965 | 79 | 26.9 | 1.9 | 51.7 |
+| 60 v 60 | away | 10.2 | 4.6 | 4.3 | 905 | 77 | 26.4 | 1.7 | 48.3 |
+| 65 v 55 | home | 15.2 | 7.6 | 2.6 | 1064 | 83 | 27.0 | 2.2 | 57.5 |
+| 65 v 55 | away | 7.7 | 3.3 | 5.8 | 803 | 73 | 25.1 | 1.4 | 42.5 |
+| 55 v 65 | home | 9.1 | 4.0 | 4.8 | 864 | 75 | 26.0 | 1.6 | 46.0 |
+| 55 v 65 | away | 13.1 | 6.3 | 3.1 | 1006 | 81 | 26.9 | 2.0 | 54.0 |
+| 70 v 50 | home | 19.0 | 10.1 | 1.8 | 1148 | 85 | 26.8 | 2.4 | 62.7 |
+| 70 v 50 | away | 5.7 | 2.3 | 7.7 | 710 | 68 | 23.1 | 1.1 | 37.3 |
+| 50 v 70 | home | 7.0 | 2.9 | 6.3 | 768 | 71 | 24.4 | 1.3 | 40.5 |
+| 50 v 70 | away | 16.4 | 8.3 | 2.3 | 1097 | 84 | 26.9 | 2.3 | 59.5 |
+| 80 v 80 | home | 11.8 | 5.6 | 3.6 | 966 | 79 | 27.9 | 1.9 | 51.8 |
+| 80 v 80 | away | 10.2 | 4.7 | 4.3 | 904 | 77 | 27.7 | 1.7 | 48.2 |
+| both attacking | home | 16.4 | 7.5 | 4.9 | 989 | 79 | 24.3 | 4.6 | 51.8 |
+| both attacking | away | 14.3 | 6.4 | 5.8 | 926 | 77 | 24.0 | 4.2 | 48.2 |
+| both defensive | home | 7.3 | 3.4 | 2.1 | 949 | 81 | 25.2 | 0.2 | 52.2 |
+| both defensive | away | 6.0 | 2.7 | 2.6 | 872 | 78 | 25.1 | 0.1 | 47.8 |
+| home attacking | home | 13.8 | 6.4 | 4.2 | 970 | 79 | 25.4 | 2.4 | 52.3 |
+| home attacking | away | 12.1 | 5.4 | 4.9 | 921 | 77 | 25.9 | 3.2 | 47.7 |
 
-An attacking side shoots more and is caught offside more (2.3–4.3 a side); at v7 the balanced side facing it shoots more too (11.3 against 9.5) and is caught offside more (3.2, against 1.7), running into the space behind the high line. Possession still barely moves (51.1% for the attacking home side, 49.9% at v6). A defensive block concedes few shots and is almost never caught offside (0.1).
+An attacking side shoots more and is caught offside more (2.4–4.6 a side); the balanced side facing it shoots more too (12.1 against 10.2) and is caught offside more (3.2, against 1.7). Possession barely moves with mentality (52.3% for the attacking home side, 51.7% balanced). A defensive block concedes few shots and is almost never caught offside (0.1–0.2).
 
 ### History
 
 - **2026-10-01**, `tick` v6 (commit `5f07b58`): the same figures within 0.1, except the mentality rows: both attacking 13.4–11.9 shots, an attacking home side 13.4–9.5 shots and 49.9% possession. Filed `match--tick-stats-calibration`.
-- **2026-10-01**, `tick` v7: this section.
+- **2026-10-01**, `tick` v7 (commit `64874ae`): the same figures within 0.1 of v6 outside the mentality rows. Passes 1.7–2.5 times the target, tackles 2–3 times, possession 56.7% at gap 20, shots 20–21 a match between equal teams.
+- **2026-10-02**, `tick` v8: this section. Tackles 23–27 a side, possession 62.7% at gap 20, shots 22.1 a match between equal teams, passes unchanged.
 
 ## Injuries
 
