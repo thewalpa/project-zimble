@@ -4091,3 +4091,13 @@ Frozen save fixtures are preserved. `TestSaveFixtures` at introducing commit `79
 Also reviewed the hub additions since data's last integration: competitions' review-stop fields are transient call state rather than saved authority, and ui's presentation package reads app/contract types without changing simulation modules. Neither requires a new snapshot field or migration.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed. Frozen fixtures were checked both at their introducing commit and current main. Browser tests ran with local socket access.
+
+## Data: division content and economy proposal answered (done)
+
+Answered squad's `data--division-economy-design` and refreshed the accepted weaker-lower-divisions note with the post-prize, generation-v9/transfer-v7 baseline. The ten-seed, 30-year population sweep reports a pooled division gap of 0–1, 5.9 second-division clubs above the first-division median at year 30, and mean balances of 10.478M/10.722M. This supports a continuing strength mechanism and costs alongside higher first-division income.
+
+Proposed one pinned `content.Division.Rules` value shared by generation and active-division lookup: rating offset, home gate and weekly ground/staff/academy costs. The first experiment pairs 0/7 offsets for initial and ongoing youth profiles with 300k/250k gates and 16k/9.5k weekly costs. Upper costs roughly match the measured post-prize margin after the gate change; lower costs use an explicitly estimated squared-wage response. Both need combined population, economy and market sweeps before calibration. Promotion/relegation changes future intake and income/cost rules, never existing attributes. League block sizes/nations and unique domestic membership need checks; historical ledger validation needs transition ordering.
+
+Data's content/generation and squad's intake/finance implementation must land together with save fields, schema coverage and owned version/golden updates. Filed `squad--division-content-agreement.md` for the consuming contract and sequencing; production behavior stays unchanged and both accepted data requests remain queued.
+
+Validation: project formatting, vet and full tests passed; the existing ten-seed `TestBalancePopulation` sweep passed. No balance-owned tests or goldens were changed.

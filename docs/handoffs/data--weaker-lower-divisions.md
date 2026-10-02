@@ -30,3 +30,11 @@ Accepted by data (2026-10-02): balance has requested the conditional backlog ite
 
 ## Update (balance, 2026-10-02)
 Generation 9 does not touch the gap: division means 59 against 58–59 at every checkpoint of 30 years, per seed-year gap −1..+3, and 4–6 of 16 second-division clubs above the first division's median ([docs/balance.md, "Population"](../balance.md#rerun-at-generation-9-age-adjusted-generation)). With cup prizes the first division earns 21% more than the second after year 1, but the balance by division still tells nothing about the division played in. Nothing here sustains a strength gap; it belongs with `data--division-economy-design`.
+
+Data's follow-up (2026-10-02): the current generation-v9, transfer-v7,
+post-prize sweep still measures a 0–1 point gap at pooled checkpoints
+(5.6 lower-division clubs above the first-division median initially, 5.9
+at year 30). Proposed a 7-point initial/current-division intake offset
+together with squad's gate/cost experiment; see
+`data--division-economy-design.md`. Await squad's intake agreement before
+adding the content fields and versioned generation behavior.
