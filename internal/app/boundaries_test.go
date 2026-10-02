@@ -68,25 +68,32 @@ var allowedImports = map[string][]string{
 	// Storage is an adapter: it encodes app snapshots and never reaches
 	// into modules.
 	"internal/storage": {"internal/app"},
+	// The wording the clients share: it phrases app queries and the contract
+	// types they return, and changes nothing.
+	"cmd/internal/present": {
+		"internal/app", "internal/careers", "internal/competitions", "internal/core/ids", "internal/core/sim",
+		"internal/inbox", "internal/transfers",
+	},
 	// The interactive client uses app queries and commands, plus the
 	// contract types they return.
 	"cmd/play": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/events", "internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage",
-		"internal/transfers", "internal/careers",
+		"internal/transfers", "internal/careers", "cmd/internal/present",
 	},
 	// The web client is another presentation adapter: app queries and
 	// commands, the contract types they return, and storage for saving.
 	"cmd/web": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/money", "internal/core/random", "internal/core/sim",
 		"internal/inbox", "internal/matches", "internal/players", "internal/selection", "internal/storage", "internal/transfers",
-		"internal/careers",
+		"internal/careers", "cmd/internal/present",
 	},
 	// The headless runner also inspects read-only content definitions without
 	// creating a world; its career operations still go through app.
 	"cmd/simulate": {
 		"internal/app", "internal/competitions", "internal/core/ids", "internal/core/random", "internal/core/sim",
 		"internal/inbox", "internal/matches", "internal/players", "internal/storage", "internal/content",
+		"cmd/internal/present",
 	},
 }
 

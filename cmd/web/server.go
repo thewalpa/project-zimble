@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -422,7 +423,7 @@ func (s *server) advance() error {
 		}
 		info, _ := s.fixtureInfo(ready.UserFixtures[0])
 		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
-		s.say("Matchday: %s v %s. Lineup: %s.", matchName(info), s.opponent(info.FixtureLine), s.w.LineupSourceLabel(ml))
+		s.say("Matchday: %s v %s. Lineup: %s.", present.MatchName(info), s.opponent(info.FixtureLine), s.w.LineupSourceLabel(ml))
 		for _, msg := range s.w.LineupDroppedMessages(ml) {
 			s.say("%s", msg)
 		}
@@ -609,7 +610,7 @@ func (s *server) renew(form url.Values) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s.say("%s signed a new contract until %s at %s a week.", s.name(player), s.endDate(res.Contract.Expires), res.Contract.WeeklyWage)
+	s.say("%s signed a new contract until %s at %s a week.", s.name(player), present.Date(s.w.Calendar(), res.Contract.Expires), res.Contract.WeeklyWage)
 	return "/squad", nil
 }
 
@@ -626,7 +627,7 @@ func (s *server) sign(form url.Values) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	s.say("%s joined until %s at %s a week.", name, s.endDate(res.Contract.Expires), res.Contract.WeeklyWage)
+	s.say("%s joined until %s at %s a week.", name, present.Date(s.w.Calendar(), res.Contract.Expires), res.Contract.WeeklyWage)
 	return "/squad", nil
 }
 

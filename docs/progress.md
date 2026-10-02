@@ -3791,3 +3791,15 @@ Only new-world generation changes. Youth, development, content, calendar and eng
 Data also reviewed competitions' latest hub additions: cup calendars and the football year are validated at both creation and restore against pinned definitions, with no added authoritative fields. Accepted without changes.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` passed, and `go test ./...` passed, including both clients, frozen save fixtures, determinism, age-band/distribution guards and the long squad/accounting checks. The full 30-year balance rerun is requested separately.
+
+## ui: shared presentation package; date columns sort by time (done)
+
+Step 1 of the [UI of choice](ui-choice.md#plan).
+
+- **`cmd/internal/present`** holds the wording more than one client prints. That covers `MatchName` and `ItemMatchName`, `Penalties`, `Outcome` and `FixtureOutcome`, `Date`, career spells (`Joined`, `Left`), `OfferOutcome`, `PlayoffTie`, and `InboxMessage`, which returns a topic and a text for every inbox kind. It phrases app queries only and owns no rules. The package lives under `cmd/` because wording is presentation, not an `app` fact. Its entry in `boundaries_test.go` allows app plus the contract types the clients already read.
+- **One inbox wording.** The browser shows `Topic: text` (e.g. "Contract: Ann Lee renewed until …"), and the terminal shows `topic: text` with a command hint (`(type cup)`, `(offer 85: accept/reject)`). The terminal result line now names the round, and both clients write a league round as "Round 3". The browser's season-end messages lost their trailing full stop, to match the other messages.
+- **Contract end dates.** The terminal printed the career start's day and month with the contract's year. It now prints the contract's actual end day through `present.Date`, as the browser did. On the current calendar the two agree.
+- **`cmd/simulate`** keeps its diagnostic inbox format with IDs. Kinds it didn't handle (injuries, releases, transfers) printed "message kind N" and now print the shared text. Its shoot-out suffix uses `present.Penalties`.
+- **Date sorting (bug).** The inbox, ledger, fixtures and offer tables in the browser sorted dates by their formatted text, which starts with the weekday, so "Wed 2027-06-30" came before "Tue 2027-04-20". The rows now carry the game instant and sort by it. `TestDateColumnsSortByTime` fails on the old sort.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; new `present` tests (every inbox kind is worded, match names, outcome with shoot-outs). Changed client assertions are the intended wording changes above.

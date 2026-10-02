@@ -46,6 +46,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"io"
 	"os"
 	"slices"
@@ -323,7 +324,8 @@ func printInbox(out io.Writer, w *app.World, n int) error {
 		case inbox.KindDeveloped:
 			fmt.Fprintf(out, "development: %d improved, %d declined\n", m.Improved, m.Declined)
 		default:
-			fmt.Fprintf(out, "message kind %d\n", m.Kind)
+			club, _ := w.UserClub()
+			fmt.Fprintln(out, present.InboxMessage(w, club, m))
 		}
 	}
 	return nil
@@ -641,9 +643,7 @@ func printMatches(out io.Writer, w *app.World, at sim.GameInstant, rounds []comp
 			fmt.Fprintf(out, "  F%-3d %-3s %d-%d %-3s  %s %d-%d %s", m.Fixture,
 				m.Home.ShortName, m.Score[0], m.Score[1], m.Away.ShortName,
 				m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName)
-			if m.Shootout != [2]uint16{} {
-				fmt.Fprintf(out, " (%d-%d on penalties)", m.Shootout[0], m.Shootout[1])
-			}
+			fmt.Fprint(out, present.Penalties(m.Shootout))
 			if club, ok := w.UserClub(); ok && (m.Home.Club == club || m.Away.Club == club) {
 				fmt.Fprintf(out, "  <- %s", lineupNote(w, m.Fixture))
 			}

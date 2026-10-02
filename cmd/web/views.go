@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"html/template"
 	"net/http"
 	"os"
@@ -107,34 +108,6 @@ func (s *server) seasonDone(sc app.Schedule) bool {
 // fixtureInfo describes a fixture of any league season or cup edition.
 func (s *server) fixtureInfo(id ids.FixtureID) (app.FixtureInfo, bool) { return s.w.FixtureInfo(id) }
 
-// matchName names a fixture's round for display: "Round 3" in a league,
-// "Continental Cup quarter-final" in a cup, "Promotion Play-off" in a
-// play-off (one round).
-func matchName(info app.FixtureInfo) string {
-	if info.Playoff {
-		return info.CompetitionName
-	}
-	if info.Cup {
-		return info.CompetitionName + " " + info.RoundName
-	}
-	return capitalize(info.RoundName)
-}
-
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-// penalties renders a shootout, e.g. " (4-3 on penalties)", or nothing.
-func penalties(p [2]uint16) string {
-	if p == [2]uint16{} {
-		return ""
-	}
-	return fmt.Sprintf(" (%d-%d on penalties)", p[0], p[1])
-}
-
 // scheduleOf is the current season of a club's league.
 func (s *server) scheduleOf(club ids.ClubID) (app.Schedule, bool) {
 	for _, sc := range s.w.Schedules() {
@@ -188,33 +161,6 @@ func (s *server) name(id ids.PlayerID) string {
 		}
 	}
 	return fmt.Sprintf("player %d", id)
-}
-
-// endDate renders a contract end, e.g. "1 July 2029".
-func (s *server) endDate(at sim.GameInstant) string {
-	c, _ := s.w.Calendar().Civil(at)
-	months := [...]string{"January", "February", "March", "April", "May", "June", "July",
-		"August", "September", "October", "November", "December"}
-	return fmt.Sprintf("%d %s %d", c.Day, months[c.Month-1], c.Year)
-}
-
-// outcome is W, D or L for the club in a played fixture; a shootout
-// decides a level knockout match.
-func outcome(score, shootout [2]uint16, home bool) string {
-	if score[0] == score[1] {
-		score = shootout
-	}
-	us, them := score[0], score[1]
-	if !home {
-		us, them = them, us
-	}
-	switch {
-	case us > them:
-		return "W"
-	case us < them:
-		return "L"
-	}
-	return "D"
 }
 
 // --- home ---------------------------------------------------------------------
@@ -273,6 +219,7 @@ type messageView struct {
 	When  string
 	Text  string
 	Read  bool
+	at    sim.GameInstant // When, for sorting
 }
 
 type saveInfo struct {
@@ -458,13 +405,13 @@ func (s *server) home(r *http.Request) (string, any, error) {
 func (s *server) reportOf(res app.RoundsResolved) *matchReport {
 	r := &matchReport{}
 	for _, m := range res.Matches {
-		line := fmt.Sprintf("%s %d-%d %s%s", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout))
+		line := fmt.Sprintf("%s %d-%d %s%s", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, present.Penalties(m.Shootout))
 		if m.Home.Club != s.club() && m.Away.Club != s.club() {
 			r.Others = append(r.Others, otherResult{Fixture: m.Fixture, Title: line})
 			continue
 		}
 		r.Fixture = m.Fixture
-		r.Title, r.Outcome = line, outcome(m.Score, m.Shootout, m.Home.Club == s.club())
+		r.Title, r.Outcome = line, present.Outcome(m.Score, m.Shootout, m.Home.Club == s.club())
 		for _, g := range m.Goals {
 			team := m.Home.ShortName
 			if g.Side == matches.Away {
@@ -537,7 +484,7 @@ func (s *server) squad(r *http.Request) (string, any, error) {
 	v := squadView{
 		Club:        clubLabel,
 		IsUserClub:  isUserClub,
-		ContractEnd: s.endDate(end),
+		ContractEnd: present.Date(s.w.Calendar(), end),
 		SquadText:   squadText,
 		Sort:        sortState,
 	}
@@ -821,7 +768,7 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 	}
 	if !planMode {
 		info, _ := s.fixtureInfo(fixture)
-		v.Title = fmt.Sprintf("%s v %s, %s", matchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff))
+		v.Title = fmt.Sprintf("%s v %s, %s", present.MatchName(info), s.opponent(info.FixtureLine), s.w.Calendar().Format(info.Kickoff))
 	}
 	for _, id := range plan.Unavailable {
 		if name, ok := s.w.PlayerName(id); ok {
@@ -963,6 +910,7 @@ type fixtureRow struct {
 	Played       bool
 	Result       string
 	Outcome      string
+	at           sim.GameInstant // When, for sorting
 }
 
 type fixturesView struct {
@@ -1013,13 +961,14 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 				Name:         fmt.Sprintf("Round %d", rd.Round),
 				Round:        int(rd.Round),
 				When:         s.w.Calendar().Format(rd.Kickoff),
+				at:           rd.Kickoff,
 				Opponent:     opp,
 				OpponentClub: oppClub,
 				Played:       f.Played,
 			}
 			if f.Played {
 				row.Result = fmt.Sprintf("%d-%d", f.Score[0], f.Score[1])
-				row.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
+				row.Outcome = present.Outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
 			}
 			v.Rows = append(v.Rows, row)
 		}
@@ -1032,12 +981,12 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 				}
 				opp, oppClub := s.clubOpponent(f, viewClub)
 				row := fixtureRow{
-					Fixture: f.ID, Name: c.Name + " " + rd.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff),
+					Fixture: f.ID, Name: c.Name + " " + rd.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff), at: rd.Kickoff,
 					Opponent: opp, OpponentClub: oppClub, Played: f.Played,
 				}
 				if f.Played {
-					row.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
-					row.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
+					row.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], present.Penalties(f.Shootout))
+					row.Outcome = present.Outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
 				}
 				v.Rows = append(v.Rows, row)
 			}
@@ -1051,12 +1000,12 @@ func (s *server) fixtures(r *http.Request) (string, any, error) {
 				}
 				opp, oppClub := s.clubOpponent(f, viewClub)
 				row := fixtureRow{
-					Fixture: f.ID, Name: c.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff),
+					Fixture: f.ID, Name: c.Name, Round: int(rd.Round), When: s.w.Calendar().Format(rd.Kickoff), at: rd.Kickoff,
 					Opponent: opp, OpponentClub: oppClub, Played: f.Played,
 				}
 				if f.Played {
-					row.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
-					row.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
+					row.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], present.Penalties(f.Shootout))
+					row.Outcome = present.Outcome(f.Score, f.Shootout, f.Home.Club == viewClub)
 				}
 				v.Rows = append(v.Rows, row)
 			}
@@ -1185,9 +1134,9 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		if info.Playoff {
 			v.Context = fmt.Sprintf("%s season %d", s.w.PlayoffTitle(info.Round.Season.Competition), info.Round.Season.Season)
 		} else if info.Cup {
-			v.Context = fmt.Sprintf("%s %d · %s", info.CompetitionName, info.Round.Season.Season, capitalize(info.RoundName))
+			v.Context = fmt.Sprintf("%s %d · %s", info.CompetitionName, info.Round.Season.Season, present.Capitalize(info.RoundName))
 		} else {
-			v.Context = fmt.Sprintf("%s season %d · %s", info.CompetitionName, info.Round.Season.Season, capitalize(info.RoundName))
+			v.Context = fmt.Sprintf("%s season %d · %s", info.CompetitionName, info.Round.Season.Season, present.Capitalize(info.RoundName))
 		}
 		if f.Shootout != [2]uint16{} {
 			v.Penalties = fmt.Sprintf("%d-%d on penalties", f.Shootout[0], f.Shootout[1])
@@ -1202,7 +1151,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		v.Round = rep.Round.Round
 		v.Season = rep.Round.Season.Season
 		if rep.Home.Club == s.club() || rep.Away.Club == s.club() {
-			v.Outcome = outcome(rep.Score, rep.Shootout, rep.Home.Club == s.club())
+			v.Outcome = present.Outcome(rep.Score, rep.Shootout, rep.Home.Club == s.club())
 		}
 		v.HomeSelected = selectedText(rep.Selected[0])
 		v.AwaySelected = selectedText(rep.Selected[1])
@@ -1224,7 +1173,7 @@ func (s *server) reportPage(r *http.Request) (string, any, error) {
 		v.HasDetails = len(v.Events) > 0 || len(v.Goals) > 0 || len(v.Lineups) > 0 || len(v.Stats) > 0
 	} else if hasF && f.Played {
 		if f.Home.Club == s.club() || f.Away.Club == s.club() {
-			v.Outcome = outcome(f.Score, f.Shootout, f.Home.Club == s.club())
+			v.Outcome = present.Outcome(f.Score, f.Shootout, f.Home.Club == s.club())
 		}
 	} else if !hasF {
 		return "", nil, errors.New("match not found")
@@ -1337,85 +1286,20 @@ func (s *server) messages() []messageView {
 	cal := s.w.Calendar()
 	var out []messageView
 	for _, m := range s.w.Inbox() {
-		out = append(out, messageView{Event: uint64(m.Event), When: cal.Format(m.At), Text: s.messageText(m), Read: m.Read})
+		out = append(out, messageView{Event: uint64(m.Event), When: cal.Format(m.At), at: m.At, Text: s.messageText(m), Read: m.Read})
 	}
 	return out
 }
 
 func (s *server) messageText(m app.InboxItem) string {
-	venue := "away"
-	if m.Home {
-		venue = "home"
+	msg := present.InboxMessage(s.w, s.club(), m)
+	if m.Kind == inbox.KindBidReceived {
+		msg.Text += " on the Transfers page"
 	}
-	switch m.Kind {
-	case inbox.KindMatchday:
-		return fmt.Sprintf("Matchday: %s v %s (%s)", s.itemMatchName(m), m.OpponentLabel.ClubName, venue)
-	case inbox.KindResult:
-		return fmt.Sprintf("Result: %d-%d%s v %s (%s), %s", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue, s.itemMatchName(m))
-	case inbox.KindSeasonEnded:
-		if title := s.w.PlayoffTitle(m.Competition); title != "" {
-			upper, _, _ := s.w.PlayoffDivisions(m.Competition)
-			text := fmt.Sprintf("%s season %d decided: each tie's winner plays in %s next season", title, m.Season, upper)
-			if tie, ok := s.playoffTie(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}); ok {
-				if outcome(tie.Score, tie.Shootout, tie.Home.Club == s.club()) == "W" {
-					text += "; you won your tie"
-				} else {
-					text += "; you lost your tie"
-				}
-			}
-			return text + "."
-		}
-		if m.Cup {
-			text := fmt.Sprintf("%s %d won by %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
-			switch m.Stage {
-			case "":
-			case "winner":
-				text += ": your club won it!"
-			default:
-				text += fmt.Sprintf("; you went out in the %s.", m.Stage)
-			}
-			return text
-		}
-		text := fmt.Sprintf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
-		if m.Position > 0 {
-			text += fmt.Sprintf("; you finished %s", app.Ordinal(m.Position))
-			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
-			case up:
-				text += ": promoted to the division above"
-			case down:
-				text += ": relegated to the division below"
-			}
-			text += "."
-		}
-		return text
-	case inbox.KindSeasonStarted:
-		if title := s.w.PlayoffTitle(m.Competition); title != "" {
-			return fmt.Sprintf("%s season %d drawn: kickoff %s", title, m.Season, s.w.Calendar().Format(m.Kickoff))
-		}
-		if m.Cup {
-			return fmt.Sprintf("%s %d drawn: first kickoff %s", m.CompetitionName, m.Season, s.w.Calendar().Format(m.Kickoff))
-		}
-		return fmt.Sprintf("%s season %d scheduled: first kickoff %s", m.CompetitionName, m.Season, s.w.Calendar().Format(m.Kickoff))
-	case inbox.KindRenewed:
-		return fmt.Sprintf("%s renewed until %s at %s a week", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindPlayerLeft:
-		return fmt.Sprintf("%s left the club as a free agent", m.PlayerName)
-	case inbox.KindPlayerJoined:
-		return fmt.Sprintf("%s joined until %s at %s a week", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindRetired:
-		return fmt.Sprintf("%s retired at %d", m.PlayerName, m.Age)
-	case inbox.KindYouthJoined:
-		return fmt.Sprintf("%s joined from the youth ranks until %s at %s a week", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindDeveloped:
-		return fmt.Sprintf("Development: %d of your players improved and %d declined over the year", m.Improved, m.Declined)
-	case inbox.KindReleased:
-		return fmt.Sprintf("%s left the club as a free agent; you paid %s", m.PlayerName, m.Compensation)
-	case inbox.KindInjured:
-		return fmt.Sprintf("%s is out for %d days", m.PlayerName, m.Days)
-	case inbox.KindRecovered:
-		return fmt.Sprintf("%s is fit again", m.PlayerName)
+	if msg.Topic == "" {
+		return present.Capitalize(msg.Text)
 	}
-	return s.transferText(m)
+	return present.Capitalize(msg.Topic) + ": " + msg.Text
 }
 
 type ledgerRow struct {
@@ -1423,6 +1307,7 @@ type ledgerRow struct {
 	What    string
 	Amount  money.Money
 	Balance money.Money
+	at      sim.GameInstant // When, for sorting
 }
 
 type financesView struct {
@@ -1453,23 +1338,12 @@ func (s *server) finances(r *http.Request) (string, any, error) {
 		if e.Player != 0 {
 			what = fmt.Sprintf("%s, %s", what, s.name(e.Player))
 		}
-		v.Rows = append(v.Rows, ledgerRow{When: s.w.Calendar().Format(e.At), What: what, Amount: e.Amount, Balance: running})
+		v.Rows = append(v.Rows, ledgerRow{When: s.w.Calendar().Format(e.At), at: e.At, What: what, Amount: e.Amount, Balance: running})
 	}
 	slices.Reverse(v.Rows)
 	v.Rows = v.Rows[:min(len(v.Rows), 40)]
 	sortLedgerRows(v.Rows, sortState.Col, sortState.Dir)
 	return "finances", v, nil
-}
-
-// itemMatchName names an inbox message's round like matchName.
-func (s *server) itemMatchName(m app.InboxItem) string {
-	if s.w.PlayoffTitle(m.Competition) != "" {
-		return m.CompetitionName
-	}
-	if m.Cup {
-		return m.CompetitionName + " " + m.RoundName
-	}
-	return capitalize(m.RoundName)
 }
 
 // --- cup -----------------------------------------------------------------
@@ -1517,7 +1391,7 @@ func (s *server) cupView(c app.CupEdition, sortState SortState) cupView {
 		v.Mine = v.Mine || e.Club == s.club()
 	}
 	for _, rRound := range c.Rounds {
-		title := capitalize(rRound.Name)
+		title := present.Capitalize(rRound.Name)
 		if rRound.Name != "final" {
 			title += "s"
 		}
@@ -1525,8 +1399,8 @@ func (s *server) cupView(c app.CupEdition, sortState SortState) cupView {
 		for _, f := range rRound.Ties {
 			t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
 			if f.Played {
-				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
-				home := outcome(f.Score, f.Shootout, true) == "W"
+				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], present.Penalties(f.Shootout))
+				home := present.Outcome(f.Score, f.Shootout, true) == "W"
 				t.HomeWins, t.AwayWins = home, !home
 			}
 			rv.Ties = append(rv.Ties, t)
@@ -1565,8 +1439,8 @@ func (s *server) playoffView(p app.PlayoffEdition) playoffView {
 		for _, f := range r.Ties {
 			t := cupTieView{Fixture: f.ID, Home: f.Home, Away: f.Away, Played: f.Played, Mine: f.Home.Club == s.club() || f.Away.Club == s.club()}
 			if f.Played {
-				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], penalties(f.Shootout))
-				home := outcome(f.Score, f.Shootout, true) == "W"
+				t.Result = fmt.Sprintf("%d-%d%s", f.Score[0], f.Score[1], present.Penalties(f.Shootout))
+				home := present.Outcome(f.Score, f.Shootout, true) == "W"
 				t.HomeWins, t.AwayWins = home, !home
 			}
 			v.Mine = v.Mine || t.Mine
@@ -1574,22 +1448,6 @@ func (s *server) playoffView(p app.PlayoffEdition) playoffView {
 		}
 	}
 	return v
-}
-
-// playoffTie is the user club's tie in a play-off edition, once played.
-func (s *server) playoffTie(ref competitions.SeasonRef) (app.FixtureLine, bool) {
-	p, ok := s.w.Playoff(ref)
-	if !ok {
-		return app.FixtureLine{}, false
-	}
-	for _, r := range p.Rounds {
-		for _, f := range r.Ties {
-			if f.Played && (f.Home.Club == s.club() || f.Away.Club == s.club()) {
-				return f, true
-			}
-		}
-	}
-	return app.FixtureLine{}, false
 }
 
 // --- history ---------------------------------------------------------------
@@ -1772,38 +1630,6 @@ type playerView struct {
 	Missing string // set when the ID names no player
 }
 
-func playerJoined(joined careers.Joined) string {
-	switch joined {
-	case careers.JoinedAtStart:
-		return "At career start"
-	case careers.JoinedYouth:
-		return "Joined through youth"
-	case careers.JoinedFree:
-		return "Signed as a free agent"
-	case careers.JoinedTransfer:
-		return "Signed by transfer"
-	default:
-		return "Joined"
-	}
-}
-
-func playerLeft(left careers.Left) string {
-	switch left {
-	case careers.LeftNot:
-		return "Current club"
-	case careers.LeftTransfer:
-		return "Sold"
-	case careers.LeftExpired:
-		return "Contract expired"
-	case careers.LeftReleased:
-		return "Released"
-	case careers.LeftRetired:
-		return "Retired"
-	default:
-		return "Left"
-	}
-}
-
 func (s *server) player(r *http.Request) (string, any, error) {
 	arg := r.URL.Query().Get("id")
 	n, err := strconv.ParseUint(arg, 10, 64)
@@ -1826,11 +1652,11 @@ func (s *server) player(r *http.Request) (string, any, error) {
 		if !spell.Current() {
 			until = s.w.Calendar().Format(spell.Until)
 		}
-		joined := playerJoined(spell.Joined)
+		joined := present.Capitalize(present.Joined(spell.Joined))
 		if spell.Joined == careers.JoinedTransfer {
 			joined += " for " + spell.Fee.String()
 		}
-		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: playerLeft(spell.Left),
+		history = append(history, playerCareerView{ClubID: fmt.Sprint(spell.Club), Club: spell.ClubName, From: from, Until: until, Joined: joined, Left: present.Capitalize(present.Left(spell.Left)),
 			Appearances: spell.Appearances, Goals: spell.Goals})
 	}
 	var total *careerTotalView

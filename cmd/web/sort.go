@@ -229,7 +229,7 @@ func sortFixtureRows(rows []fixtureRow, col, dir string) {
 		case "round":
 			diff = cmp.Compare(a.Round, b.Round)
 		case "when":
-			diff = strings.Compare(a.When, b.When)
+			diff = cmp.Compare(a.at, b.at)
 		case "opp", "opponent":
 			diff = strings.Compare(strings.ToLower(a.Opponent), strings.ToLower(b.Opponent))
 		case "score", "result":
@@ -253,7 +253,7 @@ func sortLedgerRows(rows []ledgerRow, col, dir string) {
 		var diff int
 		switch col {
 		case "when", "date":
-			diff = strings.Compare(a.When, b.When)
+			diff = cmp.Compare(a.at, b.at)
 		case "what":
 			diff = strings.Compare(strings.ToLower(a.What), strings.ToLower(b.What))
 		case "amount":
@@ -318,7 +318,7 @@ func sortOfferRows(rows []offerRow, col, dir string) {
 		case "fee":
 			diff = cmp.Compare(a.Fee, b.Fee)
 		case "when", "date":
-			diff = strings.Compare(a.When, b.When)
+			diff = cmp.Compare(a.at, b.at)
 		default:
 			diff = cmp.Compare(a.ID, b.ID)
 		}
@@ -402,7 +402,7 @@ func sortInboxMessages(rows []messageView, col, dir string) {
 		var diff int
 		switch col {
 		case "when", "date":
-			diff = strings.Compare(a.When, b.When)
+			diff = cmp.Compare(a.at, b.at)
 		case "text":
 			diff = strings.Compare(strings.ToLower(a.Text), strings.ToLower(b.Text))
 		default:

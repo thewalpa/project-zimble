@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"slices"
 	"strconv"
 	"strings"
@@ -218,7 +219,7 @@ func (s *session) renew(args []string) error {
 	if err != nil {
 		return err
 	}
-	s.printf("%s signed a new contract until %s at %s a week.\n", s.name(player), s.endDate(res.Contract.Expires), res.Contract.WeeklyWage)
+	s.printf("%s signed a new contract until %s at %s a week.\n", s.name(player), present.Date(s.w.Calendar(), res.Contract.Expires), res.Contract.WeeklyWage)
 	s.markInboxRead()
 	return nil
 }
@@ -232,7 +233,7 @@ func (s *session) sign(args []string) error {
 	if err != nil {
 		return err
 	}
-	s.printf("%s joined until %s at %s a week.\n", s.name(player), s.endDate(res.Contract.Expires), res.Contract.WeeklyWage)
+	s.printf("%s joined until %s at %s a week.\n", s.name(player), present.Date(s.w.Calendar(), res.Contract.Expires), res.Contract.WeeklyWage)
 	s.markInboxRead()
 	return nil
 }
@@ -255,7 +256,7 @@ func (s *session) release(args []string) error {
 	p := squad[i]
 	if len(args) == 1 {
 		s.printf("Releasing %s costs %s: his wages until his contract ends on %s. He becomes a free agent.\n",
-			p.Name, p.Payoff, s.endDate(p.Contract.Expires))
+			p.Name, p.Payoff, present.Date(s.w.Calendar(), p.Contract.Expires))
 		s.printf("Type release %d yes to release him.\n", player)
 		return nil
 	}
@@ -266,13 +267,6 @@ func (s *session) release(args []string) error {
 	s.printf("%s was released and is now a free agent. You paid %s.\n", p.Name, res.Compensation)
 	s.markInboxRead()
 	return nil
-}
-
-// endDate renders a contract end, e.g. "1 July 2029".
-func (s *session) endDate(at sim.GameInstant) string {
-	cal := s.w.Calendar()
-	c, _ := cal.Civil(at)
-	return fmt.Sprintf("%s %d", monthDay(cal.Epoch()), c.Year)
 }
 
 // name is a player's name, from the squad or the free agents.

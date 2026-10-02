@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -43,7 +44,7 @@ func TestChooseAClubAtThePrompt(t *testing.T) {
 	out := play(t, nil, "99", "abc", "3", "status", "quit", "quit")
 	contains(t, out, "New career (seed 42). Choose your club:", "Please enter one of the club IDs above.",
 		"New career, seed 42, simple match engine (start again with -seed 42 -club 3).",
-		"You manage Quillford FC (QUI).", "Next: round 1 v Brackenmoor Town (home)",
+		"You manage Quillford FC (QUI).", "Next: Round 1 v Brackenmoor Town (home)",
 		"You have unsaved progress.", "Goodbye.")
 	if strings.Count(out, "Please enter one of the club IDs above.") != 2 {
 		t.Fatal("both invalid club choices should be rejected")
@@ -75,7 +76,7 @@ func TestEditedLineupIsPlayedAndSaved(t *testing.T) {
 	if out != again {
 		t.Fatal("the same session printed different output")
 	}
-	contains(t, out, "MATCHDAY Sat 2025-08-09 15:00 UTC: round 1 v Brackenmoor Town (home).",
+	contains(t, out, "MATCHDAY Sat 2025-08-09 15:00 UTC: Round 1 v Brackenmoor Town (home).",
 		"Squad availability (20 selectable; use lineup available to hide unavailable players):",
 		"your changes (used when you continue)", "Mentality: attacking", "(out of position)",
 		"FULL TIME  Quillford FC", "Lineup: your lineup\nQuillford FC\nFormation ", ", attacking upwards:\n", "\nBrackenmoor Town\nFormation ", "45'  Half time", "90'  Full time", "Other results:", "New in your inbox:", "Saved to "+path)
@@ -97,7 +98,7 @@ func TestEditedLineupIsPlayedAndSaved(t *testing.T) {
 
 	loaded := play(t, []string{"-load", path}, "status", "fixtures", "quit")
 	contains(t, loaded, "You manage Quillford FC (QUI).", "1 of 14 rounds played",
-		"Next: round 2 v Hollowick Town (away), Sat 2025-08-30 15:00 UTC.", "R1  Sat 2025-08-09 15:00 UTC  F3   v Brackenmoor Town (home)", "Balance 2,")
+		"Next: Round 2 v Hollowick Town (away), Sat 2025-08-30 15:00 UTC.", "R1  Sat 2025-08-09 15:00 UTC  F3   v Brackenmoor Town (home)", "Balance 2,")
 	if strings.Contains(loaded, "unsaved") {
 		t.Fatal("a loaded career with no changes is reported unsaved")
 	}
@@ -188,7 +189,7 @@ func TestSeasonAndNextSeason(t *testing.T) {
 		"Wed 2026-07-01 00:00 UTC: The transfer window is open until Wed 2026-07-29 00:00 UTC; clubs answer bids made before Tue 2026-07-28 00:00 UTC.",
 		"Founders League season 1 ended: champion ", "; you finished ",
 		"Founders League season 2 scheduled: first kickoff Sat 2026-08-08 15:00 UTC",
-		"MATCHDAY Sat 2026-08-08 15:00 UTC: round 1 v ", "Founders League season 2, 0 of 14 rounds played")
+		"MATCHDAY Sat 2026-08-08 15:00 UTC: Round 1 v ", "Founders League season 2, 0 of 14 rounds played")
 	if n := strings.Count(out, "\n  R"); n != 14 {
 		t.Fatalf("season printed %d results, want 14", n)
 	}
@@ -404,8 +405,8 @@ func TestRefusedAcceptedOfferWording(t *testing.T) {
 }
 
 func TestRefusedOfferInboxWording(t *testing.T) {
-	if got := outcomeName(uint8(transfers.StatusRefused)); !strings.Contains(got, "the player refused to join") {
-		t.Fatalf("outcomeName(StatusRefused) = %q", got)
+	if got := present.OfferOutcome(uint8(transfers.StatusRefused)); !strings.Contains(got, "the player refused to join") {
+		t.Fatalf("present.OfferOutcome(StatusRefused) = %q", got)
 	}
 }
 
@@ -432,7 +433,7 @@ func TestTransfers(t *testing.T) {
 		"  44  Quillford FC           Callum Doyle             Westmark   DF   18    51     380,000.00",
 		"transfer: Rasmus Hagen joined from Westerly Wanderers for 740,000.00, until 1 July 2030 at 2,240.00 a week",
 		"transfer: your bid of 1.00 for Leif Dekker of Ironbridge Wanderers was rejected",
-		"bid: Juniper Vale United bid 380,000.00 for Callum Doyle (offer 92); answer before Sat 2026-07-18 00:00 UTC (accept/reject)",
+		"bid: Juniper Vale United bid 380,000.00 for Callum Doyle; answer before Sat 2026-07-18 00:00 UTC (offer 92: accept/reject)",
 		"Bids for your players (accept OFFER or reject OFFER):",
 		"Your players on the transfer list (unlist ID takes one off):",
 		"* Thu 2026-07-02 00:00 UTC   Rasmus Hagen             Westerly Wanderers     -> Quillford FC",
@@ -774,7 +775,7 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	}
 	for _, round := range cup.Rounds[1:] {
 		for _, f := range round.Ties {
-			contains(t, out, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
+			contains(t, out, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, present.Penalties(f.Shootout)))
 		}
 	}
 	for _, header := range []string{playoff, semi, final} {

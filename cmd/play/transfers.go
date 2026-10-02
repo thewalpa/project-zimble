@@ -11,7 +11,6 @@ import (
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
-	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -446,36 +445,4 @@ func (s *session) answer(args []string, accept bool) error {
 
 func refusedOfferText(offer app.OfferView) string {
 	return fmt.Sprintf("Accepted, but %s refused to join %s.", offer.PlayerName, offer.BuyerName)
-}
-
-// outcomeName says how a closed offer ended.
-func outcomeName(outcome uint8) string {
-	switch transfers.Status(outcome) {
-	case transfers.StatusRejected:
-		return "was rejected"
-	case transfers.StatusExpired:
-		return "expired unanswered"
-	case transfers.StatusRefused:
-		return "was refused; the player refused to join"
-	}
-	return "fell through"
-}
-
-// printTransferMessage prints a transfer inbox message.
-func (s *session) printTransferMessage(m app.InboxItem) {
-	cal := s.w.Calendar()
-	switch m.Kind {
-	case inbox.KindBidReceived:
-		s.printf("bid: %s bid %s for %s (offer %d); answer before %s (accept/reject)\n", m.ClubName, m.Fee, m.PlayerName, m.Offer, cal.Format(m.Deadline))
-	case inbox.KindTransferIn:
-		s.printf("transfer: %s joined from %s for %s, until %s at %s a week\n", m.PlayerName, m.ClubName, m.Fee, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindTransferOut:
-		s.printf("transfer: %s left for %s for %s\n", m.PlayerName, m.ClubName, m.Fee)
-	case inbox.KindOfferClosed:
-		if m.Selling {
-			s.printf("transfer: the bid of %s from %s for %s %s\n", m.Fee, m.ClubName, m.PlayerName, outcomeName(m.Outcome))
-		} else {
-			s.printf("transfer: your bid of %s for %s of %s %s\n", m.Fee, m.PlayerName, m.ClubName, outcomeName(m.Outcome))
-		}
-	}
 }

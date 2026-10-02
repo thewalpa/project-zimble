@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -80,8 +81,8 @@ func (s *server) live(r *http.Request) (string, any, error) {
 	info, _ := s.fixtureInfo(l.Fixture)
 	side := l.Side.Index()
 	v := liveView{
-		Fixture: l.Fixture, Title: matchName(info), Home: l.Home, Away: l.Away,
-		Minute: l.Position.Minute, Score: l.View.Score, Penalties: penalties(l.View.Shootout),
+		Fixture: l.Fixture, Title: present.MatchName(info), Home: l.Home, Away: l.Away,
+		Minute: l.Position.Minute, Score: l.View.Score, Penalties: present.Penalties(l.View.Shootout),
 		Mentality: l.View.Mentality[side].String(), SubsLeft: int(l.Rules.MaxSubstitutions) - int(l.View.SubstitutionsUsed[side]),
 		Events: s.eventViews(l.Events, l.Home, l.Away), Stats: app.StatLines(l.View.Stats), EngineID: s.w.MatchEngine().ID,
 	}

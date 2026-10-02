@@ -19,6 +19,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"io"
 	"os"
 	"slices"
@@ -443,19 +444,6 @@ func (s *session) fixtureInfo(id ids.FixtureID) app.FixtureInfo {
 	return info
 }
 
-// matchName names a fixture's round: "round 3" in the league, "Continental
-// Cup quarter-final" in a cup, "Promotion Play-off" in a play-off (one
-// round).
-func matchName(info app.FixtureInfo) string {
-	if info.Playoff {
-		return info.CompetitionName
-	}
-	if info.Cup {
-		return info.CompetitionName + " " + info.RoundName
-	}
-	return info.RoundName
-}
-
 // nextFixture is the club's next scheduled fixture in its league or a cup.
 func (s *session) nextFixture() (app.FixtureInfo, bool) {
 	var best app.FixtureInfo
@@ -538,11 +526,11 @@ func (s *session) status() {
 	}
 	if fixture, ok := s.pendingFixture(); ok {
 		info := s.fixtureInfo(fixture)
-		s.printf("MATCHDAY: %s v %s is waiting. Check lineup, then watch it live or continue to play.\n", matchName(info), s.describe(info.FixtureLine))
+		s.printf("MATCHDAY: %s v %s is waiting. Check lineup, then watch it live or continue to play.\n", present.MatchName(info), s.describe(info.FixtureLine))
 		return
 	}
 	if info, ok := s.nextFixture(); ok {
-		s.printf("Next: %s v %s, %s. Type continue to go there.\n", matchName(info), s.describe(info.FixtureLine), cal.Format(info.Kickoff))
+		s.printf("Next: %s v %s, %s. Type continue to go there.\n", present.MatchName(info), s.describe(info.FixtureLine), cal.Format(info.Kickoff))
 		return
 	}
 	s.printf("Season finished. Type continue for the next season.\n")
@@ -886,7 +874,7 @@ func (s *session) fixtures(args []string) error {
 			}
 			result := r.Status.String()
 			if f.Played {
-				result = fmt.Sprintf("%d-%d %s", f.Score[0], f.Score[1], outcome(f, s.club()))
+				result = fmt.Sprintf("%d-%d %s", f.Score[0], f.Score[1], present.FixtureOutcome(f, s.club()))
 			}
 			lines = append(lines, fixLine{round: r.Round, kickoff: r.Kickoff, fixture: f, result: result})
 		}
@@ -916,26 +904,6 @@ func (s *session) fixtures(args []string) error {
 		s.printf("  R%-2d %s  F%-3d v %-30s %s\n", l.round, cal.Format(l.kickoff), l.fixture.ID, s.describe(l.fixture), l.result)
 	}
 	return nil
-}
-
-// outcome is W, D or L from the club's point of view.
-// outcome is W, D or L for the club in a played fixture; a shootout
-// decides a level knockout match.
-func outcome(f app.FixtureLine, club ids.ClubID) string {
-	us, them := f.Score[0], f.Score[1]
-	if us == them {
-		us, them = f.Shootout[0], f.Shootout[1]
-	}
-	if f.Away.Club == club {
-		us, them = them, us
-	}
-	switch {
-	case us > them:
-		return "W"
-	case us < them:
-		return "L"
-	}
-	return "D"
 }
 
 func (s *session) inbox(args []string) error {
@@ -993,89 +961,29 @@ func (s *session) inbox(args []string) error {
 }
 
 func (s *session) printMessage(m app.InboxItem) {
-	cal := s.w.Calendar()
-	venue := "away"
-	if m.Home {
-		venue = "home"
-	}
 	mark := " "
 	if !m.Read {
 		mark = "*"
 	}
-	s.printf("%s %s  ", mark, cal.Format(m.At))
+	s.printf("%s %s  %s%s\n", mark, s.w.Calendar().Format(m.At), present.InboxMessage(s.w, s.club(), m), messageHint(s.w, m))
+}
+
+// messageHint names the command that acts on a message, if any.
+func messageHint(w *app.World, m app.InboxItem) string {
 	switch m.Kind {
-	case inbox.KindMatchday:
-		s.printf("matchday: %s v %s (%s)\n", s.itemMatchName(m), m.OpponentLabel.ClubName, venue)
-	case inbox.KindResult:
-		s.printf("result: %d-%d%s v %s (%s)\n", m.Goals[0], m.Goals[1], penalties(m.Shootout), m.OpponentLabel.ClubName, venue)
-	case inbox.KindSeasonEnded:
-		if title := s.w.PlayoffTitle(m.Competition); title != "" {
-			upper, _, _ := s.w.PlayoffDivisions(m.Competition)
-			s.printf("%s season %d decided: each tie's winner plays in %s next season", title, m.Season, upper)
-			if tie, ok := s.playoffTie(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}); ok {
-				if outcome(tie, s.club()) == "W" {
-					s.printf("; you won your tie")
-				} else {
-					s.printf("; you lost your tie")
-				}
-			}
-			s.printf("\n")
-			break
-		}
-		if m.Cup {
-			s.printf("%s %d won by %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
-			switch m.Stage {
-			case "":
-			case "winner":
-				s.printf(": your club won it!")
-			default:
-				s.printf("; you went out in the %s", m.Stage)
-			}
-			s.printf("\n")
-			break
-		}
-		s.printf("%s season %d ended: champion %s", m.CompetitionName, m.Season, m.ChampionLabel.ClubName)
-		if m.Position > 0 {
-			s.printf("; you finished %s", app.Ordinal(m.Position))
-			switch up, down := s.w.SeasonMove(competitions.SeasonRef{Competition: m.Competition, Season: competitions.Season(m.Season)}, m.Position); {
-			case up:
-				s.printf(": promoted to the division above")
-			case down:
-				s.printf(": relegated to the division below")
-			}
-		}
-		s.printf("\n")
 	case inbox.KindSeasonStarted:
-		if title := s.w.PlayoffTitle(m.Competition); title != "" {
-			s.printf("%s season %d drawn: kickoff %s (type playoffs)\n", title, m.Season, cal.Format(m.Kickoff))
-			break
+		if w.PlayoffTitle(m.Competition) != "" {
+			return " (type playoffs)"
 		}
 		if m.Cup {
-			s.printf("%s %d drawn: first kickoff %s (type cup)\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
-			break
+			return " (type cup)"
 		}
-		s.printf("%s season %d scheduled: first kickoff %s\n", m.CompetitionName, m.Season, cal.Format(m.Kickoff))
-	case inbox.KindRenewed:
-		s.printf("contract: %s renewed until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindPlayerLeft:
-		s.printf("contract: %s left the club as a free agent\n", m.PlayerName)
-	case inbox.KindPlayerJoined:
-		s.printf("signing: %s joined until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindRetired:
-		s.printf("retirement: %s retired at %d\n", m.PlayerName, m.Age)
-	case inbox.KindYouthJoined:
-		s.printf("youth: %s joined from the youth ranks until %s at %s a week\n", m.PlayerName, s.endDate(m.Expires), m.WeeklyWage)
 	case inbox.KindDeveloped:
-		s.printf("development: %d of your players improved and %d declined over the year (type squad)\n", m.Improved, m.Declined)
-	case inbox.KindReleased:
-		s.printf("release: %s left the club as a free agent; you paid %s\n", m.PlayerName, m.Compensation)
-	case inbox.KindInjured:
-		s.printf("injury: %s is out for %d days\n", m.PlayerName, m.Days)
-	case inbox.KindRecovered:
-		s.printf("injury: %s is fit again\n", m.PlayerName)
-	default:
-		s.printTransferMessage(m)
+		return " (type squad)"
+	case inbox.KindBidReceived:
+		return fmt.Sprintf(" (offer %d: accept/reject)", m.Offer)
 	}
+	return ""
 }
 
 // markInboxRead acknowledges every unread inbox message.
@@ -1285,7 +1193,7 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		if d.edited {
 			state = "your changes (used when you continue)"
 		}
-		s.printf("\n%s v %s, %s: %s\n", capitalize(matchName(info)), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
+		s.printf("\n%s v %s, %s: %s\n", present.MatchName(info), s.describe(info.FixtureLine), s.w.Calendar().Format(info.Kickoff), state)
 		for _, msg := range s.w.LineupDroppedMessages(d.matchday) {
 			s.printf("%s\n", msg)
 		}
@@ -1606,7 +1514,7 @@ func (s *session) advance() error {
 		s.newMessages()
 		info := s.fixtureInfo(ready.UserFixtures[0])
 		ml, _ := s.w.MatchdayLineup(ready.UserFixtures[0])
-		s.printf("\nMATCHDAY %s: %s v %s.\n", s.w.Calendar().Format(info.Kickoff), matchName(info), s.describe(info.FixtureLine))
+		s.printf("\nMATCHDAY %s: %s v %s.\n", s.w.Calendar().Format(info.Kickoff), present.MatchName(info), s.describe(info.FixtureLine))
 		s.printf("Lineup: %s.\n", s.lineupSourceLabel(ml))
 		for _, msg := range s.w.LineupDroppedMessages(ml) {
 			s.printf("%s\n", msg)
@@ -1625,7 +1533,7 @@ func (s *session) play() error {
 	for _, m := range res.Matches {
 		if m.Home.Club == s.club() || m.Away.Club == s.club() {
 			f := app.FixtureLine{Home: m.Home, Away: m.Away, Played: true, Score: m.Score, Shootout: m.Shootout}
-			s.printf("\nFULL TIME  %s %d-%d %s%s  (%s)\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout), outcome(f, s.club()))
+			s.printf("\nFULL TIME  %s %d-%d %s%s  (%s)\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, present.Penalties(m.Shootout), present.FixtureOutcome(f, s.club()))
 			side := 0
 			if m.Away.Club == s.club() {
 				side = 1
@@ -1674,7 +1582,7 @@ func (s *session) play() error {
 	s.printf("\nOther results:\n")
 	for _, m := range res.Matches {
 		if m.Home.Club != s.club() && m.Away.Club != s.club() {
-			s.printf("  %-22s %d-%d %s%s\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, penalties(m.Shootout))
+			s.printf("  %-22s %d-%d %s%s\n", m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, present.Penalties(m.Shootout))
 		}
 	}
 	s.newMessages()
@@ -1737,7 +1645,7 @@ func (s *session) season() error {
 			for _, m := range res.Matches {
 				if m.Home.Club == s.club() || m.Away.Club == s.club() {
 					f := app.FixtureLine{Home: m.Home, Away: m.Away, Played: true, Score: m.Score, Shootout: m.Shootout}
-					s.printf("  R%-2d %-22s %d-%d %-22s %s\n", m.Round.Round, m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, outcome(f, s.club()))
+					s.printf("  R%-2d %-22s %d-%d %-22s %s\n", m.Round.Round, m.Home.ClubName, m.Score[0], m.Score[1], m.Away.ClubName, present.FixtureOutcome(f, s.club()))
 				}
 			}
 			continue
@@ -1816,7 +1724,7 @@ func (s *session) watch(args []string) error {
 		}
 		s.draft, s.liveShown = nil, 0
 		info := s.fixtureInfo(fixture)
-		s.printf("\nKICKOFF  %s v %s (%s)\n", info.Home.ClubName, info.Away.ClubName, matchName(info))
+		s.printf("\nKICKOFF  %s v %s (%s)\n", info.Home.ClubName, info.Away.ClubName, present.MatchName(info))
 	}
 	target := uint16(matches.HalfTimeMinute)
 	if current >= matches.HalfTimeMinute {
@@ -1843,7 +1751,7 @@ func (s *session) watch(args []string) error {
 	case matches.MatchDecisionRequired:
 		s.printf("  HALF TIME\nMake changes (sub OUT IN, mentality M, lineup), then watch or continue.\n")
 	case matches.MatchFinished:
-		s.printf("%s  FULL TIME\nType continue to confirm the result and see the round.\n", penalties(l.View.Shootout))
+		s.printf("%s  FULL TIME\nType continue to confirm the result and see the round.\n", present.Penalties(l.View.Shootout))
 	default:
 		s.printf("\nwatch to play on, sub/mentality to make changes, continue to finish the match.\n")
 	}
@@ -2137,32 +2045,6 @@ func (s *session) finances(args []string) error {
 
 // --- cups ------------------------------------------------------------------
 
-// penalties renders a shootout, e.g. " (4-3 on penalties)", or nothing.
-func penalties(p [2]uint16) string {
-	if p == [2]uint16{} {
-		return ""
-	}
-	return fmt.Sprintf(" (%d-%d on penalties)", p[0], p[1])
-}
-
-// itemMatchName names an inbox message's round like matchName.
-func (s *session) itemMatchName(m app.InboxItem) string {
-	if s.w.PlayoffTitle(m.Competition) != "" {
-		return m.CompetitionName
-	}
-	if m.Cup {
-		return m.CompetitionName + " " + m.RoundName
-	}
-	return m.RoundName
-}
-
-func capitalize(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
-}
-
 // cup shows every cup's latest edition: its rounds, ties and results.
 func (s *session) cup(args []string) error {
 	col := "id"
@@ -2209,7 +2091,7 @@ func (s *session) printEdition(c app.CupEdition, sorted bool, col string, desc b
 	{
 		s.printf("\n%s %d\n", c.Name, c.Edition)
 		for _, r := range c.Rounds {
-			title := capitalize(r.Name)
+			title := present.Capitalize(r.Name)
 			if len(r.Ties) != 1 && r.Name != "final" {
 				title += "s"
 			}
@@ -2246,7 +2128,7 @@ func (s *session) printEdition(c app.CupEdition, sorted bool, col string, desc b
 				if f.Home.Club == s.club() || f.Away.Club == s.club() {
 					mark = "* "
 				}
-				s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, penalties(f.Shootout))
+				s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, present.Penalties(f.Shootout))
 			}
 		}
 		if c.Champion != nil {
@@ -2288,57 +2170,8 @@ func (s *session) printPlayoff(p app.PlayoffEdition) {
 			if f.Home.Club == s.club() || f.Away.Club == s.club() {
 				mark = "* "
 			}
-			s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, penalties(f.Shootout))
+			s.printf("%s%-22s %5s %s%s\n", mark, f.Home.ClubName, result, f.Away.ClubName, present.Penalties(f.Shootout))
 		}
-	}
-}
-
-// playoffTie is the user club's tie in a play-off edition, once played.
-func (s *session) playoffTie(ref competitions.SeasonRef) (app.FixtureLine, bool) {
-	p, ok := s.w.Playoff(ref)
-	if !ok {
-		return app.FixtureLine{}, false
-	}
-	for _, r := range p.Rounds {
-		for _, f := range r.Ties {
-			if f.Played && (f.Home.Club == s.club() || f.Away.Club == s.club()) {
-				return f, true
-			}
-		}
-	}
-	return app.FixtureLine{}, false
-}
-
-// player prints the profile of any player, at any club, free or retired.
-func careerJoined(joined careers.Joined) string {
-	switch joined {
-	case careers.JoinedAtStart:
-		return "at career start"
-	case careers.JoinedYouth:
-		return "joined through youth"
-	case careers.JoinedFree:
-		return "signed as a free agent"
-	case careers.JoinedTransfer:
-		return "signed by transfer"
-	default:
-		return "joined"
-	}
-}
-
-func careerLeft(left careers.Left) string {
-	switch left {
-	case careers.LeftNot:
-		return "current club"
-	case careers.LeftTransfer:
-		return "sold"
-	case careers.LeftExpired:
-		return "contract expired"
-	case careers.LeftReleased:
-		return "released"
-	case careers.LeftRetired:
-		return "retired"
-	default:
-		return "left"
 	}
 }
 
@@ -2385,11 +2218,11 @@ func (s *session) player(args []string) error {
 			if !spell.Current() {
 				to = s.w.Calendar().Format(spell.Until)
 			}
-			s.printf("  %s: %s–%s; %s", spell.ClubName, from, to, careerJoined(spell.Joined))
+			s.printf("  %s: %s–%s; %s", spell.ClubName, from, to, present.Joined(spell.Joined))
 			if spell.Joined == careers.JoinedTransfer {
 				s.printf(" for %s", spell.Fee)
 			}
-			s.printf("; %s; apps %d, goals %d\n", careerLeft(spell.Left), spell.Appearances, spell.Goals)
+			s.printf("; %s; apps %d, goals %d\n", present.Left(spell.Left), spell.Appearances, spell.Goals)
 		}
 		if len(spells) > 1 {
 			apps, goals := app.CareerTotals(spells)

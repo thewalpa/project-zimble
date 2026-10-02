@@ -12,6 +12,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
+	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
@@ -21,8 +22,9 @@ import (
 
 type offerRow struct {
 	app.OfferView
-	When string // received bids: answer before; own bids: answered on; transfers: completed on
-	Ours bool   // this window's transfers: the club bought or sold
+	When string          // received bids: answer before; own bids: answered on; transfers: completed on
+	Ours bool            // this window's transfers: the club bought or sold
+	at   sim.GameInstant // When, for sorting
 }
 
 type marketRow struct {
@@ -134,11 +136,11 @@ func (s *server) transfers(r *http.Request) (string, any, error) {
 	for _, o := range s.w.Offers() {
 		switch {
 		case o.Status == transfers.StatusOpen && o.Seller == s.club():
-			v.Received = append(v.Received, offerRow{OfferView: o, When: cal.Format(o.Deadline)})
+			v.Received = append(v.Received, offerRow{OfferView: o, When: cal.Format(o.Deadline), at: o.Deadline})
 		case o.Status == transfers.StatusOpen && o.Buyer == s.club():
-			v.Mine = append(v.Mine, offerRow{OfferView: o, When: cal.Format(o.Deadline)})
+			v.Mine = append(v.Mine, offerRow{OfferView: o, When: cal.Format(o.Deadline), at: o.Deadline})
 		case o.Status == transfers.StatusCompleted && win.Open && o.ClosedAt >= win.Opens:
-			v.Done = append(v.Done, offerRow{OfferView: o, When: cal.Format(o.ClosedAt), Ours: o.Buyer == s.club() || o.Seller == s.club()})
+			v.Done = append(v.Done, offerRow{OfferView: o, When: cal.Format(o.ClosedAt), at: o.ClosedAt, Ours: o.Buyer == s.club() || o.Seller == s.club()})
 		}
 	}
 	slices.Reverse(v.Done)
@@ -284,33 +286,6 @@ func (s *server) answer(form url.Values) (string, error) {
 
 func refusedOfferText(offer app.OfferView) string {
 	return fmt.Sprintf("Accepted, but %s refused to join %s.", offer.PlayerName, offer.BuyerName)
-}
-
-// transferText renders a transfer inbox message.
-func (s *server) transferText(m app.InboxItem) string {
-	switch m.Kind {
-	case inbox.KindBidReceived:
-		return fmt.Sprintf("%s bid %s for %s; answer before %s on the Transfers page", m.ClubName, m.Fee, m.PlayerName, s.w.Calendar().Format(m.Deadline))
-	case inbox.KindTransferIn:
-		return fmt.Sprintf("%s joined from %s for %s, until %s at %s a week", m.PlayerName, m.ClubName, m.Fee, s.endDate(m.Expires), m.WeeklyWage)
-	case inbox.KindTransferOut:
-		return fmt.Sprintf("%s left for %s for %s", m.PlayerName, m.ClubName, m.Fee)
-	case inbox.KindOfferClosed:
-		how := "fell through"
-		switch transfers.Status(m.Outcome) {
-		case transfers.StatusRejected:
-			how = "was rejected"
-		case transfers.StatusExpired:
-			how = "expired unanswered"
-		case transfers.StatusRefused:
-			how = "was refused; the player refused to join"
-		}
-		if m.Selling {
-			return fmt.Sprintf("The bid of %s from %s for %s %s", m.Fee, m.ClubName, m.PlayerName, how)
-		}
-		return fmt.Sprintf("Your bid of %s for %s of %s %s", m.Fee, m.PlayerName, m.ClubName, how)
-	}
-	return fmt.Sprintf("Message kind %d", m.Kind)
 }
 
 // transferNews reports whether the inbox has a transfer message after

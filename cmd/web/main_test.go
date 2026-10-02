@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"io"
 	"maps"
 	"net/http"
@@ -738,7 +739,7 @@ func TestCupInTheBrowser(t *testing.T) {
 	c.post("/season", nil)
 	c.continueUntil("Continental Cup 1 won by", "/inbox", 60)
 	contains(t, c.get("/inbox"), "0-1 v Eldhaven United (away), Continental Cup quarter-final",
-		"Continental Cup 1 won by Hollowick Town; you went out in the quarter-final.")
+		"Continental Cup 1 won by Hollowick Town; you went out in the quarter-final")
 	contains(t, c.get("/history?competition=3&season=1"), "(3-4 on penalties)")
 }
 
@@ -774,7 +775,7 @@ func TestTransfersInTheBrowser(t *testing.T) {
 
 	page = c.post("/continue", nil)
 	contains(t, page, "Transfer news", "Rasmus Hagen joined from Westerly Wanderers for 740,000.00",
-		"Your bid of 1.00 for Leif Dekker of Ironbridge Wanderers was rejected")
+		"Transfer: your bid of 1.00 for Leif Dekker of Ironbridge Wanderers was rejected")
 	// AI clubs bid for the manager's players only when he lists them.
 	contains(t, c.post("/list", url.Values{"player": {"44"}, "asking": {strconv.FormatInt(int64(valueOf(t, c, "44"))/100, 10)}, "back": {"/squad"}}),
 		"Callum Doyle is on the transfer list")
@@ -806,7 +807,7 @@ func TestRefusedOfferInboxWording(t *testing.T) {
 		PlayerName: "Elias Gallo",
 		ClubName:   "Eldhaven United",
 	}
-	contains(t, c.s.transferText(msg), "the player refused to join")
+	contains(t, c.s.messageText(msg), "the player refused to join")
 }
 
 // The manager lists and unlists players through the squad page. The
@@ -919,6 +920,25 @@ func TestSortableLists(t *testing.T) {
 	c.post("/continue", nil) // plays match
 	inboxDate := c.get("/inbox?sort=when&dir=asc")
 	contains(t, inboxDate, "data-col=\"when\"")
+}
+
+// Date columns sort by game time, not by their text, which starts with the
+// weekday: a season of messages and ledger entries lists newest first.
+func TestDateColumnsSortByTime(t *testing.T) {
+	c := career(t)
+	c.post("/season", nil)
+	for path, cell := range map[string]string{"/inbox": `<span class="when">`, "/finances": `<tr><td>`} {
+		var dates []string
+		for _, m := range regexp.MustCompile(cell+`\w{3} (\d{4}-\d\d-\d\d \d\d:\d\d)`).FindAllStringSubmatch(c.get(path), -1) {
+			dates = append(dates, m[1])
+		}
+		if len(dates) < 10 {
+			t.Fatalf("%s: only %d dates", path, len(dates))
+		}
+		if !slices.IsSortedFunc(dates, func(a, b string) int { return strings.Compare(b, a) }) {
+			t.Errorf("%s: dates not newest first: %v", path, dates)
+		}
+	}
 }
 
 // Releasing a player shows the payoff and confirmation in the squad table;
@@ -1421,7 +1441,7 @@ func TestPromotionAndRelegationMarks(t *testing.T) {
 	contains(t, page, "▲ promoted", "▼ relegated", `title="Promoted"`, `title="Relegated"`)
 	contains(t, c.get("/playoffs"), " · decided", `/report?fixture=`)
 	inbox := c.get("/inbox")
-	contains(t, inbox, "Promotion Play-off (Founders League / Founders Second Division) season 1 decided: each tie&#39;s winner plays in Founders League next season.",
+	contains(t, inbox, "Promotion Play-off (Founders League / Founders Second Division) season 1 decided: each tie&#39;s winner plays in Founders League next season",
 		"Promotion Play-off (Harbour League / Harbour Second Division) season 1 drawn: kickoff ")
 	if strings.Contains(inbox, "your tie") || strings.Contains(inbox, "Promotion Play-off season 1 ended") {
 		t.Fatalf("play-off messages for a club not in it: %q", notesOf(inbox))
@@ -1453,9 +1473,9 @@ func TestPlayingAPlayoffTie(t *testing.T) {
 	c.post("/continue", nil) // plays the tie
 	c.post("/continue", nil) // the play-off end decides the movement
 	played, _ := c.s.w.FixtureInfo(tie.ID)
-	result := "you lost your tie."
-	if outcome(played.Score, played.Shootout, tie.Home.Club == 24) == "W" {
-		result = "you won your tie."
+	result := "you lost your tie"
+	if present.Outcome(played.Score, played.Shootout, tie.Home.Club == 24) == "W" {
+		result = "you won your tie"
 	}
 	contains(t, c.get("/inbox"), "season 1 decided: each tie&#39;s winner plays in Founders League next season; "+result, ", Promotion Play-off\n")
 	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", tie.ID)), "Promotion Play-off (Founders League / Founders Second Division) season 1")
@@ -1498,7 +1518,7 @@ func TestSeasonEndSaysMovement(t *testing.T) {
 	for range 3 { // the play-off matchday and its match decide the movement
 		c.post("/continue", nil)
 	}
-	contains(t, c.get("/inbox"), "you finished 1st: promoted to the division above.")
+	contains(t, c.get("/inbox"), "you finished 1st: promoted to the division above")
 }
 
 // HTTP player pages leave the world untouched, and a saved career presents
@@ -1558,7 +1578,7 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	}
 	cup, _ := c.s.w.Cup(competitions.SeasonRef{Competition: 3, Season: 1})
 	for _, f := range cup.Rounds[1].Ties {
-		contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)))
+		contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, present.Penalties(f.Shootout)))
 	}
 	final := "Automatically played: Wed 2027-05-12 15:00 UTC; 1 round, 1 match."
 	page = c.continueUntil(final, "", 30)
@@ -1568,7 +1588,7 @@ func TestContinueReportsAutomaticBatches(t *testing.T) {
 	}
 	cup, _ = c.s.w.Cup(competitions.SeasonRef{Competition: 3, Season: 1})
 	f := cup.Rounds[len(cup.Rounds)-1].Ties[0]
-	contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, penalties(f.Shootout)),
+	contains(t, page, fmt.Sprintf("%s %d-%d %s%s", f.Home.ClubName, f.Score[0], f.Score[1], f.Away.ClubName, present.Penalties(f.Shootout)),
 		fmt.Sprintf("href=\"/report?fixture=%d\"", f.ID))
 	report := c.get(fmt.Sprintf("/report?fixture=%d", f.ID))
 	contains(t, report, "Only the score is available for this match.")
