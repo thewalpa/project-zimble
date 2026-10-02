@@ -1,9 +1,11 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 
+	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
@@ -125,6 +127,45 @@ func (w *World) gatePostings(plan []plannedMatch) ([]finance.Posting, error) {
 	return out, nil
 }
 
+// prizePostings pays each entrant its pinned stage award, naming the tie
+// where it went out (the final for both finalists). Nothing is paid until
+// the whole edition has official results. Clubs are posted in ID order.
+func (w *World) prizePostings(ref competitions.SeasonRef) ([]finance.Posting, error) {
+	ci, ok := w.cupIndex(ref.Competition)
+	if !ok {
+		return nil, fmt.Errorf("app: %s is not a cup edition", ref)
+	}
+	exits, ok := w.competitions.Exits(ref)
+	if !ok {
+		return nil, fmt.Errorf("app: %s has no completed cup exits", ref)
+	}
+	prizes := w.cups[ci].Prizes
+	fixtures := w.competitions.Fixtures(ref)
+	var out []finance.Posting
+	for _, exit := range exits {
+		if exit.Stage >= len(prizes) || prizes[exit.Stage] == 0 {
+			continue
+		}
+		team, ok := w.registry.Team(exit.Team)
+		if !ok {
+			return nil, fmt.Errorf("app: %s prize team %d unknown", ref, exit.Team)
+		}
+		var fixture ids.FixtureID
+		for _, f := range fixtures {
+			if f.Round == exit.Round && (f.Home == exit.Team || f.Away == exit.Team) {
+				fixture = f.ID
+				break
+			}
+		}
+		if !fixture.Valid() {
+			return nil, fmt.Errorf("app: %s prize team %d has no exit fixture", ref, exit.Team)
+		}
+		out = append(out, finance.Posting{Club: team.Club, Kind: finance.KindPrize, Amount: prizes[exit.Stage], Fixture: fixture})
+	}
+	slices.SortFunc(out, func(a, b finance.Posting) int { return cmp.Compare(a.Club, b.Club) })
+	return out, nil
+}
+
 // applyFinance commits a finance plan made in the same operation; failure is
 // a broken invariant.
 func (w *World) applyFinance(plan finance.Plan) {
@@ -174,6 +215,9 @@ func (w *World) balanceAfter(entry finance.Entry) money.Money {
 //   - gate receipts pay exactly the content's amount, once, to the home club
 //     of a fixture with an official result, when that result was recorded,
 //     and every official result has been paid for;
+//   - ended cup editions have exactly their pinned stage prizes, posted
+//     at the final kickoff and naming each paid entrant's exit fixture;
+//     editions whose season-end task is still queued have no prizes;
 //   - exactly one wage task is queued, due in (Now, Now+Week] on a whole
 //     week, with no payload.
 func (w *World) validateFinance() []error {
@@ -187,6 +231,34 @@ func (w *World) validateFinance() []error {
 	if !slices.Equal(w.finance.Accounts(), clubs) {
 		fail("finance accounts %v, clubs %v", w.finance.Accounts(), clubs)
 	}
+	type prizeKey struct {
+		club    ids.ClubID
+		fixture ids.FixtureID
+	}
+	wantPrizes := map[prizeKey]finance.Entry{}
+	var prizeOrder []prizeKey
+	ending := map[competitions.SeasonRef]bool{}
+	for _, ref := range w.seasonEnds {
+		ending[ref] = true
+	}
+	for _, ref := range w.competitions.Seasons() {
+		if _, cup := w.cupIndex(ref.Competition); !cup || ending[ref] || !w.competitions.SeasonCompleted(ref) {
+			continue
+		}
+		postings, err := w.prizePostings(ref)
+		if err != nil {
+			fail("cup prizes: %v", err)
+			continue
+		}
+		rounds := w.competitions.Rounds(ref)
+		at := rounds[len(rounds)-1].Kickoff
+		for _, p := range postings {
+			key := prizeKey{p.Club, p.Fixture}
+			wantPrizes[key] = finance.Entry{Club: p.Club, Fixture: p.Fixture, Amount: p.Amount, At: at}
+			prizeOrder = append(prizeOrder, key)
+		}
+	}
+	prizesPaid := map[prizeKey]bool{}
 	week := sim.GameInstant(sim.Week)
 	wagesPaid := map[[2]int64]bool{}
 	paid := map[ids.FixtureID]bool{}
@@ -205,6 +277,13 @@ func (w *World) validateFinance() []error {
 				fail("wage entry %d at %d is off the weekly schedule or repeated", e.ID, e.At)
 			}
 			wagesPaid[key] = true
+		case finance.KindPrize:
+			key := prizeKey{e.Club, e.Fixture}
+			want, ok := wantPrizes[key]
+			if !ok || prizesPaid[key] || e.Amount != want.Amount || e.At != want.At {
+				fail("prize entry %d for club %d fixture %d does not match one ended cup award", e.ID, e.Club, e.Fixture)
+			}
+			prizesPaid[key] = true
 		case finance.KindGate:
 			r, ok := w.competitions.Result(e.Fixture)
 			home, _ := w.registry.Team(r.Home)
@@ -221,6 +300,13 @@ func (w *World) validateFinance() []error {
 					fail("fixture %d has an official result but no gate receipts", r.Fixture)
 				}
 			}
+		}
+	}
+
+	// Check in canonical season/posting order, never map order.
+	for _, key := range prizeOrder {
+		if !prizesPaid[key] {
+			fail("club %d has no cup prize for fixture %d", key.club, key.fixture)
 		}
 	}
 

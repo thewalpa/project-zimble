@@ -141,6 +141,12 @@ func TestPlanRejectsInvalidPostingsWithoutChange(t *testing.T) {
 		"gate without fix":  {{Club: 1, Kind: KindGate, Amount: 1}},
 		"negative gate":     {{Club: 1, Kind: KindGate, Amount: -1, Fixture: 1}},
 		"fixture on wages":  {{Club: 1, Kind: KindWages, Amount: -1, Fixture: 1}},
+		"prize no fixture":  {{Club: 2, Kind: KindPrize, Amount: 1}},
+		"negative prize":    {{Club: 2, Kind: KindPrize, Amount: -1, Fixture: 1}},
+		"zero prize":        {{Club: 2, Kind: KindPrize, Fixture: 1}},
+		"offer on prize":    {{Club: 2, Kind: KindPrize, Amount: 1, Fixture: 1, Offer: 1}},
+		"player on prize":   {{Club: 2, Kind: KindPrize, Amount: 1, Fixture: 1, Player: 1}},
+		"prize overflow":    {{Club: 1, Kind: KindPrize, Amount: 1, Fixture: 1}},
 		"unknown kind":      {{Club: 1, Kind: 9, Amount: -1}},
 		"zero fee":          {{Club: 1, Kind: KindTransfer, Offer: 1}},
 		"fee without offer": {{Club: 2, Kind: KindTransfer, Amount: -1}},
@@ -196,6 +202,40 @@ func TestNewRejectsInvalidLedgers(t *testing.T) {
 		mutate(&s)
 		if _, err := New(s); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestCupPrizeNamesTheExitFixture(t *testing.T) {
+	s := opened(t)
+	plan, err := s.Plan(5, []Posting{{Club: 1, Kind: KindPrize, Amount: 700, Fixture: 12}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Apply(plan); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := s.Balance(1); b != 1700 {
+		t.Fatalf("balance %d", b)
+	}
+	if e, _ := s.Entry(3); e.Fixture != 12 || e.Kind.String() != "cup prize" {
+		t.Fatalf("entry %+v", e)
+	}
+	if _, err := New(s.Snapshot()); err != nil {
+		t.Fatal(err)
+	}
+	snap := s.Snapshot()
+	for _, mutate := range []func(*Entry){
+		func(e *Entry) { e.Fixture = 0 },
+		func(e *Entry) { e.Amount = 0 },
+		func(e *Entry) { e.Amount = -1 },
+		func(e *Entry) { e.Offer = 1 },
+		func(e *Entry) { e.Player = 1 },
+	} {
+		bad := Snapshot{Entries: append([]Entry(nil), snap.Entries...), LastEntry: snap.LastEntry}
+		mutate(&bad.Entries[2])
+		if _, err := New(bad); err == nil {
+			t.Fatal("invalid restored prize accepted")
 		}
 	}
 }

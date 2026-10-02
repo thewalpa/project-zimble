@@ -11,6 +11,7 @@ import (
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/events"
+	"github.com/thewalpa/project-zimble/internal/finance"
 )
 
 // SeasonEndPayload is a season-end task's payload: the season that ends.
@@ -84,13 +85,15 @@ func (w *World) leagueIndex(comp ids.CompetitionID) (int, bool) {
 // results; their rankings and champions remain derivable (see History).
 func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	type ending struct {
-		league  int // index into w.leagues, or -1 when no league season follows here
-		task    sim.TaskID
-		payload sim.PayloadID
-		ref     competitions.SeasonRef
-		next    competitions.SeasonRef // the league's next season; zero otherwise
-		first   sim.GameInstant        // next's first kickoff
+		league               int // index into w.leagues, or -1 when no league season follows here
+		task                 sim.TaskID
+		payload              sim.PayloadID
+		ref                  competitions.SeasonRef
+		next                 competitions.SeasonRef // the league's next season; zero otherwise
+		first                sim.GameInstant        // next's first kickoff
+		prizeStart, prizeEnd int                    // range in the cohort's finance plan
 	}
+	var prizePostings []finance.Posting
 	var ends []ending
 	var created []ending                  // next seasons the play-offs decide
 	var editions []competitions.SeasonRef // new play-off and cup editions to schedule
@@ -115,7 +118,13 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 			return fmt.Errorf("app: %s cannot end at %d: not every round has results", ref, at)
 		}
 		if _, ok := w.cupIndex(ref.Competition); ok {
-			ends = append(ends, ending{league: -1, task: t.ID, payload: t.PayloadID, ref: ref})
+			postings, err := w.prizePostings(ref)
+			if err != nil {
+				return err
+			}
+			start := len(prizePostings)
+			prizePostings = append(prizePostings, postings...)
+			ends = append(ends, ending{league: -1, task: t.ID, payload: t.PayloadID, ref: ref, prizeStart: start, prizeEnd: len(prizePostings)})
 			continue
 		}
 		if _, ok := w.playoffLink(ref.Competition); ok {
@@ -246,13 +255,19 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 	if err := w.checkNoTeamClash(specs); err != nil {
 		return fmt.Errorf("app: season end at %d: %w", at, err)
 	}
+	prizePlan, err := w.finance.Plan(at, prizePostings)
+	if err != nil {
+		return fmt.Errorf("app: season end at %d: cup prizes: %w", at, err)
+	}
 	if len(specs) > 0 {
 		if err := w.competitions.CreateSeasons(w.seed, specs); err != nil {
 			return fmt.Errorf("app: season end at %d: %w", at, err)
 		}
 	}
 
-	// Committed. Scheduling below only fails on a broken invariant.
+	// Committed. Scheduling and applying the planned prizes cannot fail.
+	w.applyFinance(prizePlan)
+	prizeEntries := prizePlan.Entries()
 	schedule := func(ref competitions.SeasonRef) {
 		if err := w.scheduleRounds(ref); err != nil {
 			panic(fmt.Sprintf("app: unreachable: %v", err))
@@ -275,6 +290,7 @@ func (w *World) endSeasons(at sim.GameInstant, cohort []sim.Task) error {
 			ended.Champion = champion
 		}
 		w.emit(at, taskCause(e.task), events.Event{Kind: events.KindSeasonEnded, SeasonEnded: ended})
+		w.emitLedgerEntries(at, taskCause(e.task), prizeEntries[e.prizeStart:e.prizeEnd])
 		if !e.next.Valid() {
 			continue
 		}

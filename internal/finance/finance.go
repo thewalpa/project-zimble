@@ -35,9 +35,11 @@ const (
 	// A contract payoff (negative): the club released a player and paid
 	// the rest of his contract; Player names him.
 	KindPayoff Kind = 5
+	// A cup award (positive): Fixture names the entrant's last cup tie.
+	KindPrize Kind = 6
 )
 
-func (k Kind) Valid() bool { return k >= KindOpening && k <= KindPayoff }
+func (k Kind) Valid() bool { return k >= KindOpening && k <= KindPrize }
 
 func (k Kind) String() string {
 	switch k {
@@ -51,6 +53,8 @@ func (k Kind) String() string {
 		return "transfer fee"
 	case KindPayoff:
 		return "contract payoff"
+	case KindPrize:
+		return "cup prize"
 	}
 	return fmt.Sprintf("Kind(%d)", uint8(k))
 }
@@ -62,7 +66,7 @@ type Entry struct {
 	At      sim.GameInstant
 	Kind    Kind
 	Amount  money.Money
-	Fixture ids.FixtureID // gate receipts only
+	Fixture ids.FixtureID // gate receipts or cup prizes
 	Offer   ids.OfferID   `json:",omitempty"` // transfer fees only
 	Player  ids.PlayerID  `json:",omitempty"` // contract payoffs only
 }
@@ -99,7 +103,7 @@ type Store struct {
 //
 //   - entry IDs ascending, non-zero, at most LastEntry; times non-decreasing;
 //   - each club's first entry is its only opening entry;
-//   - valid kinds and signs (wages negative, gate positive with a fixture,
+//   - valid kinds and signs (wages negative, gate and prizes positive with a fixture,
 //     transfer fees non-zero with an offer, payoffs negative with a player,
 //     opening non-negative), and no
 //     balance overflows.
@@ -136,8 +140,10 @@ func (s *Store) check(e Entry, balances map[ids.ClubID]money.Money) (money.Money
 		return bad("wages must be negative")
 	case e.Kind == KindGate && (e.Amount <= 0 || !e.Fixture.Valid()):
 		return bad("gate receipts must be positive and name a fixture")
-	case e.Kind != KindGate && e.Fixture != 0:
-		return bad("only gate receipts name a fixture")
+	case e.Kind == KindPrize && (e.Amount <= 0 || !e.Fixture.Valid()):
+		return bad("cup prizes must be positive and name a fixture")
+	case e.Kind != KindGate && e.Kind != KindPrize && e.Fixture != 0:
+		return bad("only gate receipts and cup prizes name a fixture")
 	case e.Kind == KindTransfer && (e.Amount == 0 || !e.Offer.Valid()):
 		return bad("transfer fees must be non-zero and name an offer")
 	case e.Kind != KindTransfer && e.Offer != 0:

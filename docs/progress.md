@@ -3924,3 +3924,15 @@ Asked by the owner: the live match page must not scroll; everything belongs on o
 - **Checked** in headless Chromium against a running server (seed 42, club 3, `tick`), at half time with changes, statistics and timeline: no page scroll at 1920×1080, 1440×900, 1366×768, 1280×720 and 1000×700; the side column fits without scrolling down to 1000×700. Also checked at full time, in dark mode and on `simple`. `TestLiveMatchInTheBrowser` asserts the fitted shell on the live page only.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## squad: cup prize accounting (done)
+
+Cup editions now pay each entrant once for its final stage, using the career's pinned `Cup.Prizes` table and completed `Exits`. `finance.KindPrize` (6, `cup prize`) is positive and names the entrant's last cup tie: the elimination fixture or final. Missing and zero stages pay nothing. The Continental Cup pays 1M / 600k / 350k / 200k, totalling 3.1M for eight entrants.
+
+The authorized `endSeasons` edit plans the whole cohort's awards before creating any next seasons; after commitment it applies the finance plan and emits each cup's `LedgerPosted` immediately after its `SeasonEnded`, with the same task cause and revision. Other season events keep their relative order. Restore checks exact amounts, recipients, exit fixtures, final-kickoff times and uniqueness; pending season ends cannot already have prizes. It never generates missing payments. Schema 32 and its new frozen fixture make the changed restore rule explicit; older fixtures remain untouched. No content, AI, medical or match version changes.
+
+Regressions cover both finalists sharing a fixture, empty/short/zero prize tables, final-boundary save/load, duplicate Continue, corrupted or missing awards, and overflow without partial payments or changed IDs/tasks/events. Two disjoint cups ending together verify atomic failure in the second cup, per-edition task causes, and four years of repeated awards without paying newly drawn editions. The full suite also checks 15-year squad legality and balances derived from ledgers. Handoff `squad--cup-prize-postings.md` is closed; UI receives the ledger label/reference, competitions its call-site review, data the save-rule review, and balance the income/accounting refresh before economy tuning.
+
+A CLI seed-42 season-1 save continued through season 2 produces eight awards totalling 3.1M; cup winner club 6 receives 1M against final fixture 459.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; schema-32 fixture generated with `go test ./internal/storage -run TestSaveFixtures -fixture`.
