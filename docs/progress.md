@@ -4081,3 +4081,13 @@ Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
 ## ui: position columns sort by role (done)
 
 Clicking a column header in a table the page holds re-sorts it in the browser, comparing cell text, so the Pos column ran DF, FW, GK, MF and the lineup's Selection dropdown ran bench, DF, FW, GK. The in-page sorter now honours a `data-sort` key on a cell (position cells carry the `players.Position` value, so GK, DF, MF, FW) and sorts a dropdown by the place of its selected option (goal, defence, midfield, attack, bench, not selected). The server-side sort already used role order. `TestPositionSortOrder` covers both directions.
+
+## Data: cup-prize save contract reviewed (done)
+
+Reviewed squad's cup-prize accounting and schema 32 as storage/events steward. `finance.KindPrize` keeps durable value 6 and uses the existing `LedgerPosted` payload. Awards are planned before a season-end cohort commits, events cite each edition's task in the committing revision, and restore validates exact amounts, clubs, exit fixtures and timing even after journal retention has dropped the award event. Repeated editions, simultaneous cups, overflow/retry and corrupted/missing/duplicate/early awards have coverage. The event comment now names prizes; there is no event schema change.
+
+Frozen save fixtures are preserved. `TestSaveFixtures` at introducing commit `7959272` loads schema 32 at instant 581220, revision 427; current main explicitly refuses that same fixture with `ErrIncompatibleSave` because simple's model moved from v5 to v6. Prior schema fixtures are refused with `ErrUnsupportedSave`. This is deliberate provenance rejection, not regeneration or an invalid-save failure. Next free storage schema: 33. Closes `data--cup-prize-save-schema.md`.
+
+Also reviewed the hub additions since data's last integration: competitions' review-stop fields are transient call state rather than saved authority, and ui's presentation package reads app/contract types without changing simulation modules. Neither requires a new snapshot field or migration.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` passed. Frozen fixtures were checked both at their introducing commit and current main. Browser tests ran with local socket access.

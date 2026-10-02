@@ -201,7 +201,7 @@ type LedgerEntry struct {
 }
 
 // LedgerPosted: one commit posted entries to club ledgers (weekly wages,
-// gate receipts, transfer fees, contract payoffs), in entry order.
+// gate receipts, cup prizes, transfer fees, contract payoffs), in entry order.
 type LedgerPosted struct {
 	Entries []LedgerEntry
 }
