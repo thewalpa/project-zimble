@@ -38,16 +38,17 @@ func requireBalanceSweep(t *testing.T) {
 // (money and the free-agent pool after expiries and AI signings).
 type marketYear struct {
 	Bids, Completed, Rejected, Expired, Collapsed int
-	Refused                                       int // accepted, but the player refused to join the buyer
-	Short                                         int // AI players missing from the rosters at the close, summed over clubs
-	ShortClubs                                    int // AI clubs with at least one missing
-	MaxClubMoves                                  int // most completed transfers in and out of one AI club
-	ToWeaker                                      int // completed transfers to a club with a lower squad average before the window
-	StarsMoved                                    int // of the 16 best active players at the close, those who moved in the window
-	Listed, Unsold                                int // AI listings in the window, and those whose player stayed
-	FreeAgentsOpen, FreeAgentsClose               int // pool when the window opens and when it closes
-	BestFreeAgentClose                            int // best overall in the pool at the close, 0 when empty
-	AverageTop, AverageBottom, AverageMean        int // AI clubs' squad averages at the close
+	Refused                                       int      // accepted, but the player refused to join the buyer
+	Short                                         int      // AI players missing from the rosters at the close, summed over clubs
+	ShortClubs                                    int      // AI clubs with at least one missing
+	ShortDetail                                   []string // "club N: POS-k ..." for each AI club short at the close
+	MaxClubMoves                                  int      // most completed transfers in and out of one AI club
+	ToWeaker                                      int      // completed transfers to a club with a lower squad average before the window
+	StarsMoved                                    int      // of the 16 best active players at the close, those who moved in the window
+	Listed, Unsold                                int      // AI listings in the window, and those whose player stayed
+	FreeAgentsOpen, FreeAgentsClose               int      // pool when the window opens and when it closes
+	BestFreeAgentClose                            int      // best overall in the pool at the close, 0 when empty
+	AverageTop, AverageBottom, AverageMean        int      // AI clubs' squad averages at the close
 	BalanceMin, BalanceMedian, BalanceMax         money.Money
 	Negative                                      int // AI clubs below zero at the contract-year end
 	UserBids, UserBidsExpired                     int // bids for the manager's players, and those left unanswered
@@ -188,12 +189,17 @@ func sweepMarket(t *testing.T, seed uint64, club ids.ClubID, years int, policy *
 			team, _ := w.registry.SeniorTeam(c.ID)
 			counts := w.squadCounts(team)
 			missing := 0
+			detail := ""
 			for _, q := range w.defs.Roster {
-				missing += max(0, q.Count-counts[q.Position])
+				if m := max(0, q.Count-counts[q.Position]); m > 0 {
+					missing += m
+					detail += fmt.Sprintf(" %v-%d", q.Position, m)
+				}
 			}
 			y.Short += missing
 			if missing > 0 {
 				y.ShortClubs++
+				y.ShortDetail = append(y.ShortDetail, fmt.Sprintf("club %d:%s", c.ID, detail))
 			}
 		}
 		pool := w.FreeAgents()
@@ -394,16 +400,21 @@ func reportMarket(t *testing.T, runs []marketRun, user bool) {
 		}
 	}
 	windows, short, missing := 0, 0, 0
+	var shortLines []string
 	for _, r := range runs {
-		for _, y := range r.Years {
+		for i, y := range r.Years {
 			windows++
 			if y.Short > 0 {
 				short++
 				missing += y.Short
+				shortLines = append(shortLines, fmt.Sprintf("  seed %d year %d: free agents at the close %d; %s", r.Seed, i+1, y.FreeAgentsClose, strings.Join(y.ShortDetail, "; ")))
 			}
 		}
 	}
 	fmt.Fprintf(&b, "\nwindows closing with an AI club short of its roster: %d of %d (%d players missing in all)\n", short, windows, missing)
+	for _, l := range shortLines {
+		fmt.Fprintln(&b, l)
+	}
 	fmt.Fprintln(&b, "\nper seed over the career:")
 	fmt.Fprintln(&b, "seed  transfers/window(min-max) listed unsold%  movers moved>=3 max-moves streak>=2 max-streak  buys/club(min-max)  spend/club(min..max)  top4-kept  players(min-max)  titles")
 	for _, r := range runs {
@@ -1465,20 +1476,20 @@ func reportAttributes(runs []popRun) string {
 // reportMoney logs the clubs' money by division: per year, the mean balance
 // and its range, gate receipts, wages, net transfer fees and payoffs, and
 // how many clubs are below zero or below a quarter of the opening balance,
-// how many balances fell in the year and how many gates did not cover the
-// wages.
+// how many balances fell in the year and how many gates (alone, then with
+// the cup prizes) did not cover the wages.
 func reportMoney(runs []popRun, years int) string {
 	var b strings.Builder
 	k := func(m money.Money) int { return int(int64(m) / money.MinorPerUnit / 1000) }
 	fmt.Fprintf(&b, "\nmoney by division (the division played in the year), %d seeds pooled, thousands\n", len(runs))
-	fmt.Fprintln(&b, "year div  bal-mean bal-min bal-max   gate wages  gate-wages  transfers payoffs other  <0 <500k  fell op-loss")
+	fmt.Fprintln(&b, "year div  bal-mean bal-min bal-max   gate wages  gate-wages  transfers payoffs other  <0 <500k  fell op-loss inc-loss")
 	for _, yr := range []int{1, 2, 3, 5, 10, 15, 20, 25, 30} {
 		if yr > years {
 			continue
 		}
 		for div := 1; div <= 2; div++ {
 			var bal, gate, wages, op, net, pay, other []int
-			neg, poor, fell, opLoss := 0, 0, 0, 0
+			neg, poor, fell, opLoss, incLoss := 0, 0, 0, 0, 0
 			for _, r := range runs {
 				y, played := r.Years[yr], r.Years[yr-1].Division
 				for c, d := range played {
@@ -1501,10 +1512,13 @@ func reportMoney(runs []popRun, years int) string {
 					if y.Gate[c] < y.Wages[c] {
 						opLoss++
 					}
+					if y.Gate[c]+y.Other[c] < y.Wages[c] {
+						incLoss++
+					}
 				}
 			}
-			fmt.Fprintf(&b, "%4d %3d  %8d %7d %7d  %5d %5d  %10d  %9d %7d %5d  %2d %5d  %4d %7d\n", yr, div,
-				mean(bal), slices.Min(bal), slices.Max(bal), mean(gate), mean(wages), mean(op), mean(net), mean(pay), mean(other), neg, poor, fell, opLoss)
+			fmt.Fprintf(&b, "%4d %3d  %8d %7d %7d  %5d %5d  %10d  %9d %7d %5d  %2d %5d  %4d %7d %8d\n", yr, div,
+				mean(bal), slices.Min(bal), slices.Max(bal), mean(gate), mean(wages), mean(op), mean(net), mean(pay), mean(other), neg, poor, fell, opLoss, incLoss)
 		}
 	}
 	// A club trends towards insolvency when its balance falls in most years.
@@ -1568,6 +1582,24 @@ type rotationRun struct {
 	CondSum        int // the starters' condition before their matches
 	Below90        int
 	Appearances    map[ids.PlayerID]int
+	// Cup matches the club played, and its starts by the days since its
+	// previous match: under a week, a week up to three, three or more (the
+	// first match counts as three or more), with those starters below 90.
+	CupMatches  int
+	RestStarts  [3]int
+	RestBelow90 [3]int
+}
+
+// restBucket is the rest bucket of a match played gap game minutes after the
+// club's previous one (zero: there was none).
+func restBucket(gap sim.GameInstant) int {
+	switch {
+	case gap == 0 || gap >= 21*sim.GameInstant(sim.Day):
+		return 2
+	case gap >= 7*sim.GameInstant(sim.Day):
+		return 1
+	}
+	return 0
 }
 
 // rotationPolicy is the lineup the manager submits for a pending fixture, or
@@ -1605,14 +1637,28 @@ func rotationPolicy(t *testing.T, w *World, arm string, fixture ids.FixtureID, f
 	return aiLineup(sel), true
 }
 
-// playManagedYear plays the football year (as playSeason does) with the
-// manager's club following arm, and measures that club.
-func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
+// playManagedYear plays football years (as playSeason does) with the
+// manager's club following arm in every one of them, and measures that club
+// in the last. The manager signs and renews nobody, so contracts that end in
+// an earlier year take players from every arm alike. Year 1 has no cup
+// edition; the cup is played during year 2.
+func playManagedYear(t *testing.T, w *World, arm string, years int) rotationRun {
 	t.Helper()
 	club, _ := w.UserClub()
 	team, _ := w.userTeam()
-	run := rotationRun{Appearances: map[ids.PlayerID]int{}}
+	var run rotationRun
+	var last sim.GameInstant // the club's previous kickoff
+	submitted := false
 	seen := w.lastEvent
+	for year := 1; year <= years; year++ {
+		run = rotationRun{Appearances: map[ids.PlayerID]int{}}
+		playManagedFootballYear(t, w, arm, club, team, &run, &last, &submitted, &seen)
+	}
+	return run
+}
+
+func playManagedFootballYear(t *testing.T, w *World, arm string, club ids.ClubID, team ids.TeamID, run *rotationRun, last *sim.GameInstant, submitted *bool, seen *events.ID) {
+	t.Helper()
 	for _, target := range []func(*World) sim.GameInstant{seasonEnd, playoffEnd, cupsUnderwayEnd} {
 		for {
 			res := mustContinue(t, w, max(target(w), w.Now()))
@@ -1620,7 +1666,8 @@ func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
 			ready, ok := res.(FixtureRoundReady)
 			if ok {
 				for _, f := range ready.UserFixtures {
-					first := run.Starts == 0
+					first := !*submitted
+					*submitted = true
 					if l, submit := rotationPolicy(t, w, arm, f, first); submit {
 						if _, err := w.SubmitLineup(SubmitLineup{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Fixture: f, Lineup: l}); err != nil {
 							t.Fatalf("seed %d %s: submit: %v", w.seed, arm, err)
@@ -1644,11 +1691,21 @@ func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
 						if label.Club != club {
 							continue
 						}
+						bucket := restBucket(0)
+						if *last != 0 {
+							bucket = restBucket(ready.At - *last)
+						}
+						*last = ready.At
+						if matchPhase(w, m.Round.Season) == "cup" {
+							run.CupMatches++
+						}
 						for _, slot := range m.Lineups[side].Starters {
 							run.Starts++
 							run.CondSum += cond[slot.Player]
+							run.RestStarts[bucket]++
 							if cond[slot.Player] < 90 {
 								run.Below90++
+								run.RestBelow90[bucket]++
 							}
 							run.Appearances[slot.Player]++
 						}
@@ -1657,12 +1714,12 @@ func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
 				fold = append(fold, resolved)
 			}
 			for _, e := range w.Events() {
-				if e.ID > seen && e.Kind == events.KindPlayerInjured && e.PlayerInjured != nil && e.PlayerInjured.Club == club {
+				if e.ID > *seen && e.Kind == events.KindPlayerInjured && e.PlayerInjured != nil && e.PlayerInjured.Club == club {
 					run.Injuries++
 					run.DaysLost += int(e.PlayerInjured.Days)
 				}
 			}
-			seen = w.lastEvent
+			*seen = w.lastEvent
 			for _, r := range fold {
 				for _, m := range r.Matches {
 					if matchPhase(w, m.Round.Season) != "league" {
@@ -1688,7 +1745,6 @@ func playManagedYear(t *testing.T, w *World, arm string) rotationRun {
 			}
 		}
 	}
-	return run
 }
 
 // rotationSample is every arm's football year for one (seed, club).
@@ -1719,9 +1775,9 @@ func meanSE(xs []float64) (mean, se float64) {
 
 // TestBalanceRotation plays one football year of the same seeded world once per
 // lineup policy for each managed club, and compares the policies on matched
-// pairs: points, injuries, days lost and the starters' condition. The manager
-// signs and renews nobody (one year stays inside the contract year), so the
-// arms differ only in his lineups.
+// pairs: points, injuries, days lost and the starters' condition, in football
+// year 1 (no cup) and year 2 (a cup edition). The manager signs and renews
+// nobody, so the arms differ only in his lineups.
 //
 //	ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceRotation -v -count=1 -timeout 2h
 func TestBalanceRotation(t *testing.T) {
@@ -1736,37 +1792,69 @@ func TestBalanceRotation(t *testing.T) {
 		{"tick", []uint64{7, 42, 2026}, 4},
 	}
 	for _, su := range setups {
-		var samples []rotationSample
-		for _, seed := range su.seeds {
-			base := aiEngineWorld(t, seed, su.engine)
-			var clubs []ids.ClubID
-			for i, c := range base.registry.Clubs() {
-				if i%su.step == 0 {
-					clubs = append(clubs, c.ID)
+		for _, years := range rotationYears {
+			var samples []rotationSample
+			for _, seed := range su.seeds {
+				base := aiEngineWorld(t, seed, su.engine)
+				var clubs []ids.ClubID
+				for i, c := range base.registry.Clubs() {
+					if i%su.step == 0 {
+						clubs = append(clubs, c.ID)
+					}
+				}
+				for _, club := range clubs {
+					samples = append(samples, rotationSample{Seed: seed, Club: club})
 				}
 			}
-			for _, club := range clubs {
-				samples = append(samples, rotationSample{Seed: seed, Club: club})
+			t.Run(fmt.Sprintf("%s-year%d", su.engine, years), func(t *testing.T) {
+				for i := range samples {
+					for armIdx, arm := range rotationArms {
+						t.Run(fmt.Sprintf("%d-%d-%s", samples[i].Seed, samples[i].Club, arm), func(t *testing.T) {
+							t.Parallel()
+							cfg := DefaultConfig(random.Seed(samples[i].Seed))
+							cfg.UserClub, cfg.Engine = samples[i].Club, su.engine
+							w, err := NewWorld(cfg)
+							if err != nil {
+								t.Fatal(err)
+							}
+							samples[i].Arms[armIdx] = playManagedYear(t, w, arm, years)
+						})
+					}
+				}
+			})
+			t.Log(reportRotation(fmt.Sprintf("%s, football year %d", su.engine, years), samples) + reportRest(samples))
+		}
+	}
+}
+
+// rotationYears are the football years the policies are compared in: year 1
+// has no cup, year 2 plays one during the league season. The manager's
+// policy applies in every year up to the measured one.
+var rotationYears = []int{1, 2}
+
+// reportRest formats the cup exposure and the rest buckets of every arm: the
+// matches of the club's year, and by days since its previous match the share
+// of its starts and of those starters who were below 90 condition.
+func reportRest(samples []rotationSample) string {
+	var b strings.Builder
+	b.WriteString("\n| Policy | Cup matches | Starts under 7 days after the previous match % | of them below 90 % | Starts 7–20 days after % | of them below 90 % | Starts 21+ days after (or the first) % | of them below 90 % |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n")
+	for ai, arm := range rotationArms {
+		var cup, starts int
+		var rs, rb [3]int
+		for _, s := range samples {
+			r := s.Arms[ai]
+			cup += r.CupMatches
+			starts += r.Starts
+			for k := range rs {
+				rs[k] += r.RestStarts[k]
+				rb[k] += r.RestBelow90[k]
 			}
 		}
-		t.Run(su.engine, func(t *testing.T) {
-			for i := range samples {
-				for armIdx, arm := range rotationArms {
-					t.Run(fmt.Sprintf("%d-%d-%s", samples[i].Seed, samples[i].Club, arm), func(t *testing.T) {
-						t.Parallel()
-						cfg := DefaultConfig(random.Seed(samples[i].Seed))
-						cfg.UserClub, cfg.Engine = samples[i].Club, su.engine
-						w, err := NewWorld(cfg)
-						if err != nil {
-							t.Fatal(err)
-						}
-						samples[i].Arms[armIdx] = playManagedYear(t, w, arm)
-					})
-				}
-			}
-		})
-		t.Log(reportRotation(su.engine, samples))
+		pct := func(n, d int) float64 { return 100 * float64(n) / float64(max(d, 1)) }
+		fmt.Fprintf(&b, "| %s | %.2f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |\n", arm, float64(cup)/float64(max(len(samples), 1)),
+			pct(rs[0], starts), pct(rb[0], rs[0]), pct(rs[1], starts), pct(rb[1], rs[1]), pct(rs[2], starts), pct(rb[2], rs[2]))
 	}
+	return b.String()
 }
 
 // reportRotation formats the arms' means and the paired differences against
