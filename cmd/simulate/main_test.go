@@ -340,8 +340,8 @@ func TestManagedClubWithoutLineupsPlaysTheAISeason(t *testing.T) {
 	if !strings.Contains(managed, "\nmanaging club 5: ") || strings.Contains(plain, "managing club") {
 		t.Fatal("manager line missing, or printed without -club")
 	}
-	// 14 league matches (the play-off zone changed with the manager's
-	// trades, so the club missed the play-off; the cup is next season's).
+	// 14 league matches: club 5 (Saltmere) wins the league, so it plays no
+	// play-off, and the cup is next season's.
 	if strings.Count(managed, "  <- AI lineup") != 14 || strings.Contains(managed, "your lineup") {
 		t.Fatal("want 14 managed fixtures marked as AI lineups")
 	}
