@@ -8,6 +8,7 @@ import (
 
 	"github.com/thewalpa/project-zimble/internal/ai"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
+	"github.com/thewalpa/project-zimble/internal/core/money"
 	"github.com/thewalpa/project-zimble/internal/players"
 	"github.com/thewalpa/project-zimble/internal/transfers"
 )
@@ -189,5 +190,107 @@ func TestRecruitmentPolicySurvivesRestore(t *testing.T) {
 	}
 	if !reflect.DeepEqual(w.Snapshot(), restored.Snapshot()) {
 		t.Fatal("recruitment after restore changed decisions or committed facts")
+	}
+}
+
+// Vacancy recruitment uses the deciding club's pool and seller's listed price:
+// an unsold listing does not require a fee when a comparable free agent exists.
+// A materially better listed player still attracts a bid within the club's
+// budget. Planning either choice leaves the authoritative world untouched.
+func TestVacancyRecruitmentComparesPoolAndListedPlayers(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		freeOverall    int
+		reserveBlocked bool
+		wantBid        bool
+	}{
+		{name: "comparable free agent", freeOverall: 58},
+		{name: "better listed player", freeOverall: 40, wantBid: true},
+		{name: "fee exceeds reserve budget", freeOverall: 40, reserveBlocked: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := userWorld(t, 42, userClub3)
+			free := release(t, w, 1, players.Defender)
+			squad, _ := w.Squad(2)
+			var defenders []SquadPlayer
+			for _, p := range squad {
+				if p.Position == players.Defender {
+					defenders = append(defenders, p)
+				}
+			}
+			listed := slices.MinFunc(defenders, func(a, b SquadPlayer) int { return a.Overall - b.Overall })
+			before := w.Snapshot()
+			m, err := w.newMarket(w.TransferWindow().Opens + freeAgentGrace(w.defs.Transfers.WindowDays))
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.pool = w.freeAgentIDs()
+			// Isolate club 1's vacancy and one listed target; other clubs have
+			// pending decisions, and other targets have already moved.
+			for _, c := range w.registry.Clubs() {
+				if c.ID != 1 {
+					m.openBids[c.ID] = 1
+				}
+			}
+			for id := range m.employer {
+				m.moved[id] = id != listed.Player
+			}
+			price := money.Units(10_000)
+			m.list(listed.Player, 2, price)
+			known, err := m.observations(1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := known[free]
+			p.Overall = tc.freeOverall
+			known[free] = p
+			p = known[listed.Player]
+			p.Overall = 60
+			known[listed.Player] = p
+			if tc.reserveBlocked {
+				// Cash can cover the fee, but the policy keeps wage money aside.
+				m.balances[1] = price
+			}
+			if err := m.aiActions(); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantBid {
+				if len(m.changes.Bids) != 1 || m.changes.Bids[0].Player != listed.Player || m.changes.Bids[0].Fee != price || len(m.jobs.Signings) != 0 {
+					t.Fatalf("bids %+v, signings %+v", m.changes.Bids, m.jobs.Signings)
+				}
+			} else if len(m.jobs.Signings) != 1 || m.jobs.Signings[0].Player != free || len(m.changes.Bids) != 0 {
+				t.Fatalf("bids %+v, signings %+v", m.changes.Bids, m.jobs.Signings)
+			}
+			if !reflect.DeepEqual(w.Snapshot(), before) {
+				t.Fatal("recruitment planning changed the world")
+			}
+		})
+	}
+}
+
+// The final recruitment pass fills a role with available supply even when
+// another role has a larger vacancy and no available player. It never invents
+// a player or empties another club to satisfy an unfillable vacancy.
+func TestClosingRecruitmentFillsAvailableRoles(t *testing.T) {
+	w := userWorld(t, 42, userClub3)
+	free := release(t, w, 1, players.Defender)
+	m, err := w.newMarket(w.TransferWindow().Closes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.pool = []ids.PlayerID{free}
+	m.counts[1][players.Midfielder] = w.defs.Quota(players.Midfielder).Count - 2
+	before := w.Snapshot()
+	if err := m.fillSquads(); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.jobs.Signings) != 1 || m.jobs.Signings[0].Club != 1 || m.jobs.Signings[0].Player != free {
+		t.Fatalf("signings %+v", m.jobs.Signings)
+	}
+	if m.counts[1][players.Defender] != w.defs.Quota(players.Defender).Count || m.counts[1][players.Midfielder] != w.defs.Quota(players.Midfielder).Count-2 {
+		t.Fatalf("staged roster %+v", m.counts[1])
+	}
+	if len(m.pool) != 0 || !reflect.DeepEqual(w.Snapshot(), before) {
+		t.Fatal("closing recruitment reused supply or changed the world while planning")
 	}
 }

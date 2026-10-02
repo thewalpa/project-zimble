@@ -3819,3 +3819,11 @@ Accepted cup prize postings (data's table is delivered; competitions explicitly 
 The interrupted historical squad rebase was preserved on `recovery/squad-interrupted-rebase-20261002`, aborted, and the lane rebased onto current main before work.
 
 Validation: `gofmt -l .` printed nothing, `go vet ./...` passed, and `go test ./...` passed (including both clients and long squad tests). Browser integration tests used local socket access.
+
+## squad: passive-manager market investigation (done)
+
+Closes `squad--passive-manager-market.md`. [The investigation](squad-market-investigation.md) refreshes all three market sweeps at current generation/calendar versions and compares need-first ordering and cash-only vacancy budgets using temporary Go overlays. Comparable free agents explain unsold fringe listings; keep that behavior and the existing unemployed-player retirement rule. Current short-window totals are AI-only 14/300, passive 3/120 and recruiting 27/120 (40 missing). Neither tested policy is a cure. Closing diagnostics separate no positional supply (31 recruiting vacancies), reserve-blocked listings (3), and budget-affordable listed supply (6). A daily trace proves seed 42 / club 18 / year 2 ignores the affordable FW player 600 while repeatedly trying an unfillable MF role. Queue that narrow role fallback next, with its own transfer version and fresh sweep.
+
+Added focused tests of observed-pool preference versus listed improvements and reserve budgets, unchanged snapshots during recruitment planning, and the closing allocator filling an available smaller need. No production behavior, save schema or version changed. Filed `balance--passive-manager-investigation.md` with the current baseline and decision.
+
+Validation: `gofmt -l .` printed nothing, `go vet ./...` and the full `go test ./...` suite passed. The three baseline market sweeps, both managed policy comparisons, closing diagnostics and the two-year daily trace all passed; focused recruitment tests passed independently.
