@@ -3877,3 +3877,26 @@ The existing target comparison, wage reserve, grace period, next-run response de
 Focused regressions first failed on the previous single-role policy, then passed for paid and free fallback, need ordering and ties, one action, grace and late-window timing, bought/listed targets, reserve-blocked fees, full squads and player refusal. Failed planning and its retry leave the full authoritative snapshot unchanged. Existing window save/retry, money conservation and 15-year squad-legality checks pass. The terminal/browser transfer fixtures are repaired as small blockers: the pool is now 3 instead of 5 and Juniper Vale's offer is 94 instead of 92; both clients still cover purchases, rejection, listing, sale, reload and career history. UI receives the behavior and fixture review in `ui--recruitment-role-fallback.md`; balance receives all three market reruns in `balance--recruitment-role-fallback.md`. Earlier shortage totals remain a version-6 baseline until those sweeps are delivered.
 
 Validation: `gofmt -l .` prints nothing; `go vet ./...` and `go test ./...` pass, including both clients, frozen saves, deterministic season goldens and multi-season squad/accounting checks.
+
+
+## squad: medical measurements on the football year (done)
+
+[The calibration review](squad-medical-calibration.md) refreshes generation-v9
+starting stamina on LeagueVersion 7 / ScheduleVersion 4 over three AI-only years
+for seeds 7, 42 and 2026. Default careers have 0.429–0.487 injuries per squad
+player-year, 0.30–0.35 out per club kickoff and 2.17–2.39% tired starts. Starts
+after short turnarounds are 65.52–70.30% tired; starts after three weeks or at a
+first fixture are fully rested. No emergency starts. The retained weekly stress
+scenario has 0.583 injuries per player-year, 44.63% tired starts, a congestion
+minimum of 29 and a weekly-rest minimum of 41.
+
+Retain medical v4: the calendar explains the aggregate drop, and short-turnaround
+fatigue still reaches selection. A separate default-calendar regression protects
+availability and the rest/congestion distinction; the weekly regression keeps
+all its previous bounds. No production rules, versions, saves or goldens move.
+`balance--football-year-medical-measurements.md` requests cup-exposed rotation
+comparisons: balance's current first-year harness has no cup edition and cannot
+measure the default's four-day cup congestion. Cup prize postings are next.
+
+Validation: `gofmt -l .`, `go vet ./...` and `go test ./...`, including both
+medical calendar scenarios, deterministic saves and multi-season squad checks.

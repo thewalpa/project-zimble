@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -245,28 +246,30 @@ func TestInjuriesAreDeterministic(t *testing.T) {
 	}
 }
 
-// The calibrated levels (medical.Version 4, squad--injury-rates): over three
-// AI-only seasons a player is hurt about once every two seasons, a club has
-// about one player out at a kickoff (a rare crisis reaches six to eight, and
-// its tired starters keep playing), and a week's rest leaves some starters
-// short of full condition. Bounds are wide; docs/balance.md has the measured
-// values.
-func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
-	// Keep the medical.Version 4 calibration scenario on its weekly calendar.
-	// The default three-week calendar is measured separately by balance.
-	w := worldWithSeedAndRoundInterval(t, 7, sim.Week)
+// medicalLevels separates the default football year from the weekly-rest
+// stress scenario. Rest buckets are a team's gap between fixtures, rather
+// than a player's gap between appearances.
+type medicalLevels struct {
+	playerSeasons, injuries, injuryDays        int
+	starters, tired, conditionSum              int
+	kickoffs, out, mostOut, emergencies        int
+	lowest, lowestRested                       int
+	startsByRest, tiredByRest, conditionByRest [3]int
+}
+
+func measureMedicalLevels(t *testing.T, w *World) medicalLevels {
+	t.Helper()
 	end, nextYear := w.Now()+3*365*day, w.Now()
 	seen := w.lastEvent
-	var playerSeasons, injuries, starters, tired, kickoffs, out, mostOut int
-	lowest := int(medical.MaxCondition)
-	lowestRested := lowest
+	var m medicalLevels
+	m.lowest, m.lowestRested = int(medical.MaxCondition), int(medical.MaxCondition)
 	lastPlayed := map[ids.TeamID]sim.GameInstant{}
 	for {
 		if w.Now() >= nextYear {
 			nextYear += 365 * day
 			for _, c := range w.registry.Clubs() {
 				team, _ := w.registry.SeniorTeam(c.ID)
-				playerSeasons += len(w.employment.Squad(team))
+				m.playerSeasons += len(w.employment.Squad(team))
 			}
 		}
 		kick := end
@@ -288,24 +291,45 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 			t.Fatalf("an AI-only career stopped at %d", kick)
 		}
 		for _, b := range res.Resolved {
-			for _, m := range b.Matches {
-				for side, team := range []ids.TeamID{m.Home.Team, m.Away.Team} {
+			for _, match := range b.Matches {
+				for side, team := range []ids.TeamID{match.Home.Team, match.Away.Team} {
 					n := 0
 					for _, id := range w.employment.Squad(team) {
 						if before[id].DaysOut > 0 {
 							n++
 						}
 					}
-					kickoffs, out, mostOut = kickoffs+1, out+n, max(mostOut, n)
-					for _, s := range m.Lineups[side].Starters {
+					m.kickoffs++
+					m.out += n
+					m.mostOut = max(m.mostOut, n)
+					for _, s := range match.Lineups[side].Starters {
 						c := int(before[s.Player].Condition)
-						starters++
-						if c < int(medical.MaxCondition) {
-							tired++
+						gap := sim.Duration(3 * sim.Week)
+						if last, played := lastPlayed[team]; played {
+							gap = sim.Duration(b.At - last)
 						}
-						lowest = min(lowest, c)
+						bucket := 2 // at least three weeks, including the first match
+						if gap < sim.Week {
+							bucket = 0
+						} else if gap < 3*sim.Week {
+							bucket = 1
+						}
+						m.startsByRest[bucket]++
+						m.conditionByRest[bucket] += c
+						if c < int(medical.MaxCondition) {
+							m.tiredByRest[bucket]++
+						}
+						if before[s.Player].DaysOut > 0 {
+							m.emergencies++
+						}
+						m.starters++
+						m.conditionSum += c
+						if c < int(medical.MaxCondition) {
+							m.tired++
+						}
+						m.lowest = min(m.lowest, c)
 						if last, played := lastPlayed[team]; !played || b.At-last >= sim.GameInstant(sim.Week) {
-							lowestRested = min(lowestRested, c)
+							m.lowestRested = min(m.lowestRested, c)
 						}
 					}
 					lastPlayed[team] = b.At
@@ -314,7 +338,8 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 		}
 		for _, e := range w.Events() {
 			if e.ID > seen && e.PlayerInjured != nil {
-				injuries++
+				m.injuries++
+				m.injuryDays += int(e.PlayerInjured.Days)
 			}
 		}
 		seen = w.lastEvent
@@ -322,19 +347,60 @@ func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
 	if err := w.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%d injuries in %d player-seasons; %.2f out per club at kickoff (most %d); %d of %d starters tired, lowest %d",
-		injuries, playerSeasons, float64(out)/float64(kickoffs), mostOut, tired, starters, lowest)
-	if perHundred := injuries * 100 / playerSeasons; perHundred < 30 || perHundred > 100 {
+	t.Logf("%d injuries in %d player-seasons (%.3f each), %.2f days per injury; %.2f out per club at kickoff (most %d), %d emergency starts; %d of %d starters tired (%.2f%%), mean %.2f, lowest %d, weekly-rest lowest %d",
+		m.injuries, m.playerSeasons, float64(m.injuries)/float64(m.playerSeasons), float64(m.injuryDays)/float64(m.injuries),
+		float64(m.out)/float64(m.kickoffs), m.mostOut, m.emergencies, m.tired, m.starters, 100*float64(m.tired)/float64(m.starters),
+		float64(m.conditionSum)/float64(m.starters), m.lowest, m.lowestRested)
+	for i, label := range []string{"under 7 days", "7 to under 21 days", "21+ days or first match"} {
+		if n := m.startsByRest[i]; n > 0 {
+			t.Logf("%s: %d starts, %.2f%% tired, mean %.2f", label, n, 100*float64(m.tiredByRest[i])/float64(n), float64(m.conditionByRest[i])/float64(n))
+		}
+	}
+	return m
+}
+
+// Preserve medical.Version 4's weekly-rest stress scenario. Its separate
+// congestion floor covers the four-day cup turnaround and developed stamina
+// in generation v9; the default football year has its own measurements.
+func TestInjuryAndConditionLevelsOverSeasons(t *testing.T) {
+	m := measureMedicalLevels(t, worldWithSeedAndRoundInterval(t, 7, sim.Week))
+	if perHundred := m.injuries * 100 / m.playerSeasons; perHundred < 30 || perHundred > 100 {
 		t.Errorf("%d injuries per 100 player-seasons, want 30-100", perHundred)
 	}
-	if perHundred := out * 100 / kickoffs; perHundred < 40 || perHundred > 250 || mostOut > 10 {
-		t.Errorf("%d players out per 100 club kickoffs (most %d), want 40-250 and never more than 10", perHundred, mostOut)
+	if perHundred := m.out * 100 / m.kickoffs; perHundred < 40 || perHundred > 250 || m.mostOut > 10 {
+		t.Errorf("%d players out per 100 club kickoffs (most %d), want 40-250 and never more than 10", perHundred, m.mostOut)
 	}
-	// Midweek cup ties leave only three or four days to recover. Preserve
-	// the weekly-rest floor, with a separate broad bound for congestion.
-	// Generation v9 gives older players developed stamina and wider form
-	// variation; seed 7 now reaches 29 during a midweek recovery crisis.
-	if pct := tired * 100 / starters; pct < 15 || pct > 70 || lowest < 25 || lowestRested < 40 {
-		t.Errorf("%d%% of starters below full condition at kickoff (lowest %d, weekly-rest lowest %d), want 15-70%%, none below 25 and weekly-rest starters at least 40", pct, lowest, lowestRested)
+	if pct := m.tired * 100 / m.starters; pct < 15 || pct > 70 || m.lowest < 25 || m.lowestRested < 40 {
+		t.Errorf("%d%% of starters below full condition at kickoff (lowest %d, weekly-rest lowest %d), want 15-70%%, none below 25 and weekly-rest starters at least 40", pct, m.lowest, m.lowestRested)
+	}
+}
+
+func TestMedicalLevelsOnTheFootballYear(t *testing.T) {
+	for _, seed := range []uint64{7, 42, 2026} {
+		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+			w := newWorld(t, seed)
+			m := measureMedicalLevels(t, w)
+			// Loose availability bounds; these cover whole squads rather than
+			// just the regular starters who bear most of the injury risk.
+			if rate := m.injuries * 100 / m.playerSeasons; rate < 30 || rate > 100 {
+				t.Errorf("%d injuries per 100 player-seasons, want 30-100", rate)
+			}
+			if rate := m.out * 100 / m.kickoffs; rate < 15 || rate > 100 || m.mostOut > 10 || m.emergencies != 0 {
+				t.Errorf("%d out per 100 club kickoffs, maximum %d, %d emergency starts", rate, m.mostOut, m.emergencies)
+			}
+			if pct := m.tired * 100 / m.starters; m.tired == 0 || pct > 10 || m.lowest < 60 {
+				t.Errorf("%d%% tired starts, minimum %d: want some fatigue, at most 10%% tired and minimum 60", pct, m.lowest)
+			}
+			// Three-week breaks should restore players; short turnarounds
+			// should still leave selection a meaningful condition penalty.
+			for i, n := range m.startsByRest {
+				if n < 100 {
+					t.Fatalf("rest bucket %d has only %d starts", i, n)
+				}
+			}
+			if short, long := m.tiredByRest[0]*100/m.startsByRest[0], m.tiredByRest[2]*100/m.startsByRest[2]; short < 30 || long > 5 || short <= long {
+				t.Errorf("short-turnaround starts %d%% tired, long-rest starts %d%%: want at least 30%% and at most 5%% respectively", short, long)
+			}
+		})
 	}
 }
