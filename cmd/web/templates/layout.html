@@ -391,10 +391,15 @@ document.querySelectorAll('table').forEach(function(table) {
         var valA = (cellA.textContent || '').trim();
         var valB = (cellB.textContent || '').trim();
 
+        // A cell that sorts differently from how it reads says so: data-sort
+        // (a position is GK, DF, MF, FW, not alphabetical), or the place of
+        // the selected option in a dropdown (goal, defence ... bench, out).
         var selA = cellA.querySelector('select');
-        if (selA) valA = selA.value;
+        if (selA) valA = String(selA.selectedIndex);
         var selB = cellB.querySelector('select');
-        if (selB) valB = selB.value;
+        if (selB) valB = String(selB.selectedIndex);
+        if (cellA.hasAttribute('data-sort')) valA = cellA.getAttribute('data-sort');
+        if (cellB.hasAttribute('data-sort')) valB = cellB.getAttribute('data-sort');
 
         var cleanA = valA.replace(/[,%£$€]/g, '').trim();
         var cleanB = valB.replace(/[,%£$€]/g, '').trim();
@@ -429,7 +434,7 @@ document.querySelectorAll('table').forEach(function(table) {
 {{define "club"}}<span class="badge">{{.ShortName}}</span><a href="/club/{{.Club}}">{{.ClubName}}</a>{{end}}
 {{define "cond"}}{{.Condition}}%{{if .DaysOut}} <span class="out" title="Injured: misses matches until he recovers">out {{.DaysOut}} d</span>{{end}}{{end}}
 {{define "playerHeads"}}<th>{{sortHeader . "pos" "Pos" "asc"}}</th><th>{{sortHeader . "name" "Name" "asc"}}</th><th>{{sortHeader . "nat" "Nat" "asc"}}</th><th class="n">{{sortHeader . "age" "Age" "asc"}}</th><th class="n">{{sortHeader . "ovr" "OVR" "desc"}}</th><th class="n">{{sortHeader . "cond" "Cond" "desc"}}</th>{{end}}
-{{define "playerCells"}}<td>{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>{{end}}
+{{define "playerCells"}}<td data-sort="{{printf "%d" .Position}}">{{.Position}}</td><td><a href="/player?id={{.Player}}">{{.Name}}</a></td><td>{{.Nationality}}</td><td class="n">{{.Age}}</td><td class="n"><b>{{.Overall}}</b></td><td class="n">{{template "cond" .}}</td>{{end}}
 {{define "attrHeads"}}<th class="n attr">{{sortHeader . "gk" "GK" "desc"}}</th><th class="n attr">{{sortHeader . "def" "DEF" "desc"}}</th><th class="n attr">{{sortHeader . "pas" "PAS" "desc"}}</th><th class="n attr">{{sortHeader . "fin" "FIN" "desc"}}</th><th class="n attr">{{sortHeader . "pac" "PAC" "desc"}}</th><th class="n attr">{{sortHeader . "sta" "STA" "desc"}}</th><th class="n attr">{{sortHeader . "dri" "DRI" "desc"}}</th><th class="n attr">{{sortHeader . "hea" "HEA" "desc"}}</th><th class="n attr">{{sortHeader . "str" "STR" "desc"}}</th><th class="n attr">{{sortHeader . "acc" "ACC" "desc"}}</th><th class="n attr">{{sortHeader . "psn" "PSN" "desc"}}</th>{{end}}
 {{define "attrCells"}}{{range ratings .}}<td class="n attr">{{.}}</td>{{end}}{{end}}
 {{define "ratingsToggle"}}<button type="button" data-ratings-toggle>Hide ratings</button>{{end}}

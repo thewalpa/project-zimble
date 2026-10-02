@@ -989,6 +989,31 @@ func valueOf(t *testing.T, c *client, player string) money.Money {
 	return 0
 }
 
+// Positions sort goalkeeper, defender, midfielder, forward, not alphabetically:
+// the server orders its rows that way, and every position cell carries the key
+// the in-page sorter uses.
+func TestPositionSortOrder(t *testing.T) {
+	c := career(t)
+	for _, dir := range []string{"asc", "desc"} {
+		page := c.get("/squad?sort=pos&dir=" + dir)
+		var got []string
+		for _, m := range regexp.MustCompile(`<td data-sort="(\d)">(GK|DF|MF|FW)</td>`).FindAllStringSubmatch(page, -1) {
+			got = append(got, m[1])
+			if want := map[string]string{"GK": "1", "DF": "2", "MF": "3", "FW": "4"}[m[2]]; m[1] != want {
+				t.Fatalf("%s carries sort key %s, want %s", m[2], m[1], want)
+			}
+		}
+		if len(got) < 11 || !slices.IsSortedFunc(got, func(a, b string) int {
+			if dir == "desc" {
+				return strings.Compare(b, a)
+			}
+			return strings.Compare(a, b)
+		}) {
+			t.Fatalf("squad by position (%s) is not in role order: %v", dir, got)
+		}
+	}
+}
+
 func TestSortableLists(t *testing.T) {
 	c := career(t)
 

@@ -4077,3 +4077,7 @@ Two read-only views in `internal/app/views.go` combine existing queries and add 
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
 
+
+## ui: position columns sort by role (done)
+
+Clicking a column header in a table the page holds re-sorts it in the browser, comparing cell text, so the Pos column ran DF, FW, GK, MF and the lineup's Selection dropdown ran bench, DF, FW, GK. The in-page sorter now honours a `data-sort` key on a cell (position cells carry the `players.Position` value, so GK, DF, MF, FW) and sorts a dropdown by the place of its selected option (goal, defence, midfield, attack, bench, not selected). The server-side sort already used role order. `TestPositionSortOrder` covers both directions.
