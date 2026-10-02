@@ -61,7 +61,10 @@ func valid() []Event {
 	plan := env(22, KindTeamPlanSaved)
 	plan.Cause.Kind = CauseCommand
 	plan.TeamPlanSaved = &TeamPlanSaved{Team: 1}
-	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd, inj, rec, plan}
+	rev := env(23, KindSeasonReviewed)
+	rev.Cause.Kind = CauseCommand
+	rev.SeasonReviewed = &SeasonReviewed{Competition: 1, Season: 2}
+	return []Event{a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, r, ls, ul, rd, inj, rec, plan, rev}
 }
 
 func TestValidate(t *testing.T) {
@@ -154,6 +157,9 @@ func TestValidate(t *testing.T) {
 		"recovered nobody":     func(v []Event) Event { v[20].PlayerRecovered.Player = 0; return v[20] },
 		"recovered club only":  func(v []Event) Event { v[20].PlayerRecovered.Team = 0; return v[20] },
 		"plan of no team":      func(v []Event) Event { v[21].TeamPlanSaved.Team = 0; return v[21] },
+		"review of nothing":    func(v []Event) Event { v[22].SeasonReviewed.Competition = 0; return v[22] },
+		"review of season 0":   func(v []Event) Event { v[22].SeasonReviewed.Season = 0; return v[22] },
+		"review by a task":     func(v []Event) Event { v[22].Cause.Kind = CauseTask; return v[22] },
 	}
 	for name, mutate := range cases {
 		if err := mutate(valid()).Validate(); err == nil {
@@ -190,6 +196,7 @@ func TestCloneSharesNothing(t *testing.T) {
 	c[19].PlayerInjured.Days = 9
 	c[20].PlayerRecovered.Club = 9
 	c[21].TeamPlanSaved.Team = 9
+	c[22].SeasonReviewed.Season = 9
 	if !reflect.DeepEqual(orig, want) {
 		t.Fatal("clone shares memory with the original")
 	}

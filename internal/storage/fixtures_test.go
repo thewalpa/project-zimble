@@ -299,7 +299,7 @@ const fixtureClub ids.ClubID = 3
 // the snapshot as the public API can: the manager releases, signs, renews,
 // bids for, lists and answers bids for players in the first transfer window,
 // reads the inbox and submits every lineup through the first season, its
-// end, the contract and player years and into the second window. It stops
+// review and end, the contract and player years and into the second window. It stops
 // in the middle of the manager's live match, with a decision made.
 func fixtureCareer(t *testing.T) *app.World {
 	t.Helper()
@@ -385,9 +385,15 @@ func fixtureCareer(t *testing.T) *app.World {
 	for w.Now() < secondWindow {
 		until := w.Now() + day
 		for {
-			res, err := w.Continue(until)
+			res, err := w.ContinueWith(until, app.ContinueOptions{StopAtSeasonReview: true})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if review, ok := res.(app.SeasonReviewReady); ok {
+				if _, err := w.AcknowledgeSeasonReview(app.AcknowledgeSeasonReview{ID: w.NextCommandID(), ExpectedRevision: w.Revision(), Season: review.Season}); err != nil {
+					t.Fatal(err)
+				}
+				continue
 			}
 			ready, ok := res.(app.FixtureRoundReady)
 			if !ok {

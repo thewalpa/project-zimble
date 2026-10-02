@@ -118,6 +118,7 @@ type WorldSnapshot struct {
 	ListingCommands   []ListingRecord
 	InboxReadCommands []InboxReadRecord
 	TeamPlanCommands  []TeamPlanRecord
+	ReviewCommands    []SeasonReviewRecord
 
 	// The manager's match in progress (nil if none): a replay log of stops
 	// and decisions, rebuilt into a session on demand.
@@ -236,6 +237,8 @@ func (w *World) Snapshot() WorldSnapshot {
 			snap.ListingCommands = append(snap.ListingCommands, *rec.listing)
 		case rec.teamPlan != nil:
 			snap.TeamPlanCommands = append(snap.TeamPlanCommands, rec.teamPlan.clone())
+		case rec.review != nil:
+			snap.ReviewCommands = append(snap.ReviewCommands, *rec.review)
 		}
 	}
 	if w.live != nil {
@@ -336,6 +339,7 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		journal:            events.CloneAll(snap.Events),
 		lastEvent:          snap.LastEvent,
 		commands:           map[CommandID]commandRecord{},
+		reviewed:           map[competitions.SeasonRef]bool{},
 		scheduler:          scheduler,
 		payloads:           map[sim.PayloadID]competitions.RoundRef{},
 		seasonEnds:         map[sim.PayloadID]competitions.SeasonRef{},
@@ -502,6 +506,13 @@ func Restore(snap WorldSnapshot) (*World, error) {
 		if err := w.restoreTeamPlan(c, snap.Revision); err != nil {
 			return invalid("command %d: %v", c.Request.ID, err)
 		}
+	}
+	for _, c := range snap.ReviewCommands {
+		if err := w.restoreSeasonReview(c, snap.Revision); err != nil {
+			return invalid("command %d: %v", c.Request.ID, err)
+		}
+		rec := c
+		w.commands[c.Request.ID] = commandRecord{review: &rec}
 	}
 	if snap.Live != nil {
 		w.live = &liveState{fixture: snap.Live.Fixture, stops: cloneStops(snap.Live.Stops)}

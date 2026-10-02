@@ -65,6 +65,7 @@ type commandRecord struct {
 	listing   *ListingRecord
 	inboxRead *InboxReadRecord
 	teamPlan  *TeamPlanRecord
+	review    *SeasonReviewRecord
 }
 
 // World holds the authoritative module state of one career.
@@ -94,6 +95,9 @@ type World struct {
 	// results by ID so a retried command is answered, not re-applied.
 	revision Revision
 	commands map[CommandID]commandRecord
+	// reviewed holds the seasons whose review the manager acknowledged,
+	// derived from the command log (see review.go).
+	reviewed map[competitions.SeasonRef]bool
 
 	// Committed domain events: the retained journal tail, the event ID
 	// allocator, events staged by the commit in progress, and the read
@@ -289,6 +293,7 @@ func load(defs content.Definitions, leagueDefs []content.League, cupDefs []conte
 		payloads:           map[sim.PayloadID]competitions.RoundRef{},
 		seasonEnds:         map[sim.PayloadID]competitions.SeasonRef{},
 		commands:           map[CommandID]commandRecord{},
+		reviewed:           map[competitions.SeasonRef]bool{},
 	}
 	if err := w.checkFootballYear(leagueDefs); err != nil {
 		return nil, err

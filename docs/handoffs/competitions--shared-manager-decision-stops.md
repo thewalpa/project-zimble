@@ -21,3 +21,6 @@ Agree a shared stop/next-decision contract and response timing with squad and ui
 
 ## Done when
 The shared behavior and acceptance scenarios in the audit are covered, required checks pass, and affected lanes receive the resulting app contract.
+
+## Update (competitions, 2026-10-02)
+The season-review stop is the first instance of the shared contract: `World.ContinueWith(until, ContinueOptions)` is where optional decision stops are added, each a state query plus an acknowledgement command so that a long call, short steps and a restore meet it identically (see [ui--season-review-stop](ui--season-review-stop.md)). Still open and shared with squad: renewal deadlines, window opening and incoming/answered offers as stops, and one response clock for AI and human sellers.

@@ -54,6 +54,7 @@ const (
 	KindPlayerInjured     Kind = 20
 	KindPlayerRecovered   Kind = 21
 	KindTeamPlanSaved     Kind = 22
+	KindSeasonReviewed    Kind = 23
 )
 
 func (k Kind) String() string {
@@ -102,6 +103,8 @@ func (k Kind) String() string {
 		return "player recovered"
 	case KindTeamPlanSaved:
 		return "team plan saved"
+	case KindSeasonReviewed:
+		return "season reviewed"
 	}
 	return fmt.Sprintf("Kind(%d)", uint16(k))
 }
@@ -358,6 +361,14 @@ type TeamPlanSaved struct {
 	Team ids.TeamID
 }
 
+// SeasonReviewed: the manager acknowledged the review of a league season
+// whose every round has results, so the season may now end (see
+// app.AcknowledgeSeasonReview). It does not create an inbox message.
+type SeasonReviewed struct {
+	Competition ids.CompetitionID
+	Season      uint16
+}
+
 // InboxRead: the manager marked the inbox message identified by its source
 // event as read. It does not create another inbox message.
 type InboxRead struct {
@@ -398,6 +409,7 @@ type Event struct {
 	PlayerInjured     *PlayerInjured     `json:",omitempty"`
 	PlayerRecovered   *PlayerRecovered   `json:",omitempty"`
 	TeamPlanSaved     *TeamPlanSaved     `json:",omitempty"`
+	SeasonReviewed    *SeasonReviewed    `json:",omitempty"`
 }
 
 // payloads returns how many payloads are set and whether the one matching
@@ -429,6 +441,7 @@ func (e Event) payloads() (set int, match bool) {
 		{KindPlayerInjured, e.PlayerInjured != nil},
 		{KindPlayerRecovered, e.PlayerRecovered != nil},
 		{KindTeamPlanSaved, e.TeamPlanSaved != nil},
+		{KindSeasonReviewed, e.SeasonReviewed != nil},
 	} {
 		if p.set {
 			set++
@@ -581,6 +594,10 @@ func (e Event) Validate() error {
 		if p := e.TeamPlanSaved; !p.Team.Valid() {
 			return fail("invalid payload %+v", p)
 		}
+	case KindSeasonReviewed:
+		if p := e.SeasonReviewed; !p.Competition.Valid() || p.Season == 0 || e.Cause.Kind != CauseCommand {
+			return fail("invalid payload %+v or non-command cause", p)
+		}
 	}
 	return nil
 }
@@ -676,6 +693,10 @@ func (e Event) Clone() Event {
 	if p := e.PlayerRecovered; p != nil {
 		c := *p
 		e.PlayerRecovered = &c
+	}
+	if p := e.SeasonReviewed; p != nil {
+		c := *p
+		e.SeasonReviewed = &c
 	}
 	if p := e.TeamPlanSaved; p != nil {
 		c := *p

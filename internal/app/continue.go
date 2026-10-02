@@ -138,7 +138,18 @@ func (w *World) Calendar() sim.Calendar { return w.calendar }
 // results (the state a stop would) and the world unchanged otherwise; a later
 // Continue tries again. The world revision increments when Continue changes
 // the clock or dispatches work.
+//
+// Continue never stops for a season review; ContinueWith can (see review.go).
 func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
+	return w.ContinueWith(until, ContinueOptions{})
+}
+
+// ContinueWith is Continue with optional stops. With StopAtSeasonReview, a
+// season-end cohort that closes the user's league season stays queued, and
+// SeasonReviewReady is returned with the clock at the season's last kickoff,
+// until AcknowledgeSeasonReview. The stop is reported unchanged, with no new
+// revision, by every later call that makes no progress.
+func (w *World) ContinueWith(until sim.GameInstant, opts ContinueOptions) (ContinueResult, error) {
 	if !until.Valid() {
 		return nil, fmt.Errorf("app: continue target %d outside supported range", until)
 	}
@@ -169,6 +180,13 @@ func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 			}
 			ready.Resolved = cloneBatches(resolved)
 			return ready, nil
+		case SeasonReviewReady:
+			review, ok, err := w.SeasonReview()
+			if err != nil || !ok {
+				return nil, errors.Join(errors.New("app: pending season review disappeared"), err)
+			}
+			review.Resolved = cloneBatches(resolved)
+			return review, nil
 		}
 		return r, nil
 	}
@@ -191,6 +209,9 @@ func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 			continue
 		}
 		stopped, err := w.scheduler.RunUntil(until, func(at sim.GameInstant, cohort []sim.Task) (bool, error) {
+			if opts.StopAtSeasonReview && cohort[0].Kind == taskSeasonEnd && w.endsUnreviewedSeason(cohort) {
+				return false, errSeasonReview
+			}
 			staged := len(w.outbox)
 			stop, err := w.handleCohort(at, cohort)
 			if err != nil {
@@ -200,6 +221,18 @@ func (w *World) Continue(until sim.GameInstant) (ContinueResult, error) {
 			committed = true
 			return stop, nil
 		})
+		if errors.Is(err, errSeasonReview) {
+			if !committed && w.Now() == nowBefore {
+				// Paused at the review from an earlier call: report it
+				// unchanged, without a new revision.
+				review, ok, err := w.SeasonReview()
+				if err != nil || !ok {
+					return nil, errors.Join(errors.New("app: pending season review disappeared"), err)
+				}
+				return review, nil
+			}
+			return finish(SeasonReviewReady{}, nil)
+		}
 		if err != nil {
 			return finish(nil, err)
 		}

@@ -158,6 +158,13 @@ func (w *World) checkEventFacts(e events.Event) error {
 			uint64(rec.Result.Revision) != e.Revision || rec.Result.At != e.OccurredAt {
 			return errors.New("differs from the recorded inbox read")
 		}
+	case events.KindSeasonReviewed:
+		rec := w.commands[CommandID(e.Cause.ID)].review
+		p := e.SeasonReviewed
+		if rec == nil || rec.Result.Season != (competitions.SeasonRef{Competition: p.Competition, Season: competitions.Season(p.Season)}) ||
+			uint64(rec.Result.Revision) != e.Revision || rec.Result.At != e.OccurredAt {
+			return errors.New("differs from the recorded season review")
+		}
 	case events.KindRoundStarted:
 		p := e.RoundStarted
 		info, ok := w.competitions.Round(competitions.RoundRef{
