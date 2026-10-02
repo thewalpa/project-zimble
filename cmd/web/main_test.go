@@ -731,7 +731,10 @@ func TestCupInTheBrowser(t *testing.T) {
 	c.continueUntil("Matchday: Continental Cup final v Hollowick Town (home).", "", 40)
 	c.post("/continue", nil) // the final, the Wednesday after the last league round
 	c.post("/continue", nil) // the edition ends; the play-offs draw edition 2
-	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic: your club won it!", "2-0 v Hollowick Town (home), Continental Cup final")
+	// The semi-final away to Eldhaven went to penalties: the score reads from
+	// the manager's side.
+	contains(t, c.get("/inbox"), "Continental Cup 1 won by Saltmere Athletic: your club won it!", "2-0 v Hollowick Town (home), Continental Cup final",
+		"2-2 (2-1 on penalties) v Eldhaven United (away), Continental Cup semi-final")
 	contains(t, c.get("/history?competition=3&season=1"), "Won by <b>Saltmere Athletic</b>")
 
 	// Ironbridge go out in the quarter-final; the bracket includes penalties.

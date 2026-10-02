@@ -3803,3 +3803,9 @@ Step 1 of the [UI of choice](ui-choice.md#plan).
 - **Date sorting (bug).** The inbox, ledger, fixtures and offer tables in the browser sorted dates by their formatted text, which starts with the weekday, so "Wed 2027-06-30" came before "Tue 2027-04-20". The rows now carry the game instant and sort by it. `TestDateColumnsSortByTime` fails on the old sort.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; new `present` tests (every inbox kind is worded, match names, outcome with shoot-outs). Changed client assertions are the intended wording changes above.
+
+## ui: generated age curve fixtures reviewed (done)
+
+Closes `ui--generated-age-curve`. data's client fixture updates for `worldgen.Version` 9 keep every story: lineup edits, signings, purchases and refusals, listing and answering a bid after save/load, multi-spell career totals, managed penalties, cup wins and exits, and promotion. The terminal's managed penalty case (Saltmere away to Eldhaven) now also covers the shoot-out read from the away side. The browser had lost its check of the manager's own shoot-out result in the inbox (it kept only the bracket), so `TestCupInTheBrowser` now checks Saltmere's "2-2 (2-1 on penalties) v Eldhaven United (away)" semi-final. No client production code changed.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
