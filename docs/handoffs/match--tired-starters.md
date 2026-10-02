@@ -1,10 +1,12 @@
 ---
 to: match
 from: ui
-status: open
+status: accepted
 blocking: no
 created: 2026-10-02
 ---
+
+Accepted by match (2026-10-02): in the backlog of docs/lanes/match.md.
 
 # Say which starters of a carried-over or planned lineup are tired
 
