@@ -394,3 +394,33 @@ func TestClubSeasonsAndMoves(t *testing.T) {
 		t.Fatal("the views changed the world")
 	}
 }
+
+// FormationRoles keeps the goalkeeper's slot and as many roles as it can,
+// takes players by line then slot, and refuses shapes that do not fit.
+func TestFormationRoles(t *testing.T) {
+	gk, df, mf, fw := matches.Goalkeeper, matches.Defender, matches.Midfielder, matches.Forward
+	// A 4-4-2 after a substitution put a forward in a defender's slot.
+	current := [matches.StartersPerTeam]matches.Role{gk, df, fw, df, df, mf, mf, mf, mf, fw, df}
+	if got := RolesLabel(current); got != "4-4-2" {
+		t.Fatalf("label %s", got)
+	}
+	next, err := FormationRoles(current, "4-3-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [matches.StartersPerTeam]matches.Role{gk, df, fw, df, df, mf, mf, mf, fw, fw, df}
+	if next != want {
+		t.Fatalf("4-3-3: %v, want %v", next, want)
+	}
+	if err := matches.CheckRoles(current, next); err != nil {
+		t.Fatal(err)
+	}
+	if same, err := FormationRoles(current, " 4-4-2 "); err != nil || same != current {
+		t.Fatalf("4-4-2: %v, %v", same, err)
+	}
+	for _, bad := range []string{"", "4-4", "4-4-3", "4-x-2", "-1-6-5", "4-4-2-0"} {
+		if got, err := FormationRoles(current, bad); err == nil || got != current {
+			t.Errorf("%q: %v, %v", bad, got, err)
+		}
+	}
+}

@@ -3,15 +3,18 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/thewalpa/project-zimble/cmd/internal/present"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/thewalpa/project-zimble/cmd/internal/present"
 
 	"github.com/thewalpa/project-zimble/internal/app"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/matches"
+	"github.com/thewalpa/project-zimble/internal/selection"
 )
 
 // The manager's match can be watched live. Kick off records its first
@@ -49,6 +52,9 @@ type liveView struct {
 	TargetName   string
 	Mentality    string
 	Mentalities  []string
+	Formation    string   // the club's shape now, e.g. "4-4-2"
+	Shapes       []string // the shapes offered, the current one among them
+	Board        pitchView
 	SubsLeft     int
 	OnPitch      []livePlayer // the club's players on the pitch
 	Bench        []livePlayer // the club's substitutes who can still come on
@@ -149,9 +155,15 @@ func (s *server) live(r *http.Request) (string, any, error) {
 	}
 	team := l.Teams[side]
 	roles := map[ids.PlayerID]matches.Role{}
-	for _, p := range append(append([]matches.PlayerInput(nil), team.Starters...), team.Bench...) {
+	for _, p := range team.Bench {
 		roles[p.Player] = p.Role
 	}
+	for slot, id := range l.View.OnPitch[side] {
+		roles[id] = l.View.Roles[side][slot]
+	}
+	v.Formation = app.RolesLabel(l.View.Roles[side])
+	v.Shapes = shapes(v.Formation)
+	v.Board = s.formationBoard(l)
 	player := func(id ids.PlayerID) livePlayer {
 		p := livePlayer{Player: id, Name: s.name(id), Role: roleLabel(roles[id])}
 		if prof, ok := s.w.ObservedPlayerProfile(s.club(), id); ok {
@@ -189,6 +201,44 @@ func (s *server) live(r *http.Request) (string, any, error) {
 		v.Pitch = s.replayOf(l, sinceMinute(shown, from))
 	}
 	return "live", v, nil
+}
+
+// commonShapes are the formations the live match offers in one choice;
+// any other is made by moving players between lines.
+var commonShapes = []string{"4-4-2", "4-3-3", "4-5-1", "4-2-4", "3-5-2", "3-4-3", "5-3-2", "5-4-1"}
+
+// shapes lists commonShapes with current among them.
+func shapes(current string) []string {
+	if slices.Contains(commonShapes, current) {
+		return commonShapes
+	}
+	return append([]string{current}, commonShapes...)
+}
+
+// formationBoard draws the club's players on the pitch by their roles now,
+// for moving them between lines. The goalkeeper stays in goal.
+func (s *server) formationBoard(l app.LiveMatch) pitchView {
+	side := l.Side.Index()
+	var lineup selection.Lineup
+	fit := map[ids.PlayerID]app.LineupEligibility{}
+	for slot, id := range l.View.OnPitch[side] {
+		if id != 0 {
+			lineup.Starters = append(lineup.Starters, selection.Slot{Player: id, Role: l.View.Roles[side][slot]})
+			fit[id] = app.LineupEligibility{Player: id, Eligibility: app.EligibleFit}
+		}
+	}
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
+	b := newPitch(lineup, squad, fit, false, nil)
+	b.Bench, b.Reserves, b.Order = nil, nil, ""
+	for i := range b.Lines {
+		if b.Lines[i].Slot == slotName(matches.Goalkeeper) {
+			b.Lines[i].Fixed = true
+			for j := range b.Lines[i].Players {
+				b.Lines[i].Players[j].Fixed = true
+			}
+		}
+	}
+	return b
 }
 
 // sinceMinute keeps the frames from minute on, or the last one if none is.
@@ -280,7 +330,7 @@ func (s *server) watch(form url.Values) (string, error) {
 	return fmt.Sprintf("/live?from=0&to=%d&run", matches.HalfTimeMinute), nil
 }
 
-// decide makes a substitution or a mentality change in the live match at
+// decide makes a substitution, a mentality or formation change in the live match at
 // the clock's minute: it records the play up to that minute first. The page
 // then waits there, paused, on the way to the stop it was playing to.
 func (s *server) decide(form url.Values) (string, error) {
@@ -317,6 +367,22 @@ func (s *server) decide(form url.Values) (string, error) {
 			return "/live", errors.New("choose a mentality")
 		}
 		c.Kind, c.Mentality = matches.CommandSetMentality, m
+	case "formation":
+		roles, err := app.FormationRoles(l.View.Roles[l.Side.Index()], form.Get("shape"))
+		if err != nil {
+			return "/live", err
+		}
+		c.Kind, c.Roles = matches.CommandSetRoles, roles
+	case "roles":
+		// Each player on the pitch is in his line's field, as on the
+		// lineup editor; a player without one keeps his role.
+		side := l.Side.Index()
+		c.Kind, c.Roles = matches.CommandSetRoles, l.View.Roles[side]
+		for slot, id := range l.View.OnPitch[side] {
+			if r, ok := slotRoles[form.Get(fmt.Sprintf("slot-%d", id))]; ok && id != 0 {
+				c.Roles[slot] = r
+			}
+		}
 	default:
 		return "/live", errors.New("unknown match decision")
 	}

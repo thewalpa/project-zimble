@@ -261,6 +261,22 @@ func TestWatchLiveWithHalfTimeChanges(t *testing.T) {
 	}
 }
 
+// A formation change at a stop: by shape or one player's role, shown in the
+// live view and in both timelines, refused when it changes nothing or
+// moves the goalkeeper, and kept by a save.
+func TestLiveFormationChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.json")
+	first := play(t, []string{"-seed", "42", "-club", "3"}, "formation 4-3-3", "c", "watch", "lineup",
+		"formation", "formation 4-4-2", "formation 4-4", "formation 4-3-3", "lineup", "role 57 df", "save "+path, "q")
+	contains(t, first, "! formation changes are made during your match", "formation 4-4-2 |",
+		"! usage: formation D-M-F, e.g. formation 4-3-3 (now 4-4-2)", "! app: invalid match decision: matches: invalid command: the roles are already those",
+		"! formation \"4-4\": want defenders-midfielders-forwards", "45'  TACT  QUI  formation changed to 4-3-3",
+		"formation 4-3-3 |", "45'  TACT  QUI  formation changed to 5-3-2", "Saved to "+path)
+	resumed := play(t, []string{"-load", path}, "lineup", "role 43 df", "role 41 df", "continue", "q", "q")
+	contains(t, resumed, "formation 5-3-2 |", "the goalkeeper keeps his slot", "! player 41 is not on the pitch", "\nFULL TIME  Quillford FC",
+		"45'  QUI formation changed to 4-3-3", "45'  QUI formation changed to 5-3-2")
+}
+
 // On tick the live match and the full-time report show statistics; on
 // simple there are none, never zeros.
 func TestMatchStatistics(t *testing.T) {
@@ -282,7 +298,7 @@ func TestLiveMistakes(t *testing.T) {
 	contains(t, out,
 		"! no match is waiting; type continue to go to your next matchday",
 		"! your match has not kicked off; type watch to play it live",
-		"! the match has kicked off: use sub OUT IN or mentality M",
+		"! the match has kicked off: use sub OUT IN, mentality M, formation D-M-F or role P ROLE",
 		"! app: invalid command: play to minute 30 from 45",
 		"! app: invalid match decision: ",
 		"! full time: type continue to finish the round",

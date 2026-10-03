@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/thewalpa/project-zimble/internal/competitions"
 	"github.com/thewalpa/project-zimble/internal/core/ids"
@@ -43,13 +45,71 @@ func (w *World) OpponentName(fixture ids.FixtureID) string {
 // FormationLabel names a lineup's shape by its outfield starters per line,
 // defence first: "4-4-2". Read-only.
 func FormationLabel(l selection.Lineup) string {
+	roles := make([]matches.Role, len(l.Starters))
+	for i, s := range l.Starters {
+		roles[i] = s.Role
+	}
+	return shapeLabel(roles)
+}
+
+// RolesLabel names the shape of a side's roles in slot order (a live
+// match's MatchView.Roles, a formation change's MatchEvent.Roles) like
+// FormationLabel. Read-only.
+func RolesLabel(roles [matches.StartersPerTeam]matches.Role) string { return shapeLabel(roles[:]) }
+
+func shapeLabel(roles []matches.Role) string {
 	var count [matches.Forward + 1]int
-	for _, s := range l.Starters {
-		if s.Role.Valid() {
-			count[s.Role]++
+	for _, r := range roles {
+		if r.Valid() {
+			count[r]++
 		}
 	}
 	return fmt.Sprintf("%d-%d-%d", count[matches.Defender], count[matches.Midfielder], count[matches.Forward])
+}
+
+// FormationRoles turns a shape such as "4-3-3" (defenders, midfielders,
+// forwards) into new roles for a side whose roles are current, in slot
+// order, for matches.CommandSetRoles. The goalkeeper's slot is kept. The
+// outfield players are taken by their current line (defence first), then
+// slot order, and fill the new lines in that order, so as few players as
+// possible change role. The numbers must add up to the outfield slots.
+// It does not check that anything changed (see matches.CheckRoles).
+// Read-only.
+func FormationRoles(current [matches.StartersPerTeam]matches.Role, formation string) ([matches.StartersPerTeam]matches.Role, error) {
+	next := current
+	var want [3]int
+	parts := strings.Split(strings.TrimSpace(formation), "-")
+	if len(parts) != len(want) {
+		return next, fmt.Errorf("formation %q: want defenders-midfielders-forwards, such as 4-4-2", formation)
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return next, fmt.Errorf("formation %q: want defenders-midfielders-forwards, such as 4-4-2", formation)
+		}
+		want[i] = n
+	}
+	var outfield []int
+	for slot, r := range current {
+		if r != matches.Goalkeeper {
+			outfield = append(outfield, slot)
+		}
+	}
+	if want[0]+want[1]+want[2] != len(outfield) {
+		return next, fmt.Errorf("formation %s has %d outfield players; the side has %d", formation, want[0]+want[1]+want[2], len(outfield))
+	}
+	slices.SortStableFunc(outfield, func(a, b int) int { return cmp.Compare(current[a], current[b]) })
+	for i, slot := range outfield {
+		switch {
+		case i < want[0]:
+			next[slot] = matches.Defender
+		case i < want[0]+want[1]:
+			next[slot] = matches.Midfielder
+		default:
+			next[slot] = matches.Forward
+		}
+	}
+	return next, nil
 }
 
 // Ordinal writes a place in a table or ranking: "1st", "2nd", "11th".

@@ -80,6 +80,37 @@
       <label>Mentality <select name="mentality">{{range $d.Mentalities}}<option{{if eq . $d.Mentality}} selected{{end}}>{{.}}</option>{{end}}</select></label>
       <button>Change</button>
     </form>
+    <form method="post" action="/decide" class="change" data-decide>
+      <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="formation">
+      <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
+      <label>Formation <select name="shape">{{range $d.Shapes}}<option{{if eq . $d.Formation}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+      <button>Change</button>
+    </form>
+    <details class="formation-edit">
+      <summary>Move players between lines</summary>
+      <form method="post" action="/decide" data-decide>
+        <input type="hidden" name="rev" value="{{.Rev}}"><input type="hidden" name="kind" value="roles">
+        <input type="hidden" name="minute" value="{{$d.Minute}}"><input type="hidden" name="to" value="{{$d.Minute}}"><input type="hidden" name="back" value="/live?to={{$d.Minute}}">
+        <div class="lineup-board" data-board data-want="{{$d.Board.Want}}">
+          <p class="muted board-hint js-only">Drag a player into another line, or onto a player in another line to swap their roles. Each keeps his place in the team; the goalkeeper stays in goal.</p>
+          <p class="board-head"><b>Formation <span data-formation>{{$d.Board.Formation}}</span></b></p>
+          <div class="pitch" aria-label="Your players on the pitch, attacking upwards">
+            {{template "pitchMarks"}}
+            {{range $d.Board.Lines}}
+            <div class="zone line" data-slot="{{.Slot}}"{{if .Fixed}} data-fixed{{end}} aria-label="{{.Label}}"><span class="line-label">{{.Label}}</span>{{range .Players}}{{template "pitchChip" .}}{{end}}</div>
+            {{end}}
+          </div>
+          <div class="nojs-only roles">
+            {{range $d.Board.Lines}}{{$line := .Slot}}{{range .Players}}
+            {{if .Fixed}}<input type="hidden" name="slot-{{.Player}}" value="{{$line}}">{{else}}<label>{{.Name}} <select name="slot-{{.Player}}">
+              <option value="df"{{if eq $line "df"}} selected{{end}}>Defence</option><option value="mf"{{if eq $line "mf"}} selected{{end}}>Midfield</option><option value="fw"{{if eq $line "fw"}} selected{{end}}>Attack</option>
+            </select></label>{{end}}
+            {{end}}{{end}}
+          </div>
+        </div>
+        <div class="actions"><button>Change formation</button></div>
+      </form>
+    </details>
   </div>
   {{end}}
   {{if $d.Stats}}<div data-at-stop>{{template "statsPanel" $d}}</div>{{end}}
@@ -89,6 +120,7 @@
   </div>
 </div>
 </div>
+{{if not (or $d.Finished $d.KickOff)}}{{template "boardScript"}}{{end}}
 {{if lt $d.From $d.Minute}}
 <script>
 // The match clock: runs from the previous stop to this one, showing the

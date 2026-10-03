@@ -299,6 +299,11 @@ func Supply(p app.PositionAvailability) string {
 	return ""
 }
 
+// FormationChange words a side's change of shape in a match timeline
+// (matches.EventFormationChange) from its label (app.RolesLabel of the
+// event's roles): "formation changed to 4-3-3".
+func FormationChange(shape string) string { return "formation changed to " + shape }
+
 // TiredStarters words the tired starters of a planned or carried-over
 // lineup (MatchdayLineup.Tired), each with his condition from squad, or ""
 // when there are none.

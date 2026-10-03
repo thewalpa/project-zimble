@@ -312,8 +312,10 @@ func (s *session) loop() {
 			s.planMode = true
 			err = s.showLineup()
 		case "swap", "role", "reset", "assistant":
-			if _, live := s.w.LiveMatch(); live {
-				err = errors.New("the match has kicked off: use sub OUT IN or mentality M")
+			if _, live := s.w.LiveMatch(); live && cmd == "role" {
+				err = s.liveRole(args)
+			} else if live {
+				err = errors.New("the match has kicked off: use sub OUT IN, mentality M, formation D-M-F or role P ROLE")
 			} else if cmd == "swap" {
 				err = s.swap(args)
 			} else if cmd == "role" {
@@ -321,6 +323,8 @@ func (s *session) loop() {
 			} else {
 				err = s.reset()
 			}
+		case "formation":
+			err = s.formation(args)
 		case "mentality", "m":
 			if _, live := s.w.LiveMatch(); live {
 				err = s.liveMentality(args)
@@ -392,11 +396,12 @@ func (s *session) help() {
   lineup (l) [available] edit the waiting match, or your team plan between matches
   teamplan              edit the saved team plan (also available on matchday)
   swap A B              swap two players (IDs) between XI, bench and squad
-  role P GK|DF|MF|FW    play starter P in another role
+  role P GK|DF|MF|FW    play starter P in another role (during your match: a live change)
   mentality (m) M       defensive, balanced or attacking (during your match: a live change)
   reset, assistant      ask the assistant for a suggested lineup
   watch (w) [MIN]       play your match live to MIN (default: half time, then full time)
   sub OUT IN            during your match: substitute player OUT with IN (IDs)
+  formation D-M-F       during your match: change shape, e.g. formation 4-3-3
   stats                 during your match: the match statistics so far
   continue (c)          play the waiting match, or go to your next matchday (while the
                         transfer window is open: to the next transfer news)
@@ -1611,6 +1616,8 @@ func (s *session) play() error {
 					s.printf("  %2d'  %s Substitution: %s on for %s\n", e.Minute, team, names[e.Player], names[e.Other])
 				case matches.EventMentalityChange:
 					s.printf("  %2d'  %s mentality changed to %s\n", e.Minute, team, e.Mentality.String())
+				case matches.EventFormationChange:
+					s.printf("  %2d'  %s %s\n", e.Minute, team, present.FormationChange(app.RolesLabel(e.Roles)))
 				case matches.EventPeriodEnd:
 					if e.Period == matches.FirstHalf {
 						s.printf("  %2d'  Half time\n", e.Minute)
@@ -1801,7 +1808,7 @@ func (s *session) watch(args []string) error {
 	s.printf("\n%d'  %s %d-%d %s", l.Position.Minute, l.Home.ClubName, l.View.Score[0], l.View.Score[1], l.Away.ClubName)
 	switch l.Status {
 	case matches.MatchDecisionRequired:
-		s.printf("  HALF TIME\nMake changes (sub OUT IN, mentality M, lineup), then watch or continue.\n")
+		s.printf("  HALF TIME\nMake changes (sub OUT IN, mentality M, formation D-M-F, lineup), then watch or continue.\n")
 	case matches.MatchFinished:
 		s.printf("%s  FULL TIME\nType continue to confirm the result and see the round.\n", present.Penalties(l.View.Shootout))
 	default:
@@ -1876,6 +1883,8 @@ func (s *session) liveEvents(l app.LiveMatch) {
 			s.printf("  %2d'  SUB   %-3s  %s on for %s\n", e.Minute, short(e.Side), names[e.Player], names[e.Other])
 		case matches.EventMentalityChange:
 			s.printf("  %2d'  TACT  %-3s  now %s\n", e.Minute, short(e.Side), e.Mentality)
+		case matches.EventFormationChange:
+			s.printf("  %2d'  TACT  %-3s  %s\n", e.Minute, short(e.Side), present.FormationChange(app.RolesLabel(e.Roles)))
 		case matches.EventPeriodEnd:
 			if e.Period == matches.FirstHalf {
 				s.printf("  %2d'  half time\n", e.Minute)
@@ -1917,6 +1926,48 @@ func (s *session) sub(args []string) error {
 	return s.decide(matches.MatchCommand{Kind: matches.CommandSubstitute, Out: out, In: in})
 }
 
+// formation changes the shape of the club's side in the live match: the
+// players keep their slots and as few as possible change line
+// (app.FormationRoles).
+func (s *session) formation(args []string) error {
+	l, live := s.w.LiveMatch()
+	if !live {
+		return errors.New("formation changes are made during your match; before kickoff, use role P ROLE")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("usage: formation D-M-F, e.g. formation 4-3-3 (now %s)", app.RolesLabel(l.View.Roles[l.Side.Index()]))
+	}
+	roles, err := app.FormationRoles(l.View.Roles[l.Side.Index()], args[0])
+	if err != nil {
+		return err
+	}
+	return s.decide(matches.MatchCommand{Kind: matches.CommandSetRoles, Roles: roles})
+}
+
+// liveRole moves one of the club's players on the pitch to another line.
+func (s *session) liveRole(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: role P GK|DF|MF|FW")
+	}
+	p, err := parsePlayer(args[0])
+	if err != nil {
+		return err
+	}
+	role, ok := roleNames[strings.ToLower(args[1])]
+	if !ok {
+		return errors.New("role must be GK, DF, MF or FW")
+	}
+	l, _ := s.w.LiveMatch()
+	side := l.Side.Index()
+	slot := slices.Index(l.View.OnPitch[side][:], p)
+	if slot < 0 {
+		return fmt.Errorf("player %d is not on the pitch", p)
+	}
+	roles := l.View.Roles[side]
+	roles[slot] = role
+	return s.decide(matches.MatchCommand{Kind: matches.CommandSetRoles, Roles: roles})
+}
+
 func (s *session) liveMentality(args []string) error {
 	if len(args) != 1 {
 		return errors.New("usage: mentality defensive|balanced|attacking")
@@ -1941,14 +1992,17 @@ func (s *session) showLive() error {
 		role[p.Player] = p.Role
 	}
 	subs := int(l.Rules.MaxSubstitutions) - int(l.View.SubstitutionsUsed[side])
-	s.printf("\n%d'  %s %d-%d %s | mentality %s | %d substitutions left\n", l.Position.Minute, l.Home.ClubName,
-		l.View.Score[0], l.View.Score[1], l.Away.ClubName, l.View.Mentality[side], subs)
+	s.printf("\n%d'  %s %d-%d %s | mentality %s | formation %s | %d substitutions left\n", l.Position.Minute, l.Home.ClubName,
+		l.View.Score[0], l.View.Score[1], l.Away.ClubName, l.View.Mentality[side], app.RolesLabel(l.View.Roles[side]), subs)
 	s.printf("\nOn the pitch:\n")
 	onPitch := map[ids.PlayerID]bool{}
-	for _, id := range l.View.OnPitch[side] {
+	for slot, id := range l.View.OnPitch[side] {
+		if id == 0 {
+			continue
+		}
 		onPitch[id] = true
 		p := squad[id]
-		s.printf("  %-4s %4d  %-24s %-3s %5d  %s\n", roleName(role[id]), id, p.Name, p.Position, p.Overall, ratings(p.Attributes))
+		s.printf("  %-4s %4d  %-24s %-3s %5d  %s\n", roleName(l.View.Roles[side][slot]), id, p.Name, p.Position, p.Overall, ratings(p.Attributes))
 	}
 	cameOn := map[ids.PlayerID]bool{}
 	var off []string

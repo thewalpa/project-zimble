@@ -53,6 +53,7 @@ type pitchChip struct {
 	OutOfPosition bool   // starts in another role than his natural one
 	Unavailable   bool   // may not be named for this match
 	Tired         bool   // a tired starter of a planned or carried-over lineup
+	Fixed         bool   // may not be moved (the goalkeeper during a match)
 }
 
 // pitchLine is one line of starters, in slot order: the match spreads a
@@ -60,6 +61,7 @@ type pitchChip struct {
 type pitchLine struct {
 	Slot    string
 	Label   string
+	Fixed   bool // no player may move into or out of it
 	Players []pitchChip
 }
 

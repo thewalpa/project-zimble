@@ -263,6 +263,38 @@ func TestLiveMatchInTheBrowser(t *testing.T) {
 	contains(t, c.get(fmt.Sprintf("/report?fixture=%d", fixture)), "<h2>Match statistics</h2>", `<th class="stat">Offsides</th>`)
 }
 
+// A formation change at a stop, by shape or by moving players between the
+// lines of the live board: shown in the live and report timelines, refused
+// when it changes nothing or moves the goalkeeper, and kept by a save.
+func TestLiveFormationInTheBrowser(t *testing.T) {
+	c := newClient(t, config{seed: 42, club: 3, engine: "tick", savePath: filepath.Join(t.TempDir(), "c.json")})
+	c.post("/continue", nil)
+	page := c.post("/watch", nil)
+	contains(t, page, `<select name="shape"><option selected>4-4-2</option><option>4-3-3</option>`, "Move players between lines",
+		`<input type="hidden" name="kind" value="roles">`, `<div class="zone line" data-slot="gk" data-fixed aria-label="Goal">`,
+		`data-id="43" data-fixed`, `<select name="slot-57">`, `<option value="fw" selected>Attack</option>`, "<b>Formation <span data-formation>4-4-2</span></b>")
+	fixture, _ := c.s.pendingFixture()
+
+	page = c.post("/decide", url.Values{"kind": {"formation"}, "shape": {"4-3-3"}, "minute": {"45"}})
+	contains(t, page, `<li data-event data-minute="45"><b>45'</b> QUI · Formation changed to 4-3-3</li>`, `<option selected>4-3-3</option>`,
+		`<input type="hidden" name="slot-43" value="gk">`)
+	contains(t, c.post("/decide", url.Values{"kind": {"formation"}, "shape": {"4-3-3"}, "minute": {"45"}}), "the roles are already those")
+	contains(t, c.post("/decide", url.Values{"kind": {"formation"}, "shape": {"4-4"}, "minute": {"45"}}), "want defenders-midfielders-forwards")
+	contains(t, c.post("/decide", url.Values{"kind": {"roles"}, "slot-43": {"df"}, "minute": {"45"}}), "the goalkeeper keeps his slot")
+
+	page = c.post("/decide", url.Values{"kind": {"roles"}, "slot-43": {"gk"}, "slot-57": {"df"}, "slot-47": {"df"}, "minute": {"45"}})
+	contains(t, page, "QUI · Formation changed to 5-3-2", `<option selected>5-3-2</option>`)
+	if l, _ := c.s.w.LiveMatch(); app.RolesLabel(l.View.Roles[l.Side.Index()]) != "5-3-2" {
+		t.Fatalf("live roles %v", l.View.Roles)
+	}
+
+	contains(t, c.post("/save", nil), "Saved to "+c.s.savePath)
+	loaded := newClient(t, config{loadPath: c.s.savePath, savePath: c.s.savePath})
+	contains(t, loaded.get("/live"), "QUI · Formation changed to 4-3-3", "QUI · Formation changed to 5-3-2", `<option selected>5-3-2</option>`)
+	loaded.post("/continue", url.Values{"back": {"/live"}})
+	contains(t, loaded.get(fmt.Sprintf("/report?fixture=%d", fixture)), "QUI · Formation changed to 4-3-3", "QUI · Formation changed to 5-3-2")
+}
+
 // On simple a live match has no pitch and no statistics, never zeros; its
 // clock still runs from kickoff to half time.
 func TestLiveMatchWithoutFramesOrStatistics(t *testing.T) {

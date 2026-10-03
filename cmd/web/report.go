@@ -209,6 +209,8 @@ func (s *server) eventViews(events []matches.MatchEvent, home, away app.TeamLabe
 			text = fmt.Sprintf("%s · Substitution · %s on for %s", team, playerName(e.Player), playerName(e.Other))
 		case matches.EventMentalityChange:
 			text = fmt.Sprintf("%s · Mentality changed to %s", team, e.Mentality.String())
+		case matches.EventFormationChange:
+			text = fmt.Sprintf("%s · %s", team, present.Capitalize(present.FormationChange(app.RolesLabel(e.Roles))))
 		case matches.EventPeriodEnd:
 			if e.Period == matches.FirstHalf {
 				text = "Half time"

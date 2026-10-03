@@ -237,6 +237,9 @@ form.change { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; ga
 form.change label { display: contents; }
 form.change select { min-width: 0; }
 form.change select[name=out] { grid-column: span 2; }
+.formation-edit > summary { cursor: pointer; margin: 6px 0; }
+.formation-edit .zone.line { min-height: 64px; }
+.formation-edit .roles label { display: flex; justify-content: space-between; gap: var(--s2); margin: 4px 0; }
 .live-side table.stats td, .live-side table.stats th { padding: 2px var(--s1); white-space: normal; }
 @media (min-width: 901px) {
   .shell.fit { height: 100vh; height: 100dvh; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
@@ -449,6 +452,199 @@ document.querySelectorAll('table').forEach(function(table) {
         <td class="n">{{if .Played}}<a href="/report?fixture={{.Fixture}}">{{.Result}}</a>{{else}}<span class="muted">v</span>{{end}}</td>
         <td{{if .AwayWins}} class="win"{{end}}>{{template "club" .Away}}</td>
       </tr>{{end}}
+{{define "boardScript"}}
+<script>
+// Drag and drop on a lineup pitch ([data-board]). The pitch only edits its
+// form: each move sets the moved players' Selection fields ("slot-ID") and
+// the "order" field, if the form has one, and saving posts the form as it
+// does without JavaScript. A board may have no bench or unselected shelf; a
+// chip or a line marked data-fixed stays where it is. A player's name links
+// to his profile; leaving with unsaved changes asks first.
+document.querySelectorAll('[data-board]').forEach(function (board) {
+  if (!window.PointerEvent) return;
+  var form = board.closest('form'), want = +board.dataset.want;
+  var lines = ['gk', 'df', 'mf', 'fw'];
+  var picked = null, drag = null, dirty = false, caret = document.createElement('div');
+  caret.className = 'caret';
+  board.classList.add('js');
+
+  function zone(slot) { return board.querySelector('.zone[data-slot="' + slot + '"]'); }
+  function chipsIn(z) { return Array.prototype.slice.call(z.querySelectorAll('.chip')); }
+
+  // sync writes the pitch back into the form and redraws the counts.
+  function sync() {
+    var order = [], count = {};
+    dirty = true;
+    lines.concat(['bench', 'out']).forEach(function (slot) {
+      count[slot] = 0;
+      if (zone(slot)) chipsIn(zone(slot)).forEach(function (c) {
+        var field = form.elements['slot-' + c.dataset.id];
+        if (field) field.value = slot;
+        count[slot]++;
+        if (slot !== 'out') order.push(c.dataset.id);
+        c.classList.toggle('oop', lines.indexOf(slot) >= 0 && slot !== c.dataset.natural);
+      });
+    });
+    var orderField = form.querySelector('[data-order]');
+    if (orderField) orderField.value = order.join(' ');
+    board.querySelector('[data-formation]').textContent = count.df + '-' + count.mf + '-' + count.fw;
+    var n = count.gk + count.df + count.mf + count.fw, el = board.querySelector('[data-count]');
+    if (el) {
+      el.textContent = n + ' of ' + want + ' starters';
+      el.className = n === want ? 'muted' : 'out';
+    }
+  }
+
+  // before is the chip a drop at (x, y) lands in front of, or null for the end.
+  function before(z, chip, x, y) {
+    var list = chipsIn(z);
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === chip) continue;
+      var r = list[i].getBoundingClientRect();
+      if (y < r.top || (y <= r.bottom && x < r.left + r.width / 2)) return list[i];
+    }
+    return null;
+  }
+
+  // drop moves chip onto target: another chip swaps places with it, a zone
+  // takes it at (x, y), or at its end without a point.
+  function drop(chip, target, x, y) {
+    if (!target || target === chip) return;
+    if (target.classList.contains('chip')) {
+      var mark = document.createElement('i');
+      chip.replaceWith(mark);
+      target.replaceWith(chip);
+      mark.replaceWith(target);
+    } else {
+      target.insertBefore(chip, x == null ? null : before(target, chip, x, y));
+    }
+    sync();
+  }
+
+  function pick(c) {
+    if (picked) { picked.classList.remove('picked'); picked.setAttribute('aria-pressed', 'false'); }
+    picked = c;
+    if (c) { c.classList.add('picked'); c.setAttribute('aria-pressed', 'true'); }
+  }
+
+  // tap picks a player, then puts him on the next player or place tapped.
+  function tap(el) {
+    if (el.hasAttribute('data-fixed')) return;
+    if (!picked) { if (el.classList.contains('chip')) pick(el); return; }
+    var c = picked;
+    pick(null);
+    if (el !== c) { drop(c, el, null, null); c.focus(); }
+  }
+
+  function targetAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    el = el && el.closest('.chip, .zone');
+    return el && board.contains(el) && !el.classList.contains('ghost') && !el.hasAttribute('data-fixed') ? el : null;
+  }
+
+  function hover() {
+    board.querySelectorAll('.over').forEach(function (el) { el.classList.remove('over'); });
+    caret.remove();
+    var t = targetAt(drag.x, drag.y);
+    drag.target = t;
+    if (!t || t === drag.chip) return;
+    t.classList.add('over');
+    if (t.classList.contains('zone')) t.insertBefore(caret, before(t, drag.chip, drag.x, drag.y));
+  }
+
+  // scroll keeps dragging usable on a phone: holding a player near the top
+  // or bottom of the screen scrolls the page.
+  function scroll() {
+    if (!drag || !drag.ghost) return;
+    var edge = 56, dy = drag.y < edge ? -12 : drag.y > window.innerHeight - edge ? 12 : 0;
+    if (dy) { window.scrollBy(0, dy); hover(); }
+    requestAnimationFrame(scroll);
+  }
+
+  function end() {
+    if (!drag) return;
+    if (drag.ghost) drag.ghost.remove();
+    drag.chip.classList.remove('lifted');
+    board.querySelectorAll('.over').forEach(function (el) { el.classList.remove('over'); });
+    caret.remove();
+    drag = null;
+  }
+
+  chipsIn(board).forEach(function (c) {
+    c.tabIndex = 0;
+    c.setAttribute('role', 'button');
+    c.setAttribute('aria-pressed', 'false');
+    c.setAttribute('aria-label', c.title);
+  });
+  board.querySelectorAll('.zone').forEach(function (z) { z.tabIndex = 0; });
+
+  board.addEventListener('pointerdown', function (e) {
+    var c = e.target.closest('.chip');
+    if (!c || e.button !== 0 || drag) return;
+    if (c.hasAttribute('data-fixed')) return; // a click on the name still opens the profile
+    // A name clicked with a modifier opens the profile the browser's way.
+    var link = e.target.closest('a');
+    if (link && (e.ctrlKey || e.metaKey || e.shiftKey)) return;
+    e.preventDefault();
+    drag = { chip: c, link: link, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+    c.setPointerCapture(e.pointerId);
+  });
+  board.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (!drag.ghost) {
+      if (Math.abs(drag.x - drag.x0) + Math.abs(drag.y - drag.y0) < 6) return;
+      pick(null);
+      drag.ghost = drag.chip.cloneNode(true);
+      drag.ghost.classList.add('ghost');
+      drag.ghost.classList.remove('picked', 'over');
+      document.body.appendChild(drag.ghost);
+      drag.chip.classList.add('lifted');
+      requestAnimationFrame(scroll);
+    }
+    drag.ghost.style.left = drag.x + 'px';
+    drag.ghost.style.top = drag.y + 'px';
+    hover();
+  });
+  board.addEventListener('pointerup', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var d = drag;
+    end();
+    // Tapping a name opens the profile, unless a player is waiting to move.
+    if (d.ghost) drop(d.chip, d.target, d.x, d.y);
+    else if (d.link && !picked) location.href = d.link.href;
+    else { tap(d.chip); d.chip.focus(); }
+  });
+  board.addEventListener('pointercancel', end);
+  board.addEventListener('click', function (e) {
+    // The pointer handlers above decide what a click on a name does; a
+    // keyboard click (detail 0) or a modified one follows the link.
+    if (e.detail && !(e.ctrlKey || e.metaKey || e.shiftKey) && e.target.closest('.chip a') && !e.target.closest('[data-fixed]')) e.preventDefault();
+    var z = e.target.closest('.zone');
+    if (z && picked && !e.target.closest('.chip')) tap(z);
+  });
+  board.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { pick(null); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && (e.target.matches('.chip') || e.target.matches('.zone'))) {
+      e.preventDefault();
+      tap(e.target);
+    }
+  });
+  // A Selection changed in the table moves the player on the pitch too.
+  form.addEventListener('change', function (e) {
+    dirty = true;
+    var m = /^slot-(\d+)$/.exec(e.target.name || '');
+    var c = m && board.querySelector('.chip[data-id="' + m[1] + '"]'), z = m && zone(e.target.value);
+    if (c && z && c.parentNode !== z) { z.appendChild(c); sync(); }
+  });
+  form.addEventListener('submit', function () { dirty = false; });
+  window.addEventListener('beforeunload', function (e) {
+    if (dirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+});
+</script>
+{{end}}
+{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}{{if .Tired}} tired{{end}}" data-id="{{.Player}}"{{if .Fixed}} data-fixed{{end}} data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm"><a href="/player?id={{.Player}}" draggable="false">{{.Short}}</a></span><span class="meta">{{.Position}} · {{.Condition}}%{{if .Tired}} tired{{end}}</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}
 {{define "pitchMarks"}}<div class="mark half"></div><div class="mark circle"></div><div class="mark box"></div><div class="mark box top"></div>{{end}}
 {{define "pitchPanel"}}
 <div class="panel">

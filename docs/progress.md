@@ -4129,3 +4129,15 @@ Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
 Both clients show `MatchdayLineup.Tired` whenever it is not empty, worded once in `present.TiredStarters` ("1 starter is below 90 condition: Pieter Haugen (88). The assistant's suggestion weighs condition."), with each player's condition from `SquadPlayer.Condition` and the threshold from `app.TiredCondition`. The web prints it in the home page's Matchday panel and on the lineup page, each with a link to the suggestion (`/lineup?suggest=1`), and marks the tired starters' chips on the pitch. The terminal prints it at the matchday stop, in the `status` line after a load and on the lineup screen (where the starter rows say "(tired)"), followed by "Type assistant to use it." Once the manager edits or resets the lineup, the cue goes away. Balance asked for the cue only before a short rest. The clients show it whenever `Tired` is not empty instead, as `match` suggested: measuring the rest would be a rule in the client, and after a week's rest the list is nearly always empty (seed 42 shows it first before the play-off a week after the last league round).
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## ui: change the formation during a live match (done)
+
+Both clients send `matches.CommandSetRoles` through `World.MatchDecision` at a stop. Two read-only helpers in `internal/app/views.go` keep the clients from building roles differently. `RolesLabel` names the shape of a side's roles in slot order, like `FormationLabel` does for a lineup. `FormationRoles(current, "4-3-3")` turns a shape into new roles: the goalkeeper keeps his slot, and the outfield players are taken by their current line and then by slot, so as few as possible change line. `matches.CheckRoles` (through `MatchDecision`) still refuses a change that changes nothing or moves the goalkeeper, and the clients show its error.
+
+- **Web:** the live match's "Your changes" panel has a Formation choice (the common shapes, plus the current one) and a "Move players between lines" board. The board reuses the lineup editor's pitch and drag script, which moved into `layout.html` (`pitchChip`, `boardScript`) and now works without a bench or shelf. The goalkeeper's chip and line are `data-fixed`. Without JavaScript the board falls back to a line choice per player. The Off choice and the board read roles from `MatchView.Roles`, so they follow formation changes and substitutes.
+- **Terminal:** during the match, `formation D-M-F` changes the shape, `role P GK|DF|MF|FW` moves one player on the pitch, and the live `lineup` view prints the current formation and each slot's current role.
+- **Timelines:** `EventFormationChange` reads "formation changed to 4-3-3" (`present.FormationChange`) in the live and report timelines of both clients. `cmd/simulate` prints no timelines.
+
+Tests in both clients change the shape and then one player's role at half time, check the refusals, save, load, and finish the match with both lines in the report.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
