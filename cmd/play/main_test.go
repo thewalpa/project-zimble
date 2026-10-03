@@ -545,6 +545,60 @@ func TestLineupCarriesOverToNextMatchday(t *testing.T) {
 	)
 }
 
+// A carried-over lineup names its tired starters at the matchday stop and on
+// the lineup screen, and offers the assistant's suggestion, which has none.
+func TestTiredCarriedStartersAreMarked(t *testing.T) {
+	dir := t.TempDir()
+	start, path := filepath.Join(dir, "start.json"), filepath.Join(dir, "career.json")
+	play(t, []string{"-seed", "42", "-club", "3"}, "continue", "swap 57 58", "continue", "save "+start, "quit")
+	w, err := storage.Load(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The submitted lineup carries over until a short rest tires a starter.
+	for i := 0; ; i++ {
+		if i > 400 {
+			t.Fatal("no carried-over lineup ever had a tired starter")
+		}
+		if ready, ok := w.Pending(); ok {
+			if len(ready.UserFixtures) > 0 {
+				ml, err := w.MatchdayLineup(ready.UserFixtures[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if ml.Source != app.LineupCarriedOver {
+					t.Fatalf("lineup %s, want carried over", ml.Source)
+				}
+				if len(ml.Tired) > 0 {
+					break
+				}
+			}
+			cmd := app.ResolveRounds{ID: w.NextCommandID(), ExpectedRevision: w.Revision()}
+			for _, r := range ready.Rounds {
+				cmd.Rounds = append(cmd.Rounds, r.Round)
+			}
+			if _, err := w.ResolveRounds(cmd); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if _, err := w.Continue(w.Now() + 7*24*60); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := storage.Save(path, w); err != nil {
+		t.Fatal(err)
+	}
+
+	out := play(t, []string{"-load", path}, "lineup", "assistant", "lineup", "quit", "quit")
+	contains(t, out, "MATCHDAY:", "below 90 condition:", "Type assistant to use it.", "carried over from the last match", "(tired)",
+		"Lineup reset to the assistant's suggestion")
+	after := out[strings.LastIndex(out, "Lineup reset to the assistant's suggestion"):]
+	if strings.Contains(after, "(tired)") || strings.Contains(after, "below 90 condition") {
+		t.Fatalf("the assistant's suggestion is marked tired:\n%s", after)
+	}
+}
+
 func TestPlayerProfileCommand(t *testing.T) {
 	out := play(t, []string{"-seed", "42", "-club", "3"}, "player 56", "player 1", "player 99999", "player", "quit", "quit")
 	contains(t, out, "Kieran Walsh (player 56)", "Contract:", "GK DEF PAS FIN PAC STA", "Club:", "Career:", "before ", "current club",

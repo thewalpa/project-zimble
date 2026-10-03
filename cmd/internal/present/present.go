@@ -299,6 +299,27 @@ func Supply(p app.PositionAvailability) string {
 	return ""
 }
 
+// TiredStarters words the tired starters of a planned or carried-over
+// lineup (MatchdayLineup.Tired), each with his condition from squad, or ""
+// when there are none.
+func TiredStarters(ml app.MatchdayLineup, squad []app.SquadPlayer) string {
+	if len(ml.Tired) == 0 {
+		return ""
+	}
+	cond := make(map[ids.PlayerID]app.SquadPlayer, len(squad))
+	for _, p := range squad {
+		cond[p.Player] = p
+	}
+	var names []string
+	for _, id := range ml.Tired {
+		if p, ok := cond[id]; ok {
+			names = append(names, fmt.Sprintf("%s (%d)", p.Name, p.Condition))
+		}
+	}
+	return fmt.Sprintf("%d %s below %d condition: %s. The assistant's suggestion weighs condition.",
+		len(names), plural(len(names), "starter is", "starters are"), app.TiredCondition, strings.Join(names, ", "))
+}
+
 func plural(n int, one, many string) string {
 	if n == 1 {
 		return one

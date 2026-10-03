@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thewalpa/project-zimble/internal/app"
+	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/sim"
 	"github.com/thewalpa/project-zimble/internal/inbox"
 )
@@ -84,5 +85,16 @@ func TestMedicalWording(t *testing.T) {
 	}
 	if Supply(app.PositionAvailability{Short: true, Critical: true}) != "critical: below the minimum" || Supply(app.PositionAvailability{Short: true}) != "short" || Supply(app.PositionAvailability{}) != "" {
 		t.Error("Supply")
+	}
+}
+
+func TestTiredStarters(t *testing.T) {
+	squad := []app.SquadPlayer{{Player: 1, Name: "Ann Lee", Condition: 84}, {Player: 2, Name: "Bo Ray", Condition: 87}}
+	if got := TiredStarters(app.MatchdayLineup{}, squad); got != "" {
+		t.Errorf("no tired starters: %q", got)
+	}
+	got := TiredStarters(app.MatchdayLineup{Tired: []ids.PlayerID{2, 1}}, squad)
+	if want := "2 starters are below 90 condition: Bo Ray (87), Ann Lee (84)."; !strings.HasPrefix(got, want) {
+		t.Errorf("got %q, want prefix %q", got, want)
 	}
 }

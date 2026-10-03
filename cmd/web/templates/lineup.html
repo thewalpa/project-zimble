@@ -7,6 +7,7 @@
 <p><b>{{$d.Title}}</b><br><span class="muted">{{$d.State}}. Pick eleven starters with exactly one goalkeeper; a player may start out of position. Up to seven on the bench.</span></p>
 {{if $d.Plan}}<p class="muted">Save this lineup as your team plan. It is fitted to each match and used when you have not submitted a matchday lineup.</p>{{range $d.Unavailable}}<div class="note">{{.}} is unavailable today and will be left out until fit.</div>{{end}}{{end}}
 {{range $d.DroppedNotes}}<div class="note">{{.}}</div>{{end}}
+{{with $d.TiredNote}}<div class="note tired">{{.}} <a href="/lineup?suggest=1">See the suggestion</a></div>{{end}}
 {{if $d.AvailabilityNote}}<div class="note">{{$d.AvailabilityNote}}</div>{{end}}
 <div class="panel">
   <form method="get" action="/lineup">
@@ -268,4 +269,4 @@
 </script>
 {{end}}
 {{end}}
-{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}" data-id="{{.Player}}" data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm"><a href="/player?id={{.Player}}" draggable="false">{{.Short}}</a></span><span class="meta">{{.Position}} · {{.Condition}}%</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}
+{{define "pitchChip"}}<div class="chip{{if .OutOfPosition}} oop{{end}}{{if .Unavailable}} unavail{{end}}{{if .Tired}} tired{{end}}" data-id="{{.Player}}" data-natural="{{.Natural}}" data-name="{{.Name}}" title="{{.Name}}, {{.Position}}, overall {{.Overall}}, condition {{.Condition}}%{{if .DaysOut}}, injured: {{.DaysOut}} days out{{end}}"><span class="ovr">{{.Overall}}</span><span class="nm"><a href="/player?id={{.Player}}" draggable="false">{{.Short}}</a></span><span class="meta">{{.Position}} · {{.Condition}}%{{if .Tired}} tired{{end}}</span>{{if .DaysOut}}<span class="out">out {{.DaysOut}} d</span>{{end}}<span class="oop-mark">out of position</span></div>{{end}}

@@ -538,6 +538,11 @@ func (s *session) status() {
 	if fixture, ok := s.pendingFixture(); ok {
 		info := s.fixtureInfo(fixture)
 		s.printf("MATCHDAY: %s v %s is waiting. Check lineup, then watch it live or continue to play.\n", present.MatchName(info), s.describe(info.FixtureLine))
+		if s.draft == nil || s.draft.fixture != fixture || !s.draft.edited {
+			if ml, err := s.w.MatchdayLineup(fixture); err == nil {
+				s.tiredNote(ml)
+			}
+		}
 		return
 	}
 	if info, ok := s.nextFixture(); ok {
@@ -1208,6 +1213,9 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		for _, msg := range s.w.LineupDroppedMessages(d.matchday) {
 			s.printf("%s\n", msg)
 		}
+		if !d.edited {
+			s.tiredNote(d.matchday)
+		}
 	}
 	s.printf("Mentality: %s\n\n", d.lineup.Tactics.Mentality)
 	s.showPitch(d.lineup, squad, " (swap two players in a line to change where they stand)")
@@ -1225,6 +1233,9 @@ func (s *session) showLineup(onlyAvailable ...bool) error {
 		note := ""
 		if app.NaturalRole(p.Position) != sl.Role {
 			note = "  (out of position)"
+		}
+		if !d.edited && slices.Contains(d.matchday.Tired, p.Player) {
+			note += "  (tired)"
 		}
 		s.printf("%3d  %-4s %4d  %-24s %-3s %5d %-12s  %s%s\n", i+1, roleName(sl.Role), p.Player, p.Name, p.Position,
 			p.Overall, fitness(p), ratings(p.Attributes), note)
@@ -1440,6 +1451,18 @@ func (s *session) lineupSourceLabel(ml app.MatchdayLineup) string {
 	}
 }
 
+// tiredNote names the tired starters of a planned or carried-over lineup
+// and offers the assistant's suggestion.
+func (s *session) tiredNote(ml app.MatchdayLineup) {
+	if len(ml.Tired) == 0 {
+		return
+	}
+	squad, _ := s.w.ObservedSquad(s.club(), s.club())
+	if note := present.TiredStarters(ml, squad); note != "" {
+		s.printf("%s Type assistant to use it.\n", note)
+	}
+}
+
 func (s *session) reset() error {
 	fixture, ok := s.pendingFixture()
 	if !ok {
@@ -1538,6 +1561,7 @@ func (s *session) advance() error {
 		for _, msg := range s.w.LineupDroppedMessages(ml) {
 			s.printf("%s\n", msg)
 		}
+		s.tiredNote(ml)
 		s.printf("Type lineup to check your team, or continue to play with it.\n")
 		return nil
 	}

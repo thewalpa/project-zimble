@@ -1879,3 +1879,39 @@ func TestCupPrizeInTheBrowserLedger(t *testing.T) {
 	c.post("/save", nil)
 	contains(t, newClient(t, config{loadPath: c.s.savePath}).get("/finances"), row)
 }
+
+// A manager who submits one lineup and lets it carry over is told which
+// starters are tired, on the home page and on the lineup pitch, with the
+// assistant's suggestion one click away.
+func TestTiredCarriedStartersAreMarked(t *testing.T) {
+	c := career(t)
+	c.post("/continue", nil)
+	fixture, _ := c.s.pendingFixture()
+	c.post("/lineup", lineupForm(c, fixture, "balanced"))
+	for range 200 {
+		page := c.post("/continue", nil)
+		fixture, ok := c.s.pendingFixture()
+		if !ok {
+			continue
+		}
+		ml, err := c.s.w.MatchdayLineup(fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ml.Tired) == 0 {
+			if strings.Contains(page, "below 90 condition") {
+				t.Fatalf("no tired starters, but the home page warns: %q", notesOf(page))
+			}
+			continue
+		}
+		name, _ := c.s.w.PlayerName(ml.Tired[0])
+		contains(t, page, "below 90 condition:", name+" (", "/lineup?suggest=1")
+		lineup := c.get("/lineup")
+		contains(t, lineup, "below 90 condition:", "See the suggestion", `tired" data-id="`+strconv.Itoa(int(ml.Tired[0]))+`"`)
+		if suggest := c.get("/lineup?suggest=1"); strings.Contains(suggest, "below 90 condition") {
+			t.Fatal("the assistant's suggestion is marked tired")
+		}
+		return
+	}
+	t.Fatal("no carried-over lineup with tired starters in 200 continues")
+}

@@ -28,6 +28,7 @@ type fixtureView struct {
 	When         string
 	LineupSource string
 	DroppedNotes []string
+	TiredNote    string
 	kickoff      sim.GameInstant
 }
 
@@ -171,6 +172,10 @@ func (s *server) home(r *http.Request) (string, any, error) {
 			if ml, err := s.w.MatchdayLineup(fix); err == nil {
 				v.Matchday.LineupSource = s.w.LineupSourceLabel(ml)
 				v.Matchday.DroppedNotes = s.w.LineupDroppedMessages(ml)
+				if len(ml.Tired) > 0 {
+					squad, _ := s.w.ObservedSquad(s.club(), s.club())
+					v.Matchday.TiredNote = present.TiredStarters(ml, squad)
+				}
 			}
 		}
 	}

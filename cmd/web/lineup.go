@@ -52,6 +52,7 @@ type pitchChip struct {
 	Natural       string // slot value of the player's natural role
 	OutOfPosition bool   // starts in another role than his natural one
 	Unavailable   bool   // may not be named for this match
+	Tired         bool   // a tired starter of a planned or carried-over lineup
 }
 
 // pitchLine is one line of starters, in slot order: the match spreads a
@@ -89,6 +90,7 @@ type lineupView struct {
 	Slots            []slotOption
 	Sort             SortState
 	DroppedNotes     []string
+	TiredNote        string // the tired starters of a planned or carried-over lineup
 	IsSuggested      bool
 	AvailableOnly    bool
 	AvailabilityNote string
@@ -96,8 +98,9 @@ type lineupView struct {
 }
 
 // newPitch places l's players on the pitch. Players who have left the squad
-// are not drawn; the page's notes name them.
-func newPitch(l selection.Lineup, squad []app.SquadPlayer, byPlayer map[ids.PlayerID]app.LineupEligibility, availableOnly bool) pitchView {
+// are not drawn; the page's notes name them. tired marks starters
+// (MatchdayLineup.Tired).
+func newPitch(l selection.Lineup, squad []app.SquadPlayer, byPlayer map[ids.PlayerID]app.LineupEligibility, availableOnly bool, tired []ids.PlayerID) pitchView {
 	bySquad := make(map[ids.PlayerID]app.SquadPlayer, len(squad))
 	for _, p := range squad {
 		bySquad[p.Player] = p
@@ -113,6 +116,7 @@ func newPitch(l selection.Lineup, squad []app.SquadPlayer, byPlayer map[ids.Play
 			Condition: p.Condition, DaysOut: p.DaysOut, Natural: natural,
 			OutOfPosition: slot != "bench" && slot != "out" && slot != natural,
 			Unavailable:   !byPlayer[p.Player].Eligibility.Selectable(),
+			Tired:         slot != "bench" && slot != "out" && slices.Contains(tired, p.Player),
 		}
 	}
 	v := pitchView{Formation: app.FormationLabel(l), Want: matches.StartersPerTeam}
@@ -171,6 +175,7 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 	var l selection.Lineup
 	var state string
 	var droppedNotes []string
+	var ml app.MatchdayLineup
 	var eligibility []app.LineupEligibility
 	var plan app.TeamPlan
 	if planMode {
@@ -192,7 +197,8 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 			}
 			state = "The assistant's suggestion (used unless you save changes)"
 		} else {
-			ml, err := s.w.MatchdayLineup(fixture)
+			var err error
+			ml, err = s.w.MatchdayLineup(fixture)
 			if err != nil {
 				return "", nil, err
 			}
@@ -265,6 +271,7 @@ func (s *server) lineup(r *http.Request) (string, any, error) {
 		v.Rows = append(v.Rows, row)
 	}
 	sortLineupRows(v.Rows, sortState.Col, sortState.Dir)
-	v.Pitch = newPitch(l, squad, byPlayer, v.AvailableOnly)
+	v.TiredNote = present.TiredStarters(ml, squad)
+	v.Pitch = newPitch(l, squad, byPlayer, v.AvailableOnly, ml.Tired)
 	return "lineup", v, nil
 }

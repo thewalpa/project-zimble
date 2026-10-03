@@ -4123,3 +4123,9 @@ Validation: `gofmt -l .` printed nothing, `go vet ./...` and `go test ./...` pas
 I also reviewed the re-pinned simple v6 scenarios (one stale comment in `cmd/simulate`).
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## ui: tired starters of a carried-over or planned lineup (done)
+
+Both clients show `MatchdayLineup.Tired` whenever it is not empty, worded once in `present.TiredStarters` ("1 starter is below 90 condition: Pieter Haugen (88). The assistant's suggestion weighs condition."), with each player's condition from `SquadPlayer.Condition` and the threshold from `app.TiredCondition`. The web prints it in the home page's Matchday panel and on the lineup page, each with a link to the suggestion (`/lineup?suggest=1`), and marks the tired starters' chips on the pitch. The terminal prints it at the matchday stop, in the `status` line after a load and on the lineup screen (where the starter rows say "(tired)"), followed by "Type assistant to use it." Once the manager edits or resets the lineup, the cue goes away. Balance asked for the cue only before a short rest. The clients show it whenever `Tired` is not empty instead, as `match` suggested: measuring the rest would be a rule in the client, and after a week's rest the list is nearly always empty (seed 42 shows it first before the play-off a week after the last league round).
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
