@@ -4141,3 +4141,9 @@ Both clients send `matches.CommandSetRoles` through `World.MatchDecision` at a s
 Tests in both clients change the shape and then one player's role at half time, check the refusals, save, load, and finish the match with both lines in the report.
 
 Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
+
+## squad: player development and potential proposed
+
+[squad-development-design.md](squad-development-design.md) answers the owner's brief for a bespoke progression system instead of a single potential cap or talent score. Each player gets hidden truth: a five-knot talent curve over age (17/20/23/27/31, tenths of a point a year) drawn from eight weighted timing archetypes (steady, prodigy, early peaker, late bloomer, limited, grafter, evergreen, early fader), and a per-group aptitude (technical, physical, reading) drawn from six weighted profile archetypes. Both are normalized at the population level, so the average player still follows `players.Growth` and the attribute means data and balance just verified stay put. Talent applies through per-group learning windows (technique learned young), aptitude scales gains and shows as a visible shift at intake, so attributes are genuine but noisy evidence of the future. Potential is judged only from observed position, attributes and age (`players.Outlook`, a likely value with a band and scout-style remarks), the same for the manager and the AI. Neutral talent reproduces `DevelopmentVersion` 1 exactly, which makes the first step safe. Nothing is implemented; the design ends with seven open decisions for the owner.
+
+Also accepted data's `squad--youth-floor-stability`: the coupling backlog records the retained settled low-attribute levels.
