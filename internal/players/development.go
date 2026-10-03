@@ -1,6 +1,8 @@
 package players
 
 import (
+	"fmt"
+
 	"github.com/thewalpa/project-zimble/internal/core/ids"
 	"github.com/thewalpa/project-zimble/internal/core/random"
 )
@@ -57,19 +59,17 @@ func Growth(age int, a Attribute) int {
 	return g
 }
 
-// Develop returns a player's attributes after a year at age. Each attribute
-// changes by Growth, plus the player's form for the year (shared by every
-// attribute), plus its own variation of -1..1 points, and stays within
-// MinRating..MaxRating. Draws come from a stream keyed by the player and the
-// year, so the result does not depend on when or in what order players are
-// developed.
+// Develop returns a player's attributes after a year at age with neutral
+// talent and no learning: each attribute changes by Growth, plus the
+// player's form for the year (shared by every attribute), plus its own
+// variation of -1..1 points, and stays within MinRating..MaxRating. Draws
+// come from a stream keyed by the player and the year, so the result does
+// not depend on when or in what order players are developed. See
+// DevelopWith for the talent curve and learning.
 func Develop(seed random.Seed, p Profile, age, year int) Attributes {
-	rng := random.Derive(seed, "players/development", DevelopmentVersion, uint64(p.Player), uint64(year))
-	form := rng.IntRange(-FormRange, FormRange)
-	var out Attributes
-	for a, r := range p.Attributes {
-		v := int(r) + Growth(age, Attribute(a)) + form + rng.IntRange(-1, 1)
-		out[a] = Rating(min(max(v, int(MinRating)), int(MaxRating)))
+	out, err := DevelopWith(seed, p, Talent{}, Norms{}, age, year)
+	if err != nil {
+		panic(fmt.Sprintf("players: unreachable: %v", err)) // neutral talent is always valid
 	}
 	return out
 }

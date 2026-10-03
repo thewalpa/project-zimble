@@ -1,9 +1,10 @@
 # Player development and potential: proposal, 2026-10-03
 
 Status: proposed by squad from the owner's brief, revised the same day with
-the owner's decisions (see [Decisions](#decisions)). Nothing here is
-implemented. `players.Develop` at `DevelopmentVersion` 1 still applies: every
-player follows one age curve plus yearly noise.
+the owner's decisions (see [Decisions](#decisions)). Step 1 (the rules in
+`internal/players/talent.go`) is implemented and changes no output; the world
+still develops every player with `players.Develop` at `DevelopmentVersion` 1
+until step 2 stores talent.
 
 ## The brief
 
