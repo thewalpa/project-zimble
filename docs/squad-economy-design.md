@@ -1,7 +1,7 @@
 # Economy proposal, 2026-10-02
 
-Status: proposed by squad, awaiting data's content agreement and balance's
-post-prize measurements. This is an implementation design, not calibrated
+Status: agreed with data on 2026-10-03 as an experiment (see the agreed
+contract below); awaiting the joint implementation and balance's sweeps. This is an implementation design, not calibrated
 new rules. The current economy and AI affordability rules still apply.
 
 ## Problem and target
@@ -86,3 +86,31 @@ Hand the new finance label and breakdown to UI. Ask balance to rerun the
 population/economy and all three market sweeps on the combined agreed
 versions, reporting wages, operating costs, gates, prizes and transaction
 cash separately by the division occupied during each measured season.
+
+## Agreed contract, 2026-10-03
+
+Agreed in `data--division-economy-design.md` and `squad--division-content-agreement.md`.
+
+- **Content.** `content.Division.Rules`: `RatingGap int`, `GatePerHomeMatch`,
+  `WeeklyGroundCost`, `WeeklyStaffCost`, `WeeklyAcademyCost money.Money`.
+  Trial: first division 0 / 300k / 6,000 + 6,500 + 3,500; second division
+  7 / 250k / 3,000 + 4,000 + 2,500. `Economy.GatePerHomeMatch` goes away
+  with its last consumer.
+- **Strength gap.** A lower division's youth ranges drop by its `RatingGap`
+  (clamped at 1) at generation and at every intake; existing players keep
+  their profiles when their club moves. `worldgen.Youth` takes the 0-based
+  `tier` and reads the gap from content; the stream and draw order are kept,
+  so a top-division club's intake is unchanged for the same seed.
+- **Membership.** A club's tier is its league's season current at the
+  instant (competitions' query, requested in
+  `competitions--league-season-at-instant.md`). Paydays and the player year
+  at a transition instant see the old membership (Preparation and Expiries
+  run before Consequences). Gates use the host's tier at the result instant,
+  cup matches included.
+- **Ledger.** One new finance kind for operating costs: one negative entry
+  per club per payday, the weekly total, planned with the wages in one
+  finance plan. Restore checks each entry's amount against the club's tier at
+  its instant; the UI breakdown is derived from the pinned rates.
+- **Integration.** Data's content/generation commit and squad's runtime
+  commit share `joint/division-economy` and reach `main` together with one
+  schema bump and frozen fixture; balance sweeps after.
