@@ -102,7 +102,7 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 				p.driftUntil = s.tick + s.p.DriftTicks + uint32(s.draw(int64(s.p.DriftTicks)))
 			}
 			d := s.p.DefendDepth[p.role] + s.p.MentalityDefendDepth[t.mentality]
-			lat := t.lateral[slot]
+			lat := s.lateral(side, slot)
 			if inPossession {
 				d = s.p.AttackDepth[p.role] + s.p.MentalityAttackDepth[t.mentality] + p.drift.x
 				lat += p.drift.y
@@ -162,7 +162,7 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 		targets[r.side][r.slot], sprint[r.side][r.slot] = r.spot, true
 
 	case s.ball.carried:
-		// The nearest defenders press the carrier; the next one covers.
+		// The nearest defenders press the carrier; another covers.
 		def := 1 - s.ball.side
 		c := s.carrier().pos
 		order, count := s.nearest(def, c, false)
@@ -174,8 +174,14 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 		for _, slot := range order[:n] {
 			targets[def][slot], sprint[def][slot] = c, true
 		}
-		cover := order[n]
-		targets[def][cover], sprint[def][cover] = c.add(s.ownGoal(def).sub(c).scale(300, permille)), true
+		// The cover is the nearest player marking nobody: a marker does
+		// not leave his man to cover.
+		for _, slot := range order[n:count] {
+			if s.teams[def].marks[slot] == 0 {
+				targets[def][slot], sprint[def][slot] = c.add(s.ownGoal(def).sub(c).scale(300, permille)), true
+				break
+			}
+		}
 
 	default:
 		// A loose ball: the receiver runs onto a pass while the opponents
@@ -200,36 +206,66 @@ func (s *session) plan(targets *[2][matches.StartersPerTeam]vec, sprint *[2][mat
 	}
 }
 
-// mark has the defending side's outfield players pick up opponents.
-// Pairs are matched nearest first, by the opponent's distance from the
-// defender's spot, each player at most once and only within MarkRadius. A
-// defender stands MarkDistance goal-side of a man within TightMarkRadius of
-// his spot; for a man farther away he holds a point between his spot and
-// that position, nearer the spot the farther the man is, so the shape
-// changes smoothly as opponents move.
+// lateral is the width of slot's spot in side's frame: his line centred,
+// neighbours LineGap apart within LineWidth.
+func (s *session) lateral(side, slot int) int64 {
+	t := &s.teams[side]
+	gap := s.p.LineGap
+	if n := t.lineSize[slot]; n > 1 {
+		gap = min(gap, s.p.LineWidth/(n-1))
+	}
+	return pitchW/2 + t.place[slot]*gap/2
+}
+
+// mark has the defending side's defenders and midfielders pick up
+// opponents; its forwards stay up. A player keeps the man he marked last
+// tick while that man is within MarkRadius of his spot, so two markers never
+// swap men back and forth and leave both free. The other players pair up
+// with the other men nearest first, by the man's distance from the player's
+// spot, each at most once and only within MarkRadius. A marker stands
+// MarkDistance goal-side of a man within TightMarkRadius of his spot; for a
+// man farther away he holds a point between his spot and that position,
+// nearer the spot the farther the man is, so the shape changes smoothly as
+// opponents move.
 func (s *session) mark(side int, targets *[matches.StartersPerTeam]vec) {
 	const n = matches.StartersPerTeam
 	t, opp := &s.teams[side], &s.teams[1-side]
-	goal := s.ownGoal(side)
-	// Each defender's opponents within MarkRadius of his spot, nearest
-	// first (ties by slot).
-	var cand [n][n]int
-	var d2 [n][n]int64
-	var count, next [n]int
-	r2, tight2 := s.p.MarkRadius*s.p.MarkRadius, s.p.TightMarkRadius*s.p.TightMarkRadius
+	r2 := s.p.MarkRadius * s.p.MarkRadius
 	var men [n]vec
 	var outfield [n]bool
 	for o := range opp.pitch {
 		q := opp.at(o)
 		men[o], outfield[o] = q.pos, q.role != matches.Goalkeeper
 	}
+	marker := func(slot int) bool {
+		r := t.at(slot).role
+		return r == matches.Defender || r == matches.Midfielder
+	}
+	var marked, paired [n]bool
 	for slot := range t.pitch {
-		if t.at(slot).role == matches.Goalkeeper {
+		o := int(t.marks[slot]) - 1
+		t.marks[slot] = 0
+		if o < 0 || !marker(slot) || !outfield[o] || marked[o] {
+			continue
+		}
+		if d := dist2(men[o], targets[slot]); d < r2 {
+			marked[o], paired[slot] = true, true
+			t.marks[slot] = uint8(o + 1)
+			s.markAt(side, targets, slot, men[o], d)
+		}
+	}
+	// Each unpaired marker's free men within MarkRadius of his spot,
+	// nearest first (ties by slot).
+	var cand [n][n]int
+	var d2 [n][n]int64
+	var count, next [n]int
+	for slot := range t.pitch {
+		if paired[slot] || !marker(slot) {
 			continue
 		}
 		spot := targets[slot]
 		for o, m := range men {
-			if !outfield[o] {
+			if !outfield[o] || marked[o] {
 				continue
 			}
 			d := dist2(m, spot)
@@ -244,7 +280,6 @@ func (s *session) mark(side int, targets *[matches.StartersPerTeam]vec) {
 			count[slot]++
 		}
 	}
-	var marked [n]bool
 	for {
 		best := -1
 		for slot := range t.pitch {
@@ -260,11 +295,18 @@ func (s *session) mark(side int, targets *[matches.StartersPerTeam]vec) {
 		}
 		o, d := cand[best][next[best]], d2[best][next[best]]
 		marked[o], count[best] = true, 0
-		m := men[o]
-		tight := m.add(goal.sub(m).withLength(s.p.MarkDistance))
-		pull := min((r2-d)*permille/(r2-tight2), permille)
-		targets[best] = targets[best].add(tight.sub(targets[best]).scale(pull, permille))
+		t.marks[best] = uint8(o + 1)
+		s.markAt(side, targets, best, men[o], d)
 	}
+}
+
+// markAt moves side's slot from its spot (targets[slot]) towards goal-side
+// of the man at m, d2 squared from the spot.
+func (s *session) markAt(side int, targets *[matches.StartersPerTeam]vec, slot int, m vec, d2 int64) {
+	r2, tight2 := s.p.MarkRadius*s.p.MarkRadius, s.p.TightMarkRadius*s.p.TightMarkRadius
+	tight := m.add(s.ownGoal(side).sub(m).withLength(s.p.MarkDistance))
+	pull := min((r2-d2)*permille/(r2-tight2), permille)
+	targets[slot] = targets[slot].add(tight.sub(targets[slot]).scale(pull, permille))
 }
 
 // keeperSpot is on the line between the ball and the middle of the goal.

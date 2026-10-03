@@ -4149,3 +4149,54 @@ Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`.
 Decisions (owner, 2026-10-03): population-level normalization; no stored aptitude (generation archetypes later, with data); a sixth knot for Modrić-like careers; late technical growth at 400‰; the 5-point score; no retirement look-back but a cheat mode; AI parity now, difficulty later. Nothing is implemented yet.
 
 Also accepted data's `squad--youth-floor-stability`: the coupling backlog records the retained settled low-attribute levels.
+
+## match: formations priced in tick (done)
+
+`tick.ModelVersion` 10. The finding of [balance--tick-formation-free](handoffs/balance--tick-formation-free.md): in `tick` a formation was free, and so was any change from the opponent's shape.
+
+**What was wrong.** A sweep of the common shapes against 4-4-2 (career squads, 60 v 60, home and away) showed every shape that differed from the opponent's winning: 4-3-3 +0.75 points a match over an even share, 3-5-2 +0.49, 5-3-2 +0.40, 3-4-3 +0.29. Three causes, each measured by switching it off:
+
+- **Lines spread over the whole width** (`pitchW * k / (n + 1)`): an odd line put a man in the central channel and an even one did not, so a 4-4-2's two forwards stood 11 m off centre, mostly out of shooting range, and a line of three shot from the middle.
+- **Marking re-paired every tick**, nearest first. When the shapes mirrored each other the pairs were stable; when they did not, two markers swapped men back and forth and neither arrived: in 4-3-3 against 4-4-2 an average 1.17 of the forwards had no opponent within 3 m in the final third (0.14 in 4-4-2 against 4-4-2), with nine defenders in their own third.
+- **Forwards were full midfielders out of possession** (defending at 46 m and marking) and the cover for the press was simply the next nearest player, often a defender who left his own forward.
+
+**Change.**
+
+- Lines are centred and compact: neighbours `LineGap` (13 m) apart within `LineWidth` (45 m).
+- A marker keeps last tick's man while that man stays within `MarkRadius` of the marker's spot (`team.marks`, session-local); the free markers pair up with the free men nearest first, as before.
+- Defenders and midfielders mark; forwards stay up (`DefendDepth` 60 m, was 46.4) and press. The midfield screens close in front of the back line (`DefendDepth` 30 m, was 34.4) and supports a little deeper in possession (`AttackDepth` 54 m, was 57.7). The press's cover is the nearest player marking nobody.
+- Recalibrated: `RunPPM` 3,000 / 3,000 / 3,750 (was 8,000 / 8,000 / 10,000), defensive `MentalityDefendDepth` -200 (was -300) and `MentalityShotPermille` 700 (was 850), attacking `MentalityAttackDepth` 0 (was 30), `ShotPPM` 300,000 (was 440,000), `SavePPM` 570,000 (was 640,000), `TackleAttemptPPM` 70,000 (was 45,000). The first four are the mentality trade-off at the new shape; the last three keep `v8`'s statistics and `v9`'s goal level.
+
+A seeded search over the line depths, run rate and shift (forty candidates, then thirty-five around the best) found the screen and the high forwards; other levers moved the problem around rather than removing it (a deeper attack, late runs by midfielders, longer shots, danger-first marking, forwards tracking back).
+
+**Results** (`TestNoFormationIsFree`: career squads 60 v 60, 500 matches with the shape at home and 500 away; half the gap between its points and 4-4-2's, a match):
+
+| Shape | v9 | v10 | v10 goals for-against |
+| --- | --- | --- | --- |
+| 4-3-3 | +0.75 | +0.19 | 1.50-1.23 |
+| 3-5-2 | +0.49 | -0.11 | 1.11-1.22 |
+| 5-3-2 | +0.40 | +0.09 | 1.25-1.13 |
+| 3-4-3 | +0.29 | +0.10 | 1.60-1.43 |
+| 4-5-1 | -0.22 | -0.30 | 0.60-0.93 |
+| 5-4-1 | -0.37 | -0.20 | 0.80-1.04 |
+
+A forward is still worth a little more than a midfielder (about +0.1 to +0.2 a match), and the one-forward shapes are defensive: they score much less for a little less conceded. Mentality, the home side against balanced (1,500 matches a row, points a match): flat squads attacking -0.09, defensive -0.01 (draws 25.1 % against 22.0 %), the 55 v 65 underdog's defensive -0.01; career squads attacking +0.01, defensive +0.01.
+
+| Career profile 60 v 60, 1,500 matches | v9 | v10 |
+| --- | --- | --- |
+| Goals | 2.70 | 2.67 (home 673, draw 387, away 440) |
+| Shots a side (on target) | 12.4 (5.4) v 10.5 (4.4) | 13.4 (5.5) v 11.2 (4.5) |
+| Passes a side, completed | 941, 80 % | 774, 84 % |
+| Tackles a side | 22.8 | 21.7 |
+| Saves a side | 3.6 | 3.7 |
+| Offsides a side | 2.0 v 1.7 | 0.6 v 0.6 |
+| Career seasons, goals a league match (`TestBalanceCareerEngines`, 3 seeds x 3 seasons) | 2.56, 1.41-1.15 | 2.52, 1.41-1.11 |
+| Career seasons, home / draw / away %, upsets % | 43.1 / 26.0 / 30.9, 28.6 | 44.8 / 25.6 / 29.5, 29.2 |
+
+Offsides fall with the runs in behind (`RunPPM`), which the runs' share of goals needed; real football has about two a side, so they are back on the roadmap.
+
+**Tests.** `TestNoFormationIsFree` (above; at most +0.30 for every shape, v9 fails it for four of six; skipped under `-short`), `TestRolesChangePlay` kept, `TestParamsValidation` covers `LineWidth`. The trend, mentality, underdog, shootout, condition and career goal-level tests hold unchanged. The flat profile now scores about half a goal more than career squads (3.04 / 3.23 / 3.48 at 40, 60 and 80), so `TestGoalsFollowTheGapNotTheLevel` allows 2.0-3.6 (was 3.4): the level is calibrated on careers, and the range only guards against gross miscalibration. Golden `0584a968ceb57c96`.
+
+**Not affected.** `tick` is opt-in, so no seeded `simple` career, golden or client story moved; a saved `tick` career at v9 no longer loads (the engine version check, as for every bump). No contract, save field or event changed. [Note to `balance`](handoffs/balance--tick-v10-rerun.md) for the refresh and the formation table; `balance--tick-formation-free` has the measurements it asked for.
+
+Validation: `gofmt -l .`, `go vet ./...`, `go test ./...`; `ZIMBLE_BALANCE=1 go test ./internal/app -run TestBalanceCareerEngines`.

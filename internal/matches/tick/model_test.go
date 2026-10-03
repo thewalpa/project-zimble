@@ -171,7 +171,10 @@ func TestModelTrends(t *testing.T) {
 
 // Goals depend on the gap between the sides, not on their level: equal
 // sides score alike at 40, 60 and 80, and a 20-point mismatch shows in who
-// scores far more than in how many goals there are.
+// scores far more than in how many goals there are. The goal level is
+// calibrated on career squads (TestCareerGoalLevel); since v10 the flat
+// profile scores about half a goal more than they do, so its range only
+// guards against gross miscalibration.
 func TestGoalsFollowTheGapNotTheLevel(t *testing.T) {
 	if testing.Short() {
 		t.Skip("plays 800 matches")
@@ -182,8 +185,8 @@ func TestGoalsFollowTheGapNotTheLevel(t *testing.T) {
 	for _, level := range []int{40, 60, 80} {
 		r := simulate(t, n, func(f ids.FixtureID) *matches.MatchInput { return input(f, level, level) })
 		t.Logf("%d v %d: %v", level, level, r)
-		if a := avg(r); a < 2.0 || a > 3.4 {
-			t.Errorf("%d v %d average %.2f goals, want 2.0..3.4", level, level, a)
+		if a := avg(r); a < 2.0 || a > 3.6 {
+			t.Errorf("%d v %d average %.2f goals, want 2.0..3.6", level, level, a)
 		}
 		equal[level] = r
 	}
@@ -348,6 +351,7 @@ func TestParamsValidation(t *testing.T) {
 		"negative skill":     func(p *Params) { p.ShootoutSkillPPM = -1 },
 		"restart never ends": func(p *Params) { p.RestartTimeoutTicks = 0 },
 		"marking radii":      func(p *Params) { p.TightMarkRadius = p.MarkRadius },
+		"line off the pitch": func(p *Params) { p.LineWidth = matches.PitchWidth + 1 },
 		"no drift interval":  func(p *Params) { p.DriftTicks = 0 },
 		"no reference":       func(p *Params) { p.ContestReference = 0 },
 		"contest scale":      func(p *Params) { p.ContestPermille = -1 },
@@ -369,7 +373,7 @@ func TestParamsValidation(t *testing.T) {
 
 // goldenHash pins ModelVersion's output: outcomes and every frame of a few
 // matches, with commands. Bump ModelVersion when it changes on purpose.
-const goldenHash = "7f3bfa8122d23c2a"
+const goldenHash = "0584a968ceb57c96"
 
 func TestGolden(t *testing.T) {
 	h := fnv.New64a()

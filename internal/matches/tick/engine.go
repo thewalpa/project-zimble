@@ -137,12 +137,15 @@ type player struct {
 }
 
 type team struct {
-	id        ids.TeamID
-	players   [maxSquad]player // starters in slot order, then bench
-	n         int
-	pitch     [matches.StartersPerTeam]uint8 // indices into players, by slot
-	lateral   [matches.StartersPerTeam]int64 // width of each slot's spot
-	entered   [MaxBench]uint8                // substitutes in the order they came on
+	id       ids.TeamID
+	players  [maxSquad]player // starters in slot order, then bench
+	n        int
+	pitch    [matches.StartersPerTeam]uint8 // indices into players, by slot
+	place    [matches.StartersPerTeam]int64 // 2k-(n-1) for the k-th of n players in a slot's line
+	lineSize [matches.StartersPerTeam]int64 // n, the players in a slot's line
+	// marks holds, by slot, 1 + the opponent slot each player marks, or 0.
+	marks     [matches.StartersPerTeam]uint8
+	entered   [MaxBench]uint8 // substitutes in the order they came on
 	nEntered  int
 	subs      uint8
 	mentality matches.Mentality
@@ -176,8 +179,8 @@ func (t *team) slotOf(idx int) int {
 
 func (t *team) at(slot int) *player { return &t.players[t.pitch[slot]] }
 
-// layOut spreads each line's players evenly across the width, in slot
-// order.
+// layOut places each line's players side by side across the width, in
+// slot order; plan spaces them (see Params).
 func (t *team) layOut() {
 	var count, seen [5]int64
 	for slot := range t.pitch {
@@ -185,8 +188,8 @@ func (t *team) layOut() {
 	}
 	for slot := range t.pitch {
 		r := t.at(slot).role
+		t.place[slot], t.lineSize[slot] = 2*seen[r]-(count[r]-1), count[r]
 		seen[r]++
-		t.lateral[slot] = pitchW * seen[r] / (count[r] + 1)
 	}
 }
 
